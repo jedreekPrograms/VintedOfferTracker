@@ -4,12 +4,35 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="" />
+    <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/BotController.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/BotService.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/config/SecurityConfig.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/Bot.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/Bot.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/category/Category.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/category/CategoryRepository.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "jedreekPrograms"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/jedreekPrograms/VintedOfferTracker.git",
+    "accountId": "eb44bf58-228e-4eb0-b3c7-41e329c37ac4"
+  }
+}]]></component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 0
 }</component>
@@ -23,6 +46,7 @@
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "git-widget-placeholder": "main",
     "kotlin-language-version-configured": "true"
   }
 }]]></component>

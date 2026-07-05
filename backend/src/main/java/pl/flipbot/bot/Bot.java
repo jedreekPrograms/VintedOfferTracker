@@ -2,7 +2,6 @@ package pl.flipbot.bot;
 
 import jakarta.persistence.*;
 import lombok.*;
-import pl.flipbot.category.Category;
 
 @Entity
 @Getter
@@ -24,7 +23,4 @@ public class Bot {
 
     @Enumerated(EnumType.STRING)
     private BotStatus status;
-
-    @ManyToOne
-    private Category category;
 }
