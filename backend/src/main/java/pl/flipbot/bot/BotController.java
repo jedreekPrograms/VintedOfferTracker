@@ -2,6 +2,7 @@ package pl.flipbot.bot;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import pl.flipbot.bot.dto.CreateBotRequest;
 
 import java.util.List;
 
@@ -18,7 +19,7 @@ public class BotController {
     }
 
     @PostMapping
-    public Bot createBot(@RequestBody Bot bot) {
-        return botService.createBot(bot);
+    public Bot createBot(@RequestBody CreateBotRequest request) {
+        return botService.createBot(request);
     }
 }
