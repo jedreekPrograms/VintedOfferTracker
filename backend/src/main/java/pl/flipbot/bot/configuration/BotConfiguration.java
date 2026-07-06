@@ -1,7 +1,8 @@
-package pl.flipbot.bot;
+package pl.flipbot.bot.configuration;
 
 import jakarta.persistence.*;
 import lombok.*;
+import pl.flipbot.bot.Bot;
 
 @Entity
 @Getter

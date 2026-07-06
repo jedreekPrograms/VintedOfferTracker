@@ -3,6 +3,7 @@ package pl.flipbot.bot.dto;
 import lombok.Getter;
 import lombok.Setter;
 
+
 @Getter
 @Setter
 public class CreateBotRequest {
@@ -11,4 +12,6 @@ public class CreateBotRequest {
     private String email;
 
     private String password;
+
+    private CreateBotConfigurationRequest configuration;
 }
