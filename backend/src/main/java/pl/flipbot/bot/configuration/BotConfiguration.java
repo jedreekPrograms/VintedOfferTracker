@@ -4,8 +4,11 @@ import jakarta.persistence.*;
 import lombok.*;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.marketplace.Marketplace;
+import pl.flipbot.negotiation.NegotiationStep;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Getter
@@ -34,15 +37,11 @@ public class BotConfiguration {
 
     private BigDecimal maxPrice;
 
-    private BigDecimal firstOffer;
-
-    private BigDecimal maxOffer;
-
-    private BigDecimal negotiationStep;
-
-    private Integer maxNegotiationAttempts;
-
     @OneToOne
     @JoinColumn(name = "bod_id")
     private Bot bot;
+
+    @OneToMany(mappedBy = "configuration", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<NegotiationStep> negotiationSteps = new ArrayList<>();
 }

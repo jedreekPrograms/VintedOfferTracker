@@ -1,12 +1,15 @@
 package pl.flipbot.bot.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 import pl.flipbot.marketplace.Marketplace;
+import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Getter
 @Setter
@@ -33,16 +36,8 @@ public class CreateBotConfigurationRequest {
     @NotNull
     private BigDecimal maxPrice;
 
+    @Valid
     @NotNull
-    private BigDecimal firstOffer;
-
-    @NotNull
-    private BigDecimal maxOffer;
-
-    @NotNull
-    private BigDecimal negotiationStep;
-
-    @NotNull
-    private Integer maxNegotiationAttempts;
+    private List<CreateNegotiationStepRequest> negotiationSteps;
 
 }

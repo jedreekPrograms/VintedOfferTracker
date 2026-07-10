@@ -6,7 +6,7 @@ public enum ListingStatus {
 
     NEGOTIATING,
 
-    WAITING_FOR_REPLY,
+    COUNTER_OFFER,
 
     ACCEPTED,
 

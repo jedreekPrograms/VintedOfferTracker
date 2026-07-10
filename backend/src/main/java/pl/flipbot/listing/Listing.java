@@ -23,6 +23,8 @@ public class Listing {
 
     private String title;
 
+    private Integer currentStep;
+
     private BigDecimal originalPrice;
 
     private BigDecimal currentPrice;

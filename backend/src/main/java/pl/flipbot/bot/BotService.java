@@ -9,6 +9,8 @@ import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotConfigurationRequest;
 import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.exception.BotAlreadyExistsException;
+import pl.flipbot.negotiation.NegotiationStep;
+import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import java.util.List;
 
@@ -45,18 +47,30 @@ public class BotService {
         CreateBotConfigurationRequest configurationRequest = request.getConfiguration();
 
         BotConfiguration configuration = BotConfiguration.builder()
+                .marketplace(configurationRequest.getMarketplace())
                 .category(configurationRequest.getCategory())
                 .subCategory(configurationRequest.getSubCategory())
                 .brand(configurationRequest.getBrand())
                 .model(configurationRequest.getModel())
                 .minPrice(configurationRequest.getMinPrice())
                 .maxPrice(configurationRequest.getMaxPrice())
-                .firstOffer(configurationRequest.getFirstOffer())
-                .maxOffer(configurationRequest.getMaxOffer())
-                .negotiationStep(configurationRequest.getNegotiationStep())
-                .maxNegotiationAttempts(configurationRequest.getMaxNegotiationAttempts())
                 .bot(savedBot)
                 .build();
+
+        int stepNumber = 1;
+
+        for (CreateNegotiationStepRequest stepRequest : configurationRequest.getNegotiationSteps()) {
+
+            NegotiationStep step = NegotiationStep.builder()
+                    .stepNumber(stepNumber++)
+                    .offerPrice(stepRequest.getOfferPrice())
+                    .maxAcceptedCounterOffer(stepRequest.getMaxAcceptedCounterOffer())
+                    .message(stepRequest.getMessage())
+                    .configuration(configuration)
+                    .build();
+
+            configuration.getNegotiationSteps().add(step);
+        }
 
         botConfigurationRepository.save(configuration);
 
