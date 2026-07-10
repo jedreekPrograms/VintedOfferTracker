@@ -8,6 +8,7 @@ import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotConfigurationRequest;
 import pl.flipbot.bot.dto.CreateBotRequest;
+import pl.flipbot.exception.BotAlreadyExistsException;
 
 import java.util.List;
 
@@ -27,6 +28,10 @@ public class BotService {
 
     @Transactional
     public BotResponse createBot(CreateBotRequest request) {
+
+        if (botRepository.existsByEmail(request.getEmail())) {
+            throw new BotAlreadyExistsException(request.getEmail());
+        }
 
         Bot bot = Bot.builder()
                 .name(request.getName())

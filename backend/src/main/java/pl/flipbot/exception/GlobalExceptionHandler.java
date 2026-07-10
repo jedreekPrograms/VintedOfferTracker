@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ValidationErrorResponse handleValidationException(
             MethodArgumentNotValidException exception) {
 
@@ -37,6 +38,19 @@ public class GlobalExceptionHandler {
                 .build();
 
     }
+
+    @ExceptionHandler(BotAlreadyExistsException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> handleBotAlreadyExistsException(
+            BotAlreadyExistsException exception) {
+
+        return Map.of(
+                "message",
+                exception.getMessage()
+        );
+
+    }
+
 
 
 
