@@ -12,7 +12,6 @@ import pl.flipbot.exception.BotAlreadyExistsException;
 import pl.flipbot.mapper.BotMapper;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
-
 import java.util.List;
 
 @Service

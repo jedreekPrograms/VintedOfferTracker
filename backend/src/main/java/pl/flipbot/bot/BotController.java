@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotRequest;
-
 import java.util.List;
 
 @RestController

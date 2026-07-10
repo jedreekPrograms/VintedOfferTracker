@@ -2,7 +2,6 @@ package pl.flipbot.bot.dto;
 
 import lombok.Builder;
 import lombok.Getter;
-import pl.flipbot.bot.configuration.BotConfiguration;
 
 @Getter
 @Builder

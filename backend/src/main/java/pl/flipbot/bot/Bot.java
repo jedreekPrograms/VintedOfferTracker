@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.*;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.listing.Listing;
-
 import java.util.ArrayList;
 import java.util.List;
 
