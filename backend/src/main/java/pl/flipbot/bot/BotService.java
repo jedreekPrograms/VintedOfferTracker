@@ -9,6 +9,7 @@ import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotConfigurationRequest;
 import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.exception.BotAlreadyExistsException;
+import pl.flipbot.mapper.BotMapper;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
@@ -20,11 +21,12 @@ public class BotService {
 
     private final BotRepository botRepository;
     private final BotConfigurationRepository botConfigurationRepository;
+    private final BotMapper botMapper;
 
     public List<BotResponse> getAllBots() {
         return botRepository.findAll()
                 .stream()
-                .map(this::mapToResponse)
+                .map(botMapper::map)
                 .toList();
     }
 
@@ -57,6 +59,8 @@ public class BotService {
                 .bot(savedBot)
                 .build();
 
+        savedBot.setConfiguration(configuration);
+
         int stepNumber = 1;
 
         for (CreateNegotiationStepRequest stepRequest : configurationRequest.getNegotiationSteps()) {
@@ -74,17 +78,6 @@ public class BotService {
 
         botConfigurationRepository.save(configuration);
 
-        return mapToResponse(savedBot);
+        return botMapper.map(savedBot);
     }
-
-    private BotResponse mapToResponse(Bot bot) {
-
-        return BotResponse.builder()
-                .id(bot.getId())
-                .name(bot.getName())
-                .email(bot.getEmail())
-                .status(bot.getStatus().name())
-                .build();
-    }
-
 }

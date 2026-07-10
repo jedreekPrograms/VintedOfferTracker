@@ -26,5 +26,5 @@ public class BotConfigurationResponse {
 
     private BigDecimal maxPrice;
 
-    private List<NegotiationStepResponse> negotiationStepResponseList;
+    private List<NegotiationStepResponse> negotiationSteps;
 }
