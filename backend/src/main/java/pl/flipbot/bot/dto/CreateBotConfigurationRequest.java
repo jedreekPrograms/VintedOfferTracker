@@ -4,10 +4,16 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
+import pl.flipbot.marketplace.Marketplace;
+
+import java.math.BigDecimal;
 
 @Getter
 @Setter
 public class CreateBotConfigurationRequest {
+
+    @NotNull
+    private Marketplace marketplace;
 
     @NotBlank
     private String category;
@@ -22,19 +28,19 @@ public class CreateBotConfigurationRequest {
     private String model;
 
     @NotNull
-    private Double minPrice;
+    private BigDecimal minPrice;
 
     @NotNull
-    private Double maxPrice;
+    private BigDecimal maxPrice;
 
     @NotNull
-    private Double firstOffer;
+    private BigDecimal firstOffer;
 
     @NotNull
-    private Double maxOffer;
+    private BigDecimal maxOffer;
 
     @NotNull
-    private Double negotiationStep;
+    private BigDecimal negotiationStep;
 
     @NotNull
     private Integer maxNegotiationAttempts;

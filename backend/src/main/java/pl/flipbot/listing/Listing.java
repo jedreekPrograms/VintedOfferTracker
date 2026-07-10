@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import pl.flipbot.bot.Bot;
 
+import java.math.BigDecimal;
+
 @Entity
 @Getter
 @Setter
@@ -16,15 +18,19 @@ public class Listing {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(unique = true)
+    private String listingId;
+
     private String title;
 
-    private Double originalPrice;
+    private BigDecimal originalPrice;
 
-    private Double currentPrice;
+    private BigDecimal currentPrice;
 
     @Enumerated(EnumType.STRING)
     private ListingStatus status;
 
     @ManyToOne
+    @JoinColumn(name = "bot_id")
     private Bot bot;
 }

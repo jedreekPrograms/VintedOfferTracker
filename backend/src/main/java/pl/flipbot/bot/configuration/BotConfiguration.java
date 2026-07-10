@@ -3,6 +3,9 @@ package pl.flipbot.bot.configuration;
 import jakarta.persistence.*;
 import lombok.*;
 import pl.flipbot.bot.Bot;
+import pl.flipbot.marketplace.Marketplace;
+
+import java.math.BigDecimal;
 
 @Entity
 @Getter
@@ -16,6 +19,9 @@ public class BotConfiguration {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Enumerated(EnumType.STRING)
+    private Marketplace marketplace;
+
     private String category;
 
     private String subCategory;
@@ -24,15 +30,15 @@ public class BotConfiguration {
 
     private String model;
 
-    private Double minPrice;
+    private BigDecimal minPrice;
 
-    private Double maxPrice;
+    private BigDecimal maxPrice;
 
-    private Double firstOffer;
+    private BigDecimal firstOffer;
 
-    private Double maxOffer;
+    private BigDecimal maxOffer;
 
-    private Double negotiationStep;
+    private BigDecimal negotiationStep;
 
     private Integer maxNegotiationAttempts;
 
