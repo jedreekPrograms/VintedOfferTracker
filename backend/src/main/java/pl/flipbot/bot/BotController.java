@@ -21,6 +21,7 @@ public class BotController {
 
     @PostMapping
     public BotResponse createBot(@Valid @RequestBody CreateBotRequest request) {
+
         return botService.createBot(request);
     }
 }

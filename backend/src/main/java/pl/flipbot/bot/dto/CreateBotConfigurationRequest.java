@@ -7,7 +7,6 @@ import lombok.Getter;
 import lombok.Setter;
 import pl.flipbot.marketplace.Marketplace;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
-
 import java.math.BigDecimal;
 import java.util.List;
 
