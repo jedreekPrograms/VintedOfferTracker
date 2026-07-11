@@ -1,13 +1,14 @@
 package pl.flipbot.listing;
 
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.exception.BotNotFoundException;
 import pl.flipbot.listing.dto.CreateListingRequest;
 import pl.flipbot.listing.dto.ListingResponse;
+import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
 
 import java.util.List;
@@ -20,18 +21,24 @@ public class ListingService {
     private final BotRepository botRepository;
     private final ListingMapper listingMapper;
 
-    public List<ListingResponse> getAllListings() {
+    public List<ListingResponse> getNegotiatingListings(Long botId) {
 
-        return listingRepository.findAll()
+        return listingRepository.findByBotIdAndStatus(
+                        botId,
+                        ListingStatus.NEGOTIATING
+                )
                 .stream()
                 .map(listingMapper::map)
                 .toList();
+
     }
 
     @Transactional
-    public ListingResponse createListing(Long botId, CreateListingRequest request) {
+    public ListingResponse createListing(Long botId,
+                                         CreateListingRequest request) {
 
-        Bot bot = botRepository.findById(botId).orElseThrow(() -> new BotNotFoundException(botId));
+        Bot bot = botRepository.findById(botId)
+                .orElseThrow(() -> new BotNotFoundException(botId));
 
         Listing listing = Listing.builder()
                 .listingId(request.getListingId())
@@ -40,12 +47,29 @@ public class ListingService {
                 .originalPrice(request.getOriginalPrice())
                 .currentPrice(request.getOriginalPrice())
                 .currentStep(1)
-                .status(ListingStatus.NEW)
+                .status(ListingStatus.NEGOTIATING)
                 .bot(bot)
                 .build();
 
         Listing savedListing = listingRepository.save(listing);
 
         return listingMapper.map(savedListing);
+
     }
+
+    @Transactional
+    public ListingResponse updateListing(Long listingId,
+                                         UpdateListingRequest request) {
+
+        Listing listing = listingRepository.findById(listingId)
+                .orElseThrow();
+
+        listing.setCurrentPrice(request.getCurrentPrice());
+        listing.setCurrentStep(request.getCurrentStep());
+        listing.setStatus(request.getStatus());
+
+        return listingMapper.map(listing);
+
+    }
+
 }

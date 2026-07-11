@@ -18,6 +18,7 @@ public class Listing {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(unique = true)
     private String listingId;
 
     private String title;
@@ -30,6 +31,8 @@ public class Listing {
     private BigDecimal currentPrice;
 
     private Integer currentStep;
+
+    private Boolean waitingForResponse;
 
     @Enumerated(EnumType.STRING)
     private ListingStatus status;

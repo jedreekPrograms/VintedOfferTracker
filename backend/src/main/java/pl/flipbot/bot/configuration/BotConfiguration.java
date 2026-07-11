@@ -37,6 +37,8 @@ public class BotConfiguration {
 
     private BigDecimal maxPrice;
 
+    private Integer dailyNegotiationBudget;
+
     @OneToOne
     @JoinColumn(name = "bod_id")
     private Bot bot;
