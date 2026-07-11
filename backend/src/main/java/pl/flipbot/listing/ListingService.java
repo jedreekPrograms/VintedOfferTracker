@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
+import pl.flipbot.exception.BotNotFoundException;
 import pl.flipbot.listing.dto.CreateListingRequest;
 import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.mapper.ListingMapper;
@@ -30,7 +31,7 @@ public class ListingService {
     @Transactional
     public ListingResponse createListing(Long botId, CreateListingRequest request) {
 
-        Bot bot = botRepository.findById(botId).orElseThrow();
+        Bot bot = botRepository.findById(botId).orElseThrow(() -> new BotNotFoundException(botId));
 
         Listing listing = Listing.builder()
                 .listingId(request.getListingId())

@@ -47,6 +47,16 @@ public class GlobalExceptionHandler {
 
     }
 
+    @ExceptionHandler(BotNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, String> handleBotNotFoundException(
+            BotNotFoundException exception) {
+        return Map.of(
+                "message",
+                exception.getMessage()
+        );
+    }
+
 
 
 
