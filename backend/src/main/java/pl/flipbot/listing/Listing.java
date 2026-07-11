@@ -18,16 +18,18 @@ public class Listing {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true)
     private String listingId;
 
     private String title;
 
-    private Integer currentStep;
+    @Column(length = 1000)
+    private String url;
 
     private BigDecimal originalPrice;
 
     private BigDecimal currentPrice;
+
+    private Integer currentStep;
 
     @Enumerated(EnumType.STRING)
     private ListingStatus status;
