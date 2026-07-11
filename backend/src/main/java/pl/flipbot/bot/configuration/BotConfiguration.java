@@ -40,7 +40,7 @@ public class BotConfiguration {
     private Integer dailyNegotiationBudget;
 
     @OneToOne
-    @JoinColumn(name = "bod_id")
+    @JoinColumn(name = "bot_id")
     private Bot bot;
 
     @OneToMany(mappedBy = "configuration", cascade = CascadeType.ALL, orphanRemoval = true)

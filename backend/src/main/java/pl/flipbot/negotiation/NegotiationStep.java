@@ -2,7 +2,6 @@ package pl.flipbot.negotiation;
 
 import jakarta.persistence.*;
 import lombok.*;
-import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.configuration.BotConfiguration;
 
 import java.math.BigDecimal;
