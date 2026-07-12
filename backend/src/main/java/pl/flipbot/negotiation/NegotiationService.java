@@ -48,6 +48,17 @@ public class NegotiationService {
         return decision;
     }
 
+    @Transactional
+    public void markOfferAsSent(String listingId) {
+
+        Listing listing = listingRepository.findByListingId(listingId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException("Listing not found")
+                );
+
+        listing.setAwaitingSellerResponse(true);
+    }
+
     private void updateListing(
             Listing listing,
             NegotiationDecision decision,
@@ -58,9 +69,9 @@ public class NegotiationService {
 
             case ACTION_REQUIRED -> {
 
-                listing.setStatus(ListingStatus.ACTION_REQUIRED);
-
                 listing.setAwaitingSellerResponse(false);
+
+                listing.setStatus(ListingStatus.ACTION_REQUIRED);
 
                 if (counterOffer != null) {
                     listing.setCurrentPrice(counterOffer);

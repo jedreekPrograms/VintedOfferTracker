@@ -1,5 +1,6 @@
 package pl.flipbot.negotiation.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -10,6 +11,9 @@ import java.math.BigDecimal;
 @Getter
 @Setter
 public class NegotiationResultRequest {
+
+    @NotBlank
+    private String listingId;
 
     @NotNull
     private NegotiationResult result;
