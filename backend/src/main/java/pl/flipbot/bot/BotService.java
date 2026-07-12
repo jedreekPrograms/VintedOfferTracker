@@ -9,6 +9,7 @@ import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotConfigurationRequest;
 import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.exception.BotAlreadyExistsException;
+import pl.flipbot.exception.BotNotFoundException;
 import pl.flipbot.mapper.BotMapper;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
@@ -78,5 +79,35 @@ public class BotService {
         botConfigurationRepository.save(configuration);
 
         return botMapper.map(savedBot);
+    }
+
+    @Transactional
+    public void startBot(Long botId) {
+
+        Bot bot = botRepository.findById(botId)
+                .orElseThrow(() ->
+                        new BotNotFoundException(botId));
+
+        bot.setStatus(BotStatus.RUNNING);
+    }
+
+    @Transactional
+    public void stopBot(Long botId) {
+
+        Bot bot = botRepository.findById(botId)
+                .orElseThrow(() ->
+                        new BotNotFoundException(botId));
+
+        bot.setStatus(BotStatus.STOPPED);
+
+    }
+
+    public List<BotResponse> getRunningBots() {
+
+        return botRepository.findByStatus(BotStatus.RUNNING)
+                .stream()
+                .map(botMapper::map)
+                .toList();
+
     }
 }
