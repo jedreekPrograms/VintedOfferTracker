@@ -32,7 +32,7 @@ public class Listing {
 
     private Integer currentStep;
 
-    private Boolean waitingForResponse;
+    private Boolean awaitingSellerResponse;
 
     @Enumerated(EnumType.STRING)
     private ListingStatus status;

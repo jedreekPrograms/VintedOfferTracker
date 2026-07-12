@@ -47,6 +47,7 @@ public class ListingService {
                 .originalPrice(request.getOriginalPrice())
                 .currentPrice(request.getOriginalPrice())
                 .currentStep(1)
+                .awaitingSellerResponse(false)
                 .status(ListingStatus.NEGOTIATING)
                 .bot(bot)
                 .build();
