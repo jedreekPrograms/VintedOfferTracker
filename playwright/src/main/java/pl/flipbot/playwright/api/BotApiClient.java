@@ -1,38 +1,48 @@
 package pl.flipbot.playwright.api;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import pl.flipbot.playwright.model.BotDto;
+import pl.flipbot.playwright.exception.ApiException;
+import pl.flipbot.playwright.model.BotDetailsDto;
+import pl.flipbot.playwright.model.RunningBotDto;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
 
 public class BotApiClient extends ApiClient {
 
-    public List<BotDto> getRunningBots() throws IOException, InterruptedException {
+    public List<RunningBotDto> getRunningBots() {
 
-        HttpRequest request =
-                HttpRequest.newBuilder()
-                        .uri(
-                                URI.create(
-                                        baseUrl + "/api/bots/running"
-                                )
-                        )
-                        .GET()
-                        .build();
+        HttpResponse<String> response = get("/api/bots/running");
 
-        HttpResponse<String> response =
-                httpClient.send(
-                        request,
-                        HttpResponse.BodyHandlers.ofString()
-                );
+        try {
 
-        return  objectMapper.readValue(
-                response.body(),
-                new TypeReference<>() {
-                }
-        );
+            return objectMapper.readValue(
+                    response.body(),
+                    new TypeReference<List<RunningBotDto>>() {
+                    }
+            );
+
+        } catch (IOException e) {
+
+            throw new ApiException(
+                    "Cannot parse running bots.",
+                    e
+            );
+
+        }
+
     }
+
+    public BotDetailsDto getBot(Long botId) {
+
+        HttpResponse<String> response = get("/api/bots/" + botId + "/playwright");
+
+        return readBody(
+                response,
+                BotDetailsDto.class
+        );
+
+    }
+
 }

@@ -5,11 +5,8 @@ import lombok.Setter;
 
 @Getter
 @Setter
-public class BotDto {
+public class RunningBotDto {
 
     private Long id;
 
-    private String name;
-
-    private String email;
 }
