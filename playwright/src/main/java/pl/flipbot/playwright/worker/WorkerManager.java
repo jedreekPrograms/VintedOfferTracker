@@ -7,10 +7,7 @@ import pl.flipbot.playwright.model.RunningBotDto;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -30,6 +27,25 @@ public class WorkerManager {
                 .stream()
                 .map(RunningBotDto::getId)
                 .collect(Collectors.toSet());
+    }
+
+    public void start() {
+
+        executor.scheduleWithFixedDelay(
+                this::syncWorkers,
+                0,
+                5,
+                TimeUnit.SECONDS
+        );
+    }
+
+    public void stop() {
+
+        workers.values()
+                .forEach(future -> future.cancel(true));
+
+        executor.shutdownNow();
+
     }
 
     private void startMissingWorkers(Set<Long> runningBotIds) {

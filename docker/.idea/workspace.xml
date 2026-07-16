@@ -5,8 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/BotWorker.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/WorkerManager.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/WorkerManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/WorkerManager.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
