@@ -35,6 +35,9 @@ public class CreateBotConfigurationRequest {
     @NotNull
     private BigDecimal maxPrice;
 
+    @NotNull
+    private Integer DailyNegotiationBudget;
+
     @Valid
     @NotNull
     private List<CreateNegotiationStepRequest> negotiationSteps;
