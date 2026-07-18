@@ -5,6 +5,7 @@ import com.microsoft.playwright.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.browser.BrowserManager;
+import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.NegotiationExecutor;
@@ -14,11 +15,7 @@ import pl.flipbot.playwright.scanner.ListingScanner;
 @RequiredArgsConstructor
 public class BotWorker implements Runnable {
 
-    private final BotDetailsDto bot;
-
-    private final BrowserContext context;
-
-    private final Page page;
+    private final BotContext context;
 
     private final LoginService loginService;
 
@@ -28,17 +25,19 @@ public class BotWorker implements Runnable {
 
     public BotWorker(BotDetailsDto bot,
                      BrowserManager browserManager) {
-        this.bot = bot;
+        this.context = new BotContext(
+                bot,
+                browserManager
+        );
 
-        this.context = browserManager.createContext();
+        this.loginService =
+                new LoginService(context);
 
-        this.page = context.newPage();
+        this.listingScanner =
+                new ListingScanner(context);
 
-        this.loginService = new LoginService(page, bot);
-
-        this.listingScanner = new ListingScanner(page, bot);
-
-        this.negotiationExecutor = new NegotiationExecutor(page, bot);
+        this.negotiationExecutor =
+                new NegotiationExecutor(context);
 
 
     }
@@ -48,7 +47,7 @@ public class BotWorker implements Runnable {
 
         log.info(
                 "Worker started for bot {}",
-                bot.getId()
+                context.getBot().getId()
         );
 
         try {
@@ -71,7 +70,7 @@ public class BotWorker implements Runnable {
 
             log.error(
                     "Worker {} failed",
-                    bot.getId(),
+                    context.getBot().getId(),
                     e
             );
 
@@ -81,7 +80,7 @@ public class BotWorker implements Runnable {
 
             log.info(
                     "Worker stopped {}",
-                    bot.getId()
+                    context.getBot().getId()
             );
 
         }
