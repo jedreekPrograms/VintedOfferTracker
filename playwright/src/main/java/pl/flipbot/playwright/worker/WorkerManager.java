@@ -2,6 +2,7 @@ package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.BotApiClient;
+import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.model.RunningBotDto;
 
@@ -15,11 +16,17 @@ public class WorkerManager {
 
     private final BotApiClient botApiClient = new BotApiClient();
 
+    private final BrowserManager browserManager;
+
     private final ScheduledExecutorService executor =
             Executors.newScheduledThreadPool(10);
 
     private final Map<Long, Future<?>> workers =
             new ConcurrentHashMap<>();
+
+    public WorkerManager(BrowserManager browserManager) {
+        this.browserManager = browserManager;
+    }
 
     public void syncWorkers() {
 
@@ -42,7 +49,7 @@ public class WorkerManager {
     public void stop() {
 
         workers.values()
-                .forEach(future -> future.cancel(true));
+                .forEach(f -> f.cancel(true));
 
         executor.shutdownNow();
 
@@ -58,7 +65,7 @@ public class WorkerManager {
 
             BotDetailsDto bot = botApiClient.getBot(botId);
 
-            BotWorker worker = new BotWorker(bot);
+            BotWorker worker = new BotWorker(bot, browserManager);
 
             Future<?> future = executor.submit(worker);
 

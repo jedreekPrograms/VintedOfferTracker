@@ -1,13 +1,13 @@
 package pl.flipbot.playwright.browser;
 
 import com.microsoft.playwright.Browser;
+import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 
 public class BrowserManager implements AutoCloseable {
 
     private final Playwright playwright;
-
     private final Browser browser;
 
     public BrowserManager() {
@@ -16,9 +16,9 @@ public class BrowserManager implements AutoCloseable {
         this.browser = BrowserFactory.createBrowser(playwright);
     }
 
-    public Page newPage() {
+    public BrowserContext createContext() {
 
-        return browser.newPage();
+        return browser.newContext();
     }
 
     @Override

@@ -1,7 +1,10 @@
 package pl.flipbot.playwright.worker;
 
+import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
 @Slf4j
@@ -9,6 +12,18 @@ import pl.flipbot.playwright.model.BotDetailsDto;
 public class BotWorker implements Runnable {
 
     private final BotDetailsDto bot;
+
+    private final BrowserContext context;
+
+    private final Page page;
+
+    public BotWorker(BotDetailsDto bot, BrowserManager browserManager) {
+        this.bot = bot;
+
+        this.context = browserManager.createContext();
+
+        this.page = context.newPage();
+    }
 
     @Override
     public void run() {
@@ -36,6 +51,9 @@ public class BotWorker implements Runnable {
                         bot.getId(),
                         e
                 );
+            } finally {
+                context.close();
+                log.info("Worker stopped {}", bot.getId());
             }
         }
 
