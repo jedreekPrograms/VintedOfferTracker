@@ -25,9 +25,14 @@ public class BotConfiguration {
     @Enumerated(EnumType.STRING)
     private Marketplace marketplace;
 
-    private String category;
-
-    private String subCategory;
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "bot_category_path",
+            joinColumns = @JoinColumn(name = "configuration_id")
+    )
+    @Column(name = "category")
+    @Builder.Default
+    private List<String> categoryPath = new ArrayList<>();
 
     private String brand;
 

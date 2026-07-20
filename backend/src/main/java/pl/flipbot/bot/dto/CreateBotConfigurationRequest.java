@@ -2,6 +2,7 @@ package pl.flipbot.bot.dto;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -17,11 +18,8 @@ public class CreateBotConfigurationRequest {
     @NotNull
     private Marketplace marketplace;
 
-    @NotBlank
-    private String category;
-
-    @NotBlank
-    private String subCategory;
+    @NotEmpty
+    private List<String> categoryPath;
 
     @NotBlank
     private String brand;
@@ -36,7 +34,7 @@ public class CreateBotConfigurationRequest {
     private BigDecimal maxPrice;
 
     @NotNull
-    private Integer DailyNegotiationBudget;
+    private Integer dailyNegotiationBudget;
 
     @Valid
     @NotNull

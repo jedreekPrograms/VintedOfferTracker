@@ -48,8 +48,7 @@ public class BotService {
 
         BotConfiguration configuration = BotConfiguration.builder()
                 .marketplace(configurationRequest.getMarketplace())
-                .category(configurationRequest.getCategory())
-                .subCategory(configurationRequest.getSubCategory())
+                .categoryPath(configurationRequest.getCategoryPath())
                 .brand(configurationRequest.getBrand())
                 .model(configurationRequest.getModel())
                 .minPrice(configurationRequest.getMinPrice())

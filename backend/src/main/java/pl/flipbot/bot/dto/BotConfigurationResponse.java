@@ -13,9 +13,7 @@ public class BotConfigurationResponse {
 
     private Marketplace marketplace;
 
-    private String category;
-
-    private String subCategory;
+    private List<String> categoryPath;
 
     private String brand;
 

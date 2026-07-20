@@ -15,8 +15,7 @@ public class BotConfigurationMapper {
 
         return BotConfigurationResponse.builder()
                 .marketplace(configuration.getMarketplace())
-                .category(configuration.getCategory())
-                .subCategory(configuration.getSubCategory())
+                .categoryPath(configuration.getCategoryPath())
                 .brand(configuration.getBrand())
                 .model(configuration.getModel())
                 .minPrice(configuration.getMinPrice())
