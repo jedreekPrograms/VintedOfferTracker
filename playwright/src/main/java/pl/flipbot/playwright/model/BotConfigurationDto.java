@@ -12,9 +12,7 @@ public class BotConfigurationDto {
 
     private String marketplace;
 
-    private String category;
-
-    private String subCategory;
+    private List<String> categoryPath;
 
     private String brand;
 

@@ -1,38 +1,77 @@
 package pl.flipbot.playwright.filters;
 
+import com.microsoft.playwright.Page;
 import lombok.RequiredArgsConstructor;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.model.BotDetailsDto;
 
-@RequiredArgsConstructor
+
 public class FilterService {
 
     private final BotContext context;
 
-    public void applyFilters() {
+    private final Page page;
 
-        applyCategory();
+    private final FilterActions actions;
 
-        applyBrand();
+    public FilterService(BotContext context) {
 
-        applyModel();
+        this.context = context;
 
-        applyPrice();
+        this.page = context.getPage();
 
-    }
-
-    private void applyCategory() {
+        this.actions = new FilterActions(page);
 
     }
 
-    private void applyBrand() {
+    public void applyFilters(BotDetailsDto bot) {
+
+        applyCategory(bot);
+
+        applyBrand(bot);
+
+        applyModel(bot);
+
+        applyPrice(bot);
 
     }
 
-    private void applyModel() {
+    private void applyCategory(BotDetailsDto bot) {
+
+        actions.openFilter(
+                FilterSelectors.CATEGORY_FILTER
+        );
+
+        var categoryPath =
+                bot.getConfiguration().getCategoryPath();
+
+        for (int i = 0; i < categoryPath.size(); i++) {
+
+            String category = categoryPath.get(i);
+
+            actions.selectOption(category);
+
+            if (i < categoryPath.size() - 1) {
+
+                actions.waitForOption(
+                        categoryPath.get(i + 1)
+                );
+
+            }
+
+        }
 
     }
 
-    private void applyPrice() {
+    private void applyBrand(BotDetailsDto bot) {
+
+    }
+
+    private void applyModel(BotDetailsDto bot) {
+
+    }
+
+    private void applyPrice(BotDetailsDto bot) {
 
     }
 
