@@ -1,5 +1,6 @@
 package pl.flipbot.playwright.filters;
 
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.AriaRole;
 import lombok.RequiredArgsConstructor;
@@ -35,4 +36,13 @@ public class FilterActions {
         ).waitFor();
 
     }
+
+    public void fillInput (String testId, String value) {
+
+        Locator input = page.getByTestId(testId);
+
+        input.fill(value);
+
+    }
+
 }

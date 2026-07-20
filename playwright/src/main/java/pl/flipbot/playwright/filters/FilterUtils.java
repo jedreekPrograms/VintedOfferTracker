@@ -1,24 +1,14 @@
 package pl.flipbot.playwright.filters;
 
-import com.microsoft.playwright.Locator;
-import com.microsoft.playwright.Page;
-import com.microsoft.playwright.options.AriaRole;
+import lombok.experimental.UtilityClass;
 
-public final class FilterUtils {
+@UtilityClass
+public class FilterUtils {
 
-    public static void clickOption(Page page, String option) {
+    public static String price(Number value) {
 
-        page.getByRole(
-                AriaRole.BUTTON,
-                new Page.GetByRoleOptions()
-                        .setName(option)
-        ).click();
+        return value == null ? "" : value.toString();
 
     }
 
-    public static void waitForVisible(Locator locator) {
-
-        locator.waitFor();
-
-    }
 }

@@ -26,14 +26,21 @@ public class FilterService {
 
     public void applyFilters(BotDetailsDto bot) {
 
-        applyCategory(bot);
+        if (hasCategory(bot)) {
+            applyCategory(bot);
+        }
 
-        applyBrand(bot);
+        if (hasBrand(bot)) {
+            applyBrand(bot);
+        }
 
-        applyModel(bot);
+        if (hasModel(bot)) {
+            applyModel(bot);
+        }
 
-        applyPrice(bot);
-
+        if (hasPrice(bot)) {
+            applyPrice(bot);
+        }
     }
 
     private void applyCategory(BotDetailsDto bot) {
@@ -44,6 +51,10 @@ public class FilterService {
 
         var categoryPath =
                 bot.getConfiguration().getCategoryPath();
+
+        if (categoryPath == null || categoryPath.isEmpty()) {
+            return;
+        }
 
         for (int i = 0; i < categoryPath.size(); i++) {
 
@@ -72,6 +83,34 @@ public class FilterService {
     }
 
     private void applyPrice(BotDetailsDto bot) {
+
+    }
+
+    private boolean hasCategory(BotDetailsDto bot) {
+
+        return bot.getConfiguration().getCategoryPath() != null
+                && !bot.getConfiguration().getCategoryPath().isEmpty();
+
+    }
+
+    private boolean hasBrand(BotDetailsDto bot) {
+
+        return bot.getConfiguration().getBrand() != null
+                && !bot.getConfiguration().getBrand().isBlank();
+
+    }
+
+    private boolean hasModel(BotDetailsDto bot) {
+
+        return bot.getConfiguration().getModel() != null
+                && !bot.getConfiguration().getModel().isBlank();
+
+    }
+
+    private boolean hasPrice(BotDetailsDto bot) {
+
+        return bot.getConfiguration().getMinPrice() != null
+                || bot.getConfiguration().getMaxPrice() != null;
 
     }
 
