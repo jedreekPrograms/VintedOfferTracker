@@ -13,11 +13,8 @@ import java.nio.file.Path;
 public class BotContext implements AutoCloseable {
 
     private final BotDetailsDto bot;
-
     private final BrowserContext browserContext;
-
     private final Page page;
-
     private final SessionManager sessionManager;
 
     public BotContext(
@@ -28,18 +25,21 @@ public class BotContext implements AutoCloseable {
         this.sessionManager = new SessionManager();
 
         Path sessionFile = null;
-
         if (sessionManager.sessionExists(bot.getEmail())) {
             sessionFile = sessionManager.sessionFile(bot.getEmail());
         }
 
         this.browserContext = browserManager.createContext(sessionFile);
 
-        this.page = browserContext.newPage();
+        // POPRAWKA: Pobieramy istniejącą kartę zamiast otwierać nową
+        if (!browserContext.pages().isEmpty()) {
+            this.page = browserContext.pages().get(0);
+        } else {
+            this.page = browserContext.pages().get(0); // Bezpieczny fallback, gdyby okno było puste
+        }
     }
 
     public void saveSession() {
-
         sessionManager.saveSession(
                 bot.getEmail(),
                 browserContext
@@ -48,6 +48,8 @@ public class BotContext implements AutoCloseable {
 
     @Override
     public void close() {
+        // Przy CDP zazwyczaj nie zamykamy kontekstu użytkownika,
+        // ale jeśli Twój przepływ tego wymaga, możesz zostawić:
         browserContext.close();
     }
 }

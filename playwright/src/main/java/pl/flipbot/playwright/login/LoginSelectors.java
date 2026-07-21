@@ -5,11 +5,9 @@ public final class LoginSelectors {
     private LoginSelectors() {
     }
 
+    // Odpowiada za data-testid="header--login-button" z Twojego linku HTML
     public static final String LOGIN_BUTTON =
             "header--login-button";
-
-    public static final String LOGIN_BY_EMAIL =
-            "auth-select-type--login-email";
 
     public static final String EMAIL_INPUT =
             "username";
@@ -17,10 +15,10 @@ public final class LoginSelectors {
     public static final String PASSWORD_INPUT =
             "password";
 
+    // Nazwa przycisku zatwierdzającego (wartość tekstowa na przycisku)
     public static final String SUBMIT_BUTTON =
-            "Kontynuuj";
+            "Zaloguj się"; // Zmień na "Kontynuuj" jeśli przycisk w nowym modalu tak się nazywa
 
     public static final String CONVERSATIONS_BUTTON =
             "header-conversations-button";
-
 }

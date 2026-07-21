@@ -52,15 +52,20 @@ public class BotWorker implements Runnable {
 
         try {
 
+//            loginService.login();
+//
+//            while (!Thread.currentThread().isInterrupted()) {
+//
+//                doWork();
+//
+//                Thread.sleep(3000);
+//
+//            }
             loginService.login();
 
-            while (!Thread.currentThread().isInterrupted()) {
+            doWork();
 
-                doWork();
-
-                Thread.sleep(3000);
-
-            }
+            Thread.sleep(10000);
 
         } catch (InterruptedException e) {
 
@@ -91,6 +96,6 @@ public class BotWorker implements Runnable {
 
         listingScanner.scan();
 
-        negotiationExecutor.processNegotiations();
+//        negotiationExecutor.processNegotiations();
     }
 }

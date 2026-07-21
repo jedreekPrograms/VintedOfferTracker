@@ -76,13 +76,43 @@ public class FilterService {
 
     private void applyBrand(BotDetailsDto bot) {
 
+        actions.openFilter(FilterSelectors.BRAND_FILTER);
+
+        actions.waitForOption(bot.getConfiguration().getBrand());
+
+        actions.selectOption(bot.getConfiguration().getBrand());
+
     }
 
     private void applyModel(BotDetailsDto bot) {
 
+        actions.openFilter(FilterSelectors.MODEL_FILTER);
+
+        actions.waitForOption(bot.getConfiguration().getModel());
+
+        actions.selectOption(bot.getConfiguration().getModel());
+
     }
 
     private void applyPrice(BotDetailsDto bot) {
+
+        if (bot.getConfiguration().getMinPrice() != null) {
+
+            actions.fillInput(
+                    FilterSelectors.MIN_PRICE,
+                    FilterUtils.price(bot.getConfiguration().getMinPrice())
+            );
+
+        }
+
+        if (bot.getConfiguration().getMaxPrice() != null) {
+
+            actions.fillInput(
+                    FilterSelectors.MAX_PRICE,
+                    FilterUtils.price(bot.getConfiguration().getMaxPrice())
+            );
+
+        }
 
     }
 
