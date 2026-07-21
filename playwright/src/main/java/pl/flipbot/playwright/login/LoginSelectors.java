@@ -17,7 +17,7 @@ public final class LoginSelectors {
 
     // Nazwa przycisku zatwierdzającego (wartość tekstowa na przycisku)
     public static final String SUBMIT_BUTTON =
-            "Zaloguj się"; // Zmień na "Kontynuuj" jeśli przycisk w nowym modalu tak się nazywa
+            "Kontynuuj"; // Zmień na "Kontynuuj" jeśli przycisk w nowym modalu tak się nazywa
 
     public static final String CONVERSATIONS_BUTTON =
             "header-conversations-button";
