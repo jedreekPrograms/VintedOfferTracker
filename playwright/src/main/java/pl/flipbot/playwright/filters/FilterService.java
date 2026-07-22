@@ -1,10 +1,9 @@
 package pl.flipbot.playwright.filters;
 
 import com.microsoft.playwright.Page;
-import lombok.RequiredArgsConstructor;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.filters.category.CategoryNavigator;
 import pl.flipbot.playwright.model.BotDetailsDto;
-
 
 public class FilterService {
 
@@ -14,6 +13,8 @@ public class FilterService {
 
     private final FilterActions actions;
 
+    private final CategoryNavigator categoryNavigator;
+
     public FilterService(BotContext context) {
 
         this.context = context;
@@ -21,6 +22,9 @@ public class FilterService {
         this.page = context.getPage();
 
         this.actions = new FilterActions(page);
+
+        this.categoryNavigator =
+                new CategoryNavigator(actions);
 
     }
 
@@ -41,36 +45,14 @@ public class FilterService {
         if (hasPrice(bot)) {
             applyPrice(bot);
         }
+
     }
 
     private void applyCategory(BotDetailsDto bot) {
 
-        actions.openFilter(
-                FilterSelectors.CATEGORY_FILTER
+        categoryNavigator.select(
+                bot.getConfiguration().getCategoryPath()
         );
-
-        var categoryPath =
-                bot.getConfiguration().getCategoryPath();
-
-        if (categoryPath == null || categoryPath.isEmpty()) {
-            return;
-        }
-
-        for (int i = 0; i < categoryPath.size(); i++) {
-
-            String category = categoryPath.get(i);
-
-            actions.selectOption(category);
-
-            if (i < categoryPath.size() - 1) {
-
-                actions.waitForOption(
-                        categoryPath.get(i + 1)
-                );
-
-            }
-
-        }
 
     }
 
@@ -78,9 +60,13 @@ public class FilterService {
 
         actions.openFilter(FilterSelectors.BRAND_FILTER);
 
-        actions.waitForOption(bot.getConfiguration().getBrand());
+        actions.waitForOption(
+                bot.getConfiguration().getBrand()
+        );
 
-        actions.selectOption(bot.getConfiguration().getBrand());
+        actions.selectOption(
+                bot.getConfiguration().getBrand()
+        );
 
     }
 
@@ -88,9 +74,13 @@ public class FilterService {
 
         actions.openFilter(FilterSelectors.MODEL_FILTER);
 
-        actions.waitForOption(bot.getConfiguration().getModel());
+        actions.waitForOption(
+                bot.getConfiguration().getModel()
+        );
 
-        actions.selectOption(bot.getConfiguration().getModel());
+        actions.selectOption(
+                bot.getConfiguration().getModel()
+        );
 
     }
 
@@ -100,7 +90,9 @@ public class FilterService {
 
             actions.fillInput(
                     FilterSelectors.MIN_PRICE,
-                    FilterUtils.price(bot.getConfiguration().getMinPrice())
+                    FilterUtils.price(
+                            bot.getConfiguration().getMinPrice()
+                    )
             );
 
         }
@@ -109,7 +101,9 @@ public class FilterService {
 
             actions.fillInput(
                     FilterSelectors.MAX_PRICE,
-                    FilterUtils.price(bot.getConfiguration().getMaxPrice())
+                    FilterUtils.price(
+                            bot.getConfiguration().getMaxPrice()
+                    )
             );
 
         }

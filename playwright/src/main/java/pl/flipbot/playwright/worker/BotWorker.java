@@ -1,15 +1,16 @@
 package pl.flipbot.playwright.worker;
 
-import com.microsoft.playwright.BrowserContext;
-import com.microsoft.playwright.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.filters.FilterService;
 import pl.flipbot.playwright.login.LoginService;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.NegotiationExecutor;
 import pl.flipbot.playwright.scanner.ListingScanner;
+import pl.flipbot.playwright.testdata.TestBotFactory;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -19,12 +20,19 @@ public class BotWorker implements Runnable {
 
     private final LoginService loginService;
 
+    private final MarketplaceNavigator marketplaceNavigator;
+
+    private final FilterService filterService;
+
     private final ListingScanner listingScanner;
 
     private final NegotiationExecutor negotiationExecutor;
 
     public BotWorker(BotDetailsDto bot,
                      BrowserManager browserManager) {
+
+        bot = TestBotFactory.configure(bot);
+
         this.context = new BotContext(
                 bot,
                 browserManager
@@ -33,12 +41,17 @@ public class BotWorker implements Runnable {
         this.loginService =
                 new LoginService(context);
 
+        this.marketplaceNavigator =
+                new MarketplaceNavigator(context);
+
+        this.filterService =
+                new FilterService(context);
+
         this.listingScanner =
                 new ListingScanner(context);
 
         this.negotiationExecutor =
                 new NegotiationExecutor(context);
-
 
     }
 
@@ -52,8 +65,6 @@ public class BotWorker implements Runnable {
 
         try {
 
-//            loginService.login();
-//
 //            while (!Thread.currentThread().isInterrupted()) {
 //
 //                doWork();
@@ -61,6 +72,7 @@ public class BotWorker implements Runnable {
 //                Thread.sleep(3000);
 //
 //            }
+
             loginService.login();
 
             doWork();
@@ -94,8 +106,16 @@ public class BotWorker implements Runnable {
 
     private void doWork() {
 
+        marketplaceNavigator.goToCatalog();
+
+        filterService.applyFilters(
+                context.getBot()
+        );
+
         listingScanner.scan();
 
 //        negotiationExecutor.processNegotiations();
+
     }
+
 }

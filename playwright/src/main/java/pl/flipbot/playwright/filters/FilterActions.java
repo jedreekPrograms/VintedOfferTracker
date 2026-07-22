@@ -12,18 +12,23 @@ public class FilterActions {
 
     public void openFilter(String filterTestId) {
 
-        page.getByTestId(filterTestId)
-                .click();
+        Locator filter = page.getByTestId(filterTestId);
+
+        filter.waitFor();
+        filter.click();
 
     }
 
     public void selectOption(String option) {
 
-        page.getByRole(
+        Locator locator = page.getByRole(
                 AriaRole.BUTTON,
                 new Page.GetByRoleOptions()
                         .setName(option)
-        ).click();
+        );
+
+        locator.waitFor();
+        locator.click();
 
     }
 
@@ -37,11 +42,18 @@ public class FilterActions {
 
     }
 
-    public void fillInput (String testId, String value) {
+    public void fillInput(String testId, String value) {
 
         Locator input = page.getByTestId(testId);
 
+        input.waitFor();
         input.fill(value);
+
+    }
+
+    public void pressEnter() {
+
+        page.keyboard().press("Enter");
 
     }
 

@@ -11,29 +11,36 @@ public class MarketplaceNavigator {
 
     public void goToHome() {
 
-        context.getPage().navigate(
-                MarketplaceUrls.HOME
-        );
+        navigate(MarketplaceUrls.HOME);
 
     }
 
     public void goToCatalog() {
 
-        context.getPage().navigate(
-                MarketplaceUrls.CATALOG
-        );
+        navigate(MarketplaceUrls.CATALOG);
 
     }
 
     public void goToInbox() {
 
-        context.getPage().navigate(
-                MarketplaceUrls.INBOX
-        );
+        navigate(MarketplaceUrls.INBOX);
 
     }
 
     public Page page() {
+
         return context.getPage();
+
     }
+
+    private void navigate(String url) {
+
+        Page page = context.getPage();
+
+        page.navigate(url);
+
+        page.waitForLoadState();
+
+    }
+
 }
