@@ -108,27 +108,29 @@ public class FilterService {
 
     private void applyPrice(BotDetailsDto bot) {
 
+        actions.openFilter(
+                FilterSelectors.PRICE_FILTER
+        );
+
         if (bot.getConfiguration().getMinPrice() != null) {
 
-            actions.fillInput(
+            actions.fillInputBySelector(
                     FilterSelectors.MIN_PRICE,
-                    FilterUtils.price(
-                            bot.getConfiguration().getMinPrice()
-                    )
+                    bot.getConfiguration().getMinPrice()
             );
 
         }
 
         if (bot.getConfiguration().getMaxPrice() != null) {
 
-            actions.fillInput(
+            actions.fillInputBySelector(
                     FilterSelectors.MAX_PRICE,
-                    FilterUtils.price(
-                            bot.getConfiguration().getMaxPrice()
-                    )
+                    bot.getConfiguration().getMaxPrice()
             );
 
         }
+
+        actions.clickOutside();
 
     }
 

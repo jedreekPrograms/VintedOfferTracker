@@ -62,10 +62,10 @@ public class FilterActions {
     }
 
     // 1. Pozwoli wpisać tekst w dowolny input za pomocą selektora CSS (np. ID elementu)
-    public void fillInputBySelector(String selector, String value) {
+    public void fillInputBySelector(String selector, Object value) {
         Locator input = page.locator(selector);
         input.waitFor();
-        input.fill(value);
+        input.fill(String.valueOf(value));
         input.waitFor();
     }
 
@@ -94,4 +94,7 @@ public class FilterActions {
 
     }
 
+    public void clickOutside() {
+        page.mouse().click(10, 10);
+    }
 }

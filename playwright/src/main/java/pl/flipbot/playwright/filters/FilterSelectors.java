@@ -15,9 +15,9 @@ public class FilterSelectors {
 
     public static final String PRICE_FILTER = "catalog--price-filter--trigger";
 
-    public static final String MIN_PRICE = "price_from";
+    public static final String MIN_PRICE = "#price_from";
 
-    public static final String MAX_PRICE = "price_to";
+    public static final String MAX_PRICE = "#price_to";
 
     public static final String FILTER_SELECTION = "[data-testid='filter-selection-button']";
 
