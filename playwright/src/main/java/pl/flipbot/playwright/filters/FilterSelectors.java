@@ -21,4 +21,8 @@ public class FilterSelectors {
 
     public static final String FILTER_SELECTION = "[data-testid='filter-selection-button']";
 
+    public static final String SORT_BY = "catalog--sort-filter--trigger";
+
+    public static final String SORT_BY_NEWEST = "#sort_by-list-item-newest_first";
+
 }

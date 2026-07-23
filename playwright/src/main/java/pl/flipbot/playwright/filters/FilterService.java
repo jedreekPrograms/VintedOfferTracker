@@ -42,6 +42,8 @@ public class FilterService {
             applyModel(bot);
         }
 
+        applySortBy();
+
         if (hasPrice(bot)) {
             applyPrice(bot);
         }
@@ -91,6 +93,16 @@ public class FilterService {
 
         actions.clickConfirmButton();
 
+    }
+
+    private void applySortBy() {
+        actions.openFilter(
+                FilterSelectors.SORT_BY
+        );
+
+        actions.clickSelector(
+                FilterSelectors.SORT_BY_NEWEST
+        );
     }
 
 
