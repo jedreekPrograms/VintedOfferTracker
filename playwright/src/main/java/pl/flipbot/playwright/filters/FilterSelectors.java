@@ -11,6 +11,8 @@ public class FilterSelectors {
 
     public static final String MODEL_FILTER = "catalog--brand_collection-filter--trigger";
 
+    public static final String MODEL_SEARCH_INPUT = "#brand_collection_filter_search";
+
     public static final String PRICE_FILTER = "catalog--price-filter--trigger";
 
     public static final String MIN_PRICE = "price_from";

@@ -1,4 +1,4 @@
-package pl.flipbot.playwright.TestApplication;
+package pl.flipbot.playwright;
 
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.model.BotConfigurationDto;

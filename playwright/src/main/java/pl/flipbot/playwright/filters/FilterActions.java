@@ -60,4 +60,38 @@ public class FilterActions {
     public void clickSelector(String selector) {
         page.locator(selector).click();
     }
+
+    // 1. Pozwoli wpisać tekst w dowolny input za pomocą selektora CSS (np. ID elementu)
+    public void fillInputBySelector(String selector, String value) {
+        Locator input = page.locator(selector);
+        input.waitFor();
+        input.fill(value);
+        input.waitFor();
+    }
+
+    public void clickModel(String model) {
+
+        Locator modelLocator = page.locator(
+                "[data-testid^='selectable-item-brand_collection-']"
+        ).filter(
+                new Locator.FilterOptions()
+                        .setHasText(model)
+        ).first();
+
+        modelLocator.waitFor();
+        modelLocator.click();
+
+    }
+
+    public void clickConfirmButton() {
+
+        Locator button = page.getByTestId(
+                "filter-selection-button"
+        );
+
+        button.waitFor();
+        button.click();
+
+    }
+
 }

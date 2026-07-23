@@ -76,17 +76,23 @@ public class FilterService {
 
     private void applyModel(BotDetailsDto bot) {
 
-        actions.openFilter(FilterSelectors.MODEL_FILTER);
+        actions.openFilter(
+                FilterSelectors.MODEL_FILTER
+        );
 
-        actions.waitForOption(
+        actions.fillInputBySelector(
+                FilterSelectors.MODEL_SEARCH_INPUT,
                 bot.getConfiguration().getModel()
         );
 
-        actions.selectOption(
+        actions.clickModel(
                 bot.getConfiguration().getModel()
         );
+
+        actions.clickConfirmButton();
 
     }
+
 
     private void applyPrice(BotDetailsDto bot) {
 
