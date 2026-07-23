@@ -114,7 +114,17 @@ public class BotWorker implements Runnable {
 
         listingScanner.scan();
 
-//        negotiationExecutor.processNegotiations();
+        var listings = listingScanner.scan();
+
+        for (var listing : listings) {
+
+            log.info(
+                    "{} | {} | {} zł",
+                    listing.getId(),
+                    listing.getCondition(),
+                    listing.getPrice()
+            );
+        }
 
     }
 

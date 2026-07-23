@@ -68,6 +68,10 @@ public class FilterService {
                 bot.getConfiguration().getBrand()
         );
 
+        actions.clickSelector(
+                FilterSelectors.FILTER_SELECTION
+        );
+
     }
 
     private void applyModel(BotDetailsDto bot) {

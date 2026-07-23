@@ -57,4 +57,7 @@ public class FilterActions {
 
     }
 
+    public void clickSelector(String selector) {
+        page.locator(selector).click();
+    }
 }

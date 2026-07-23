@@ -17,4 +17,6 @@ public class FilterSelectors {
 
     public static final String MAX_PRICE = "price_to";
 
+    public static final String FILTER_SELECTION = "[data-testid='filter-selection-button']";
+
 }

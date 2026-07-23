@@ -24,7 +24,7 @@ public final class TestBotConfigurationFactory {
 
         configuration.setBrand("Samsung");
 
-        configuration.setModel("");
+        configuration.setModel("Galaxy S25");
 
         configuration.setMinPrice(
                 BigDecimal.valueOf(1000)

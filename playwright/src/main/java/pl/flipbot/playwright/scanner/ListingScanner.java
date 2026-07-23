@@ -1,8 +1,13 @@
 package pl.flipbot.playwright.scanner;
 
+import com.microsoft.playwright.Locator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.scanner.model.Listing;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -10,17 +15,31 @@ public class ListingScanner {
 
     private final BotContext context;
 
-    public void scan() {
+    private final ListingParser parser = new ListingParser();
+
+    public List<Listing> scan() {
+
+        Locator items = context.getPage()
+                        .locator(ListingSelectors.ITEM);
 
         log.info(
                 "Scanning listings for bot {}",
                 context.getBot().getId()
         );
 
-        // TODO:
-        // 1. Pobierz wszystkie oferty
-        // 2. Odfiltruj już odwiedzone
-        // 3. Wyślij do NegotiationExecutor
+        List<Listing> listings = new ArrayList<>();
+
+        for(int i = 0; i < items.count(); i++) {
+
+            Listing listing = parser.parse(
+                    items.nth(i)
+            );
+
+            listings.add(listing);
+
+        }
+
+        return listings;
 
     }
 
