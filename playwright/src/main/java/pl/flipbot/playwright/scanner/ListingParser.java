@@ -63,10 +63,15 @@ public class ListingParser {
             return null;
         }
 
-        return testId.replace(
-                "product-item-id-",
-                ""
-        );
+        if (testId.startsWith("product-item-id-")) {
+            return testId.substring("product-item-id-".length());
+        }
+
+        if (testId.startsWith("item-")) {
+            return testId.substring("item-".length());
+        }
+
+        return testId;
 
     }
 

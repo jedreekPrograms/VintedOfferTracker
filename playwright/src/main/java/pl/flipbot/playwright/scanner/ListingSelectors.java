@@ -6,7 +6,7 @@ import lombok.experimental.UtilityClass;
 public class ListingSelectors {
 
     public static final String ITEM =
-            "[data-testid^='product-item-id-']";
+            ".new-item-box__container";
 
     public static final String TITLE =
             "[data-testid$='--description-title']";

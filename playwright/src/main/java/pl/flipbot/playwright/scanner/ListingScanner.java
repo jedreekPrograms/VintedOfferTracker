@@ -20,16 +20,22 @@ public class ListingScanner {
     public List<Listing> scan() {
 
         Locator items = context.getPage()
-                        .locator(ListingSelectors.ITEM);
+                .locator(ListingSelectors.ITEM);
 
         log.info(
                 "Scanning listings for bot {}",
                 context.getBot().getId()
         );
 
+        long count = items.count();
+
+        log.info("Found {} listings", count);
+
         List<Listing> listings = new ArrayList<>();
 
-        for(int i = 0; i < items.count(); i++) {
+        for (int i = 0; i < count; i++) {
+
+            log.info("Parsing listing {}", i);
 
             Listing listing = parser.parse(
                     items.nth(i)
@@ -38,6 +44,8 @@ public class ListingScanner {
             listings.add(listing);
 
         }
+
+        log.info("Parsed {} listings", listings.size());
 
         return listings;
 
