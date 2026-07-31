@@ -9,6 +9,7 @@ import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.NegotiationExecutor;
+import pl.flipbot.playwright.processing.ListingProcessingService;
 import pl.flipbot.playwright.scanner.ListingScanner;
 import pl.flipbot.playwright.testdata.TestBotFactory;
 
@@ -25,6 +26,8 @@ public class BotWorker implements Runnable {
     private final FilterService filterService;
 
     private final ListingScanner listingScanner;
+
+    private final ListingProcessingService listingProcessingService;
 
     private final NegotiationExecutor negotiationExecutor;
 
@@ -49,6 +52,9 @@ public class BotWorker implements Runnable {
 
         this.listingScanner =
                 new ListingScanner(context);
+
+        this.listingProcessingService =
+                new ListingProcessingService();
 
         this.negotiationExecutor =
                 new NegotiationExecutor(context);
@@ -112,19 +118,9 @@ public class BotWorker implements Runnable {
                 context.getBot()
         );
 
-        listingScanner.scan();
-
         var listings = listingScanner.scan();
 
-        for (var listing : listings) {
-
-            log.info(
-                    "{} | {} | {} zł",
-                    listing.getId(),
-                    listing.getCondition(),
-                    listing.getPrice()
-            );
-        }
+        listingProcessingService.process(listings);
 
     }
 
