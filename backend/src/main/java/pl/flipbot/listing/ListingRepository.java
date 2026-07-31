@@ -2,6 +2,7 @@ package pl.flipbot.listing;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,8 +12,15 @@ public interface ListingRepository extends JpaRepository<Listing, Long> {
 
     Optional<Listing> findByListingId(String listingId);
 
+    List<Listing> findAllByListingIdIn(
+            Collection<String> listingIds
+    );
+
     List<Listing> findByBotId(Long botId);
 
-    List<Listing> findByBotIdAndStatus(Long botId, ListingStatus status);
+    List<Listing> findByBotIdAndStatus(
+            Long botId,
+            ListingStatus status
+    );
 
 }
