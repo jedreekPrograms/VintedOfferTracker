@@ -25,7 +25,8 @@ public class BotWorker implements Runnable {
 
     private final ListingScanner listingScanner;
 
-    private final ListingProcessingService listingProcessingService;
+    private final ListingProcessingService
+            listingProcessingService;
 
     private final ListingClient listingClient;
 
@@ -163,11 +164,43 @@ public class BotWorker implements Runnable {
                         botId
                 );
 
+        int allowedNewNegotiations =
+                listingClient.getAllowedNewNegotiations(
+                        botId
+                );
+
+        int listingsToStartCount =
+                Math.min(
+                        discoveredListings.size(),
+                        allowedNewNegotiations
+                );
+
+        var listingsToStart =
+                discoveredListings.stream()
+                        .limit(
+                                listingsToStartCount
+                        )
+                        .toList();
+
         log.info(
-                "Bot {} has {} discovered listings waiting to start negotiation",
+                "Bot {} has {} discovered listings, capacity for {}, "
+                        + "selected {} listings to start",
                 botId,
-                discoveredListings.size()
+                discoveredListings.size(),
+                allowedNewNegotiations,
+                listingsToStart.size()
         );
+
+        for (var listing : listingsToStart) {
+
+            log.info(
+                    "Selected backend listing {} / marketplace listing {}: {}",
+                    listing.id(),
+                    listing.listingId(),
+                    listing.url()
+            );
+
+        }
 
     }
 

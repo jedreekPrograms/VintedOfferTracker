@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.listing.dto.UpdateListingRequest;
+import pl.flipbot.negotiation.NegotiationCapacityService;
+import pl.flipbot.negotiation.dto.NegotiationCapacityResponse;
 
 import java.util.List;
 
@@ -24,6 +26,9 @@ import java.util.List;
 public class BotListingController {
 
     private final ListingService listingService;
+
+    private final NegotiationCapacityService
+            negotiationCapacityService;
 
     @PostMapping("/discover")
     public ResponseEntity<List<ListingResponse>>
@@ -70,6 +75,21 @@ public class BotListingController {
                 listingService.getNegotiatingListings(
                         botId
                 )
+        );
+
+    }
+
+    @GetMapping("/negotiation-capacity")
+    public ResponseEntity<NegotiationCapacityResponse>
+    getNegotiationCapacity(
+            @PathVariable Long botId
+    ) {
+
+        return ResponseEntity.ok(
+                negotiationCapacityService
+                        .calculateCapacity(
+                                botId
+                        )
         );
 
     }

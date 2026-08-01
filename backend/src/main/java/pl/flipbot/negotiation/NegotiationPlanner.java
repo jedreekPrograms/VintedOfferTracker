@@ -19,13 +19,6 @@ public class NegotiationPlanner {
             Bot bot
     ) {
 
-        List<Listing> activeListings =
-                listingRepository
-                        .findByBotIdAndStatusOrderByIdAsc(
-                                bot.getId(),
-                                ListingStatus.NEGOTIATING
-                        );
-
         int maxSteps =
                 bot.getConfiguration()
                         .getNegotiationSteps()
@@ -35,14 +28,35 @@ public class NegotiationPlanner {
                 bot.getConfiguration()
                         .getDailyNegotiationBudget();
 
+        if (maxSteps <= 0 || budget <= 0) {
+            return 0;
+        }
+
+        List<Listing> activeListings =
+                listingRepository
+                        .findByBotIdAndStatusOrderByIdAsc(
+                                bot.getId(),
+                                ListingStatus.NEGOTIATING
+                        );
+
         int usedBudget = 0;
 
         for (Listing listing : activeListings) {
 
-            usedBudget +=
+            int currentStep =
+                    listing.getCurrentStep() == null
+                            ? 1
+                            : listing.getCurrentStep();
+
+            int remainingSteps =
                     maxSteps
-                            - listing.getCurrentStep()
+                            - currentStep
                             + 1;
+
+            usedBudget += Math.max(
+                    remainingSteps,
+                    0
+            );
 
         }
 
