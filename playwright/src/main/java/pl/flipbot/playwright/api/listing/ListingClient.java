@@ -54,11 +54,19 @@ public class ListingClient extends ApiClient {
 
         validateResponse(
                 response,
-                "discover listings for bot " + botId
+                "discover listings for bot "
+                        + botId
         );
 
         if (isEmptyBody(response)) {
+
+            log.info(
+                    "Backend returned no new listings for bot {}",
+                    botId
+            );
+
             return List.of();
+
         }
 
         List<ListingResponseDto> claimedListings =
@@ -97,7 +105,8 @@ public class ListingClient extends ApiClient {
 
         validateResponse(
                 response,
-                "load discovered listings for bot " + botId
+                "load discovered listings for bot "
+                        + botId
         );
 
         if (isEmptyBody(response)) {
@@ -140,7 +149,8 @@ public class ListingClient extends ApiClient {
 
         validateResponse(
                 response,
-                "load negotiating listings for bot " + botId
+                "load negotiating listings for bot "
+                        + botId
         );
 
         if (isEmptyBody(response)) {
@@ -301,7 +311,9 @@ public class ListingClient extends ApiClient {
 
         if (statusCode >= 200
                 && statusCode < 300) {
+
             return;
+
         }
 
         throw new IllegalStateException(

@@ -25,8 +25,7 @@ public class BotWorker implements Runnable {
 
     private final ListingScanner listingScanner;
 
-    private final ListingProcessingService
-            listingProcessingService;
+    private final ListingProcessingService listingProcessingService;
 
     private final ListingClient listingClient;
 
@@ -102,6 +101,11 @@ public class BotWorker implements Runnable {
             Thread.currentThread()
                     .interrupt();
 
+            log.info(
+                    "Worker {} was interrupted",
+                    context.getBot().getId()
+            );
+
         } catch (Exception exception) {
 
             log.error(
@@ -115,7 +119,7 @@ public class BotWorker implements Runnable {
             context.close();
 
             log.info(
-                    "Worker stopped {}",
+                    "Worker stopped for bot {}",
                     context.getBot().getId()
             );
 
@@ -183,8 +187,9 @@ public class BotWorker implements Runnable {
                         .toList();
 
         log.info(
-                "Bot {} has {} discovered listings, capacity for {}, "
-                        + "selected {} listings to start",
+                "Bot {} has {} discovered listings, "
+                        + "may start {} new negotiations, "
+                        + "selected {} listings",
                 botId,
                 discoveredListings.size(),
                 allowedNewNegotiations,
@@ -194,9 +199,13 @@ public class BotWorker implements Runnable {
         for (var listing : listingsToStart) {
 
             log.info(
-                    "Selected backend listing {} / marketplace listing {}: {}",
+                    "Selected backend listing {}, "
+                            + "marketplace listing {}, "
+                            + "title: {}, "
+                            + "url: {}",
                     listing.id(),
                     listing.listingId(),
+                    listing.title(),
                     listing.url()
             );
 
