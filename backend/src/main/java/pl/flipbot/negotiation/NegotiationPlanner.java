@@ -15,13 +15,16 @@ public class NegotiationPlanner {
 
     private final ListingRepository listingRepository;
 
-    public int calculateNewNegotiations(Bot bot) {
+    public int calculateNewNegotiations(
+            Bot bot
+    ) {
 
         List<Listing> activeListings =
-                listingRepository.findByBotIdAndStatus(
-                        bot.getId(),
-                        ListingStatus.NEGOTIATING
-                );
+                listingRepository
+                        .findByBotIdAndStatusOrderByIdAsc(
+                                bot.getId(),
+                                ListingStatus.NEGOTIATING
+                        );
 
         int maxSteps =
                 bot.getConfiguration()
@@ -37,7 +40,9 @@ public class NegotiationPlanner {
         for (Listing listing : activeListings) {
 
             usedBudget +=
-                    maxSteps - listing.getCurrentStep() + 1;
+                    maxSteps
+                            - listing.getCurrentStep()
+                            + 1;
 
         }
 

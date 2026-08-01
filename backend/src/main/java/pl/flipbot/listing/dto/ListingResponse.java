@@ -23,5 +23,12 @@ public class ListingResponse {
 
     private Integer currentStep;
 
+    private Boolean awaitingSellerResponse;
+
+    private String conversationId;
+
+    private String conversationUrl;
+
     private String status;
+
 }

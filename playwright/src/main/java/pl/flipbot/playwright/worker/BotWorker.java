@@ -27,6 +27,8 @@ public class BotWorker implements Runnable {
 
     private final ListingProcessingService listingProcessingService;
 
+    private final ListingClient listingClient;
+
     private final NegotiationExecutor negotiationExecutor;
 
     public BotWorker(
@@ -41,18 +43,26 @@ public class BotWorker implements Runnable {
                 );
 
         this.loginService =
-                new LoginService(context);
+                new LoginService(
+                        context
+                );
 
         this.marketplaceNavigator =
-                new MarketplaceNavigator(context);
+                new MarketplaceNavigator(
+                        context
+                );
 
         this.filterService =
-                new FilterService(context);
+                new FilterService(
+                        context
+                );
 
         this.listingScanner =
-                new ListingScanner(context);
+                new ListingScanner(
+                        context
+                );
 
-        ListingClient listingClient =
+        this.listingClient =
                 new ListingClient();
 
         this.listingProcessingService =
@@ -62,7 +72,9 @@ public class BotWorker implements Runnable {
                 );
 
         this.negotiationExecutor =
-                new NegotiationExecutor(context);
+                new NegotiationExecutor(
+                        context
+                );
 
     }
 
@@ -80,11 +92,14 @@ public class BotWorker implements Runnable {
 
             doWork();
 
-            Thread.sleep(10_000);
+            Thread.sleep(
+                    10_000
+            );
 
         } catch (InterruptedException exception) {
 
-            Thread.currentThread().interrupt();
+            Thread.currentThread()
+                    .interrupt();
 
         } catch (Exception exception) {
 
@@ -109,6 +124,20 @@ public class BotWorker implements Runnable {
 
     private void doWork() {
 
+        Long botId =
+                context.getBot().getId();
+
+        var negotiatingListings =
+                listingClient.getNegotiatingListings(
+                        botId
+                );
+
+        log.info(
+                "Bot {} currently has {} active negotiations",
+                botId,
+                negotiatingListings.size()
+        );
+
         marketplaceNavigator.goToCatalog();
 
         filterService.applyFilters(
@@ -118,15 +147,26 @@ public class BotWorker implements Runnable {
         var scannedListings =
                 listingScanner.scan();
 
-        var claimedListings =
+        var newlyClaimedListings =
                 listingProcessingService.process(
                         scannedListings
                 );
 
         log.info(
-                "Bot {} has {} new listings ready for further processing",
-                context.getBot().getId(),
-                claimedListings.size()
+                "Bot {} claimed {} new listings during this scan",
+                botId,
+                newlyClaimedListings.size()
+        );
+
+        var discoveredListings =
+                listingClient.getDiscoveredListings(
+                        botId
+                );
+
+        log.info(
+                "Bot {} has {} discovered listings waiting to start negotiation",
+                botId,
+                discoveredListings.size()
         );
 
     }

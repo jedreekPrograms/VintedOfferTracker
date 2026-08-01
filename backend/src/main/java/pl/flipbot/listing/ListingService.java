@@ -14,17 +14,22 @@ import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ListingService {
+
+    private static final String UNIQUE_VIOLATION_SQL_STATE =
+            "23505";
 
     private final ListingRepository listingRepository;
 
@@ -34,11 +39,35 @@ public class ListingService {
 
     private final ListingClaimService listingClaimService;
 
+    public List<ListingResponse> getDiscoveredListings(
+            Long botId
+    ) {
+
+        validateBotExists(
+                botId
+        );
+
+        return listingRepository
+                .findByBotIdAndStatusOrderByIdAsc(
+                        botId,
+                        ListingStatus.DISCOVERED
+                )
+                .stream()
+                .map(listingMapper::map)
+                .toList();
+
+    }
+
     public List<ListingResponse> getNegotiatingListings(
             Long botId
     ) {
 
-        return listingRepository.findByBotIdAndStatus(
+        validateBotExists(
+                botId
+        );
+
+        return listingRepository
+                .findByBotIdAndStatusOrderByIdAsc(
                         botId,
                         ListingStatus.NEGOTIATING
                 )
@@ -53,9 +82,9 @@ public class ListingService {
             DiscoverListingsRequest request
     ) {
 
-        if (!botRepository.existsById(botId)) {
-            throw new BotNotFoundException(botId);
-        }
+        validateBotExists(
+                botId
+        );
 
         Map<String, CreateListingRequest> uniqueRequests =
                 removeDuplicatedRequests(
@@ -94,10 +123,26 @@ public class ListingService {
                         );
 
                 claimedListings.add(
-                        listingMapper.map(claimedListing)
+                        listingMapper.map(
+                                claimedListing
+                        )
                 );
 
             } catch (DataIntegrityViolationException exception) {
+
+                if (!isUniqueConstraintViolation(
+                        exception
+                )) {
+
+                    log.error(
+                            "Database integrity error while claiming listing {}",
+                            listingRequest.getListingId(),
+                            exception
+                    );
+
+                    throw exception;
+
+                }
 
                 log.debug(
                         "Listing {} was claimed concurrently by another bot",
@@ -127,37 +172,66 @@ public class ListingService {
 
         Bot bot = botRepository.findById(botId)
                 .orElseThrow(
-                        () -> new BotNotFoundException(botId)
+                        () -> new BotNotFoundException(
+                                botId
+                        )
                 );
 
         Listing listing = Listing.builder()
-                .listingId(request.getListingId())
-                .title(request.getTitle())
-                .url(request.getUrl())
-                .originalPrice(request.getOriginalPrice())
-                .currentPrice(request.getOriginalPrice())
+                .listingId(
+                        request.getListingId()
+                )
+                .title(
+                        request.getTitle()
+                )
+                .url(
+                        request.getUrl()
+                )
+                .originalPrice(
+                        request.getOriginalPrice()
+                )
+                .currentPrice(
+                        request.getOriginalPrice()
+                )
                 .currentStep(1)
                 .awaitingSellerResponse(false)
-                .status(ListingStatus.NEGOTIATING)
+                .status(
+                        ListingStatus.NEGOTIATING
+                )
                 .bot(bot)
                 .build();
 
         Listing savedListing =
-                listingRepository.save(listing);
+                listingRepository.save(
+                        listing
+                );
 
-        return listingMapper.map(savedListing);
+        return listingMapper.map(
+                savedListing
+        );
 
     }
 
     @Transactional
     public ListingResponse updateListing(
+            Long botId,
             Long listingId,
             UpdateListingRequest request
     ) {
 
         Listing listing =
-                listingRepository.findById(listingId)
-                        .orElseThrow();
+                listingRepository.findByIdAndBotId(
+                                listingId,
+                                botId
+                        )
+                        .orElseThrow(
+                                () -> new NoSuchElementException(
+                                        "Listing "
+                                                + listingId
+                                                + " was not found for bot "
+                                                + botId
+                                )
+                        );
 
         listing.setCurrentPrice(
                 request.getCurrentPrice()
@@ -167,11 +241,39 @@ public class ListingService {
                 request.getCurrentStep()
         );
 
+        listing.setAwaitingSellerResponse(
+                request.getAwaitingSellerResponse()
+        );
+
+        listing.setConversationId(
+                request.getConversationId()
+        );
+
+        listing.setConversationUrl(
+                request.getConversationUrl()
+        );
+
         listing.setStatus(
                 request.getStatus()
         );
 
-        return listingMapper.map(listing);
+        return listingMapper.map(
+                listing
+        );
+
+    }
+
+    private void validateBotExists(
+            Long botId
+    ) {
+
+        if (!botRepository.existsById(botId)) {
+
+            throw new BotNotFoundException(
+                    botId
+            );
+
+        }
 
     }
 
@@ -217,6 +319,34 @@ public class ListingService {
         }
 
         return existingListingIds;
+
+    }
+
+    private boolean isUniqueConstraintViolation(
+            Throwable exception
+    ) {
+
+        Throwable currentCause =
+                exception;
+
+        while (currentCause != null) {
+
+            if (currentCause
+                    instanceof SQLException sqlException
+                    && UNIQUE_VIOLATION_SQL_STATE.equals(
+                    sqlException.getSQLState()
+            )) {
+
+                return true;
+
+            }
+
+            currentCause =
+                    currentCause.getCause();
+
+        }
+
+        return false;
 
     }
 

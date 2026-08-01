@@ -10,9 +10,7 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.scanner.model.Listing;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -22,7 +20,7 @@ public class ListingProcessingService {
 
     private final ListingClient listingClient;
 
-    public List<Listing> process(
+    public List<ListingResponseDto> process(
             List<Listing> listings
     ) {
 
@@ -43,9 +41,6 @@ public class ListingProcessingService {
                 listings.size()
         );
 
-        List<Listing> validListings =
-                new ArrayList<>();
-
         List<CreateListingRequestDto> requestListings =
                 new ArrayList<>();
 
@@ -60,17 +55,23 @@ public class ListingProcessingService {
                 log.warn(
                         "Skipping incomplete listing before backend request: "
                                 + "id={}, title={}, url={}, price={}",
-                        listing.getId(),
-                        listing.getTitle(),
-                        listing.getUrl(),
-                        listing.getPrice()
+                        listing == null
+                                ? null
+                                : listing.getId(),
+                        listing == null
+                                ? null
+                                : listing.getTitle(),
+                        listing == null
+                                ? null
+                                : listing.getUrl(),
+                        listing == null
+                                ? null
+                                : listing.getPrice()
                 );
 
                 continue;
 
             }
-
-            validListings.add(listing);
 
             requestListings.add(
                     new CreateListingRequestDto(
@@ -90,9 +91,7 @@ public class ListingProcessingService {
         );
 
         if (requestListings.isEmpty()) {
-
             return List.of();
-
         }
 
         DiscoverListingsRequestDto request =
@@ -100,47 +99,14 @@ public class ListingProcessingService {
                         requestListings
                 );
 
-        List<ListingResponseDto> claimedResponses =
+        List<ListingResponseDto> claimedListings =
                 listingClient.discoverListings(
                         context.getBot().getId(),
                         request
                 );
 
-        if (claimedResponses.isEmpty()) {
-
-            log.info(
-                    "Backend did not assign any new listings to bot {}",
-                    context.getBot().getId()
-            );
-
-            return List.of();
-
-        }
-
-        Set<String> claimedListingIds =
-                new HashSet<>();
-
-        for (ListingResponseDto response
-                : claimedResponses) {
-
-            claimedListingIds.add(
-                    response.listingId()
-            );
-
-        }
-
-        List<Listing> claimedListings =
-                validListings.stream()
-                        .filter(
-                                listing ->
-                                        claimedListingIds.contains(
-                                                listing.getId()
-                                        )
-                        )
-                        .toList();
-
         log.info(
-                "Bot {} received {} new listings for further processing",
+                "Bot {} received {} new backend listings for further processing",
                 context.getBot().getId(),
                 claimedListings.size()
         );
@@ -157,9 +123,15 @@ public class ListingProcessingService {
             return false;
         }
 
-        return isNotBlank(listing.getId())
-                && isNotBlank(listing.getTitle())
-                && isNotBlank(listing.getUrl())
+        return isNotBlank(
+                listing.getId()
+        )
+                && isNotBlank(
+                listing.getTitle()
+        )
+                && isNotBlank(
+                listing.getUrl()
+        )
                 && listing.getPrice() != null;
 
     }
