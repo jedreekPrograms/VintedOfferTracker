@@ -1,7 +1,7 @@
 package pl.flipbot.playwright.worker;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.filters.FilterService;
@@ -11,10 +11,8 @@ import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.NegotiationExecutor;
 import pl.flipbot.playwright.processing.ListingProcessingService;
 import pl.flipbot.playwright.scanner.ListingScanner;
-import pl.flipbot.playwright.testdata.TestBotFactory;
 
 @Slf4j
-@RequiredArgsConstructor
 public class BotWorker implements Runnable {
 
     private final BotContext context;
@@ -31,15 +29,16 @@ public class BotWorker implements Runnable {
 
     private final NegotiationExecutor negotiationExecutor;
 
-    public BotWorker(BotDetailsDto bot,
-                     BrowserManager browserManager) {
+    public BotWorker(
+            BotDetailsDto bot,
+            BrowserManager browserManager
+    ) {
 
-        bot = TestBotFactory.configure(bot);
-
-        this.context = new BotContext(
-                bot,
-                browserManager
-        );
+        this.context =
+                new BotContext(
+                        bot,
+                        browserManager
+                );
 
         this.loginService =
                 new LoginService(context);
@@ -53,8 +52,14 @@ public class BotWorker implements Runnable {
         this.listingScanner =
                 new ListingScanner(context);
 
+        ListingClient listingClient =
+                new ListingClient();
+
         this.listingProcessingService =
-                new ListingProcessingService();
+                new ListingProcessingService(
+                        context,
+                        listingClient
+                );
 
         this.negotiationExecutor =
                 new NegotiationExecutor(context);
@@ -71,30 +76,22 @@ public class BotWorker implements Runnable {
 
         try {
 
-//            while (!Thread.currentThread().isInterrupted()) {
-//
-//                doWork();
-//
-//                Thread.sleep(3000);
-//
-//            }
-
             loginService.login();
 
             doWork();
 
-            Thread.sleep(10000);
+            Thread.sleep(10_000);
 
-        } catch (InterruptedException e) {
+        } catch (InterruptedException exception) {
 
             Thread.currentThread().interrupt();
 
-        } catch (Exception e) {
+        } catch (Exception exception) {
 
             log.error(
                     "Worker {} failed",
                     context.getBot().getId(),
-                    e
+                    exception
             );
 
         } finally {
@@ -118,9 +115,19 @@ public class BotWorker implements Runnable {
                 context.getBot()
         );
 
-        var listings = listingScanner.scan();
+        var scannedListings =
+                listingScanner.scan();
 
-        listingProcessingService.process(listings);
+        var claimedListings =
+                listingProcessingService.process(
+                        scannedListings
+                );
+
+        log.info(
+                "Bot {} has {} new listings ready for further processing",
+                context.getBot().getId(),
+                claimedListings.size()
+        );
 
     }
 
