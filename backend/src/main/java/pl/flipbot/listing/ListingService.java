@@ -43,18 +43,10 @@ public class ListingService {
             Long botId
     ) {
 
-        validateBotExists(
-                botId
+        return getListingsByStatus(
+                botId,
+                ListingStatus.DISCOVERED
         );
-
-        return listingRepository
-                .findByBotIdAndStatusOrderByIdAsc(
-                        botId,
-                        ListingStatus.DISCOVERED
-                )
-                .stream()
-                .map(listingMapper::map)
-                .toList();
 
     }
 
@@ -62,18 +54,21 @@ public class ListingService {
             Long botId
     ) {
 
-        validateBotExists(
-                botId
+        return getListingsByStatus(
+                botId,
+                ListingStatus.NEGOTIATING
         );
 
-        return listingRepository
-                .findByBotIdAndStatusOrderByIdAsc(
-                        botId,
-                        ListingStatus.NEGOTIATING
-                )
-                .stream()
-                .map(listingMapper::map)
-                .toList();
+    }
+
+    public List<ListingResponse> getActionRequiredListings(
+            Long botId
+    ) {
+
+        return getListingsByStatus(
+                botId,
+                ListingStatus.ACTION_REQUIRED
+        );
 
     }
 
@@ -92,7 +87,9 @@ public class ListingService {
                 );
 
         if (uniqueRequests.isEmpty()) {
+
             return List.of();
+
         }
 
         Set<String> existingListingIds =
@@ -170,36 +167,40 @@ public class ListingService {
             CreateListingRequest request
     ) {
 
-        Bot bot = botRepository.findById(botId)
-                .orElseThrow(
-                        () -> new BotNotFoundException(
+        Bot bot =
+                botRepository.findById(
                                 botId
                         )
-                );
+                        .orElseThrow(
+                                () -> new BotNotFoundException(
+                                        botId
+                                )
+                        );
 
-        Listing listing = Listing.builder()
-                .listingId(
-                        request.getListingId()
-                )
-                .title(
-                        request.getTitle()
-                )
-                .url(
-                        request.getUrl()
-                )
-                .originalPrice(
-                        request.getOriginalPrice()
-                )
-                .currentPrice(
-                        request.getOriginalPrice()
-                )
-                .currentStep(1)
-                .awaitingSellerResponse(false)
-                .status(
-                        ListingStatus.NEGOTIATING
-                )
-                .bot(bot)
-                .build();
+        Listing listing =
+                Listing.builder()
+                        .listingId(
+                                request.getListingId()
+                        )
+                        .title(
+                                request.getTitle()
+                        )
+                        .url(
+                                request.getUrl()
+                        )
+                        .originalPrice(
+                                request.getOriginalPrice()
+                        )
+                        .currentPrice(
+                                request.getOriginalPrice()
+                        )
+                        .currentStep(1)
+                        .awaitingSellerResponse(false)
+                        .status(
+                                ListingStatus.NEGOTIATING
+                        )
+                        .bot(bot)
+                        .build();
 
         Listing savedListing =
                 listingRepository.save(
@@ -263,11 +264,35 @@ public class ListingService {
 
     }
 
+    private List<ListingResponse> getListingsByStatus(
+            Long botId,
+            ListingStatus status
+    ) {
+
+        validateBotExists(
+                botId
+        );
+
+        return listingRepository
+                .findByBotIdAndStatusOrderByIdAsc(
+                        botId,
+                        status
+                )
+                .stream()
+                .map(
+                        listingMapper::map
+                )
+                .toList();
+
+    }
+
     private void validateBotExists(
             Long botId
     ) {
 
-        if (!botRepository.existsById(botId)) {
+        if (!botRepository.existsById(
+                botId
+        )) {
 
             throw new BotNotFoundException(
                     botId

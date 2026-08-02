@@ -79,6 +79,20 @@ public class BotListingController {
 
     }
 
+    @GetMapping("/action-required")
+    public ResponseEntity<List<ListingResponse>>
+    getActionRequiredListings(
+            @PathVariable Long botId
+    ) {
+
+        return ResponseEntity.ok(
+                listingService.getActionRequiredListings(
+                        botId
+                )
+        );
+
+    }
+
     @GetMapping("/negotiation-capacity")
     public ResponseEntity<NegotiationCapacityResponse>
     getNegotiationCapacity(
@@ -86,10 +100,9 @@ public class BotListingController {
     ) {
 
         return ResponseEntity.ok(
-                negotiationCapacityService
-                        .calculateCapacity(
-                                botId
-                        )
+                negotiationCapacityService.calculateCapacity(
+                        botId
+                )
         );
 
     }
