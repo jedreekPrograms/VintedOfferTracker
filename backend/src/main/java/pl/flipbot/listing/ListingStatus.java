@@ -8,6 +8,10 @@ public enum ListingStatus {
 
     ACTION_REQUIRED,
 
+    SKIPPED_OFFER_TOO_LOW,
+
+    UNAVAILABLE,
+
     REJECTED,
 
     FINISHED
