@@ -1,0 +1,10 @@
+# IntelliJ
+**/.idea/
+
+# Playwright
+/playwright/sessions/
+/playwright/example.png
+
+# Environment variables
+/frontend/.env
+/frontend/.env.*
