@@ -5,10 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import pl.flipbot.dictionary.dto.CreateDictionaryBrandRequest;
-import pl.flipbot.dictionary.dto.CreateDictionaryModelRequest;
-import pl.flipbot.dictionary.dto.DictionaryBrandResponse;
-import pl.flipbot.dictionary.dto.DictionaryModelResponse;
+import pl.flipbot.dictionary.dto.*;
 
 import java.util.List;
 
@@ -22,6 +19,41 @@ public class DictionaryController {
     private final DictionaryBrandService dictionaryBrandService;
 
     private final DictionaryModelService dictionaryModelService;
+
+    private final DictionaryCategoryService dictionaryCategoryService;
+
+    @GetMapping("/categories")
+    public ResponseEntity<List<DictionaryCategoryResponse>>
+    getAllCategories() {
+
+        return ResponseEntity.ok(
+                dictionaryCategoryService.getAllCategories()
+        );
+
+    }
+
+    @PostMapping("/categories")
+    public ResponseEntity<DictionaryCategoryResponse>
+    createCategory(
+            @Valid
+            @RequestBody
+            CreateDictionaryCategoryRequest request
+    ) {
+
+        DictionaryCategoryResponse createdCategory =
+                dictionaryCategoryService.createCategory(
+                        request
+                );
+
+        return ResponseEntity
+                .status(
+                        HttpStatus.CREATED
+                )
+                .body(
+                        createdCategory
+                );
+
+    }
 
     @GetMapping("/brands")
     public ResponseEntity<List<DictionaryBrandResponse>>
