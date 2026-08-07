@@ -6,3 +6,14 @@ export interface DictionaryBrand {
 export interface CreateDictionaryBrandRequest {
     name: string;
 }
+
+export interface DictionaryCategory {
+    id: number;
+    name: string;
+    path: string;
+    categoryPath: string[];
+}
+
+export interface CreateDictionaryCategoryRequest {
+    categoryPath: string[];
+}

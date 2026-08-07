@@ -592,3 +592,42 @@ a {
         width: 100%;
     }
 }
+
+.dictionary-category-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.dictionary-category-form .primary-button {
+    align-self: flex-start;
+}
+
+.form-help {
+    color: #8b95a8;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.dictionary-item-content {
+    min-width: 0;
+}
+
+.dictionary-item-path {
+    margin-top: 4px;
+    color: #66728a;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.dictionary-model-placeholder {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 560px) {
+    .dictionary-category-form .primary-button {
+        width: 100%;
+        align-self: stretch;
+    }
+}
