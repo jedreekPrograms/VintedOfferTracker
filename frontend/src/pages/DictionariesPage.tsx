@@ -7,12 +7,15 @@ import {
 import {
     createBrand,
     createCategory,
+    createModel,
     getBrands,
     getCategories,
+    getModelsByBrand,
 } from "../api/dictionariesApi";
 import type {
     DictionaryBrand,
     DictionaryCategory,
+    DictionaryModel,
 } from "../types/dictionaries";
 
 function DictionariesPage() {
@@ -56,14 +59,38 @@ function DictionariesPage() {
         setCategorySuccessMessage,
     ] = useState<string | null>(null);
 
+    const [selectedBrandId, setSelectedBrandId] =
+        useState("");
+
+    const [models, setModels] =
+        useState<DictionaryModel[]>([]);
+
+    const [modelName, setModelName] =
+        useState("");
+
+    const [areModelsLoading, setAreModelsLoading] =
+        useState(false);
+
+    const [isModelSubmitting, setIsModelSubmitting] =
+        useState(false);
+
+    const [modelErrorMessage, setModelErrorMessage] =
+        useState<string | null>(null);
+
+    const [modelSuccessMessage, setModelSuccessMessage] =
+        useState<string | null>(null);
+
     const loadBrands = useCallback(async () => {
         setAreBrandsLoading(true);
         setBrandErrorMessage(null);
 
         try {
-            const loadedBrands = await getBrands();
+            const loadedBrands =
+                await getBrands();
 
-            setBrands(loadedBrands);
+            setBrands(
+                [...loadedBrands].sort(compareBrands),
+            );
         } catch (error) {
             setBrandErrorMessage(
                 getErrorMessage(
@@ -84,7 +111,11 @@ function DictionariesPage() {
             const loadedCategories =
                 await getCategories();
 
-            setCategories(loadedCategories);
+            setCategories(
+                [...loadedCategories].sort(
+                    compareCategories,
+                ),
+            );
         } catch (error) {
             setCategoryErrorMessage(
                 getErrorMessage(
@@ -97,6 +128,38 @@ function DictionariesPage() {
         }
     }, []);
 
+    const loadModels = useCallback(
+        async (brandId: number) => {
+            setAreModelsLoading(true);
+            setModelErrorMessage(null);
+
+            try {
+                const loadedModels =
+                    await getModelsByBrand(
+                        brandId,
+                    );
+
+                setModels(
+                    [...loadedModels].sort(
+                        compareModels,
+                    ),
+                );
+            } catch (error) {
+                setModels([]);
+
+                setModelErrorMessage(
+                    getErrorMessage(
+                        error,
+                        "Nie udało się pobrać modeli.",
+                    ),
+                );
+            } finally {
+                setAreModelsLoading(false);
+            }
+        },
+        [],
+    );
+
     useEffect(() => {
         void loadBrands();
         void loadCategories();
@@ -105,15 +168,55 @@ function DictionariesPage() {
         loadCategories,
     ]);
 
+    useEffect(() => {
+        if (brands.length === 0) {
+            setSelectedBrandId("");
+            setModels([]);
+
+            return;
+        }
+
+        const selectedBrandStillExists =
+            brands.some(
+                (brand) =>
+                    String(brand.id)
+                    === selectedBrandId,
+            );
+
+        if (!selectedBrandStillExists) {
+            setSelectedBrandId(
+                String(brands[0].id),
+            );
+        }
+    }, [
+        brands,
+        selectedBrandId,
+    ]);
+
+    useEffect(() => {
+        if (selectedBrandId.length === 0) {
+            setModels([]);
+
+            return;
+        }
+
+        void loadModels(
+            Number(selectedBrandId),
+        );
+    }, [
+        selectedBrandId,
+        loadModels,
+    ]);
+
     async function handleCreateBrand(
         event: FormEvent<HTMLFormElement>,
     ) {
         event.preventDefault();
 
         const normalizedName =
-            brandName
-                .trim()
-                .replace(/\s+/g, " ");
+            normalizeText(
+                brandName,
+            );
 
         if (normalizedName.length === 0) {
             setBrandErrorMessage(
@@ -134,8 +237,14 @@ function DictionariesPage() {
                 });
 
             setBrands((currentBrands) =>
-                [...currentBrands, createdBrand]
-                    .sort(compareBrands),
+                [
+                    ...currentBrands,
+                    createdBrand,
+                ].sort(compareBrands),
+            );
+
+            setSelectedBrandId(
+                String(createdBrand.id),
             );
 
             setBrandName("");
@@ -175,7 +284,8 @@ function DictionariesPage() {
 
         if (
             categoryPath.some(
-                (element) => element.length === 0,
+                (element) =>
+                    element.length === 0,
             )
         ) {
             setCategoryErrorMessage(
@@ -195,7 +305,8 @@ function DictionariesPage() {
 
         if (
             categoryPath.some(
-                (element) => element.length > 255,
+                (element) =>
+                    element.length > 255,
             )
         ) {
             setCategoryErrorMessage(
@@ -215,11 +326,12 @@ function DictionariesPage() {
                     categoryPath,
                 });
 
-            setCategories((currentCategories) =>
-                [
-                    ...currentCategories,
-                    createdCategory,
-                ].sort(compareCategories),
+            setCategories(
+                (currentCategories) =>
+                    [
+                        ...currentCategories,
+                        createdCategory,
+                    ].sort(compareCategories),
             );
 
             setCategoryPathInput("");
@@ -239,6 +351,88 @@ function DictionariesPage() {
         }
     }
 
+    async function handleCreateModel(
+        event: FormEvent<HTMLFormElement>,
+    ) {
+        event.preventDefault();
+
+        if (selectedBrandId.length === 0) {
+            setModelErrorMessage(
+                "Najpierw dodaj i wybierz markę.",
+            );
+
+            return;
+        }
+
+        const normalizedName =
+            normalizeText(
+                modelName,
+            );
+
+        if (normalizedName.length === 0) {
+            setModelErrorMessage(
+                "Wpisz nazwę modelu.",
+            );
+
+            return;
+        }
+
+        const brandId =
+            Number(selectedBrandId);
+
+        if (!Number.isInteger(brandId)
+            || brandId <= 0) {
+            setModelErrorMessage(
+                "Wybrana marka jest nieprawidłowa.",
+            );
+
+            return;
+        }
+
+        setIsModelSubmitting(true);
+        setModelErrorMessage(null);
+        setModelSuccessMessage(null);
+
+        try {
+            const createdModel =
+                await createModel(
+                    brandId,
+                    {
+                        name: normalizedName,
+                    },
+                );
+
+            setModels((currentModels) =>
+                [
+                    ...currentModels,
+                    createdModel,
+                ].sort(compareModels),
+            );
+
+            setModelName("");
+
+            setModelSuccessMessage(
+                `Dodano model ${createdModel.name} do marki ${createdModel.brandName}.`,
+            );
+        } catch (error) {
+            setModelErrorMessage(
+                getErrorMessage(
+                    error,
+                    "Nie udało się dodać modelu.",
+                ),
+            );
+        } finally {
+            setIsModelSubmitting(false);
+        }
+    }
+
+    const selectedBrand =
+        brands.find(
+            (brand) =>
+                String(brand.id)
+                === selectedBrandId,
+        ) ?? null;
+
     return (
         <section className="page">
             <header className="page-header">
@@ -252,8 +446,9 @@ function DictionariesPage() {
                     </h1>
 
                     <p className="page-description">
-                        Ręcznie zarządzaj kategoriami, markami
-                        i modelami używanymi podczas tworzenia botów.
+                        Ręcznie zarządzaj kategoriami,
+                        markami i modelami używanymi
+                        podczas tworzenia botów.
                     </p>
                 </div>
             </header>
@@ -267,7 +462,7 @@ function DictionariesPage() {
                             </h2>
 
                             <p className="content-card-text">
-                                Marka będzie później dostępna
+                                Marka będzie dostępna
                                 w formularzu tworzenia bota.
                             </p>
                         </div>
@@ -296,7 +491,9 @@ function DictionariesPage() {
                                 value={brandName}
                                 maxLength={255}
                                 placeholder="np. Samsung"
-                                disabled={isBrandSubmitting}
+                                disabled={
+                                    isBrandSubmitting
+                                }
                                 onChange={(event) => {
                                     setBrandName(
                                         event.target.value,
@@ -349,7 +546,8 @@ function DictionariesPage() {
                             </h2>
 
                             <p className="content-card-text">
-                                Lista marek pobrana z backendu.
+                                Lista marek pobrana
+                                bezpośrednio z backendu.
                             </p>
                         </div>
 
@@ -407,8 +605,9 @@ function DictionariesPage() {
                             </h2>
 
                             <p className="content-card-text">
-                                Wpisz pełną ścieżkę, oddzielając
-                                poziomy znakiem większe niż.
+                                Wpisz pełną ścieżkę,
+                                oddzielając poziomy znakiem
+                                większe niż.
                             </p>
                         </div>
 
@@ -452,9 +651,9 @@ function DictionariesPage() {
                             />
 
                             <div className="form-help">
-                                Przykład: Elektronika &gt;
-                                Telefony komórkowe &gt;
-                                Smartfony
+                                Przykład: Elektronika
+                                &gt; Telefony komórkowe
+                                &gt; Smartfony
                             </div>
                         </div>
 
@@ -501,15 +700,17 @@ function DictionariesPage() {
                             </h2>
 
                             <p className="content-card-text">
-                                Kategorie będą później dostępne
-                                podczas tworzenia bota.
+                                Kategorie dostępne podczas
+                                tworzenia bota.
                             </p>
                         </div>
 
                         <button
                             className="secondary-button"
                             type="button"
-                            disabled={areCategoriesLoading}
+                            disabled={
+                                areCategoriesLoading
+                            }
                             onClick={() => {
                                 void loadCategories();
                             }}
@@ -528,58 +729,253 @@ function DictionariesPage() {
                         </div>
                     ) : (
                         <ul className="dictionary-list">
-                            {categories.map((category) => (
+                            {categories.map(
+                                (category) => (
+                                    <li
+                                        key={category.id}
+                                        className="dictionary-list-item"
+                                    >
+                                        <div className="dictionary-item-content">
+                                            <div className="dictionary-item-name">
+                                                {category.name}
+                                            </div>
+
+                                            <div className="dictionary-item-path">
+                                                {category.path}
+                                            </div>
+
+                                            <div className="dictionary-item-id">
+                                                ID: {category.id}
+                                            </div>
+                                        </div>
+
+                                        <span className="dictionary-item-type">
+                                            Kategoria
+                                        </span>
+                                    </li>
+                                ),
+                            )}
+                        </ul>
+                    )}
+                </article>
+
+                <article className="content-card">
+                    <div className="dictionary-section-header">
+                        <div>
+                            <h2 className="content-card-title">
+                                Dodaj model
+                            </h2>
+
+                            <p className="content-card-text">
+                                Każdy model zostanie przypisany
+                                wyłącznie do wybranej marki.
+                            </p>
+                        </div>
+
+                        <span className="dictionary-count">
+                            {models.length}
+                        </span>
+                    </div>
+
+                    {brands.length === 0 ? (
+                        <div className="dictionary-list-state">
+                            Najpierw dodaj przynajmniej
+                            jedną markę.
+                        </div>
+                    ) : (
+                        <form
+                            className="dictionary-model-form"
+                            onSubmit={handleCreateModel}
+                        >
+                            <div className="form-field">
+                                <label
+                                    className="form-label"
+                                    htmlFor="model-brand"
+                                >
+                                    Marka
+                                </label>
+
+                                <select
+                                    id="model-brand"
+                                    className="form-select"
+                                    value={selectedBrandId}
+                                    disabled={
+                                        areBrandsLoading
+                                        || isModelSubmitting
+                                    }
+                                    onChange={(event) => {
+                                        setSelectedBrandId(
+                                            event.target.value,
+                                        );
+
+                                        setModelName("");
+                                        setModelErrorMessage(null);
+                                        setModelSuccessMessage(null);
+                                    }}
+                                >
+                                    {brands.map((brand) => (
+                                        <option
+                                            key={brand.id}
+                                            value={brand.id}
+                                        >
+                                            {brand.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="form-field">
+                                <label
+                                    className="form-label"
+                                    htmlFor="model-name"
+                                >
+                                    Nazwa modelu
+                                </label>
+
+                                <input
+                                    id="model-name"
+                                    className="form-input"
+                                    type="text"
+                                    value={modelName}
+                                    maxLength={255}
+                                    placeholder="np. Galaxy S25 Ultra"
+                                    disabled={
+                                        isModelSubmitting
+                                    }
+                                    onChange={(event) => {
+                                        setModelName(
+                                            event.target.value,
+                                        );
+
+                                        setModelErrorMessage(null);
+                                        setModelSuccessMessage(null);
+                                    }}
+                                />
+                            </div>
+
+                            <button
+                                className="primary-button"
+                                type="submit"
+                                disabled={
+                                    isModelSubmitting
+                                    || selectedBrandId.length === 0
+                                    || modelName.trim().length === 0
+                                }
+                            >
+                                {isModelSubmitting
+                                    ? "Dodawanie..."
+                                    : "Dodaj model"}
+                            </button>
+                        </form>
+                    )}
+
+                    {modelErrorMessage !== null && (
+                        <div
+                            className="form-message form-message-error"
+                            role="alert"
+                        >
+                            {modelErrorMessage}
+                        </div>
+                    )}
+
+                    {modelSuccessMessage !== null && (
+                        <div
+                            className="form-message form-message-success"
+                            role="status"
+                        >
+                            {modelSuccessMessage}
+                        </div>
+                    )}
+                </article>
+
+                <article className="content-card">
+                    <div className="dictionary-section-header">
+                        <div>
+                            <h2 className="content-card-title">
+                                Zapisane modele
+                            </h2>
+
+                            <p className="content-card-text">
+                                {selectedBrand === null
+                                    ? "Wybierz markę."
+                                    : `Modele marki ${selectedBrand.name}.`}
+                            </p>
+                        </div>
+
+                        <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                                selectedBrand === null
+                                || areModelsLoading
+                            }
+                            onClick={() => {
+                                if (
+                                    selectedBrand !== null
+                                ) {
+                                    void loadModels(
+                                        selectedBrand.id,
+                                    );
+                                }
+                            }}
+                        >
+                            Odśwież
+                        </button>
+                    </div>
+
+                    {selectedBrand === null ? (
+                        <div className="dictionary-list-state">
+                            Brak marki do wyświetlenia.
+                        </div>
+                    ) : areModelsLoading ? (
+                        <div className="dictionary-list-state">
+                            Pobieranie modeli...
+                        </div>
+                    ) : models.length === 0 ? (
+                        <div className="dictionary-list-state">
+                            Marka {selectedBrand.name}
+                            nie ma jeszcze zapisanych modeli.
+                        </div>
+                    ) : (
+                        <ul className="dictionary-list">
+                            {models.map((model) => (
                                 <li
-                                    key={category.id}
+                                    key={model.id}
                                     className="dictionary-list-item"
                                 >
-                                    <div className="dictionary-item-content">
+                                    <div>
                                         <div className="dictionary-item-name">
-                                            {category.name}
+                                            {model.name}
                                         </div>
 
                                         <div className="dictionary-item-path">
-                                            {category.path}
+                                            Marka: {model.brandName}
                                         </div>
 
                                         <div className="dictionary-item-id">
-                                            ID: {category.id}
+                                            ID: {model.id}
                                         </div>
                                     </div>
 
                                     <span className="dictionary-item-type">
-                                        Kategoria
+                                        Model
                                     </span>
                                 </li>
                             ))}
                         </ul>
                     )}
                 </article>
-
-                <article className="content-card dictionary-model-placeholder">
-                    <h2 className="content-card-title">
-                        Modele
-                    </h2>
-
-                    <p className="content-card-text">
-                        W następnym kroku wybierzesz markę,
-                        wpiszesz nazwę modelu i zapiszesz model
-                        przypisany wyłącznie do tej marki.
-                    </p>
-
-                    <div className="dictionary-example">
-                        <span className="dictionary-example-label">
-                            Przykład
-                        </span>
-
-                        <span>
-                            Samsung → Galaxy S25 Ultra
-                        </span>
-                    </div>
-                </article>
             </div>
         </section>
     );
+}
+
+function normalizeText(
+    value: string,
+): string {
+    return value
+        .trim()
+        .replace(/\s+/g, " ");
 }
 
 function parseCategoryPath(
@@ -591,11 +987,7 @@ function parseCategoryPath(
 
     return input
         .split(">")
-        .map((element) =>
-            element
-                .trim()
-                .replace(/\s+/g, " "),
-        );
+        .map(normalizeText);
 }
 
 function compareBrands(
@@ -614,6 +1006,16 @@ function compareCategories(
 ): number {
     return firstCategory.path.localeCompare(
         secondCategory.path,
+        "pl",
+    );
+}
+
+function compareModels(
+    firstModel: DictionaryModel,
+    secondModel: DictionaryModel,
+): number {
+    return firstModel.name.localeCompare(
+        secondModel.name,
         "pl",
     );
 }

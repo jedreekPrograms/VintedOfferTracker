@@ -631,3 +631,50 @@ a {
         align-self: stretch;
     }
 }
+
+.dictionary-model-form {
+    display: grid;
+    grid-template-columns:
+        minmax(150px, 0.7fr)
+        minmax(200px, 1fr)
+        auto;
+    align-items: end;
+    gap: 12px;
+}
+
+.form-select {
+    width: 100%;
+    min-height: 43px;
+    border: 1px solid #d6ddea;
+    border-radius: 10px;
+    padding: 10px 36px 10px 12px;
+    color: #172033;
+    background: #ffffff;
+    outline: none;
+    cursor: pointer;
+    transition:
+        border-color 150ms ease,
+        box-shadow 150ms ease;
+}
+
+.form-select:focus {
+    border-color: #8794ad;
+    box-shadow: 0 0 0 3px rgb(23 32 51 / 8%);
+}
+
+.form-select:disabled {
+    cursor: not-allowed;
+    color: #858fa2;
+    background: #f1f3f7;
+}
+
+@media (max-width: 760px) {
+    .dictionary-model-form {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+    }
+
+    .dictionary-model-form .primary-button {
+        width: 100%;
+    }
+}

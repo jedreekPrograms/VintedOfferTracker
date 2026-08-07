@@ -17,3 +17,14 @@ export interface DictionaryCategory {
 export interface CreateDictionaryCategoryRequest {
     categoryPath: string[];
 }
+
+export interface DictionaryModel {
+    id: number;
+    name: string;
+    brandId: number;
+    brandName: string;
+}
+
+export interface CreateDictionaryModelRequest {
+    name: string;
+}
