@@ -1,4 +1,7 @@
-import type { NegotiationStepForm } from "./botForm";
+import type {
+    NegotiationStepField,
+    NegotiationStepForm,
+} from "./botForm";
 
 interface NegotiationStepsSectionProps {
     negotiationSteps: NegotiationStepForm[];
@@ -12,10 +15,7 @@ interface NegotiationStepsSectionProps {
 
     onUpdateStep: (
         stepId: number,
-        field:
-            | "offerPrice"
-            | "maxAcceptedCounterOffer"
-            | "message",
+        field: NegotiationStepField,
         value: string,
     ) => void;
 }
@@ -151,12 +151,10 @@ function NegotiationStepsSection({
                                         />
 
                                         <span className="form-help">
-                                            Pole opcjonalne.
                                             Gdy sprzedający
                                             zaproponuje maksymalnie
-                                            tę kwotę, oferta
-                                            przejdzie do
-                                            „Oferty do kupienia”.
+                                            tę kwotę, oferta trafi
+                                            do „Oferty do kupienia”.
                                         </span>
                                     </div>
                                 </div>
@@ -200,7 +198,8 @@ function NegotiationStepsSection({
                 className="secondary-button add-negotiation-step-button"
                 type="button"
                 disabled={
-                    negotiationSteps.length >= 25
+                    negotiationSteps.length
+                    >= 25
                 }
                 onClick={onAddStep}
             >

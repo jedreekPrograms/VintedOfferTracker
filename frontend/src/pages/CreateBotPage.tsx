@@ -1,87 +1,56 @@
 import {
     type FormEvent,
-    useRef,
     useState,
 } from "react";
+
+import BasicInfoSection
+    from "../features/bots/create/BasicInfoSection";
 
 import BotFiltersSection
     from "../features/bots/create/BotFiltersSection";
 
+import NegotiationBudgetSection
+    from "../features/bots/create/NegotiationBudgetSection";
+
 import NegotiationStepsSection
     from "../features/bots/create/NegotiationStepsSection";
 
-import type {
-    NegotiationStepForm,
-} from "../features/bots/create/botForm";
+import VintedAccountSection
+    from "../features/bots/create/VintedAccountSection";
 
 import {
     useBotDictionaries,
 } from "../features/bots/create/hooks/useBotDictionaries";
 
 import {
+    useCreateBotForm,
+} from "../features/bots/create/hooks/useCreateBotForm";
+
+import {
     validateCreateBotForm,
 } from "../features/bots/create/validation/validateCreateBotForm";
 
 function CreateBotPage() {
-    const [
-        botName,
+    const {
+        form,
+
         setBotName,
-    ] = useState("");
-
-    const [
-        email,
         setEmail,
-    ] = useState("");
-
-    const [
-        password,
         setPassword,
-    ] = useState("");
 
-    const [
-        selectedCategoryId,
-        setSelectedCategoryId,
-    ] = useState("");
+        setCategory,
+        setBrand,
+        setModel,
 
-    const [
-        selectedBrandId,
-        setSelectedBrandId,
-    ] = useState("");
-
-    const [
-        selectedModelId,
-        setSelectedModelId,
-    ] = useState("");
-
-    const [
-        minPrice,
         setMinPrice,
-    ] = useState("");
-
-    const [
-        maxPrice,
         setMaxPrice,
-    ] = useState("");
 
-    const [
-        dailyNegotiationBudget,
         setDailyNegotiationBudget,
-    ] = useState("25");
 
-    const [
-        negotiationSteps,
-        setNegotiationSteps,
-    ] = useState<NegotiationStepForm[]>([
-        {
-            id: 1,
-            offerPrice: "",
-            maxAcceptedCounterOffer: "",
-            message: "",
-        },
-    ]);
-
-    const nextNegotiationStepId =
-        useRef(2);
+        addNegotiationStep,
+        removeNegotiationStep,
+        updateNegotiationStep,
+    } = useCreateBotForm();
 
     const [
         errorMessage,
@@ -108,28 +77,28 @@ function CreateBotPage() {
         dictionaryErrorMessage,
         clearDictionaryError,
     } = useBotDictionaries(
-        selectedBrandId,
+        form.selectedBrandId,
     );
 
     const selectedCategory =
         categories.find(
             (category) =>
                 String(category.id)
-                === selectedCategoryId,
+                === form.selectedCategoryId,
         ) ?? null;
 
     const selectedBrand =
         brands.find(
             (brand) =>
                 String(brand.id)
-                === selectedBrandId,
+                === form.selectedBrandId,
         ) ?? null;
 
     const selectedModel =
         models.find(
             (model) =>
                 String(model.id)
-                === selectedModelId,
+                === form.selectedModelId,
         ) ?? null;
 
     function clearMessages() {
@@ -137,10 +106,40 @@ function CreateBotPage() {
         setSuccessMessage(null);
     }
 
+    function changeBotName(
+        value: string,
+    ) {
+        setBotName(
+            value,
+        );
+
+        clearMessages();
+    }
+
+    function changeEmail(
+        value: string,
+    ) {
+        setEmail(
+            value,
+        );
+
+        clearMessages();
+    }
+
+    function changePassword(
+        value: string,
+    ) {
+        setPassword(
+            value,
+        );
+
+        clearMessages();
+    }
+
     function changeCategory(
         categoryId: string,
     ) {
-        setSelectedCategoryId(
+        setCategory(
             categoryId,
         );
 
@@ -150,11 +149,9 @@ function CreateBotPage() {
     function changeBrand(
         brandId: string,
     ) {
-        setSelectedBrandId(
+        setBrand(
             brandId,
         );
-
-        setSelectedModelId("");
 
         clearMessages();
         clearDictionaryError();
@@ -163,7 +160,7 @@ function CreateBotPage() {
     function changeModel(
         modelId: string,
     ) {
-        setSelectedModelId(
+        setModel(
             modelId,
         );
 
@@ -190,10 +187,21 @@ function CreateBotPage() {
         clearMessages();
     }
 
-    function addNegotiationStep() {
-        if (
-            negotiationSteps.length >= 25
-        ) {
+    function changeNegotiationBudget(
+        value: string,
+    ) {
+        setDailyNegotiationBudget(
+            value,
+        );
+
+        clearMessages();
+    }
+
+    function handleAddNegotiationStep() {
+        const added =
+            addNegotiationStep();
+
+        if (!added) {
             setErrorMessage(
                 "Nie możesz dodać więcej niż 25 kroków negocjacji.",
             );
@@ -201,39 +209,18 @@ function CreateBotPage() {
             return;
         }
 
-        const newStep:
-            NegotiationStepForm = {
-                id:
-                    nextNegotiationStepId
-                        .current,
-
-                offerPrice: "",
-
-                maxAcceptedCounterOffer:
-                    "",
-
-                message: "",
-            };
-
-        nextNegotiationStepId.current +=
-            1;
-
-        setNegotiationSteps(
-            (currentSteps) => [
-                ...currentSteps,
-                newStep,
-            ],
-        );
-
         clearMessages();
     }
 
-    function removeNegotiationStep(
+    function handleRemoveNegotiationStep(
         stepId: number,
     ) {
-        if (
-            negotiationSteps.length === 1
-        ) {
+        const removed =
+            removeNegotiationStep(
+                stepId,
+            );
+
+        if (!removed) {
             setErrorMessage(
                 "Bot musi mieć przynajmniej jeden krok negocjacji.",
             );
@@ -241,19 +228,10 @@ function CreateBotPage() {
             return;
         }
 
-        setNegotiationSteps(
-            (currentSteps) =>
-                currentSteps.filter(
-                    (step) =>
-                        step.id
-                        !== stepId,
-                ),
-        );
-
         clearMessages();
     }
 
-    function updateNegotiationStep(
+    function handleUpdateNegotiationStep(
         stepId: number,
         field:
             | "offerPrice"
@@ -261,23 +239,10 @@ function CreateBotPage() {
             | "message",
         value: string,
     ) {
-        setNegotiationSteps(
-            (currentSteps) =>
-                currentSteps.map(
-                    (step) => {
-                        if (
-                            step.id
-                            !== stepId
-                        ) {
-                            return step;
-                        }
-
-                        return {
-                            ...step,
-                            [field]: value,
-                        };
-                    },
-                ),
+        updateNegotiationStep(
+            stepId,
+            field,
+            value,
         );
 
         clearMessages();
@@ -293,23 +258,7 @@ function CreateBotPage() {
 
         const validationResult =
             validateCreateBotForm({
-                form: {
-                    botName,
-
-                    email,
-                    password,
-
-                    selectedCategoryId,
-                    selectedBrandId,
-                    selectedModelId,
-
-                    minPrice,
-                    maxPrice,
-
-                    dailyNegotiationBudget,
-
-                    negotiationSteps,
-                },
+                form,
 
                 selectedCategory,
                 selectedBrand,
@@ -328,11 +277,11 @@ function CreateBotPage() {
             validationResult.data;
 
         /*
-         * Na razie tylko sprawdzamy wynik.
+         * Nadal nie wysyłamy danych.
+         * Najpierw podłączymy dokładny
+         * kontrakt backendowego POST /api/bots.
          *
-         * Nie logujemy:
-         * - e-maila,
-         * - hasła.
+         * Nie wypisujemy e-maila ani hasła.
          */
         console.log(
             "Validated bot configuration:",
@@ -405,112 +354,29 @@ function CreateBotPage() {
                     handleSubmit
                 }
             >
-                <article className="content-card">
-                    <div className="bot-form-section-header">
-                        <div>
-                            <span className="bot-form-step">
-                                1
-                            </span>
+                <BasicInfoSection
+                    botName={
+                        form.botName
+                    }
+                    onBotNameChange={
+                        changeBotName
+                    }
+                />
 
-                            <h2 className="content-card-title">
-                                Podstawowe informacje
-                            </h2>
-                        </div>
-                    </div>
-
-                    <div className="form-field">
-                        <label
-                            className="form-label"
-                            htmlFor="bot-name"
-                        >
-                            Nazwa bota
-                        </label>
-
-                        <input
-                            id="bot-name"
-                            className="form-input"
-                            value={
-                                botName
-                            }
-                            placeholder="np. Samsung S25"
-                            onChange={(event) => {
-                                setBotName(
-                                    event.target.value,
-                                );
-
-                                clearMessages();
-                            }}
-                        />
-                    </div>
-                </article>
-
-                <article className="content-card">
-                    <div className="bot-form-section-header">
-                        <div>
-                            <span className="bot-form-step">
-                                2
-                            </span>
-
-                            <h2 className="content-card-title">
-                                Konto Vinted
-                            </h2>
-                        </div>
-                    </div>
-
-                    <div className="bot-form-grid bot-form-grid-two">
-                        <div className="form-field">
-                            <label
-                                className="form-label"
-                                htmlFor="vinted-email"
-                            >
-                                E-mail
-                            </label>
-
-                            <input
-                                id="vinted-email"
-                                className="form-input"
-                                type="email"
-                                value={
-                                    email
-                                }
-                                autoComplete="username"
-                                onChange={(event) => {
-                                    setEmail(
-                                        event.target.value,
-                                    );
-
-                                    clearMessages();
-                                }}
-                            />
-                        </div>
-
-                        <div className="form-field">
-                            <label
-                                className="form-label"
-                                htmlFor="vinted-password"
-                            >
-                                Hasło
-                            </label>
-
-                            <input
-                                id="vinted-password"
-                                className="form-input"
-                                type="password"
-                                value={
-                                    password
-                                }
-                                autoComplete="current-password"
-                                onChange={(event) => {
-                                    setPassword(
-                                        event.target.value,
-                                    );
-
-                                    clearMessages();
-                                }}
-                            />
-                        </div>
-                    </div>
-                </article>
+                <VintedAccountSection
+                    email={
+                        form.email
+                    }
+                    password={
+                        form.password
+                    }
+                    onEmailChange={
+                        changeEmail
+                    }
+                    onPasswordChange={
+                        changePassword
+                    }
+                />
 
                 <BotFiltersSection
                     categories={
@@ -523,19 +389,19 @@ function CreateBotPage() {
                         models
                     }
                     selectedCategoryId={
-                        selectedCategoryId
+                        form.selectedCategoryId
                     }
                     selectedBrandId={
-                        selectedBrandId
+                        form.selectedBrandId
                     }
                     selectedModelId={
-                        selectedModelId
+                        form.selectedModelId
                     }
                     minPrice={
-                        minPrice
+                        form.minPrice
                     }
                     maxPrice={
-                        maxPrice
+                        form.maxPrice
                     }
                     isLoadingDictionaries={
                         isLoadingDictionaries
@@ -560,63 +426,30 @@ function CreateBotPage() {
                     }
                 />
 
-                <article className="content-card">
-                    <div className="bot-form-section-header">
-                        <div>
-                            <span className="bot-form-step">
-                                4
-                            </span>
-
-                            <h2 className="content-card-title">
-                                Budżet negocjacyjny
-                            </h2>
-                        </div>
-                    </div>
-
-                    <div className="form-field bot-budget-field">
-                        <label
-                            className="form-label"
-                            htmlFor="negotiation-budget"
-                        >
-                            Dzienny budżet
-                        </label>
-
-                        <input
-                            id="negotiation-budget"
-                            className="form-input"
-                            type="number"
-                            min="1"
-                            max="25"
-                            step="1"
-                            value={
-                                dailyNegotiationBudget
-                            }
-                            onChange={(event) => {
-                                setDailyNegotiationBudget(
-                                    event.target.value,
-                                );
-
-                                clearMessages();
-                            }}
-                        />
-                    </div>
-                </article>
+                <NegotiationBudgetSection
+                    dailyNegotiationBudget={
+                        form.dailyNegotiationBudget
+                    }
+                    onBudgetChange={
+                        changeNegotiationBudget
+                    }
+                />
 
                 <NegotiationStepsSection
                     negotiationSteps={
-                        negotiationSteps
+                        form.negotiationSteps
                     }
                     dailyNegotiationBudget={
-                        dailyNegotiationBudget
+                        form.dailyNegotiationBudget
                     }
                     onAddStep={
-                        addNegotiationStep
+                        handleAddNegotiationStep
                     }
                     onRemoveStep={
-                        removeNegotiationStep
+                        handleRemoveNegotiationStep
                     }
                     onUpdateStep={
-                        updateNegotiationStep
+                        handleUpdateNegotiationStep
                     }
                 />
 

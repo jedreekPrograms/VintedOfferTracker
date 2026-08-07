@@ -4,6 +4,11 @@ import type {
     DictionaryModel,
 } from "../../../types/dictionaries";
 
+export type NegotiationStepField =
+    | "offerPrice"
+    | "maxAcceptedCounterOffer"
+    | "message";
+
 export interface NegotiationStepForm {
     id: number;
     offerPrice: string;
