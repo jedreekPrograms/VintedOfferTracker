@@ -5,8 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/DictionaryCategoryRepository.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/dto/CreateDictionaryCategoryRequest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/dto/DictionaryCategoryResponse.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/DictionaryController.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/DictionaryController.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/WorkerManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/WorkerManager.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -16,18 +19,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "jedreekPrograms"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;jedreekPrograms&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/jedreekPrograms/VintedOfferTracker.git",
-    "accountId": "eb44bf58-228e-4eb0-b3c7-41e329c37ac4"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/jedreekPrograms/VintedOfferTracker.git&quot;,
+    &quot;accountId&quot;: &quot;eb44bf58-228e-4eb0-b3c7-41e329c37ac4&quot;
   }
-}]]></component>
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 0
 }</component>
@@ -41,15 +44,21 @@
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "git-widget-placeholder": "main",
-    "kotlin-language-version-configured": "true"
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/Users/jedre/rozmowaoprace",
+    "nodejs_package_manager_path": "npm",
+    "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
         <option value="bundled-jdk-30f59d01ecdd-cffe25b9f5b3-intellij.indexing.shared.core-IU-253.28294.334" />
+        <option value="bundled-js-predefined-d6986cc7102b-c7e53b3be11b-JavaScript-IU-253.28294.334" />
       </set>
     </attachedChunks>
   </component>
@@ -61,7 +70,12 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1783089012092</updated>
+      <workItem from="1784307279440" duration="1802000" />
+      <workItem from="1785927767072" duration="1829000" />
     </task>
     <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
   </component>
 </project>

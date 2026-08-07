@@ -121,7 +121,7 @@ public class DictionaryModelService {
             Long brandId
     ) {
 
-        if(!dictionaryModelRepository.existsById(
+        if(!dictionaryBrandRepository.existsById(
                 brandId
         )) {
 
