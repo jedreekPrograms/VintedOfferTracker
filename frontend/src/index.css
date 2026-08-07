@@ -678,3 +678,140 @@ a {
         width: 100%;
     }
 }
+
+.bot-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.bot-form-section-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.bot-form-section-header > div {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bot-form-section-header .content-card-title {
+    margin: 0;
+}
+
+.bot-form-section-header .content-card-text {
+    max-width: 480px;
+    margin: 0;
+    text-align: right;
+}
+
+.bot-form-step {
+    display: inline-grid;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    place-items: center;
+    border-radius: 9px;
+    color: #ffffff;
+    background: #172033;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.bot-form-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+}
+
+.bot-form-grid-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bot-form-grid-three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bot-form-price-grid {
+    margin-top: 18px;
+}
+
+.bot-budget-field {
+    max-width: 300px;
+}
+
+.bot-selection-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 16px;
+    border: 1px solid #e4e8f0;
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: #344058;
+    background: #f7f9fc;
+    font-size: 13px;
+}
+
+.bot-selection-preview-label {
+    color: #8993a6;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.negotiation-placeholder {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border: 1px dashed #ccd4e2;
+    border-radius: 12px;
+    padding: 18px;
+    color: #65718a;
+    background: #f8f9fc;
+    font-size: 13px;
+}
+
+.negotiation-placeholder strong {
+    color: #263149;
+}
+
+.bot-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 4px 0 30px;
+}
+
+.bot-form-actions .primary-button {
+    min-width: 180px;
+}
+
+@media (max-width: 900px) {
+    .bot-form-grid-three {
+        grid-template-columns: 1fr;
+    }
+
+    .bot-form-grid-two {
+        grid-template-columns: 1fr;
+    }
+
+    .bot-form-section-header {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .bot-form-section-header .content-card-text {
+        text-align: left;
+    }
+}
+
+@media (max-width: 560px) {
+    .bot-form-actions .primary-button {
+        width: 100%;
+    }
+}
