@@ -30,10 +30,26 @@ public class WorkerManager {
 
     public void syncWorkers() {
 
-        Set<Long> runningBotIds = botApiClient.getRunningBots()
-                .stream()
-                .map(RunningBotDto::getId)
-                .collect(Collectors.toSet());
+        try {
+
+            Set<Long> runningBotIds = botApiClient.getRunningBots()
+                    .stream()
+                    .map(RunningBotDto::getId)
+                    .collect(Collectors.toSet());
+
+            stopInactiveWorkers(runningBotIds);
+
+            removeFinishedWorkers();
+
+            startMissingWorkers(runningBotIds);
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Failed to synchronize bot workers",
+                    exception
+            );
+        }
     }
 
     public void start() {
@@ -94,6 +110,29 @@ public class WorkerManager {
                     log.info(
                             "Stopped worker for bot {}",
                             botId
+                    );
+
+                    return true;
+                });
+    }
+
+    private void removeFinishedWorkers() {
+
+        workers.entrySet()
+                .removeIf(entry -> {
+
+                    Future<?> future =
+                            entry.getValue();
+
+                    if (!future.isDone()
+                            && !future.isCancelled()) {
+
+                        return false;
+                    }
+
+                    log.info(
+                            "Removing finished worker for bot {}",
+                            entry.getKey()
                     );
 
                     return true;
