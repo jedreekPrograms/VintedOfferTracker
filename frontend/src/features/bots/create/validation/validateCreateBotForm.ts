@@ -173,48 +173,49 @@ export function validateCreateBotForm({
             );
         }
 
+        const counterOfferResult =
+            parseRequiredPositiveNumber(
+                step.maxAcceptedCounterOffer,
+                `Krok ${stepNumber}: maksymalna akceptowalna kontroferta jest wymagana i musi być większa od 0.`,
+            );
+
+        if (!counterOfferResult.valid) {
+            return invalid(
+                counterOfferResult.errorMessage,
+            );
+        }
+
         const offerPrice =
             offerPriceResult.value;
 
-        let maxAcceptedCounterOffer:
-            number | null = null;
+        const maxAcceptedCounterOffer =
+            counterOfferResult.value;
 
         if (
-            step.maxAcceptedCounterOffer
-                .trim()
-                .length > 0
+            maxAcceptedCounterOffer
+            < offerPrice
         ) {
-            const counterOfferResult =
-                parseRequiredPositiveNumber(
-                    step.maxAcceptedCounterOffer,
-                    `Krok ${stepNumber}: maksymalna kontroferta jest nieprawidłowa.`,
-                );
+            return invalid(
+                `Krok ${stepNumber}: maksymalna akceptowalna kontroferta nie może być niższa od ceny naszej oferty.`,
+            );
+        }
 
-            if (!counterOfferResult.valid) {
-                return invalid(
-                    counterOfferResult.errorMessage,
-                );
-            }
+        const normalizedMessage =
+            step.message.trim();
 
-            maxAcceptedCounterOffer =
-                counterOfferResult.value;
-
-            if (
-                maxAcceptedCounterOffer
-                < offerPrice
-            ) {
-                return invalid(
-                    `Krok ${stepNumber}: maksymalna kontroferta nie może być niższa od ceny naszej oferty.`,
-                );
-            }
+        if (
+            normalizedMessage.length === 0
+        ) {
+            return invalid(
+                `Krok ${stepNumber}: wiadomość jest wymagana.`,
+            );
         }
 
         negotiationSteps.push({
-            stepNumber,
             offerPrice,
             maxAcceptedCounterOffer,
             message:
-                step.message.trim(),
+                normalizedMessage,
         });
     }
 
@@ -268,7 +269,9 @@ function parseRequiredPositiveNumber(
     value: string,
     errorMessage: string,
 ): ParsedNumberResult {
-    if (value.trim().length === 0) {
+    if (
+        value.trim().length === 0
+    ) {
         return {
             valid: false,
             errorMessage,
@@ -281,7 +284,9 @@ function parseRequiredPositiveNumber(
         );
 
     if (
-        !Number.isFinite(parsedValue)
+        !Number.isFinite(
+            parsedValue,
+        )
         || parsedValue <= 0
     ) {
         return {
@@ -292,7 +297,8 @@ function parseRequiredPositiveNumber(
 
     return {
         valid: true,
-        value: parsedValue,
+        value:
+            parsedValue,
     };
 }
 
@@ -300,7 +306,9 @@ function parseRequiredNonNegativeNumber(
     value: string,
     errorMessage: string,
 ): ParsedNumberResult {
-    if (value.trim().length === 0) {
+    if (
+        value.trim().length === 0
+    ) {
         return {
             valid: false,
             errorMessage,
@@ -313,7 +321,9 @@ function parseRequiredNonNegativeNumber(
         );
 
     if (
-        !Number.isFinite(parsedValue)
+        !Number.isFinite(
+            parsedValue,
+        )
         || parsedValue < 0
     ) {
         return {
@@ -324,7 +334,8 @@ function parseRequiredNonNegativeNumber(
 
     return {
         valid: true,
-        value: parsedValue,
+        value:
+            parsedValue,
     };
 }
 

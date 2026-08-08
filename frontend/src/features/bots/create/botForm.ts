@@ -35,9 +35,8 @@ export interface CreateBotFormValues {
 }
 
 export interface ValidatedNegotiationStep {
-    stepNumber: number;
     offerPrice: number;
-    maxAcceptedCounterOffer: number | null;
+    maxAcceptedCounterOffer: number;
     message: string;
 }
 

@@ -41,9 +41,8 @@ function NegotiationStepsSection({
                 </div>
 
                 <p className="content-card-text">
-                    Bot przechodzi do kolejnego kroku
-                    po odrzuceniu poprzedniej oferty
-                    lub zbyt wysokiej kontrofertcie.
+                    Kolejność elementów określa
+                    kolejność kroków negocjacji
                 </p>
             </div>
 
@@ -103,6 +102,7 @@ function NegotiationStepsSection({
                                             type="number"
                                             min="0.01"
                                             step="0.01"
+                                            required
                                             value={
                                                 step.offerPrice
                                             }
@@ -137,6 +137,7 @@ function NegotiationStepsSection({
                                             type="number"
                                             min="0.01"
                                             step="0.01"
+                                            required
                                             value={
                                                 step.maxAcceptedCounterOffer
                                             }
@@ -151,10 +152,11 @@ function NegotiationStepsSection({
                                         />
 
                                         <span className="form-help">
-                                            Gdy sprzedający
-                                            zaproponuje maksymalnie
-                                            tę kwotę, oferta trafi
-                                            do „Oferty do kupienia”.
+                                            Pole wymagane. Jeżeli 
+                                            sprzedający zaproponuje 
+                                            maksymalnie tę kwotę, 
+                                            oferta trafi do
+                                            „Oferty do kupienia”.
                                         </span>
                                     </div>
                                 </div>
@@ -173,6 +175,7 @@ function NegotiationStepsSection({
                                         value={step.message}
                                         maxLength={1000}
                                         rows={3}
+                                        required
                                         placeholder="np. Dzień dobry, czy zaakceptuje Pan/Pani taką cenę?"
                                         onChange={(event) => {
                                             onUpdateStep(

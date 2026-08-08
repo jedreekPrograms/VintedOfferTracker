@@ -3,6 +3,14 @@ import {
     useState,
 } from "react";
 
+import {
+    useNavigate,
+} from "react-router-dom";
+
+import {
+    createBot,
+} from "../api/botsApi";
+
 import BasicInfoSection
     from "../features/bots/create/BasicInfoSection";
 
@@ -18,6 +26,10 @@ import NegotiationStepsSection
 import VintedAccountSection
     from "../features/bots/create/VintedAccountSection";
 
+import type {
+    NegotiationStepField,
+} from "../features/bots/create/botForm";
+
 import {
     useBotDictionaries,
 } from "../features/bots/create/hooks/useBotDictionaries";
@@ -27,10 +39,17 @@ import {
 } from "../features/bots/create/hooks/useCreateBotForm";
 
 import {
+    buildCreateBotRequest,
+} from "../features/bots/create/mappers/buildCreateBotRequest";
+
+import {
     validateCreateBotForm,
 } from "../features/bots/create/validation/validateCreateBotForm";
 
 function CreateBotPage() {
+    const navigate =
+        useNavigate();
+
     const {
         form,
 
@@ -60,11 +79,9 @@ function CreateBotPage() {
     );
 
     const [
-        successMessage,
-        setSuccessMessage,
-    ] = useState<string | null>(
-        null,
-    );
+        isSubmitting,
+        setIsSubmitting,
+    ] = useState(false);
 
     const {
         categories,
@@ -103,7 +120,6 @@ function CreateBotPage() {
 
     function clearMessages() {
         setErrorMessage(null);
-        setSuccessMessage(null);
     }
 
     function changeBotName(
@@ -233,10 +249,7 @@ function CreateBotPage() {
 
     function handleUpdateNegotiationStep(
         stepId: number,
-        field:
-            | "offerPrice"
-            | "maxAcceptedCounterOffer"
-            | "message",
+        field: NegotiationStepField,
         value: string,
     ) {
         updateNegotiationStep(
@@ -248,11 +261,15 @@ function CreateBotPage() {
         clearMessages();
     }
 
-    function handleSubmit(
+    async function handleSubmit(
         event:
             FormEvent<HTMLFormElement>,
     ) {
         event.preventDefault();
+
+        if (isSubmitting) {
+            return;
+        }
 
         clearMessages();
 
@@ -273,58 +290,35 @@ function CreateBotPage() {
             return;
         }
 
-        const validatedData =
-            validationResult.data;
+        const request =
+            buildCreateBotRequest(
+                validationResult.data,
+            );
 
-        /*
-         * Nadal nie wysyłamy danych.
-         * Najpierw podłączymy dokładny
-         * kontrakt backendowego POST /api/bots.
-         *
-         * Nie wypisujemy e-maila ani hasła.
-         */
-        console.log(
-            "Validated bot configuration:",
-            {
-                name:
-                    validatedData.name,
-
-                categoryPath:
-                    validatedData
-                        .category
-                        .categoryPath,
-
-                brand:
-                    validatedData
-                        .brand
-                        .name,
-
-                model:
-                    validatedData
-                        .model
-                        .name,
-
-                minPrice:
-                    validatedData
-                        .minPrice,
-
-                maxPrice:
-                    validatedData
-                        .maxPrice,
-
-                dailyNegotiationBudget:
-                    validatedData
-                        .dailyNegotiationBudget,
-
-                negotiationSteps:
-                    validatedData
-                        .negotiationSteps,
-            },
+        setIsSubmitting(
+            true,
         );
 
-        setSuccessMessage(
-            "Konfiguracja jest poprawna.",
-        );
+        try {
+            await createBot(
+                request,
+            );
+
+            navigate(
+                "/bots",
+            );
+        } catch (error) {
+            setErrorMessage(
+                getErrorMessage(
+                    error,
+                    "Nie udało się utworzyć bota.",
+                ),
+            );
+        } finally {
+            setIsSubmitting(
+                false,
+            );
+        }
     }
 
     return (
@@ -354,104 +348,111 @@ function CreateBotPage() {
                     handleSubmit
                 }
             >
-                <BasicInfoSection
-                    botName={
-                        form.botName
+                <fieldset
+                    className="bot-form-fieldset"
+                    disabled={
+                        isSubmitting
                     }
-                    onBotNameChange={
-                        changeBotName
-                    }
-                />
+                >
+                    <BasicInfoSection
+                        botName={
+                            form.botName
+                        }
+                        onBotNameChange={
+                            changeBotName
+                        }
+                    />
 
-                <VintedAccountSection
-                    email={
-                        form.email
-                    }
-                    password={
-                        form.password
-                    }
-                    onEmailChange={
-                        changeEmail
-                    }
-                    onPasswordChange={
-                        changePassword
-                    }
-                />
+                    <VintedAccountSection
+                        email={
+                            form.email
+                        }
+                        password={
+                            form.password
+                        }
+                        onEmailChange={
+                            changeEmail
+                        }
+                        onPasswordChange={
+                            changePassword
+                        }
+                    />
 
-                <BotFiltersSection
-                    categories={
-                        categories
-                    }
-                    brands={
-                        brands
-                    }
-                    models={
-                        models
-                    }
-                    selectedCategoryId={
-                        form.selectedCategoryId
-                    }
-                    selectedBrandId={
-                        form.selectedBrandId
-                    }
-                    selectedModelId={
-                        form.selectedModelId
-                    }
-                    minPrice={
-                        form.minPrice
-                    }
-                    maxPrice={
-                        form.maxPrice
-                    }
-                    isLoadingDictionaries={
-                        isLoadingDictionaries
-                    }
-                    areModelsLoading={
-                        areModelsLoading
-                    }
-                    onCategoryChange={
-                        changeCategory
-                    }
-                    onBrandChange={
-                        changeBrand
-                    }
-                    onModelChange={
-                        changeModel
-                    }
-                    onMinPriceChange={
-                        changeMinPrice
-                    }
-                    onMaxPriceChange={
-                        changeMaxPrice
-                    }
-                />
+                    <BotFiltersSection
+                        categories={
+                            categories
+                        }
+                        brands={
+                            brands
+                        }
+                        models={
+                            models
+                        }
+                        selectedCategoryId={
+                            form.selectedCategoryId
+                        }
+                        selectedBrandId={
+                            form.selectedBrandId
+                        }
+                        selectedModelId={
+                            form.selectedModelId
+                        }
+                        minPrice={
+                            form.minPrice
+                        }
+                        maxPrice={
+                            form.maxPrice
+                        }
+                        isLoadingDictionaries={
+                            isLoadingDictionaries
+                        }
+                        areModelsLoading={
+                            areModelsLoading
+                        }
+                        onCategoryChange={
+                            changeCategory
+                        }
+                        onBrandChange={
+                            changeBrand
+                        }
+                        onModelChange={
+                            changeModel
+                        }
+                        onMinPriceChange={
+                            changeMinPrice
+                        }
+                        onMaxPriceChange={
+                            changeMaxPrice
+                        }
+                    />
 
-                <NegotiationBudgetSection
-                    dailyNegotiationBudget={
-                        form.dailyNegotiationBudget
-                    }
-                    onBudgetChange={
-                        changeNegotiationBudget
-                    }
-                />
+                    <NegotiationBudgetSection
+                        dailyNegotiationBudget={
+                            form.dailyNegotiationBudget
+                        }
+                        onBudgetChange={
+                            changeNegotiationBudget
+                        }
+                    />
 
-                <NegotiationStepsSection
-                    negotiationSteps={
-                        form.negotiationSteps
-                    }
-                    dailyNegotiationBudget={
-                        form.dailyNegotiationBudget
-                    }
-                    onAddStep={
-                        handleAddNegotiationStep
-                    }
-                    onRemoveStep={
-                        handleRemoveNegotiationStep
-                    }
-                    onUpdateStep={
-                        handleUpdateNegotiationStep
-                    }
-                />
+                    <NegotiationStepsSection
+                        negotiationSteps={
+                            form.negotiationSteps
+                        }
+                        dailyNegotiationBudget={
+                            form.dailyNegotiationBudget
+                        }
+                        onAddStep={
+                            handleAddNegotiationStep
+                        }
+                        onRemoveStep={
+                            handleRemoveNegotiationStep
+                        }
+                        onUpdateStep={
+                            handleUpdateNegotiationStep
+                        }
+                    />
+                </fieldset>
 
                 {dictionaryErrorMessage !== null && (
                     <div
@@ -471,26 +472,36 @@ function CreateBotPage() {
                     </div>
                 )}
 
-                {successMessage !== null && (
-                    <div
-                        className="form-message form-message-success"
-                        role="status"
-                    >
-                        {successMessage}
-                    </div>
-                )}
-
                 <div className="bot-form-actions">
                     <button
                         className="primary-button"
                         type="submit"
+                        disabled={
+                            isSubmitting
+                            || isLoadingDictionaries
+                        }
                     >
-                        Sprawdź konfigurację
+                        {isSubmitting
+                            ? "Tworzenie bota..."
+                            : "Utwórz bota"}
                     </button>
                 </div>
             </form>
         </section>
     );
+}
+
+function getErrorMessage(
+    error: unknown,
+    fallbackMessage: string,
+): string {
+    if (
+        error instanceof Error
+    ) {
+        return error.message;
+    }
+
+    return fallbackMessage;
 }
 
 export default CreateBotPage;
