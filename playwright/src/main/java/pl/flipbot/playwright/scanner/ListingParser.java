@@ -15,6 +15,9 @@ public class ListingParser {
     private static final String ITEM_PREFIX =
             "item-";
 
+    private static final String VINTED_BASE_URL =
+            "https://www.vinted.pl";
+
     public Listing parse(ListingSnapshot snapshot) {
 
         Listing listing = new Listing();
@@ -36,7 +39,9 @@ public class ListingParser {
         );
 
         listing.setUrl(
-                emptyToNull(snapshot.url())
+                absoluteUrl(
+                        snapshot.url()
+                )
         );
 
         listing.setImageUrl(
@@ -203,6 +208,36 @@ public class ListingParser {
                 ? null
                 : trimmed;
 
+    }
+
+    private String absoluteUrl(
+            String value
+    ) {
+
+        String url =
+                emptyToNull(
+                        value
+                );
+
+        if (url == null) {
+            return null;
+        }
+
+        if (url.startsWith("https://")
+                || url.startsWith("http://")) {
+
+            return url;
+        }
+
+        if (url.startsWith("/")) {
+
+            return VINTED_BASE_URL
+                    + url;
+        }
+
+        return VINTED_BASE_URL
+                + "/"
+                + url;
     }
 
 }

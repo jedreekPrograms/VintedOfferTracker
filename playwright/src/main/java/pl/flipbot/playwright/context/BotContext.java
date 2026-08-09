@@ -25,23 +25,27 @@ public class BotContext implements AutoCloseable {
         this.sessionManager = new SessionManager();
 
         Path sessionFile = null;
-        if (sessionManager.sessionExists(bot.getEmail())) {
-            sessionFile = sessionManager.sessionFile(bot.getEmail());
+        if (sessionManager.sessionExists(bot.getId())) {
+            sessionFile = sessionManager.sessionFile(bot.getId());
         }
 
         this.browserContext = browserManager.createContext(sessionFile);
 
-        // POPRAWKA: Pobieramy istniejącą kartę zamiast otwierać nową
         if (!browserContext.pages().isEmpty()) {
-            this.page = browserContext.pages().get(0);
+
+            this.page = browserContext.pages()
+                            .get(0);
+
         } else {
-            this.page = browserContext.pages().get(0); // Bezpieczny fallback, gdyby okno było puste
+
+            this.page =
+                    browserContext.newPage();
         }
     }
 
     public void saveSession() {
         sessionManager.saveSession(
-                bot.getEmail(),
+                bot.getId(),
                 browserContext
         );
     }

@@ -22,6 +22,9 @@ import pl.flipbot.playwright.negotiation.NextStepExecutionResult;
 import pl.flipbot.playwright.negotiation.NextStepPreparationResult;
 import pl.flipbot.playwright.processing.ListingProcessingService;
 import pl.flipbot.playwright.scanner.ListingScanner;
+import com.microsoft.playwright.Page;
+import pl.flipbot.playwright.api.command.BotCommandClient;
+import pl.flipbot.playwright.api.command.dto.BotCommandDto;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -72,6 +75,8 @@ public class BotWorker implements Runnable {
 
     private final NextNegotiationStepExecutor
             nextNegotiationStepExecutor;
+
+    private final BotCommandClient botCommandClient;
 
     public BotWorker(
             BotDetailsDto bot,
@@ -131,6 +136,9 @@ public class BotWorker implements Runnable {
                         context
                 );
 
+        this.botCommandClient =
+                new BotCommandClient();
+
     }
 
     @Override
@@ -145,11 +153,26 @@ public class BotWorker implements Runnable {
 
             loginService.login();
 
-            doWork();
+            while (!Thread.currentThread().isInterrupted()) {
 
-            Thread.sleep(
-                    10_000
-            );
+                boolean commandProcessed =
+                        processNextBotCommand();
+
+                if (commandProcessed) {
+
+                    Thread.sleep(
+                            1_000
+                    );
+
+                    continue;
+                }
+
+                doWork();
+
+                Thread.sleep(
+                        30_000
+                );
+            }
 
         } catch (InterruptedException exception) {
 
@@ -1036,6 +1059,149 @@ public class BotWorker implements Runnable {
                 null
         );
 
+    }
+
+    private boolean processNextBotCommand() {
+
+        Long botId =
+                context.getBot().getId();
+
+        BotCommandDto command =
+                botCommandClient
+                        .claimNextCommand(
+                                botId
+                        );
+
+        if (command == null) {
+
+            return false;
+        }
+
+        log.info(
+                "[COMMAND] Bot {} claimed command {} of type {}",
+                botId,
+                command.id(),
+                command.type()
+        );
+
+        try {
+
+            switch (command.type()) {
+
+                case OPEN_CONVERSATION ->
+                        openConversation(
+                                command
+                        );
+            }
+
+            botCommandClient
+                    .completeCommand(
+                            botId,
+                            command.id()
+                    );
+
+            log.info(
+                    "[COMMAND] Command {} completed successfully",
+                    command.id()
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "[COMMAND] Command {} failed",
+                    command.id(),
+                    exception
+            );
+
+            markCommandAsFailedSafely(
+                    botId,
+                    command,
+                    exception
+            );
+        }
+
+        return true;
+    }
+
+    private void openConversation(
+            BotCommandDto command
+    ) {
+
+        String conversationUrl =
+                command.conversationUrl();
+
+        if (conversationUrl == null
+                || conversationUrl.isBlank()) {
+
+            throw new IllegalStateException(
+                    "OPEN_CONVERSATION command "
+                            + command.id()
+                            + " contains no conversation URL"
+            );
+        }
+
+        Page manualPage =
+                context.getBrowserContext()
+                        .newPage();
+
+        manualPage.navigate(
+                conversationUrl
+        );
+
+        manualPage.bringToFront();
+
+        log.info(
+                "[COMMAND] Opened conversation for listing {} "
+                        + "in bot {} browser context",
+                command.listingId(),
+                command.botId()
+        );
+    }
+
+    private void markCommandAsFailedSafely(
+            Long botId,
+            BotCommandDto command,
+            Exception originalException
+    ) {
+
+        String errorMessage =
+                originalException.getMessage();
+
+        if (errorMessage == null
+                || errorMessage.isBlank()) {
+
+            errorMessage =
+                    originalException
+                            .getClass()
+                            .getSimpleName();
+        }
+
+        if (errorMessage.length() > 1000) {
+
+            errorMessage =
+                    errorMessage.substring(
+                            0,
+                            1000
+                    );
+        }
+
+        try {
+
+            botCommandClient
+                    .failCommand(
+                            botId,
+                            command.id(),
+                            errorMessage
+                    );
+
+        } catch (Exception failException) {
+
+            log.error(
+                    "[COMMAND] Failed to mark command {} as FAILED",
+                    command.id(),
+                    failException
+            );
+        }
     }
 
 }

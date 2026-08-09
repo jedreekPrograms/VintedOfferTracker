@@ -155,4 +155,63 @@ public abstract class ApiClient {
 
     }
 
+    protected HttpResponse<String> post(String path) {
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + path))
+                .POST(
+                        HttpRequest.BodyPublishers.noBody()
+                )
+                .build();
+
+        try {
+
+            return httpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+        } catch (IOException | InterruptedException e) {
+
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+
+            throw new ApiException(
+                    "POST request failed.",
+                    e
+            );
+        }
+    }
+
+    protected HttpResponse<String> patch(String path) {
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + path))
+                .method(
+                        "PATCH",
+                        HttpRequest.BodyPublishers.noBody()
+                )
+                .build();
+
+        try {
+
+            return httpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+        } catch (IOException | InterruptedException e) {
+
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+
+            throw new ApiException(
+                    "PATCH request failed.",
+                    e
+            );
+        }
+    }
+
 }

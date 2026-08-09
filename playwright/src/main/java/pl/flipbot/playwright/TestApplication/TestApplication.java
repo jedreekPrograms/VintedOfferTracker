@@ -26,7 +26,6 @@ public class TestApplication {
                     "No running bots found in backend. "
                             + "Create a bot and start it first."
             );
-
         }
 
         RunningBotDto runningBot =
@@ -41,7 +40,9 @@ public class TestApplication {
         );
 
         BotDetailsDto bot =
-                botApiClient.getBot(botId);
+                botApiClient.getBot(
+                        botId
+                );
 
         try (BrowserManager browserManager =
                      new BrowserManager()) {
@@ -53,9 +54,6 @@ public class TestApplication {
                     );
 
             worker.run();
-
         }
-
     }
-
 }

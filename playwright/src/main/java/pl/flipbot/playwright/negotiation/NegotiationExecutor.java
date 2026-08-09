@@ -14,7 +14,7 @@ import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
-
+import java.math.RoundingMode;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -64,6 +64,13 @@ public class NegotiationExecutor {
 
     private final BotContext context;
 
+    private static final String VINTED_BASE_URL =
+            "https://www.vinted.pl";
+
+    private static final BigDecimal VINTED_MIN_OFFER_RATIO =
+            new BigDecimal("0.60");
+
+
     /*
      * Na razie ListingClient tworzymy tutaj, dzięki czemu obecny konstruktor:
      *
@@ -99,6 +106,16 @@ public class NegotiationExecutor {
         validateOfferPrice(
                 offerPrice
         );
+
+        if (isBelowEstimatedVintedMinimum(
+                listing,
+                offerPrice,
+                "[DRY RUN]"
+        )) {
+
+            return NegotiationPreparationResult
+                    .OFFER_TOO_LOW;
+        }
 
         log.info(
                 "[DRY RUN] Preparing first offer for backend listing {}, "
@@ -201,6 +218,16 @@ public class NegotiationExecutor {
         validateOfferPrice(
                 offerPrice
         );
+
+        if (isBelowEstimatedVintedMinimum(
+                listing,
+                offerPrice,
+                "[REAL OFFER]"
+        )) {
+
+            return NegotiationStartResult
+                    .OFFER_TOO_LOW;
+        }
 
         if (stepNumber == null) {
 
@@ -353,15 +380,20 @@ public class NegotiationExecutor {
             String logPrefix
     ) {
 
+        String listingUrl =
+                resolveListingUrl(
+                        listing.url()
+                );
+
         log.info(
                 "{} Opening listing {}: {}",
                 logPrefix,
                 listing.listingId(),
-                listing.url()
+                listingUrl
         );
 
         page.navigate(
-                listing.url(),
+                listingUrl,
                 new Page.NavigateOptions()
                         .setWaitUntil(
                                 WaitUntilState.DOMCONTENTLOADED
@@ -1661,6 +1693,76 @@ public class NegotiationExecutor {
 
         }
 
+    }
+
+    private String resolveListingUrl(
+            String url
+    ) {
+
+        if (url == null || url.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Listing URL cannot be empty"
+            );
+        }
+
+        if (url.startsWith("https://")
+                || url.startsWith("http://")) {
+
+            return url;
+        }
+
+        if (url.startsWith("/")) {
+
+            return VINTED_BASE_URL + url;
+        }
+
+        return VINTED_BASE_URL + "/" + url;
+    }
+
+    private boolean isBelowEstimatedVintedMinimum(
+            ListingResponseDto listing,
+            BigDecimal offerPrice,
+            String logPrefix
+    ) {
+
+        BigDecimal listingPrice =
+                listing.originalPrice();
+
+        if (listingPrice == null
+                || listingPrice.signum() <= 0) {
+
+            return false;
+        }
+
+        BigDecimal estimatedMinimum =
+                listingPrice
+                        .multiply(
+                                VINTED_MIN_OFFER_RATIO
+                        )
+                        .setScale(
+                                2,
+                                RoundingMode.HALF_UP
+                        );
+
+        if (offerPrice.compareTo(
+                estimatedMinimum
+        ) >= 0) {
+
+            return false;
+        }
+
+        log.info(
+                "{} Skipping marketplace listing {} before opening it. "
+                        + "Listing price: {}, configured offer: {}, "
+                        + "estimated Vinted minimum offer: {}.",
+                logPrefix,
+                listing.listingId(),
+                listingPrice,
+                offerPrice,
+                estimatedMinimum
+        );
+
+        return true;
     }
 
 }

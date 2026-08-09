@@ -12,10 +12,10 @@ public class SessionManager {
             Path.of("sessions");
 
 
-    public boolean sessionExists(String email) {
+    public boolean sessionExists(Long botId) {
 
         return Files.exists(
-                sessionFile(email)
+                sessionFile(botId)
         );
 
     }
@@ -33,22 +33,26 @@ public class SessionManager {
         }
     }
 
-    public void saveSession(String email, BrowserContext context) {
+    public void saveSession(Long botId, BrowserContext context) {
 
         context.storageState(
                 new BrowserContext.StorageStateOptions()
-                        .setPath(sessionFile(email))
+                        .setIndexedDB(true)
+                        .setPath(sessionFile(botId))
         );
     }
 
-    public Path sessionFile(String email) {
+    public Path sessionFile(Long botId) {
 
-        String safeName = email
-                .replace("@", "_")
-                .replace(".", "_");
+        if (botId == null || botId <= 0) {
+
+            throw new IllegalArgumentException(
+                    "Bot ID must be positive"
+            );
+        }
 
         return SESSION_DIRECTORY.resolve(
-                safeName + ".json"
+                "bot-" + botId + ".json"
         );
     }
 }

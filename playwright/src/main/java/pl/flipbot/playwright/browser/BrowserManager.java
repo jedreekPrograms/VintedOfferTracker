@@ -17,16 +17,20 @@ public class BrowserManager implements AutoCloseable {
     }
 
     public BrowserContext createContext(Path storageState) {
-        // Przy połączeniu CDP pobieramy główny, aktywny kontekst przeglądarki
-        BrowserContext defaultContext = browser.contexts().get(0);
 
-        // Jeśli masz plik sesji (storageState), wgrywamy ciasteczka do istniejącego kontekstu
+        Browser.NewContextOptions options =
+                new Browser.NewContextOptions();
+
         if (storageState != null) {
-            defaultContext.storageState(new BrowserContext.StorageStateOptions()
-                    .setPath(storageState));
+
+            options.setStorageStatePath(
+                    storageState
+            );
         }
 
-        return defaultContext;
+        return browser.newContext(
+                options
+        );
     }
 
     @Override
