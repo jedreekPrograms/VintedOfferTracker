@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 
 @Getter
 @Builder
-public class ListingResponse {
+public class ListingHistoryResponse {
 
     private Long id;
 
@@ -24,13 +24,11 @@ public class ListingResponse {
 
     private Integer currentStep;
 
-    private Boolean awaitingSellerResponse;
-
-    private String conversationId;
-
-    private String conversationUrl;
-
     private String status;
 
     private LocalDateTime decisionAt;
+
+    private Long botId;
+
+    private String botName;
 }

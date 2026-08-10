@@ -17,7 +17,7 @@ import lombok.Setter;
 import pl.flipbot.bot.Bot;
 
 import java.math.BigDecimal;
-
+import java.time.LocalDateTime;
 @Entity
 @Getter
 @Setter
@@ -67,11 +67,16 @@ public class Listing {
     @Column(nullable = false)
     private ListingStatus status;
 
+    @Column(name = "decision_at")
+    private LocalDateTime decisionAt;
+
     @ManyToOne
     @JoinColumn(
             name = "bot_id",
             nullable = false
     )
     private Bot bot;
+
+
 
 }

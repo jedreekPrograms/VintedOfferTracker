@@ -24,6 +24,10 @@ const navigationItems: NavigationItem[] = [
         path: "/action-required",
     },
     {
+        label: "Historia",
+        path: "/history",
+    },
+    {
         label: "Słowniki",
         path: "/dictionaries"
     },

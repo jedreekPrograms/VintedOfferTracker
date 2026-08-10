@@ -45,8 +45,9 @@ public class ListingMapper {
                 .status(
                         listing.getStatus().name()
                 )
+                .decisionAt(
+                        listing.getDecisionAt()
+                )
                 .build();
-
     }
-
 }

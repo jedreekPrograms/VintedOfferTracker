@@ -10,10 +10,13 @@ public enum ListingStatus {
 
     SKIPPED_OFFER_TOO_LOW,
 
+    SKIPPED_BY_USER,
+
     UNAVAILABLE,
 
     REJECTED,
 
-    FINISHED
+    PURCHASED,
 
+    FINISHED
 }

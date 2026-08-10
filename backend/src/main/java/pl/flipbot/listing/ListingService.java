@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
-
+import java.time.LocalDateTime;
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -70,6 +70,133 @@ public class ListingService {
                 ListingStatus.ACTION_REQUIRED
         );
 
+    }
+
+    public List<ListingResponse> getPurchasedListings(
+            Long botId
+    ) {
+
+        return getListingsByStatus(
+                botId,
+                ListingStatus.PURCHASED
+        );
+    }
+
+    public List<ListingResponse> getSkippedByUserListings(
+            Long botId
+    ) {
+
+        return getListingsByStatus(
+                botId,
+                ListingStatus.SKIPPED_BY_USER
+        );
+    }
+
+    @Transactional
+    public ListingResponse markAsPurchased(
+            Long botId,
+            Long listingId
+    ) {
+
+        Listing listing =
+                findActionRequiredListing(
+                        botId,
+                        listingId
+                );
+
+        listing.setStatus(
+                ListingStatus.PURCHASED
+        );
+
+        listing.setAwaitingSellerResponse(
+                false
+        );
+
+        listing.setDecisionAt(
+                LocalDateTime.now()
+        );
+
+        log.info(
+                "Listing {} for bot {} was manually marked as PURCHASED",
+                listingId,
+                botId
+        );
+
+        return listingMapper.map(
+                listing
+        );
+    }
+
+    @Transactional
+    public ListingResponse skipByUser(
+            Long botId,
+            Long listingId
+    ) {
+
+        Listing listing =
+                findActionRequiredListing(
+                        botId,
+                        listingId
+                );
+
+        listing.setStatus(
+                ListingStatus.SKIPPED_BY_USER
+        );
+
+        listing.setAwaitingSellerResponse(
+                false
+        );
+
+        listing.setDecisionAt(
+                LocalDateTime.now()
+        );
+
+        log.info(
+                "Listing {} for bot {} was manually skipped by user",
+                listingId,
+                botId
+        );
+
+        return listingMapper.map(
+                listing
+        );
+    }
+
+    private Listing findActionRequiredListing(
+            Long botId,
+            Long listingId
+    ) {
+
+        Listing listing =
+                listingRepository
+                        .findByIdAndBotId(
+                                listingId,
+                                botId
+                        )
+                        .orElseThrow(
+                                () -> new NoSuchElementException(
+                                        "Listing "
+                                                + listingId
+                                                + " was not found for bot "
+                                                + botId
+                                )
+                        );
+
+        if (
+                listing.getStatus()
+                        != ListingStatus.ACTION_REQUIRED
+        ) {
+
+            throw new IllegalStateException(
+                    "Listing "
+                            + listingId
+                            + " must have ACTION_REQUIRED status. "
+                            + "Current status: "
+                            + listing.getStatus()
+            );
+        }
+
+        return listing;
     }
 
     public List<ListingResponse> discoverListings(

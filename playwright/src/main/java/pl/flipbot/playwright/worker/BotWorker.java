@@ -22,9 +22,6 @@ import pl.flipbot.playwright.negotiation.NextStepExecutionResult;
 import pl.flipbot.playwright.negotiation.NextStepPreparationResult;
 import pl.flipbot.playwright.processing.ListingProcessingService;
 import pl.flipbot.playwright.scanner.ListingScanner;
-import com.microsoft.playwright.Page;
-import pl.flipbot.playwright.api.command.BotCommandClient;
-import pl.flipbot.playwright.api.command.dto.BotCommandDto;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -34,13 +31,15 @@ import java.util.Objects;
 public class BotWorker implements Runnable {
 
     /*
-     * Rozpoczynanie nowych negocjacji dla listingów DISCOVERED.
+     * Rozpoczynanie nowych negocjacji
+     * dla listingów DISCOVERED.
      */
     private static final boolean REAL_OFFERS_ENABLED =
             false;
 
     /*
-     * Wysyłanie kroku 2, 3 itd. w istniejących rozmowach.
+     * Wysyłanie kroku 2, 3 itd.
+     * w istniejących rozmowach.
      */
     private static final boolean REAL_NEXT_STEPS_ENABLED =
             false;
@@ -61,7 +60,8 @@ public class BotWorker implements Runnable {
 
     private final ListingScanner listingScanner;
 
-    private final ListingProcessingService listingProcessingService;
+    private final ListingProcessingService
+            listingProcessingService;
 
     private final ListingClient listingClient;
 
@@ -75,8 +75,6 @@ public class BotWorker implements Runnable {
 
     private final NextNegotiationStepExecutor
             nextNegotiationStepExecutor;
-
-    private final BotCommandClient botCommandClient;
 
     public BotWorker(
             BotDetailsDto bot,
@@ -135,10 +133,6 @@ public class BotWorker implements Runnable {
                 new NextNegotiationStepExecutor(
                         context
                 );
-
-        this.botCommandClient =
-                new BotCommandClient();
-
     }
 
     @Override
@@ -153,19 +147,10 @@ public class BotWorker implements Runnable {
 
             loginService.login();
 
-            while (!Thread.currentThread().isInterrupted()) {
-
-                boolean commandProcessed =
-                        processNextBotCommand();
-
-                if (commandProcessed) {
-
-                    Thread.sleep(
-                            1_000
-                    );
-
-                    continue;
-                }
+            while (
+                    !Thread.currentThread()
+                            .isInterrupted()
+            ) {
 
                 doWork();
 
@@ -200,9 +185,7 @@ public class BotWorker implements Runnable {
                     "Worker stopped for bot {}",
                     context.getBot().getId()
             );
-
         }
-
     }
 
     private void doWork() {
@@ -227,7 +210,8 @@ public class BotWorker implements Runnable {
                 );
 
         /*
-         * Po wysłaniu prawdziwego kolejnego kroku kończymy cykl.
+         * Po wysłaniu prawdziwego kolejnego
+         * kroku kończymy cykl.
          */
         if (realNextStepWasSent) {
 
@@ -239,7 +223,6 @@ public class BotWorker implements Runnable {
             );
 
             return;
-
         }
 
         marketplaceNavigator.goToCatalog();
@@ -280,7 +263,6 @@ public class BotWorker implements Runnable {
             );
 
             return;
-
         }
 
         if (discoveredListings.isEmpty()) {
@@ -291,7 +273,6 @@ public class BotWorker implements Runnable {
             );
 
             return;
-
         }
 
         if (!REAL_OFFERS_ENABLED) {
@@ -302,7 +283,6 @@ public class BotWorker implements Runnable {
             );
 
             return;
-
         }
 
         int maximumOffersThisRun =
@@ -328,14 +308,17 @@ public class BotWorker implements Runnable {
         int startedNegotiations =
                 0;
 
-        for (ListingResponseDto listing
-                : discoveredListings) {
+        for (
+                ListingResponseDto listing
+                : discoveredListings
+        ) {
 
-            if (startedNegotiations
-                    >= maximumOffersThisRun) {
+            if (
+                    startedNegotiations
+                            >= maximumOffersThisRun
+            ) {
 
                 break;
-
             }
 
             checkedListings++;
@@ -354,8 +337,11 @@ public class BotWorker implements Runnable {
                                     listing
                             );
 
-            if (result
-                    == NegotiationStartResult.LISTING_UNAVAILABLE) {
+            if (
+                    result
+                            == NegotiationStartResult
+                            .LISTING_UNAVAILABLE
+            ) {
 
                 markUnavailable(
                         botId,
@@ -363,11 +349,13 @@ public class BotWorker implements Runnable {
                 );
 
                 continue;
-
             }
 
-            if (result
-                    == NegotiationStartResult.OFFER_TOO_LOW) {
+            if (
+                    result
+                            == NegotiationStartResult
+                            .OFFER_TOO_LOW
+            ) {
 
                 markOfferTooLow(
                         botId,
@@ -375,11 +363,13 @@ public class BotWorker implements Runnable {
                 );
 
                 continue;
-
             }
 
-            if (result
-                    == NegotiationStartResult.STARTED) {
+            if (
+                    result
+                            == NegotiationStartResult
+                            .STARTED
+            ) {
 
                 startedNegotiations++;
 
@@ -392,14 +382,12 @@ public class BotWorker implements Runnable {
                 );
 
                 return;
-
             }
 
             throw new IllegalStateException(
                     "Unexpected negotiation start result: "
                             + result
             );
-
         }
 
         log.info(
@@ -408,7 +396,6 @@ public class BotWorker implements Runnable {
                 checkedListings,
                 startedNegotiations
         );
-
     }
 
     private boolean inspectExistingNegotiations(
@@ -423,7 +410,6 @@ public class BotWorker implements Runnable {
             );
 
             return false;
-
         }
 
         BotConfigurationDto configuration =
@@ -435,7 +421,6 @@ public class BotWorker implements Runnable {
             throw new IllegalStateException(
                     "Bot configuration is missing"
             );
-
         }
 
         log.info(
@@ -450,8 +435,10 @@ public class BotWorker implements Runnable {
         int sentNextSteps =
                 0;
 
-        for (ListingResponseDto listing
-                : negotiatingListings) {
+        for (
+                ListingResponseDto listing
+                : negotiatingListings
+        ) {
 
             try {
 
@@ -500,8 +487,10 @@ public class BotWorker implements Runnable {
                             MAX_REAL_NEXT_STEPS_PER_RUN
                     );
 
-                    if (sentNextSteps
-                            >= MAX_REAL_NEXT_STEPS_PER_RUN) {
+                    if (
+                            sentNextSteps
+                                    >= MAX_REAL_NEXT_STEPS_PER_RUN
+                    ) {
 
                         log.warn(
                                 "[NEXT STEP REAL] Real next-step limit "
@@ -509,9 +498,7 @@ public class BotWorker implements Runnable {
                         );
 
                         break;
-
                     }
-
                 }
 
             } catch (Exception exception) {
@@ -527,9 +514,7 @@ public class BotWorker implements Runnable {
                         listing.conversationId(),
                         exception
                 );
-
             }
-
         }
 
         log.info(
@@ -540,7 +525,6 @@ public class BotWorker implements Runnable {
         );
 
         return sentNextSteps > 0;
-
     }
 
     private boolean handleNegotiationDecision(
@@ -564,7 +548,6 @@ public class BotWorker implements Runnable {
                 );
 
                 yield false;
-
             }
 
             case MARK_ACTION_REQUIRED -> {
@@ -589,7 +572,6 @@ public class BotWorker implements Runnable {
                 );
 
                 yield false;
-
             }
 
             case SEND_NEXT_STEP ->
@@ -618,7 +600,6 @@ public class BotWorker implements Runnable {
                 );
 
                 yield false;
-
             }
 
             case KEEP_UNKNOWN -> {
@@ -632,11 +613,8 @@ public class BotWorker implements Runnable {
                 );
 
                 yield false;
-
             }
-
         };
-
     }
 
     private boolean processNextStep(
@@ -651,7 +629,6 @@ public class BotWorker implements Runnable {
                             + "for backend listing "
                             + listing.id()
             );
-
         }
 
         log.warn(
@@ -705,11 +682,9 @@ public class BotWorker implements Runnable {
                         decision.nextStep().getOfferPrice(),
                         decision.nextStep().getStepNumber()
                 );
-
             }
 
             return false;
-
         }
 
         log.warn(
@@ -727,8 +702,10 @@ public class BotWorker implements Runnable {
                         decision.nextStep()
                 );
 
-        if (executionResult
-                == NextStepExecutionResult.SENT) {
+        if (
+                executionResult
+                        == NextStepExecutionResult.SENT
+        ) {
 
             log.warn(
                     "[NEXT STEP REAL] Step {} was sent successfully "
@@ -740,11 +717,12 @@ public class BotWorker implements Runnable {
             );
 
             return true;
-
         }
 
-        if (executionResult
-                == NextStepExecutionResult.OFFER_TOO_LOW) {
+        if (
+                executionResult
+                        == NextStepExecutionResult.OFFER_TOO_LOW
+        ) {
 
             log.error(
                     "[NEXT STEP REAL] Step {} was not sent for marketplace "
@@ -756,14 +734,12 @@ public class BotWorker implements Runnable {
             );
 
             return false;
-
         }
 
         throw new IllegalStateException(
                 "Unexpected next-step execution result: "
                         + executionResult
         );
-
     }
 
     private ListingResponseDto markActionRequired(
@@ -784,20 +760,20 @@ public class BotWorker implements Runnable {
                         price
                 );
 
-        if (!"ACTION_REQUIRED".equals(
-                updatedListing.status()
-        )) {
+        if (
+                !"ACTION_REQUIRED".equals(
+                        updatedListing.status()
+                )
+        ) {
 
             throw new IllegalStateException(
                     "Backend returned an unexpected status. Expected "
                             + "ACTION_REQUIRED, actual: "
                             + updatedListing.status()
             );
-
         }
 
         return updatedListing;
-
     }
 
     private ListingResponseDto markRejected(
@@ -818,20 +794,20 @@ public class BotWorker implements Runnable {
                         price
                 );
 
-        if (!"REJECTED".equals(
-                updatedListing.status()
-        )) {
+        if (
+                !"REJECTED".equals(
+                        updatedListing.status()
+                )
+        ) {
 
             throw new IllegalStateException(
                     "Backend returned an unexpected status. Expected "
                             + "REJECTED, actual: "
                             + updatedListing.status()
             );
-
         }
 
         return updatedListing;
-
     }
 
     private ListingResponseDto updateNegotiationStatus(
@@ -840,8 +816,10 @@ public class BotWorker implements Runnable {
             BigDecimal currentPrice
     ) {
 
-        if (listing.currentStep() == null
-                || listing.currentStep() <= 0) {
+        if (
+                listing.currentStep() == null
+                        || listing.currentStep() <= 0
+        ) {
 
             throw new IllegalStateException(
                     "Cannot update negotiation status because backend "
@@ -850,7 +828,6 @@ public class BotWorker implements Runnable {
                             + " has an invalid current step: "
                             + listing.currentStep()
             );
-
         }
 
         UpdateListingRequestDto request =
@@ -870,9 +847,11 @@ public class BotWorker implements Runnable {
                         request
                 );
 
-        if (Boolean.TRUE.equals(
-                updatedListing.awaitingSellerResponse()
-        )) {
+        if (
+                Boolean.TRUE.equals(
+                        updatedListing.awaitingSellerResponse()
+                )
+        ) {
 
             throw new IllegalStateException(
                     "Backend listing "
@@ -881,13 +860,14 @@ public class BotWorker implements Runnable {
                             + "after changing status to "
                             + status
             );
-
         }
 
-        if (!Objects.equals(
-                listing.currentStep(),
-                updatedListing.currentStep()
-        )) {
+        if (
+                !Objects.equals(
+                        listing.currentStep(),
+                        updatedListing.currentStep()
+                )
+        ) {
 
             throw new IllegalStateException(
                     "Backend changed the current negotiation step "
@@ -896,13 +876,14 @@ public class BotWorker implements Runnable {
                             + ", actual: "
                             + updatedListing.currentStep()
             );
-
         }
 
-        if (!Objects.equals(
-                listing.conversationId(),
-                updatedListing.conversationId()
-        )) {
+        if (
+                !Objects.equals(
+                        listing.conversationId(),
+                        updatedListing.conversationId()
+                )
+        ) {
 
             throw new IllegalStateException(
                     "Backend changed the conversation ID unexpectedly. "
@@ -911,14 +892,15 @@ public class BotWorker implements Runnable {
                             + ", actual: "
                             + updatedListing.conversationId()
             );
-
         }
 
-        if (updatedListing.currentPrice() == null
-                || updatedListing.currentPrice()
-                .compareTo(
-                        currentPrice
-                ) != 0) {
+        if (
+                updatedListing.currentPrice() == null
+                        || updatedListing.currentPrice()
+                        .compareTo(
+                                currentPrice
+                        ) != 0
+        ) {
 
             throw new IllegalStateException(
                     "Backend returned an unexpected current price. "
@@ -927,11 +909,9 @@ public class BotWorker implements Runnable {
                             + ", actual: "
                             + updatedListing.currentPrice()
             );
-
         }
 
         return updatedListing;
-
     }
 
     private BigDecimal resolveDecisionPrice(
@@ -940,37 +920,43 @@ public class BotWorker implements Runnable {
     ) {
 
         /*
-         * Przy zaakceptowanej kontrofertcie sprzedającego zapisujemy
-         * cenę sprzedającego. Dzięki temu frontend pokaże cenę,
-         * za którą użytkownik może ręcznie kupić przedmiot.
+         * Przy zaakceptowanej kontrofertcie
+         * sprzedającego zapisujemy cenę
+         * sprzedającego.
+         *
+         * Dzięki temu frontend pokaże cenę,
+         * za którą użytkownik może ręcznie
+         * kupić przedmiot.
          */
-        if (decision.sellerCounterOfferPrice() != null) {
+        if (
+                decision.sellerCounterOfferPrice()
+                        != null
+        ) {
 
-            return decision.sellerCounterOfferPrice();
-
+            return decision
+                    .sellerCounterOfferPrice();
         }
 
         /*
-         * Gdy sprzedający zaakceptował naszą ofertę, ceną zakupu
-         * jest aktualna cena naszej ostatniej propozycji.
+         * Gdy sprzedający zaakceptował
+         * naszą ofertę, ceną zakupu
+         * jest aktualna cena naszej
+         * ostatniej propozycji.
          */
         if (listing.currentPrice() != null) {
 
             return listing.currentPrice();
-
         }
 
         if (listing.originalPrice() != null) {
 
             return listing.originalPrice();
-
         }
 
         throw new IllegalStateException(
                 "Cannot determine decision price for backend listing "
                         + listing.id()
         );
-
     }
 
     private void markUnavailable(
@@ -996,7 +982,6 @@ public class BotWorker implements Runnable {
                 updatedListing.id(),
                 updatedListing.status()
         );
-
     }
 
     private void markOfferTooLow(
@@ -1022,10 +1007,10 @@ public class BotWorker implements Runnable {
                 updatedListing.id(),
                 updatedListing.status()
         );
-
     }
 
-    private UpdateListingRequestDto createDiscoveredStatusUpdateRequest(
+    private UpdateListingRequestDto
+    createDiscoveredStatusUpdateRequest(
             ListingResponseDto listing,
             String status
     ) {
@@ -1042,7 +1027,6 @@ public class BotWorker implements Runnable {
                             + listing.id()
                             + " because its price is null"
             );
-
         }
 
         Integer currentStep =
@@ -1058,150 +1042,5 @@ public class BotWorker implements Runnable {
                 null,
                 null
         );
-
     }
-
-    private boolean processNextBotCommand() {
-
-        Long botId =
-                context.getBot().getId();
-
-        BotCommandDto command =
-                botCommandClient
-                        .claimNextCommand(
-                                botId
-                        );
-
-        if (command == null) {
-
-            return false;
-        }
-
-        log.info(
-                "[COMMAND] Bot {} claimed command {} of type {}",
-                botId,
-                command.id(),
-                command.type()
-        );
-
-        try {
-
-            switch (command.type()) {
-
-                case OPEN_CONVERSATION ->
-                        openConversation(
-                                command
-                        );
-            }
-
-            botCommandClient
-                    .completeCommand(
-                            botId,
-                            command.id()
-                    );
-
-            log.info(
-                    "[COMMAND] Command {} completed successfully",
-                    command.id()
-            );
-
-        } catch (Exception exception) {
-
-            log.error(
-                    "[COMMAND] Command {} failed",
-                    command.id(),
-                    exception
-            );
-
-            markCommandAsFailedSafely(
-                    botId,
-                    command,
-                    exception
-            );
-        }
-
-        return true;
-    }
-
-    private void openConversation(
-            BotCommandDto command
-    ) {
-
-        String conversationUrl =
-                command.conversationUrl();
-
-        if (conversationUrl == null
-                || conversationUrl.isBlank()) {
-
-            throw new IllegalStateException(
-                    "OPEN_CONVERSATION command "
-                            + command.id()
-                            + " contains no conversation URL"
-            );
-        }
-
-        Page manualPage =
-                context.getBrowserContext()
-                        .newPage();
-
-        manualPage.navigate(
-                conversationUrl
-        );
-
-        manualPage.bringToFront();
-
-        log.info(
-                "[COMMAND] Opened conversation for listing {} "
-                        + "in bot {} browser context",
-                command.listingId(),
-                command.botId()
-        );
-    }
-
-    private void markCommandAsFailedSafely(
-            Long botId,
-            BotCommandDto command,
-            Exception originalException
-    ) {
-
-        String errorMessage =
-                originalException.getMessage();
-
-        if (errorMessage == null
-                || errorMessage.isBlank()) {
-
-            errorMessage =
-                    originalException
-                            .getClass()
-                            .getSimpleName();
-        }
-
-        if (errorMessage.length() > 1000) {
-
-            errorMessage =
-                    errorMessage.substring(
-                            0,
-                            1000
-                    );
-        }
-
-        try {
-
-            botCommandClient
-                    .failCommand(
-                            botId,
-                            command.id(),
-                            errorMessage
-                    );
-
-        } catch (Exception failException) {
-
-            log.error(
-                    "[COMMAND] Failed to mark command {} as FAILED",
-                    command.id(),
-                    failException
-            );
-        }
-    }
-
 }

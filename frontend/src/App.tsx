@@ -1,16 +1,31 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import {
+    Navigate,
+    Route,
+    Routes,
+} from "react-router-dom";
+
 import AppLayout from "./layout/AppLayout";
+
 import DashboardPage from "./pages/DashboardPage";
 import BotsPage from "./pages/BotsPage";
 import CreateBotPage from "./pages/CreateBotPage";
-import ActionRequiredPage from "./pages/ActionRequiredPage"
+import ActionRequiredPage from "./pages/ActionRequiredPage";
+import HistoryPage from "./pages/HistoryPage";
 import DictionariesPage from "./pages/DictionariesPage";
 
+
 function App() {
+
     return (
+
         <Routes>
+
             <Route element={<AppLayout />}>
-                <Route index element={<DashboardPage />} />
+
+                <Route
+                    index
+                    element={<DashboardPage />}
+                />
 
                 <Route
                     path="/bots"
@@ -28,17 +43,31 @@ function App() {
                 />
 
                 <Route
+                    path="/history"
+                    element={<HistoryPage />}
+                />
+
+                <Route
                     path="/dictionaries"
                     element={<DictionariesPage />}
                 />
+
             </Route>
+
 
             <Route
                 path="*"
-                element={<Navigate to="/" replace />}
+                element={
+                    <Navigate
+                        to="/"
+                        replace
+                    />
+                }
             />
+
         </Routes>
     );
 }
+
 
 export default App;
