@@ -130,7 +130,7 @@ public class FilterService {
 
         }
 
-        actions.clickOutside();
+        actions.clickOutsideSafely();
 
     }
 

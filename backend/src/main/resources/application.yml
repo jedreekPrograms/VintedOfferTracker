@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5433/flipbot
+    url: "jdbc:postgresql://localhost:5433/flipbot"
     username: postgres
     password: postgres
 
@@ -14,6 +14,11 @@ spring:
 
   flyway:
     enabled: true
+
+  web:
+    error:
+      include-stacktrace: never
+      include-exception: false
 
 server:
   port: 8080

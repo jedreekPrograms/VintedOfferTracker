@@ -4,7 +4,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.AriaRole;
 import lombok.RequiredArgsConstructor;
-
+import com.microsoft.playwright.options.WaitForSelectorState;
 @RequiredArgsConstructor
 public class FilterActions {
 
@@ -32,14 +32,23 @@ public class FilterActions {
 
     }
 
-    public void waitForOption(String option) {
+    public void waitForOption(
+            String option
+    ) {
 
         page.getByRole(
                 AriaRole.BUTTON,
                 new Page.GetByRoleOptions()
                         .setName(option)
-        ).waitFor();
-
+        ).waitFor(
+                new Locator.WaitForOptions()
+                        .setState(
+                                WaitForSelectorState.VISIBLE
+                        )
+                        .setTimeout(
+                                5_000
+                        )
+        );
     }
 
     public void fillInput(String testId, String value) {
@@ -94,7 +103,54 @@ public class FilterActions {
 
     }
 
-    public void clickOutside() {
-        page.mouse().click(10, 10);
+    public void clickOutsideSafely() {
+
+        page.evaluate(
+                """
+                () => {
+                    const target = document.body;
+    
+                    const eventOptions = {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    };
+    
+                    target.dispatchEvent(
+                        new MouseEvent(
+                            "mousedown",
+                            eventOptions
+                        )
+                    );
+    
+                    target.dispatchEvent(
+                        new MouseEvent(
+                            "mouseup",
+                            eventOptions
+                        )
+                    );
+    
+                    target.dispatchEvent(
+                        new MouseEvent(
+                            "click",
+                            eventOptions
+                        )
+                    );
+                }
+                """
+        );
+
+        page.waitForTimeout(
+                1_000
+        );
+    }
+
+    public void waitForTimeout(
+            double milliseconds
+    ) {
+
+        page.waitForTimeout(
+                milliseconds
+        );
     }
 }

@@ -5,11 +5,39 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/DictionaryCategoryRepository.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/dto/CreateDictionaryCategoryRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/dto/DictionaryCategoryResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/DictionaryController.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/dictionary/DictionaryController.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/quota/DailyOfferQuota.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/quota/DailyOfferQuotaController.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/quota/DailyOfferQuotaRepository.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/quota/DailyOfferQuotaService.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/quota/dto/DailyOfferQuotaResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/quota/dto/OfferQuotaReservationResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/security/PasswordEncryptionConverter.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/resources/db/migration/V10__add_skipped_outside_price_range_status.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/resources/db/migration/V9__create_daily_offer_quota.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/ListingStatusUpdater.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/quota/OfferQuotaClient.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/quota/dto/OfferQuotaReservationResponseDto.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/ExistingNegotiationProcessor.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/NewNegotiationProcessor.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/processing/CatalogCandidateProcessor.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/processing/CatalogWorkProcessor.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/Bot.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/Bot.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/exception/GlobalExceptionHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/exception/GlobalExceptionHandler.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingStatus.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingStatus.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/NegotiationCapacityService.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/negotiation/NegotiationCapacityService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/resources/application.yml" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/resources/application.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../frontend/src/api/botsApi.ts" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/api/botsApi.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../frontend/src/api/listingsApi.ts" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/api/listingsApi.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../frontend/src/index.css" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/index.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../frontend/src/pages/BotsPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/pages/BotsPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/dto/ListingResponseDto.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/dto/ListingResponseDto.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/context/BotContext.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/context/BotContext.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterActions.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterActions.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterService.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/category/CategoryNavigator.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/category/CategoryNavigator.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/login/LoginService.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/login/LoginService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/BotWorker.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/BotWorker.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -39,21 +67,21 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "main",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "C:/Users/jedre/rozmowaoprace",
-    "nodejs_package_manager_path": "npm",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/jedre/rozmowaoprace&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -72,6 +100,7 @@
       <updated>1783089012092</updated>
       <workItem from="1784307279440" duration="1802000" />
       <workItem from="1785927767072" duration="1829000" />
+      <workItem from="1786321872517" duration="602000" />
     </task>
     <servers />
   </component>

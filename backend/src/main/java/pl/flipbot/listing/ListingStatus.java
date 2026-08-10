@@ -3,20 +3,15 @@ package pl.flipbot.listing;
 public enum ListingStatus {
 
     DISCOVERED,
-
     NEGOTIATING,
-
     ACTION_REQUIRED,
 
     SKIPPED_OFFER_TOO_LOW,
-
+    SKIPPED_OUTSIDE_PRICE_RANGE,
     SKIPPED_BY_USER,
 
     UNAVAILABLE,
-
     REJECTED,
-
     PURCHASED,
-
     FINISHED
 }

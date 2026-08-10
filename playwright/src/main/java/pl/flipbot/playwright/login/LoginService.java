@@ -23,7 +23,14 @@ public class LoginService {
     private static final double AUTH_POLL_INTERVAL_MS =
             200;
 
+    private static final double AUTH_SWITCH_RETRY_DELAY_MS =
+            600;
+
+    private static final int MAX_REGISTER_SWITCH_ATTEMPTS =
+            6;
+
     private final BotContext context;
+
 
     public void login() {
 
@@ -48,6 +55,7 @@ public class LoginService {
                 page
         );
 
+
         if (isLoggedIn()) {
 
             log.info(
@@ -58,8 +66,10 @@ public class LoginService {
             return;
         }
 
+
         performLogin();
     }
+
 
     private void hideAutomation(
             Page page
@@ -71,6 +81,7 @@ public class LoginService {
                 );
     }
 
+
     private boolean isLoggedIn() {
 
         try {
@@ -80,6 +91,7 @@ public class LoginService {
                             .getByTestId(
                                     LoginSelectors.CONVERSATIONS_BUTTON
                             );
+
 
             return conversationsButtons.count() > 0
                     && conversationsButtons
@@ -92,6 +104,7 @@ public class LoginService {
         }
     }
 
+
     private void acceptCookiesIfVisible(
             Page page
     ) {
@@ -103,6 +116,7 @@ public class LoginService {
                             "#onetrust-accept-btn-handler"
                     );
 
+
             button.waitFor(
                     new Locator.WaitForOptions()
                             .setState(
@@ -113,11 +127,14 @@ public class LoginService {
                             )
             );
 
+
             log.info(
                     "Clicking cookie button..."
             );
 
+
             button.click();
+
 
             log.info(
                     "Cookies accepted."
@@ -131,31 +148,38 @@ public class LoginService {
         }
     }
 
+
     private void performLogin() {
 
         Page page =
                 context.getPage();
 
+
         log.info(
-                "Logging in {}",
-                context.getBot().getEmail()
+                "Logging in bot {}",
+                context.getBot().getId()
         );
+
 
         openLoginWindow(
                 page
         );
 
+
         openEmailLogin(
                 page
         );
+
 
         fillCredentials(
                 page
         );
 
+
         submitLogin(
                 page
         );
+
 
         page.getByTestId(
                         LoginSelectors.CONVERSATIONS_BUTTON
@@ -171,13 +195,16 @@ public class LoginService {
                                 )
                 );
 
+
         context.saveSession();
+
 
         log.info(
                 "Bot {} logged in successfully.",
                 context.getBot().getId()
         );
     }
+
 
     private void openLoginWindow(
             Page page
@@ -187,6 +214,7 @@ public class LoginService {
                 page.getByTestId(
                         LoginSelectors.LOGIN_BUTTON
                 );
+
 
         loginButton.waitFor(
                 new Locator.WaitForOptions()
@@ -198,12 +226,15 @@ public class LoginService {
                         )
         );
 
+
         log.info(
                 "Opening authentication window..."
         );
 
+
         loginButton.click();
     }
+
 
     private void openEmailLogin(
             Page page
@@ -215,32 +246,39 @@ public class LoginService {
                                 + LoginSelectors.EMAIL_INPUT
                 );
 
+
         Locator registerView =
                 page.getByTestId(
                         "select-type-register-view"
                 );
+
 
         Locator loginView =
                 page.getByTestId(
                         "select-type-login-view"
                 );
 
+
         Locator switchToLogin =
                 page.getByTestId(
                         "auth-select-type--register-switch"
                 );
+
 
         Locator emailLogin =
                 page.getByTestId(
                         "auth-select-type--login-email"
                 );
 
+
         long deadline =
                 System.currentTimeMillis()
                         + (long) AUTH_VIEW_TIMEOUT_MS;
 
-        boolean registerSwitchAttempted =
-                false;
+
+        int registerSwitchAttempts =
+                0;
+
 
         while (
                 System.currentTimeMillis()
@@ -248,133 +286,262 @@ public class LoginService {
         ) {
 
             /*
-             * Wariant 1:
-             *
-             * Formularz email + hasło
-             * jest już otwarty.
+             * Formularz e-mail + hasło
+             * jest już widoczny.
              */
-            if (isVisible(
-                    emailInput
-            )) {
+            if (
+                    isVisible(
+                            emailInput
+                    )
+            ) {
 
                 log.info(
-                        "E-mail login form is already visible."
+                        "E-mail login form is visible."
                 );
 
                 return;
             }
 
+
             /*
-             * Wariant 2:
-             *
-             * Jesteśmy na ekranie logowania:
+             * Jesteśmy już na ekranie:
              *
              * "Witaj ponownie"
              *
-             * i trzeba wybrać logowanie
+             * i musimy wybrać logowanie
              * przez e-mail.
              */
-            if (isVisible(
-                    loginView
-            )) {
+            if (
+                    isVisible(
+                            loginView
+                    )
+            ) {
 
                 log.info(
                         "Login view detected."
                 );
 
-                if (isVisible(
-                        emailLogin
-                )) {
+
+                if (
+                        isVisible(
+                                emailLogin
+                        )
+                ) {
 
                     log.info(
                             "Selecting e-mail login."
                     );
 
-                    emailLogin.click();
 
-                    emailInput.waitFor(
-                            new Locator.WaitForOptions()
-                                    .setState(
-                                            WaitForSelectorState.VISIBLE
-                                    )
-                                    .setTimeout(
-                                            10_000
-                                    )
+                    try {
+
+                        emailLogin.click();
+
+                    } catch (Exception exception) {
+
+                        log.warn(
+                                "Normal e-mail login click failed: {}",
+                                exception.getMessage()
+                        );
+                    }
+
+
+                    page.waitForTimeout(
+                            AUTH_SWITCH_RETRY_DELAY_MS
                     );
 
-                    log.info(
-                            "E-mail login form is visible."
+
+                    if (
+                            isVisible(
+                                    emailInput
+                            )
+                    ) {
+
+                        log.info(
+                                "E-mail login form appeared "
+                                        + "after normal click."
+                        );
+
+                        return;
+                    }
+
+
+                    /*
+                     * Fallback na DOM click również
+                     * dla przycisku logowania e-mailem.
+                     */
+                    try {
+
+                        log.warn(
+                                "Normal e-mail login click did not "
+                                        + "open the form. Trying DOM click."
+                        );
+
+
+                        emailLogin.evaluate(
+                                "element => element.click()"
+                        );
+
+                    } catch (Exception exception) {
+
+                        log.warn(
+                                "DOM e-mail login click failed: {}",
+                                exception.getMessage()
+                        );
+                    }
+
+
+                    page.waitForTimeout(
+                            AUTH_SWITCH_RETRY_DELAY_MS
                     );
 
-                    return;
+
+                    if (
+                            isVisible(
+                                    emailInput
+                            )
+                    ) {
+
+                        log.info(
+                                "E-mail login form appeared "
+                                        + "after DOM click."
+                        );
+
+                        return;
+                    }
                 }
+
+
+                page.waitForTimeout(
+                        AUTH_POLL_INTERVAL_MS
+                );
+
+                continue;
             }
 
+
             /*
-             * Wariant 3:
-             *
-             * Vinted pokazuje ekran rejestracji:
+             * Vinted pokazuje ekran:
              *
              * "Dołącz i sprzedawaj..."
              *
-             * Trzeba kliknąć:
+             * Tutaj przełączamy z rejestracji
+             * na logowanie.
              *
-             * "Masz już konto? Zaloguj się"
+             * Kluczowa zmiana:
+             * próbujemy wielokrotnie zamiast
+             * tylko jeden raz.
              */
             if (
                     isVisible(
                             registerView
                     )
-                            && !registerSwitchAttempted
             ) {
+
+                if (
+                        registerSwitchAttempts
+                                >= MAX_REGISTER_SWITCH_ATTEMPTS
+                ) {
+
+                    page.waitForTimeout(
+                            AUTH_POLL_INTERVAL_MS
+                    );
+
+                    continue;
+                }
+
+
+                registerSwitchAttempts++;
+
 
                 log.info(
                         "Registration view detected. "
-                                + "Switching to login view."
+                                + "Switching to login view. Attempt {}/{}.",
+                        registerSwitchAttempts,
+                        MAX_REGISTER_SWITCH_ATTEMPTS
                 );
 
-                switchToLogin.waitFor(
-                        new Locator.WaitForOptions()
-                                .setState(
-                                        WaitForSelectorState.VISIBLE
-                                )
-                                .setTimeout(
-                                        5_000
-                                )
-                );
+
+                try {
+
+                    switchToLogin.waitFor(
+                            new Locator.WaitForOptions()
+                                    .setState(
+                                            WaitForSelectorState.VISIBLE
+                                    )
+                                    .setTimeout(
+                                            5_000
+                                    )
+                    );
+
+                } catch (Exception exception) {
+
+                    log.warn(
+                            "Login switch is not ready yet. Attempt {}/{}.",
+                            registerSwitchAttempts,
+                            MAX_REGISTER_SWITCH_ATTEMPTS
+                    );
+
+
+                    page.waitForTimeout(
+                            AUTH_SWITCH_RETRY_DELAY_MS
+                    );
+
+                    continue;
+                }
+
 
                 String href =
-                        switchToLogin.getAttribute(
-                                "href"
-                        );
+                        null;
+
+
+                try {
+
+                    href =
+                            switchToLogin.getAttribute(
+                                    "href"
+                            );
+
+                } catch (Exception exception) {
+
+                    log.debug(
+                            "Could not read login switch href."
+                    );
+                }
+
 
                 log.info(
                         "Login switch href: {}",
                         href
                 );
 
+
                 /*
-                 * Najpierw normalny click Playwrighta.
+                 * Próba 1:
+                 * zwykły Playwright click().
                  */
-                switchToLogin.click();
+                try {
+
+                    switchToLogin.click();
+
+                } catch (Exception exception) {
+
+                    log.warn(
+                            "Normal login switch click failed: {}",
+                            exception.getMessage()
+                    );
+                }
+
 
                 page.waitForTimeout(
-                        1_000
+                        AUTH_SWITCH_RETRY_DELAY_MS
                 );
 
-                /*
-                 * Jeżeli normalne kliknięcie
-                 * faktycznie zmieniło ekran,
-                 * wracamy na początek pętli.
-                 */
+
                 if (
-                        !isVisible(
-                                registerView
-                        )
-                                || isVisible(
-                                loginView
-                        )
-                                || isVisible(
+                        hasAuthenticationViewChanged(
+                                registerView,
+                                loginView,
                                 emailInput
                         )
                 ) {
@@ -384,25 +551,20 @@ public class LoginService {
                                     + "after normal click."
                     );
 
-                    registerSwitchAttempted =
-                            true;
-
                     continue;
                 }
 
+
                 /*
-                 * Z naszych logów wiemy,
-                 * że Vinted potrafi zignorować
-                 * normalne click().
-                 *
-                 * Próbujemy więc natywnego
-                 * element.click() w DOM.
+                 * Próba 2:
+                 * natywne element.click().
                  */
                 log.warn(
                         "Normal click did not change "
                                 + "authentication view. "
                                 + "Trying DOM click."
                 );
+
 
                 try {
 
@@ -418,22 +580,16 @@ public class LoginService {
                     );
                 }
 
+
                 page.waitForTimeout(
-                        1_000
+                        AUTH_SWITCH_RETRY_DELAY_MS
                 );
 
-                /*
-                 * Sprawdzamy ponownie,
-                 * czy pojawił się kolejny ekran.
-                 */
+
                 if (
-                        !isVisible(
-                                registerView
-                        )
-                                || isVisible(
-                                loginView
-                        )
-                                || isVisible(
+                        hasAuthenticationViewChanged(
+                                registerView,
+                                loginView,
                                 emailInput
                         )
                 ) {
@@ -443,20 +599,20 @@ public class LoginService {
                                     + "after DOM click."
                     );
 
-                    registerSwitchAttempted =
-                            true;
-
                     continue;
                 }
 
+
                 /*
-                 * Jeżeli element ma prawdziwy href,
-                 * możemy potraktować go jako fallback
-                 * i przejść bezpośrednio na jego URL.
+                 * Próba 3:
+                 * href, jeżeli Vinted kiedyś zacznie
+                 * wystawiać prawdziwy URL.
                  */
-                if (isNavigableHref(
-                        href
-                )) {
+                if (
+                        isNavigableHref(
+                                href
+                        )
+                ) {
 
                     String resolvedUrl =
                             resolveUrl(
@@ -464,76 +620,117 @@ public class LoginService {
                                     href
                             );
 
+
                     log.warn(
                             "Clicks did not change auth view. "
                                     + "Navigating directly to href: {}",
                             resolvedUrl
                     );
 
-                    page.navigate(
-                            resolvedUrl
-                    );
 
-                    page.waitForTimeout(
-                            1_000
-                    );
+                    try {
+
+                        page.navigate(
+                                resolvedUrl
+                        );
+
+
+                        page.waitForTimeout(
+                                AUTH_SWITCH_RETRY_DELAY_MS
+                        );
+
+                    } catch (Exception exception) {
+
+                        log.warn(
+                                "Direct href navigation failed: {}",
+                                exception.getMessage()
+                        );
+                    }
+
+
+                    if (
+                            hasAuthenticationViewChanged(
+                                    registerView,
+                                    loginView,
+                                    emailInput
+                            )
+                    ) {
+
+                        log.info(
+                                "Authentication view changed "
+                                        + "after direct navigation."
+                        );
+
+                        continue;
+                    }
                 }
 
-                registerSwitchAttempted =
-                        true;
 
-                log.info(
-                        "URL after switching to login: {}",
-                        page.url()
+                log.warn(
+                        "Authentication view is still unchanged "
+                                + "after attempt {}/{}. Retrying.",
+                        registerSwitchAttempts,
+                        MAX_REGISTER_SWITCH_ATTEMPTS
                 );
 
-                logVisibleTestIds(
-                        page
-                );
-
-                continue;
-            }
-
-            /*
-             * Jeżeli próbowaliśmy już przełączyć
-             * ekran, ale nadal widzimy ekran
-             * rejestracji, dajemy Vinted jeszcze
-             * trochę czasu.
-             */
-            if (
-                    registerSwitchAttempted
-                            && isVisible(
-                            registerView
-                    )
-            ) {
 
                 page.waitForTimeout(
-                        AUTH_POLL_INTERVAL_MS
+                        AUTH_SWITCH_RETRY_DELAY_MS
                 );
+
 
                 continue;
             }
 
+
+            /*
+             * Nie rozpoznaliśmy jeszcze widoku.
+             * Vinted może właśnie renderować modal.
+             */
             page.waitForTimeout(
                     AUTH_POLL_INTERVAL_MS
             );
         }
 
+
         log.error(
                 "Could not reach Vinted e-mail login form. "
-                        + "Current URL: {}",
-                page.url()
+                        + "Current URL: {}. "
+                        + "Register switch attempts: {}.",
+                page.url(),
+                registerSwitchAttempts
         );
+
 
         logVisibleTestIds(
                 page
         );
+
 
         throw new IllegalStateException(
                 "Vinted authentication flow could not "
                         + "reach the e-mail login form."
         );
     }
+
+
+    private boolean hasAuthenticationViewChanged(
+            Locator registerView,
+            Locator loginView,
+            Locator emailInput
+    ) {
+
+        return !isVisible(
+                registerView
+        )
+                || isVisible(
+                loginView
+        )
+                || isVisible(
+                emailInput
+        );
+    }
+
 
     private boolean isVisible(
             Locator locator
@@ -549,6 +746,7 @@ public class LoginService {
         }
     }
 
+
     private boolean isNavigableHref(
             String href
     ) {
@@ -561,9 +759,11 @@ public class LoginService {
             return false;
         }
 
+
         String normalized =
                 href.trim()
                         .toLowerCase();
+
 
         return !normalized.startsWith(
                 "#"
@@ -572,6 +772,7 @@ public class LoginService {
                 "javascript:"
         );
     }
+
 
     private String resolveUrl(
             String currentUrl,
@@ -597,9 +798,11 @@ public class LoginService {
                     currentUrl
             );
 
+
             return href;
         }
     }
+
 
     private void fillCredentials(
             Page page
@@ -611,6 +814,7 @@ public class LoginService {
                                 + LoginSelectors.EMAIL_INPUT
                 );
 
+
         emailInput.waitFor(
                 new Locator.WaitForOptions()
                         .setState(
@@ -621,15 +825,18 @@ public class LoginService {
                         )
         );
 
+
         emailInput.fill(
                 context.getBot().getEmail()
         );
+
 
         Locator passwordInput =
                 page.locator(
                         "#"
                                 + LoginSelectors.PASSWORD_INPUT
                 );
+
 
         passwordInput.waitFor(
                 new Locator.WaitForOptions()
@@ -641,10 +848,12 @@ public class LoginService {
                         )
         );
 
+
         passwordInput.fill(
                 context.getBot().getPassword()
         );
     }
+
 
     private void submitLogin(
             Page page
@@ -659,6 +868,7 @@ public class LoginService {
                                 )
                 );
 
+
         submitButton.waitFor(
                 new Locator.WaitForOptions()
                         .setState(
@@ -669,12 +879,15 @@ public class LoginService {
                         )
         );
 
+
         log.info(
                 "Submitting login form..."
         );
 
+
         submitButton.click();
     }
+
 
     private void logVisibleTestIds(
             Page page
@@ -685,12 +898,15 @@ public class LoginService {
                         "[data-testid]"
                 );
 
+
         int count =
                 elements.count();
+
 
         log.info(
                 "Visible Vinted elements:"
         );
+
 
         for (
                 int i = 0;
@@ -703,21 +919,30 @@ public class LoginService {
                             i
                     );
 
+
             try {
 
-                if (!element.isVisible()) {
+                if (
+                        !element.isVisible()
+                ) {
+
                     continue;
                 }
+
 
                 String testId =
                         element.getAttribute(
                                 "data-testid"
                         );
 
+
                 String text =
                         element.innerText();
 
-                if (text != null) {
+
+                if (
+                        text != null
+                ) {
 
                     text =
                             text
@@ -727,7 +952,10 @@ public class LoginService {
                                     )
                                     .trim();
 
-                    if (text.length() > 150) {
+
+                    if (
+                            text.length() > 150
+                    ) {
 
                         text =
                                 text.substring(
@@ -736,6 +964,7 @@ public class LoginService {
                                 );
                     }
                 }
+
 
                 log.info(
                         "VISIBLE TESTID: {} | TEXT: {}",

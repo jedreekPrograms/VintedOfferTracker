@@ -6,7 +6,8 @@ import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.listing.Listing;
 import java.util.ArrayList;
 import java.util.List;
-
+import jakarta.persistence.Convert;
+import pl.flipbot.security.PasswordEncryptionConverter;
 @Entity
 @Getter
 @Setter
@@ -24,6 +25,10 @@ public class Bot {
     @Column(unique = true)
     private String email;
 
+    @Convert(
+            converter =
+                    PasswordEncryptionConverter.class
+    )
     private String password;
 
     @Enumerated(EnumType.STRING)

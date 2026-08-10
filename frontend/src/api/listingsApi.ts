@@ -2,6 +2,10 @@ import type {
     Listing,
 } from "../types/listings";
 
+import {
+    getApiErrorMessage,
+} from "./apiError";
+
 const BOTS_BASE_URL =
     "/api/bots";
 
@@ -43,13 +47,11 @@ export async function markListingAsPurchased(
 
     if (!response.ok) {
 
-        const responseText =
-            await response.text();
-
         throw new Error(
-            responseText.length > 0
-                ? responseText
-                : `Nie udało się oznaczyć oferty jako kupione. HTTP ${response.status}`,
+            await getApiErrorMessage(
+                response,
+                `Nie udało się oznaczyć oferty jako kupione. HTTP ${response.status}`,
+            ),
         );
     }
 }
@@ -69,13 +71,11 @@ export async function skipListingByUser(
 
     if (!response.ok) {
 
-        const responseText =
-            await response.text();
-
         throw new Error(
-            responseText.length > 0
-                ? responseText
-                : `Nie udało się odrzucić oferty. HTTP ${response.status}`,
+            await getApiErrorMessage(
+                response,
+                `Nie udało się odrzucić oferty. HTTP ${response.status}`,
+            ),
         );
     }
 }
