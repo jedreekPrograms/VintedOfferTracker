@@ -7,6 +7,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import pl.flipbot.dictionary.DictionaryEntryAlreadyExistsException;
+import pl.flipbot.dictionary.DictionaryEntryNotFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -15,7 +17,6 @@ import java.util.NoSuchElementException;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
@@ -56,10 +57,36 @@ public class GlobalExceptionHandler {
     }
 
 
+    @ExceptionHandler(DictionaryEntryAlreadyExistsException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> handleDictionaryEntryAlreadyExistsException(
+            DictionaryEntryAlreadyExistsException exception
+    ) {
+
+        return Map.of(
+                "message",
+                exception.getMessage()
+        );
+    }
+
+
     @ExceptionHandler(BotNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String, String> handleBotNotFoundException(
             BotNotFoundException exception
+    ) {
+
+        return Map.of(
+                "message",
+                exception.getMessage()
+        );
+    }
+
+
+    @ExceptionHandler(DictionaryEntryNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, String> handleDictionaryEntryNotFoundException(
+            DictionaryEntryNotFoundException exception
     ) {
 
         return Map.of(
@@ -86,6 +113,19 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.CONFLICT)
     public Map<String, String> handleIllegalStateException(
             IllegalStateException exception
+    ) {
+
+        return Map.of(
+                "message",
+                exception.getMessage()
+        );
+    }
+
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> handleIllegalArgumentException(
+            IllegalArgumentException exception
     ) {
 
         return Map.of(
