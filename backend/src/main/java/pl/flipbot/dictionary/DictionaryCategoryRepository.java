@@ -11,6 +11,10 @@ public interface DictionaryCategoryRepository
             String path
     );
 
-    List<DictionaryCategory> findAllByOrderByPathAsc();
+    boolean existsByPathIgnoreCaseAndIdNot(
+            String path,
+            Long id
+    );
 
+    List<DictionaryCategory> findAllByOrderByPathAsc();
 }
