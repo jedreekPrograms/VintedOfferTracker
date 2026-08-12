@@ -67,8 +67,8 @@ public class CatalogCandidateProcessor {
 
 
         /*
-         * 1. Skanujemy dokładnie to, co jest teraz
-         * widoczne w przefiltrowanym katalogu Vinted.
+         * 1. Skanujemy dokładnie to, co aktualnie
+         * znajduje się w przefiltrowanym katalogu Vinted.
          */
         var scannedListings =
                 listingScanner.scan();
@@ -78,9 +78,14 @@ public class CatalogCandidateProcessor {
                 new HashSet<>();
 
 
-        for (var scannedListing : scannedListings) {
+        for (
+                var scannedListing
+                : scannedListings
+        ) {
 
-            if (scannedListing.getId() != null) {
+            if (
+                    scannedListing.getId() != null
+            ) {
 
                 currentScanListingIds.add(
                         scannedListing.getId()
@@ -90,16 +95,18 @@ public class CatalogCandidateProcessor {
 
 
         log.info(
-                "[CURRENT SCAN] Current filtered Vinted scan contains "
-                        + "{} unique marketplace listing IDs.",
+                "[CATALOG CANDIDATES] Current scan contains {} "
+                        + "unique marketplace listings.",
                 currentScanListingIds.size()
         );
 
 
-        if (currentScanListingIds.isEmpty()) {
+        if (
+                currentScanListingIds.isEmpty()
+        ) {
 
             log.warn(
-                    "[CURRENT SCAN] Current filtered Vinted scan is empty. "
+                    "[CATALOG CANDIDATES] Current filtered scan is empty. "
                             + "No new negotiations will be started."
             );
 
@@ -108,8 +115,10 @@ public class CatalogCandidateProcessor {
 
 
         /*
-         * 2. Backend zapisuje/claimuje listingi,
-         * których jeszcze nie zna.
+         * 2. Wysyłamy aktualny skan do backendu.
+         *
+         * Backend zapisze tylko listingi,
+         * których jeszcze wcześniej nie znał.
          */
         var newlyClaimedListings =
                 listingProcessingService.process(
@@ -118,17 +127,19 @@ public class CatalogCandidateProcessor {
 
 
         log.info(
-                "Bot {} claimed {} new listings during this scan",
+                "[CATALOG CANDIDATES] Bot {} claimed {} new listings.",
                 botId,
                 newlyClaimedListings.size()
         );
 
 
         /*
-         * 3. Backend może mieć dużo starszych DISCOVERED.
+         * 3. Backend może posiadać stare listingi
+         * ze statusem DISCOVERED.
          *
-         * Do dalszej pracy dopuszczamy tylko te,
-         * które nadal znajdują się w AKTUALNYM skanie.
+         * Do dalszej pracy dopuszczamy wyłącznie te,
+         * które nadal znajdują się w AKTUALNYM
+         * przefiltrowanym skanie Vinted.
          */
         List<ListingResponseDto> discoveredListings =
                 listingClient.getDiscoveredListings(
@@ -149,19 +160,20 @@ public class CatalogCandidateProcessor {
 
 
         log.info(
-                "[CURRENT SCAN] Backend has {} DISCOVERED listings, "
-                        + "but only {} belong to the current "
-                        + "filtered Vinted scan.",
+                "[CATALOG CANDIDATES] DISCOVERED listings: "
+                        + "backend={}, currentScan={}.",
                 discoveredListings.size(),
                 currentScanDiscoveredListings.size()
         );
 
 
-        if (currentScanDiscoveredListings.isEmpty()) {
+        if (
+                currentScanDiscoveredListings.isEmpty()
+        ) {
 
             log.info(
-                    "[CURRENT SCAN] Bot {} has no DISCOVERED listings "
-                            + "present in the current filtered Vinted scan.",
+                    "[CATALOG CANDIDATES] Bot {} has no DISCOVERED "
+                            + "listings eligible from the current scan.",
                     botId
             );
 
@@ -170,10 +182,13 @@ public class CatalogCandidateProcessor {
 
 
         /*
-         * 4. TWARDY PRICE GUARD.
+         * 4. Twardy price guard.
          *
-         * Filtr Vinted nie jest jedynym zabezpieczeniem.
-         * Jeszcze raz sprawdzamy min/max na danych z backendu.
+         * Nie ufamy wyłącznie filtrowi ustawionemu
+         * w interfejsie Vinted.
+         *
+         * Cenę każdej oferty sprawdzamy ponownie
+         * na danych zapisanych w backendzie.
          */
         List<ListingResponseDto> priceEligibleListings =
                 new ArrayList<>();
@@ -213,25 +228,34 @@ public class CatalogCandidateProcessor {
 
 
         log.info(
-                "[PRICE GUARD] Checked {} current-scan DISCOVERED listings. "
-                        + "Eligible: {}, skipped outside configured "
-                        + "price range: {}.",
+                "[PRICE GUARD] Checked {} listings. "
+                        + "Eligible={}, skipped={}.",
                 currentScanDiscoveredListings.size(),
                 priceEligibleListings.size(),
                 skippedOutsidePriceRange
         );
 
 
-        if (priceEligibleListings.isEmpty()) {
+        if (
+                priceEligibleListings.isEmpty()
+        ) {
 
             log.info(
-                    "[PRICE GUARD] Bot {} has no current-scan listings "
+                    "[PRICE GUARD] Bot {} has no listings "
                             + "inside the configured price range.",
                     botId
             );
 
             return List.of();
         }
+
+
+        log.info(
+                "[CATALOG CANDIDATES] Bot {} has {} listings "
+                        + "ready for further processing.",
+                botId,
+                priceEligibleListings.size()
+        );
 
 
         return priceEligibleListings;
@@ -251,9 +275,9 @@ public class CatalogCandidateProcessor {
         ) {
 
             log.warn(
-                    "[PRICE GUARD] Backend listing {} has no original price. "
+                    "[PRICE GUARD] Marketplace listing {} has no price. "
                             + "It will not be negotiated.",
-                    listing.id()
+                    listing.listingId()
             );
 
             return false;

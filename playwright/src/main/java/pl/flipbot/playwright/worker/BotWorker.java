@@ -16,40 +16,104 @@ import pl.flipbot.playwright.target.VintedRateLimitException;
 public class BotWorker implements Runnable {
 
     /*
-     * Rozpoczynanie nowych negocjacji
-     * dla listingów DISCOVERED.
+     * ============================================================
+     * FIRST REAL OFFER TEST
+     * ============================================================
+     *
+     * UWAGA:
+     *
+     * To jest specjalna konfiguracja do pierwszego
+     * kontrolowanego testu prawdziwej oferty.
+     *
+     * Realne nowe negocjacje są globalnie włączone,
+     * ale dodatkowy bezpiecznik pozwala na nie
+     * TYLKO dla konkretnego bota:
+     *
+     * botId = 4
      */
     private static final boolean REAL_OFFERS_ENABLED =
             false;
 
+
     /*
-     * Wysyłanie kroku 2, 3 itd.
-     * w istniejących rozmowach.
+     * TYLKO ten bot może podczas tego testu
+     * rozpocząć prawdziwą nową negocjację.
+     *
+     * Jeżeli przypadkiem uruchomi się inny worker,
+     * pozostanie on w DRY RUN.
+     */
+    private static final Long REAL_OFFER_TEST_BOT_ID =
+            4L;
+
+
+    /*
+     * Najważniejszy dodatkowy bezpiecznik
+     * pierwszego testu.
+     *
+     * true:
+     *
+     * worker dostaje tylko JEDEN katalogowy cykl,
+     * w którym prawdziwa oferta może zostać wysłana.
+     *
+     * Po rozpoczęciu tego cyklu katalog zostaje
+     * zablokowany aż do restartu aplikacji.
+     *
+     * Jest to celowo bardziej restrykcyjne
+     * niż MAX_REAL_OFFERS_PER_RUN.
+     */
+    private static final boolean REAL_OFFER_ONE_SHOT_TEST_MODE =
+            true;
+
+
+    /*
+     * ============================================================
+     * EXISTING NEGOTIATIONS
+     * ============================================================
+     *
+     * Kolejne kroki istniejących negocjacji
+     * pozostają WYŁĄCZONE.
+     *
+     * Worker może je czytać i analizować,
+     * ale nie wyśle automatycznie kroku 2, 3 itd.
      */
     private static final boolean REAL_NEXT_STEPS_ENABLED =
             false;
 
+
     /*
-     * Dodatkowe bezpieczniki na pojedynczy cykl workera.
+     * Nawet wewnątrz jedynego dozwolonego
+     * katalogowego cyklu:
      *
-     * Prawdziwy dzienny limit ofert jest przechowywany
-     * w backendzie/PostgreSQL.
+     * maksymalnie jedna skutecznie rozpoczęta
+     * prawdziwa negocjacja.
      */
     private static final int MAX_REAL_OFFERS_PER_RUN =
             1;
 
+
+    /*
+     * Obecnie nie ma znaczenia,
+     * bo REAL_NEXT_STEPS_ENABLED=false.
+     */
     private static final int MAX_REAL_NEXT_STEPS_PER_RUN =
             1;
 
 
+    /*
+     * Standardowy odstęp pomiędzy cyklami.
+     *
+     * Po pierwszym katalogowym cyklu worker nadal
+     * będzie sprawdzał istniejące negocjacje,
+     * ale nie uruchomi ponownie katalogu
+     * w ONE_SHOT_TEST_MODE.
+     */
     private static final long NORMAL_CYCLE_DELAY_MS =
             30_000L;
 
+
     /*
-     * Gdy Vinted jawnie pokaże "You are rate limited",
-     * nie próbujemy dalej wysyłać requestów co 30 sekund.
-     *
-     * Worker respektuje blokadę i robi dłuższy cooldown.
+     * Jeżeli Vinted jawnie pokaże rate limit,
+     * worker robi dłuższy cooldown.
      */
     private static final long RATE_LIMIT_COOLDOWN_MS =
             10L * 60L * 1_000L;
@@ -66,6 +130,44 @@ public class BotWorker implements Runnable {
             catalogWorkProcessor;
 
 
+    /*
+     * Czy TEN konkretny worker ma prawo
+     * wysłać realną ofertę.
+     */
+    private final boolean realOffersEnabledForThisBot;
+
+
+    /*
+     * ============================================================
+     * ONE-SHOT SESSION GUARDS
+     * ============================================================
+     */
+
+    /*
+     * true od momentu rozpoczęcia pierwszego
+     * katalogowego cyklu z real offers.
+     *
+     * Ustawiamy to PRZED catalogWorkProcessor.process().
+     *
+     * To jest celowe.
+     *
+     * Jeżeli np. wystąpi wyjątek już po kliknięciu
+     * przycisku wysyłającego ofertę i stan będzie
+     * niejednoznaczny, następny cykl NIE spróbuje
+     * wysłać kolejnej oferty.
+     */
+    private boolean realOfferCatalogCycleConsumed =
+            false;
+
+
+    /*
+     * Żeby nie spamować tego samego ostrzeżenia
+     * co 30 sekund po zablokowaniu katalogu.
+     */
+    private boolean realOfferCatalogLockLogged =
+            false;
+
+
     public BotWorker(
             BotDetailsDto bot,
             BrowserManager browserManager
@@ -78,6 +180,13 @@ public class BotWorker implements Runnable {
                 );
 
 
+        this.realOffersEnabledForThisBot =
+                REAL_OFFERS_ENABLED
+                        && REAL_OFFER_TEST_BOT_ID.equals(
+                        bot.getId()
+                );
+
+
         this.loginService =
                 new LoginService(
                         context
@@ -85,11 +194,7 @@ public class BotWorker implements Runnable {
 
 
         /*
-         * Współdzielone zależności dla procesorów.
-         *
-         * Tworzymy je raz, żeby ExistingNegotiationProcessor
-         * i CatalogWorkProcessor pracowały na tych samych
-         * klientach API i updaterze statusów.
+         * Współdzielone zależności.
          */
         ListingClient listingClient =
                 new ListingClient();
@@ -106,6 +211,10 @@ public class BotWorker implements Runnable {
                 );
 
 
+        /*
+         * Istniejące negocjacje nadal są obsługiwane,
+         * ale REAL_NEXT_STEPS_ENABLED pozostaje false.
+         */
         this.existingNegotiationProcessor =
                 new ExistingNegotiationProcessor(
                         context,
@@ -117,13 +226,26 @@ public class BotWorker implements Runnable {
                 );
 
 
+        /*
+         * Bardzo ważne:
+         *
+         * nie przekazujemy tutaj po prostu
+         * REAL_OFFERS_ENABLED.
+         *
+         * Przekazujemy:
+         *
+         * realOffersEnabledForThisBot
+         *
+         * więc nawet gdy globalnie test jest włączony,
+         * realną ofertę może wysłać TYLKO bot 4.
+         */
         this.catalogWorkProcessor =
                 new CatalogWorkProcessor(
                         context,
                         listingClient,
                         offerQuotaClient,
                         listingStatusUpdater,
-                        REAL_OFFERS_ENABLED,
+                        realOffersEnabledForThisBot,
                         MAX_REAL_OFFERS_PER_RUN
                 );
     }
@@ -132,10 +254,53 @@ public class BotWorker implements Runnable {
     @Override
     public void run() {
 
+        Long botId =
+                context.getBot()
+                        .getId();
+
+
         log.info(
                 "Worker started for bot {}",
-                context.getBot().getId()
+                botId
         );
+
+
+        /*
+         * Wyraźny log bezpieczeństwa już na starcie.
+         */
+        if (
+                realOffersEnabledForThisBot
+        ) {
+
+            log.warn(
+                    "[REAL OFFER TEST] REAL OFFERS ARE ENABLED for bot {}. "
+                            + "One-shot mode={}, max real offers per run={}. "
+                            + "Only bot {} is allowed to send a new real offer.",
+                    botId,
+                    REAL_OFFER_ONE_SHOT_TEST_MODE,
+                    MAX_REAL_OFFERS_PER_RUN,
+                    REAL_OFFER_TEST_BOT_ID
+            );
+
+        } else {
+
+            log.info(
+                    "[REAL OFFER TEST] Real offers are disabled for bot {}. "
+                            + "Configured real-offer test bot is {}.",
+                    botId,
+                    REAL_OFFER_TEST_BOT_ID
+            );
+        }
+
+
+        if (
+                !REAL_NEXT_STEPS_ENABLED
+        ) {
+
+            log.info(
+                    "[NEXT STEP] Real next negotiation steps are disabled."
+            );
+        }
 
 
         try {
@@ -167,7 +332,7 @@ public class BotWorker implements Runnable {
                                     + "rate-limit page. This cycle is stopped. "
                                     + "The worker will perform no new work for "
                                     + "{} minutes before retrying.",
-                            context.getBot().getId(),
+                            botId,
                             RATE_LIMIT_COOLDOWN_MS
                                     / 60_000L
                     );
@@ -175,16 +340,25 @@ public class BotWorker implements Runnable {
 
                     log.debug(
                             "[RATE LIMIT] Full rate-limit exception for bot {}.",
-                            context.getBot().getId(),
+                            botId,
                             exception
                     );
 
                 } catch (Exception exception) {
 
+                    /*
+                     * W ONE-SHOT real-offer test nawet jeżeli ten wyjątek
+                     * wystąpi podczas katalogowego cyklu,
+                     * realOfferCatalogCycleConsumed pozostanie true.
+                     *
+                     * Dzięki temu 30 sekund później nie uruchomimy
+                     * kolejnej próby wysłania nowej oferty.
+                     */
                     log.error(
                             "[WORK CYCLE] Bot {} failed during this cycle. "
-                                    + "The worker will retry in {} seconds.",
-                            context.getBot().getId(),
+                                    + "The worker will retry normal worker work "
+                                    + "in {} seconds.",
+                            botId,
                             NORMAL_CYCLE_DELAY_MS
                                     / 1_000L,
                             exception
@@ -205,14 +379,14 @@ public class BotWorker implements Runnable {
 
             log.info(
                     "Worker {} was interrupted",
-                    context.getBot().getId()
+                    botId
             );
 
         } catch (Exception exception) {
 
             log.error(
                     "Worker {} stopped because of an unexpected error.",
-                    context.getBot().getId(),
+                    botId,
                     exception
             );
 
@@ -223,7 +397,7 @@ public class BotWorker implements Runnable {
 
             log.info(
                     "Worker stopped for bot {}",
-                    context.getBot().getId()
+                    botId
             );
         }
     }
@@ -232,18 +406,31 @@ public class BotWorker implements Runnable {
     private void doWork() {
 
         /*
-         * 1. Najpierw obsługujemy już istniejące negocjacje.
+         * ============================================================
+         * 1. EXISTING NEGOTIATIONS
+         * ============================================================
+         *
+         * Nadal sprawdzamy istniejące negocjacje.
+         *
+         * REAL_NEXT_STEPS_ENABLED=false,
+         * więc nie powinien zostać wysłany
+         * kolejny automatyczny krok.
          */
         boolean realNextStepWasSent =
                 existingNegotiationProcessor.process();
 
 
         /*
-         * Jeżeli w tym cyklu faktycznie wysłano kolejny
-         * krok negocjacji, nie uruchamiamy dodatkowo
-         * pracy na katalogu.
+         * Zachowujemy obecny safety guard.
+         *
+         * Gdyby kiedyś REAL_NEXT_STEPS_ENABLED
+         * zostało włączone i krok faktycznie
+         * został wysłany, nie robimy w tym samym
+         * cyklu również nowej negocjacji.
          */
-        if (realNextStepWasSent) {
+        if (
+                realNextStepWasSent
+        ) {
 
             log.warn(
                     "[NEXT STEP REAL] A real next negotiation step "
@@ -252,17 +439,132 @@ public class BotWorker implements Runnable {
                             + "or start another negotiation."
             );
 
+
             return;
         }
 
 
         /*
-         * 2. Cała praca katalogowa jest teraz
-         * zamknięta w osobnym procesorze:
+         * ============================================================
+         * 2. FIRST REAL OFFER ONE-SHOT LOCK
+         * ============================================================
          *
-         * katalog -> filtry -> scan -> CURRENT SCAN
-         * -> PRICE GUARD -> nowe negocjacje.
+         * Dotyczy tylko bota, dla którego
+         * realne oferty są naprawdę włączone.
+         */
+        if (
+                realOffersEnabledForThisBot
+                        && REAL_OFFER_ONE_SHOT_TEST_MODE
+                        && realOfferCatalogCycleConsumed
+        ) {
+
+            if (
+                    !realOfferCatalogLockLogged
+            ) {
+
+                log.warn(
+                        "[REAL OFFER TEST] One-shot catalog cycle has already "
+                                + "been consumed for bot {}. "
+                                + "Catalog scanning and NEW real negotiations "
+                                + "are now locked until the worker is restarted. "
+                                + "Existing negotiations may still be inspected.",
+                        context.getBot()
+                                .getId()
+                );
+
+
+                realOfferCatalogLockLogged =
+                        true;
+            }
+
+
+            return;
+        }
+
+
+        /*
+         * ============================================================
+         * 3. ARM ONE-SHOT GUARD BEFORE CATALOG WORK
+         * ============================================================
+         *
+         * Ustawiamy consumed=true PRZED wejściem
+         * do katalogu.
+         *
+         * Dzięki temu nawet jeżeli później:
+         *
+         * - Vinted zachowa się dziwnie,
+         * - wystąpi timeout,
+         * - wyjątek wystąpi po reserveSlot(),
+         * - stan wysłania oferty będzie niepewny,
+         *
+         * następny worker cycle nie spróbuje
+         * rozpocząć kolejnej nowej negocjacji.
+         */
+        if (
+                realOffersEnabledForThisBot
+                        && REAL_OFFER_ONE_SHOT_TEST_MODE
+        ) {
+
+            realOfferCatalogCycleConsumed =
+                    true;
+
+
+            log.warn(
+                    "[REAL OFFER TEST] Starting the ONLY catalog cycle "
+                            + "allowed for bot {} during this worker session. "
+                            + "After this point, no second catalog cycle "
+                            + "will be allowed until restart.",
+                    context.getBot()
+                            .getId()
+            );
+        }
+
+
+        /*
+         * ============================================================
+         * 4. CATALOG WORK
+         * ============================================================
+         *
+         * katalog
+         * -> filtry
+         * -> scan
+         * -> CURRENT SCAN
+         * -> PRICE GUARD
+         * -> TARGET MATCHER
+         * -> mandatory FINAL VERIFY
+         * -> reserveSlot()
+         * -> NegotiationExecutor
+         *
+         * W naszym aktualnym NewNegotiationProcessor
+         * maxRealOffersPerRun=1.
          */
         catalogWorkProcessor.process();
+
+
+        /*
+         * Sam catalogWorkProcessor może zakończyć się:
+         *
+         * - wysłaniem jednej prawdziwej oferty,
+         * - OFFER_TOO_LOW,
+         * - UNAVAILABLE,
+         * - brakiem kandydatów,
+         * - itd.
+         *
+         * Niezależnie od wyniku ONE_SHOT pozostaje
+         * zużyty do restartu aplikacji.
+         */
+        if (
+                realOffersEnabledForThisBot
+                        && REAL_OFFER_ONE_SHOT_TEST_MODE
+        ) {
+
+            log.warn(
+                    "[REAL OFFER TEST] The one-shot catalog cycle for bot {} "
+                            + "finished. New catalog work is now locked "
+                            + "until worker restart.",
+                    context.getBot()
+                            .getId()
+            );
+        }
     }
 }

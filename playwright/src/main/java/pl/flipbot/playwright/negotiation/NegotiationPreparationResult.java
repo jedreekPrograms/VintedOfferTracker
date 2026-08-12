@@ -6,6 +6,14 @@ public enum NegotiationPreparationResult {
 
     OFFER_TOO_LOW,
 
-    LISTING_UNAVAILABLE
+    LISTING_UNAVAILABLE,
+
+    /*
+     * Listing jest dostępny i poprawnie załadowany, ale Vinted nie pokazuje
+     * temu kontu akcji pozwalającej rozpocząć negocjację ceny.
+     *
+     * To nie jest błąd workera i nie wymaga quota.
+     */
+    CANNOT_NEGOTIATE
 
 }

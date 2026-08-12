@@ -4,7 +4,18 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="" />
+    <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/../backend/src/main/resources/db/migration/V14__add_skipped_cannot_negotiate_status.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/FirstOfferExecutor.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingStatus.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingStatus.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterActions.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterActions.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/category/CategoryNavigator.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/category/CategoryNavigator.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/NegotiationPreparationResult.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/NegotiationPreparationResult.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/NewNegotiationProcessor.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/NewNegotiationProcessor.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/processing/CatalogCandidateProcessor.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/processing/CatalogCandidateProcessor.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/BotWorker.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/BotWorker.java" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -67,6 +78,7 @@
       <workItem from="1784307279440" duration="1802000" />
       <workItem from="1785927767072" duration="1829000" />
       <workItem from="1786321872517" duration="602000" />
+      <workItem from="1786536601765" duration="596000" />
     </task>
     <servers />
   </component>
