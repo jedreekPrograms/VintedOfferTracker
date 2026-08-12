@@ -16,7 +16,8 @@ const navigationItems: NavigationItem[] = [
         label: "Boty",
         path:"/bots",
     },
-    {   label: "Utwórz bota",
+    {
+        label: "Utwórz bota",
         path: "/bots/create",
     },
     {
@@ -29,7 +30,12 @@ const navigationItems: NavigationItem[] = [
     },
     {
         label: "Słowniki",
-        path: "/dictionaries"
+        path: "/dictionaries",
+        end: true,
+    },
+    {
+        label: "Edycja słowników",
+        path: "/dictionaries/manage",
     },
 ];
 
@@ -63,10 +69,10 @@ function AppLayout() {
                                 isActive
                                     ? "navigation-link navigation-link-active"
                                     : "navigation-link"
-                            }    
+                            }
                         >
                             {item.label}
-                        </NavLink>        
+                        </NavLink>
                     ))}
                 </nav>
 
@@ -76,7 +82,7 @@ function AppLayout() {
                     </div>
 
                     <div className="sidebar-footer-text">
-                        Jedno konto Vinted jest przypisane do jednego  bota.
+                        Jedno konto Vinted jest przypisane do jednego bota.
                     </div>
                 </div>
             </aside>
@@ -88,4 +94,4 @@ function AppLayout() {
     )
 }
 
-export default AppLayout
+export default AppLayout;
