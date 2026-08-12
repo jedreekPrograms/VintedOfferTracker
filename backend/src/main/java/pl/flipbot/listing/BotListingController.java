@@ -10,9 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import pl.flipbot.listing.dto.DiscoverListingsRequest;
-import pl.flipbot.listing.dto.ListingResponse;
-import pl.flipbot.listing.dto.UpdateListingRequest;
+import pl.flipbot.listing.dto.*;
 import pl.flipbot.negotiation.NegotiationCapacityService;
 import pl.flipbot.negotiation.dto.NegotiationCapacityResponse;
 
@@ -182,6 +180,24 @@ public class BotListingController {
                 )
         );
 
+    }
+
+    @PatchMapping("/{listingId}/negotiation-activity")
+    public ResponseEntity<NegotiationActivityResponse>
+    recordNegotiationActivity(
+            @PathVariable Long botId,
+            @PathVariable Long listingId,
+            @RequestBody
+            NegotiationActivityRequest request
+    ) {
+
+        return ResponseEntity.ok(
+                listingService.recordNegotiationActivity(
+                        botId,
+                        listingId,
+                        request
+                )
+        );
     }
 
 }

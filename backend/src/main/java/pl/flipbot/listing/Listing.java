@@ -18,6 +18,7 @@ import pl.flipbot.bot.Bot;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+
 @Entity
 @Getter
 @Setter
@@ -70,13 +71,41 @@ public class Listing {
     @Column(name = "decision_at")
     private LocalDateTime decisionAt;
 
+    /*
+     * Moment rozpoczęcia AKTUALNEGO kroku negocjacji.
+     *
+     * Ustawiamy go:
+     * - gdy listing pierwszy raz przechodzi do NEGOTIATING,
+     * - gdy currentStep zmienia się na kolejny krok.
+     *
+     * Będzie podstawą timera 48h bez żadnej reakcji sprzedającego.
+     */
+    @Column(name = "current_step_started_at")
+    private LocalDateTime currentStepStartedAt;
+
+    /*
+     * Ostatnia wykryta zwykła wiadomość sprzedającego
+     * po naszej aktualnej ofercie.
+     *
+     * Później będziemy od tego czasu liczyć 3h
+     * przed wysłaniem kolejnego kroku.
+     */
+    @Column(name = "seller_activity_at")
+    private LocalDateTime sellerActivityAt;
+
+    /*
+     * Moment PIERWSZEGO wykrycia "Przeczytane"
+     * dla aktualnego kroku negocjacji.
+     *
+     * Tego pola nie będziemy przesuwać przy każdym skanie.
+     */
+    @Column(name = "read_detected_at")
+    private LocalDateTime readDetectedAt;
+
     @ManyToOne
     @JoinColumn(
             name = "bot_id",
             nullable = false
     )
     private Bot bot;
-
-
-
 }

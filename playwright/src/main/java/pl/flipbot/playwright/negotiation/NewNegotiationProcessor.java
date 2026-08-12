@@ -7,11 +7,32 @@ import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.quota.OfferQuotaClient;
 import pl.flipbot.playwright.api.quota.dto.OfferQuotaReservationResponseDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.model.BotConfigurationDto;
+import pl.flipbot.playwright.target.ListingDetailTargetInspector;
+import pl.flipbot.playwright.target.ListingTargetAssessment;
+import pl.flipbot.playwright.target.ListingTargetMatcher;
+import pl.flipbot.playwright.target.VintedRateLimitException;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 public class NewNegotiationProcessor {
+
+    /*
+     * Nawet gdy wiele listingów ma niepełny tytuł i URL,
+     * nie otwieramy dziesiątek item pages w jednym cyklu.
+     */
+    private static final int MAX_DETAIL_INSPECTIONS_PER_CYCLE =
+            5;
+
+    /*
+     * Delikatne tempo pomiędzy faktycznymi wejściami na /items/...
+     * Nie dotyczy cache ani analizy sluga URL.
+     */
+    private static final double DETAIL_INSPECTION_PACING_MS =
+            1_500;
+
 
     private final BotContext context;
 
@@ -24,6 +45,12 @@ public class NewNegotiationProcessor {
 
     private final NegotiationExecutor
             negotiationExecutor;
+
+    private final ListingTargetMatcher
+            listingTargetMatcher;
+
+    private final ListingDetailTargetInspector
+            listingDetailTargetInspector;
 
     private final boolean realOffersEnabled;
 
@@ -56,6 +83,15 @@ public class NewNegotiationProcessor {
                         context
                 );
 
+        this.listingTargetMatcher =
+                new ListingTargetMatcher();
+
+        this.listingDetailTargetInspector =
+                new ListingDetailTargetInspector(
+                        context,
+                        listingTargetMatcher
+                );
+
         this.realOffersEnabled =
                 realOffersEnabled;
 
@@ -76,6 +112,67 @@ public class NewNegotiationProcessor {
             log.info(
                     "[REAL OFFER] There are no price-eligible listings "
                             + "to process."
+            );
+
+            return;
+        }
+
+
+        BotConfigurationDto configuration =
+                context.getBot()
+                        .getConfiguration();
+
+
+        if (configuration == null) {
+
+            throw new IllegalStateException(
+                    "Bot configuration is missing"
+            );
+        }
+
+
+        /*
+         * FINAL TARGET GUARD.
+         *
+         * Działa niezależnie od filtrów Vinted i PRZED reserveSlot().
+         *
+         * VINTED_MODEL:
+         * - np. Galaxy S25 -> wymagamy charakterystycznych tokenów modelu,
+         *   np. s25;
+         * - Galaxy S25+ pozostaje różne od Galaxy S25.
+         *
+         * SEARCH_QUERY:
+         * - np. Galaxy Tab S11 Ultra -> wymagamy wszystkich istotnych
+         *   tokenów: tab, s11, ultra;
+         * - wielkość liter, myślniki, podkreślenia, zapis "S 11"
+         *   oraz złączone warianty typu S11Ultra nie mają znaczenia;
+         * - najpierw używamy tytułu karty;
+         * - potem BEZ requestu analizujemy slug URL;
+         * - dopiero gdy oba źródła są niejednoznaczne, możemy wejść
+         *   na stronę przedmiotu i przeczytać pełny <h1>;
+         * - pełne tytuły są cache'owane, a liczba wejść /items/...
+         *   w jednym cyklu jest ograniczona.
+         *
+         * Listing, który nie przejdzie guarda:
+         * - nie rezerwuje quota,
+         * - nie trafia do NegotiationExecutor,
+         * - nie może wysłać oferty.
+         */
+        List<ListingResponseDto> targetEligibleListings =
+                retainTargetEligibleListings(
+                        priceEligibleListings,
+                        configuration
+                );
+
+
+        if (targetEligibleListings.isEmpty()) {
+
+            log.warn(
+                    "[TARGET MATCHER] None of the {} price-eligible "
+                            + "current-scan listings matches the configured "
+                            + "target. No quota will be reserved and "
+                            + "no negotiation will be started.",
+                    priceEligibleListings.size()
             );
 
             return;
@@ -123,7 +220,7 @@ public class NewNegotiationProcessor {
                             + "Backend allows {} new negotiations. "
                             + "No quota will be reserved and "
                             + "no offer will be sent.",
-                    priceEligibleListings.size(),
+                    targetEligibleListings.size(),
                     allowedNewNegotiations
             );
 
@@ -148,7 +245,7 @@ public class NewNegotiationProcessor {
                         + "and may start {} new negotiations. "
                         + "This run is limited to {} real offer.",
                 botId,
-                priceEligibleListings.size(),
+                targetEligibleListings.size(),
                 allowedNewNegotiations,
                 maximumOffersThisRun
         );
@@ -164,7 +261,7 @@ public class NewNegotiationProcessor {
 
         for (
                 ListingResponseDto listing
-                : priceEligibleListings
+                : targetEligibleListings
         ) {
 
             if (
@@ -191,8 +288,8 @@ public class NewNegotiationProcessor {
 
 
             /*
-             * CURRENT SCAN oraz PRICE GUARD
-             * zostały wykonane wcześniej w BotWorker.
+             * CURRENT SCAN, PRICE GUARD oraz TARGET MATCHER
+             * zostały wykonane przed rezerwacją quota.
              *
              * Dopiero tutaj rezerwujemy quota.
              */
@@ -367,6 +464,318 @@ public class NewNegotiationProcessor {
                 checkedListings,
                 startedNegotiations
         );
+    }
+
+
+    private List<ListingResponseDto>
+    retainTargetEligibleListings(
+            List<ListingResponseDto> listings,
+            BotConfigurationDto configuration
+    ) {
+
+        List<ListingResponseDto> eligibleListings =
+                new ArrayList<>();
+
+
+        int matchedFromCatalogTitle =
+                0;
+
+        int matchedFromUrlSlug =
+                0;
+
+        int matchedFromDetailCache =
+                0;
+
+        int matchedAfterDetailRequest =
+                0;
+
+        int rejectedCatalogMismatch =
+                0;
+
+        int rejectedUrlMismatch =
+                0;
+
+        int rejectedFromDetailCache =
+                0;
+
+        int rejectedAfterDetailRequest =
+                0;
+
+        int detailInspectionFailures =
+                0;
+
+        int deferredByDetailLimit =
+                0;
+
+        int detailRequestsThisCycle =
+                0;
+
+
+        for (
+                ListingResponseDto listing
+                : listings
+        ) {
+
+            /*
+             * KROK 1:
+             * tytuł widoczny na karcie katalogowej.
+             */
+            ListingTargetAssessment catalogAssessment =
+                    listingTargetMatcher
+                            .assessCatalogListing(
+                                    listing,
+                                    configuration
+                            );
+
+
+            if (
+                    catalogAssessment
+                            == ListingTargetAssessment.MATCH
+            ) {
+
+                eligibleListings.add(
+                        listing
+                );
+
+                matchedFromCatalogTitle++;
+
+                continue;
+            }
+
+
+            if (
+                    catalogAssessment
+                            == ListingTargetAssessment.MISMATCH
+            ) {
+
+                rejectedCatalogMismatch++;
+
+                continue;
+            }
+
+
+            /*
+             * KROK 2:
+             * slug URL.
+             *
+             * To jest analiza lokalna i nie powoduje żadnego
+             * dodatkowego requestu do Vinted.
+             */
+            ListingTargetAssessment urlAssessment =
+                    listingTargetMatcher
+                            .assessListingUrl(
+                                    listing,
+                                    configuration
+                            );
+
+
+            if (
+                    urlAssessment
+                            == ListingTargetAssessment.MATCH
+            ) {
+
+                eligibleListings.add(
+                        listing
+                );
+
+                matchedFromUrlSlug++;
+
+                continue;
+            }
+
+
+            if (
+                    urlAssessment
+                            == ListingTargetAssessment.MISMATCH
+            ) {
+
+                rejectedUrlMismatch++;
+
+                continue;
+            }
+
+
+            /*
+             * KROK 3:
+             * jeżeli pełny tytuł był już wcześniej pobrany,
+             * wykorzystujemy cache.
+             *
+             * Cache hit NIE zużywa limitu detail requests.
+             */
+            boolean cached =
+                    listingDetailTargetInspector
+                            .hasCachedFullTitle(
+                                    listing.listingId()
+                            );
+
+
+            if (cached) {
+
+                boolean cachedMatches =
+                        listingDetailTargetInspector
+                                .matchesConfiguredTarget(
+                                        listing,
+                                        configuration
+                                );
+
+
+                if (cachedMatches) {
+
+                    eligibleListings.add(
+                            listing
+                    );
+
+                    matchedFromDetailCache++;
+
+                } else {
+
+                    rejectedFromDetailCache++;
+                }
+
+
+                continue;
+            }
+
+
+            /*
+             * KROK 4:
+             * dopiero teraz potrzebny byłby realny request
+             * do strony konkretnego ogłoszenia.
+             *
+             * Nie wykonujemy więcej niż kilka takich wejść
+             * w jednym cyklu.
+             */
+            if (
+                    detailRequestsThisCycle
+                            >= MAX_DETAIL_INSPECTIONS_PER_CYCLE
+            ) {
+
+                deferredByDetailLimit++;
+
+
+                log.info(
+                        "[TARGET DETAIL] Marketplace listing {} is still "
+                                + "ambiguous, but the per-cycle detail limit "
+                                + "({}) has already been reached. "
+                                + "The listing is deferred safely to a later "
+                                + "cycle before quota reservation.",
+                        listing.listingId(),
+                        MAX_DETAIL_INSPECTIONS_PER_CYCLE
+                );
+
+
+                continue;
+            }
+
+
+            /*
+             * Pacing tylko pomiędzy realnymi wejściami na item page.
+             */
+            if (detailRequestsThisCycle > 0) {
+
+                context.getPage()
+                        .waitForTimeout(
+                                DETAIL_INSPECTION_PACING_MS
+                        );
+            }
+
+
+            detailRequestsThisCycle++;
+
+
+            try {
+
+                boolean detailMatches =
+                        listingDetailTargetInspector
+                                .matchesConfiguredTarget(
+                                        listing,
+                                        configuration
+                                );
+
+
+                if (detailMatches) {
+
+                    eligibleListings.add(
+                            listing
+                    );
+
+                    matchedAfterDetailRequest++;
+
+                } else {
+
+                    rejectedAfterDetailRequest++;
+                }
+
+            } catch (VintedRateLimitException exception) {
+
+                /*
+                 * Jawnego rate limitu NIE ignorujemy i nie przechodzimy
+                 * do następnego listing'u.
+                 *
+                 * Wyjątek idzie do BotWorker, który robi długi cooldown.
+                 */
+                log.warn(
+                        "[RATE LIMIT] Vinted rate limit detected while "
+                                + "inspecting marketplace listing {}. "
+                                + "Stopping this work cycle immediately.",
+                        listing.listingId()
+                );
+
+
+                throw exception;
+
+            } catch (Exception exception) {
+
+                /*
+                 * Zwykły timeout / chwilowy błąd strony:
+                 * fail-closed tylko dla tego listing'u.
+                 *
+                 * Nie rezerwujemy quota i nie wysyłamy oferty.
+                 */
+                detailInspectionFailures++;
+
+
+                log.error(
+                        "[TARGET DETAIL] Failed to inspect marketplace "
+                                + "listing {}. It will be skipped for this "
+                                + "cycle before quota reservation.",
+                        listing.listingId(),
+                        exception
+                );
+            }
+        }
+
+
+        log.info(
+                "[TARGET MATCHER] Checked {} current-scan price-eligible "
+                        + "listings. "
+                        + "Catalog matches: {}, URL matches: {}, "
+                        + "detail-cache matches: {}, detail-request matches: {}, "
+                        + "catalog mismatches: {}, URL mismatches: {}, "
+                        + "detail-cache mismatches: {}, "
+                        + "detail-request mismatches: {}, "
+                        + "detail requests this cycle: {}/{}, "
+                        + "detail failures: {}, deferred by detail limit: {}, "
+                        + "final eligible: {}. Target mode: {}.",
+                listings.size(),
+                matchedFromCatalogTitle,
+                matchedFromUrlSlug,
+                matchedFromDetailCache,
+                matchedAfterDetailRequest,
+                rejectedCatalogMismatch,
+                rejectedUrlMismatch,
+                rejectedFromDetailCache,
+                rejectedAfterDetailRequest,
+                detailRequestsThisCycle,
+                MAX_DETAIL_INSPECTIONS_PER_CYCLE,
+                detailInspectionFailures,
+                deferredByDetailLimit,
+                eligibleListings.size(),
+                configuration.getTargetMode()
+        );
+
+
+        return eligibleListings;
     }
 
 

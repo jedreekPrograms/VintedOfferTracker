@@ -4,6 +4,10 @@ export type Marketplace =
     | "OLX"
     | "ALLEGRO";
 
+export type TargetMode =
+    | "VINTED_MODEL"
+    | "SEARCH_QUERY";
+
 export interface CreateNegotiationStepRequest {
     offerPrice: number;
     maxAcceptedCounterOffer: number;
@@ -16,10 +20,19 @@ export interface CreateBotConfigurationRequest {
     categoryPath: string[];
 
     brand: string;
-    model: string;
+
+    targetMode: TargetMode;
+
+    model: string | null;
+
+    searchQuery: string | null;
 
     minPrice: number;
     maxPrice: number;
+
+    autoRaiseOfferToVintedMinimum: boolean;
+
+    maxAutomaticOffer: number | null;
 
     dailyNegotiationBudget: number;
 

@@ -10,6 +10,7 @@ import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
+import pl.flipbot.playwright.target.VintedRateLimitException;
 
 @Slf4j
 public class BotWorker implements Runnable {
@@ -19,14 +20,14 @@ public class BotWorker implements Runnable {
      * dla listingów DISCOVERED.
      */
     private static final boolean REAL_OFFERS_ENABLED =
-            true;
+            false;
 
     /*
      * Wysyłanie kroku 2, 3 itd.
      * w istniejących rozmowach.
      */
     private static final boolean REAL_NEXT_STEPS_ENABLED =
-            true;
+            false;
 
     /*
      * Dodatkowe bezpieczniki na pojedynczy cykl workera.
@@ -39,6 +40,19 @@ public class BotWorker implements Runnable {
 
     private static final int MAX_REAL_NEXT_STEPS_PER_RUN =
             1;
+
+
+    private static final long NORMAL_CYCLE_DELAY_MS =
+            30_000L;
+
+    /*
+     * Gdy Vinted jawnie pokaże "You are rate limited",
+     * nie próbujemy dalej wysyłać requestów co 30 sekund.
+     *
+     * Worker respektuje blokadę i robi dłuższy cooldown.
+     */
+    private static final long RATE_LIMIT_COOLDOWN_MS =
+            10L * 60L * 1_000L;
 
 
     private final BotContext context;
@@ -134,32 +148,52 @@ public class BotWorker implements Runnable {
                             .isInterrupted()
             ) {
 
+                long delayBeforeNextCycle =
+                        NORMAL_CYCLE_DELAY_MS;
+
+
                 try {
 
                     doWork();
 
-                } catch (Exception exception) {
+                } catch (VintedRateLimitException exception) {
 
-                    log.error(
-                            "[WORK CYCLE] Bot {} failed during this cycle: {}. "
-                                    + "The worker will retry in 30 seconds.",
+                    delayBeforeNextCycle =
+                            RATE_LIMIT_COOLDOWN_MS;
+
+
+                    log.warn(
+                            "[RATE LIMIT] Bot {} received an explicit Vinted "
+                                    + "rate-limit page. This cycle is stopped. "
+                                    + "The worker will perform no new work for "
+                                    + "{} minutes before retrying.",
                             context.getBot().getId(),
-                            getFriendlyErrorMessage(
-                                    exception
-                            )
+                            RATE_LIMIT_COOLDOWN_MS
+                                    / 60_000L
                     );
 
 
-                    log.trace(
-                            "[WORK CYCLE] Full exception for bot {}.",
+                    log.debug(
+                            "[RATE LIMIT] Full rate-limit exception for bot {}.",
                             context.getBot().getId(),
+                            exception
+                    );
+
+                } catch (Exception exception) {
+
+                    log.error(
+                            "[WORK CYCLE] Bot {} failed during this cycle. "
+                                    + "The worker will retry in {} seconds.",
+                            context.getBot().getId(),
+                            NORMAL_CYCLE_DELAY_MS
+                                    / 1_000L,
                             exception
                     );
                 }
 
 
                 Thread.sleep(
-                        30_000
+                        delayBeforeNextCycle
                 );
             }
 
@@ -177,16 +211,7 @@ public class BotWorker implements Runnable {
         } catch (Exception exception) {
 
             log.error(
-                    "Worker {} stopped because of an unexpected error: {}",
-                    context.getBot().getId(),
-                    getFriendlyErrorMessage(
-                            exception
-                    )
-            );
-
-
-            log.trace(
-                    "Full fatal worker exception for bot {}.",
+                    "Worker {} stopped because of an unexpected error.",
                     context.getBot().getId(),
                     exception
             );
@@ -239,51 +264,5 @@ public class BotWorker implements Runnable {
          * -> PRICE GUARD -> nowe negocjacje.
          */
         catalogWorkProcessor.process();
-    }
-
-
-    private String getFriendlyErrorMessage(
-            Throwable exception
-    ) {
-
-        if (exception == null) {
-
-            return "Unknown error";
-        }
-
-
-        String message =
-                exception.getMessage();
-
-
-        if (
-                message == null
-                        || message.isBlank()
-        ) {
-
-            return exception
-                    .getClass()
-                    .getSimpleName();
-        }
-
-
-        int firstLineEnd =
-                message.indexOf('\n');
-
-
-        if (
-                firstLineEnd > 0
-        ) {
-
-            return message
-                    .substring(
-                            0,
-                            firstLineEnd
-                    )
-                    .trim();
-        }
-
-
-        return message.trim();
     }
 }

@@ -2,14 +2,19 @@ package pl.flipbot.playwright.negotiation;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
+import pl.flipbot.playwright.api.listing.NegotiationActivityClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
+import pl.flipbot.playwright.api.listing.dto.NegotiationActivityRequestDto;
+import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.api.quota.OfferQuotaClient;
 import pl.flipbot.playwright.api.quota.dto.OfferQuotaReservationResponseDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 
+import java.text.Normalizer;
 import java.util.List;
+import java.util.Locale;
 
 @Slf4j
 public class ExistingNegotiationProcessor {
@@ -26,8 +31,20 @@ public class ExistingNegotiationProcessor {
     private final NegotiationConversationProcessor
             negotiationConversationProcessor;
 
+    private final ConversationAvailabilityDetector
+            conversationAvailabilityDetector;
+
+    private final ConversationActivityDetector
+            conversationActivityDetector;
+
+    private final NegotiationActivityClient
+            negotiationActivityClient;
+
     private final NegotiationDecisionService
             negotiationDecisionService;
+
+    private final PendingNegotiationPolicy
+            pendingNegotiationPolicy;
 
     private final NextNegotiationStepExecutor
             nextNegotiationStepExecutor;
@@ -63,8 +80,24 @@ public class ExistingNegotiationProcessor {
                         context
                 );
 
+        this.conversationAvailabilityDetector =
+                new ConversationAvailabilityDetector(
+                        context
+                );
+
+        this.conversationActivityDetector =
+                new ConversationActivityDetector(
+                        context
+                );
+
+        this.negotiationActivityClient =
+                new NegotiationActivityClient();
+
         this.negotiationDecisionService =
                 new NegotiationDecisionService();
+
+        this.pendingNegotiationPolicy =
+                new PendingNegotiationPolicy();
 
         this.nextNegotiationStepExecutor =
                 new NextNegotiationStepExecutor(
@@ -170,6 +203,72 @@ public class ExistingNegotiationProcessor {
                 );
 
 
+                /*
+                 * LEGACY TARGET GUARD.
+                 *
+                 * Ten guard chroni istniejące NEGOTIATING, które mogły
+                 * zostać rozpoczęte wcześniej, zanim mieliśmy pełne
+                 * zabezpieczenie brand/model.
+                 *
+                 * Nie ufamy temu, że skoro listing jest już NEGOTIATING,
+                 * to na pewno należy do aktualnego celu bota.
+                 *
+                 * Przykład historycznego błędu:
+                 *
+                 *   bot: Samsung + Galaxy S25
+                 *   listing: Samsung Galaxy S22 Ultra
+                 *
+                 * Taki listing:
+                 * - NIE może dostać kolejnego kroku,
+                 * - NIE może zająć kolejnego quota slotu,
+                 * - NIE może trafić do ACTION_REQUIRED,
+                 * - powinien przestać zajmować aktywny slot negocjacji.
+                 *
+                 * FINISHED oznacza tutaj techniczne zakończenie starej,
+                 * błędnie rozpoczętej automatyzacji. Nie oznacza zakupu.
+                 */
+                if (
+                        !matchesConfiguredTarget(
+                                listing,
+                                configuration
+                        )
+                ) {
+
+                    ListingResponseDto finishedListing =
+                            finishWrongTargetNegotiation(
+                                    listing
+                            );
+
+
+                    log.error(
+                            "[TARGET GUARD] Existing negotiation for marketplace "
+                                    + "listing {} was stopped because it does not "
+                                    + "match the configured target. "
+                                    + "Configured brand='{}', model='{}'. "
+                                    + "Listing title='{}'. "
+                                    + "Status changed from NEGOTIATING to FINISHED. "
+                                    + "No new quota slot was reserved and no "
+                                    + "additional offer was sent.",
+                            listing.listingId(),
+                            configuration.getBrand(),
+                            configuration.getModel(),
+                            listing.title()
+                    );
+
+
+                    log.info(
+                            "[TARGET GUARD] Backend listing {} is now {} "
+                                    + "and no longer occupies an active "
+                                    + "NEGOTIATING slot.",
+                            finishedListing.id(),
+                            finishedListing.status()
+                    );
+
+
+                    continue;
+                }
+
+
                 NegotiationConversationSnapshot snapshot =
                         negotiationConversationProcessor
                                 .inspectSnapshot(
@@ -177,20 +276,181 @@ public class ExistingNegotiationProcessor {
                                 );
 
 
-                NegotiationDecision decision =
-                        negotiationDecisionService.decide(
-                                listing,
-                                snapshot,
-                                configuration
-                        );
+                /*
+                 * Dostępność przedmiotu ma wyższy priorytet niż:
+                 * - stara kontroferta,
+                 * - ACCEPT / REJECT,
+                 * - timery 3h / 48h,
+                 * - próba wysłania następnego kroku.
+                 *
+                 * Jeżeli Vinted pokazuje:
+                 *
+                 *   "Przedmiot jest niedostępny"
+                 *   "Przedmiot został sprzedany lub usunięty"
+                 *
+                 * kończymy negocjację jako UNAVAILABLE ZANIM zostanie
+                 * zarezerwowany jakikolwiek kolejny slot quota.
+                 */
+                if (
+                        conversationAvailabilityDetector
+                                .isUnavailable(
+                                        listing
+                                )
+                ) {
+
+                    ListingResponseDto unavailableListing =
+                            listingStatusUpdater
+                                    .markNegotiationUnavailable(
+                                            listing
+                                    );
 
 
-                boolean stepWasSent =
-                        handleNegotiationDecision(
-                                listing,
-                                snapshot,
-                                decision
+                    log.warn(
+                            "[AVAILABILITY] Marketplace listing {} was changed "
+                                    + "from NEGOTIATING to UNAVAILABLE because "
+                                    + "Vinted reports that the item was sold "
+                                    + "or removed. No new quota slot was reserved.",
+                            unavailableListing.listingId()
+                    );
+
+
+                    continue;
+                }
+
+
+                /*
+                 * Na tym etapie tylko obserwujemy dodatkową aktywność:
+                 * - zwykłą wiadomość sprzedającego po naszej ostatniej ofercie,
+                 * - wskaźnik "Przeczytane" po naszej ostatniej ofercie.
+                 *
+                 * To NIE zmienia jeszcze żadnej decyzji negocjacyjnej
+                 * i nie wysyła żadnej dodatkowej oferty.
+                 */
+                ConversationActivitySnapshot activitySnapshot =
+                        conversationActivityDetector
+                                .inspect();
+
+
+                logConversationActivity(
+                        listing,
+                        activitySnapshot
+                );
+
+
+                persistConversationActivity(
+                        listing,
+                        activitySnapshot
+                );
+
+
+                boolean stepWasSent;
+
+
+                /*
+                 * Formalne stany Vinted zawsze mają pierwszeństwo:
+                 * ACCEPTED / REJECTED / SELLER_COUNTER_OFFER / UNKNOWN
+                 * nadal obsługuje istniejący NegotiationDecisionService.
+                 *
+                 * Nowa polityka czasowa działa WYŁĄCZNIE wtedy,
+                 * gdy formalny stan aktualnej oferty nadal jest PENDING.
+                 */
+                if (
+                        snapshot.result()
+                                == NegotiationConversationResult.PENDING
+                ) {
+
+                    PendingNegotiationDecision pendingDecision =
+                            pendingNegotiationPolicy.decide(
+                                    listing,
+                                    activitySnapshot,
+                                    configuration
+                            );
+
+
+                    if (
+                            pendingDecision.action()
+                                    == PendingNegotiationDecision.Action.WAIT
+                    ) {
+
+                        log.info(
+                                "[PENDING POLICY] Marketplace listing {} "
+                                        + "remains NEGOTIATING. Reason: {}",
+                                listing.listingId(),
+                                pendingDecision.reason()
                         );
+
+                        continue;
+                    }
+
+
+                    if (
+                            pendingDecision.action()
+                                    == PendingNegotiationDecision.Action.EXPIRE
+                    ) {
+
+                        ListingResponseDto expiredListing =
+                                listingStatusUpdater.markExpired(
+                                        listing
+                                );
+
+
+                        log.warn(
+                                "[PENDING POLICY] Marketplace listing {} "
+                                        + "was changed from NEGOTIATING to EXPIRED. "
+                                        + "It no longer occupies an active "
+                                        + "negotiation slot. No quota slot was "
+                                        + "released because previously sent offers "
+                                        + "remain real Vinted offers. Reason: {}",
+                                expiredListing.listingId(),
+                                pendingDecision.reason()
+                        );
+
+                        continue;
+                    }
+
+
+                    if (pendingDecision.nextStep() == null) {
+
+                        throw new IllegalStateException(
+                                "Pending policy selected SEND_NEXT_STEP "
+                                        + "without a next step for backend listing "
+                                        + listing.id()
+                        );
+                    }
+
+
+                    NegotiationDecision timedDecision =
+                            NegotiationDecision.sendNextStep(
+                                    pendingDecision.nextStep(),
+                                    null,
+                                    pendingDecision.reason()
+                            );
+
+
+                    stepWasSent =
+                            handleNegotiationDecision(
+                                    listing,
+                                    snapshot,
+                                    timedDecision
+                            );
+
+                } else {
+
+                    NegotiationDecision decision =
+                            negotiationDecisionService.decide(
+                                    listing,
+                                    snapshot,
+                                    configuration
+                            );
+
+
+                    stepWasSent =
+                            handleNegotiationDecision(
+                                    listing,
+                                    snapshot,
+                                    decision
+                            );
+                }
 
 
                 if (stepWasSent) {
@@ -251,6 +511,210 @@ public class ExistingNegotiationProcessor {
 
 
         return sentNextSteps > 0;
+    }
+
+
+    private void logConversationActivity(
+            ListingResponseDto listing,
+            ConversationActivitySnapshot activitySnapshot
+    ) {
+
+        if (!activitySnapshot.inspectionSucceeded()) {
+
+            log.debug(
+                    "[CONVERSATION ACTIVITY] Activity inspection "
+                            + "was unavailable for marketplace listing {}.",
+                    listing.listingId()
+            );
+
+            return;
+        }
+
+
+        if (!activitySnapshot.latestOwnOfferFound()) {
+
+            log.debug(
+                    "[CONVERSATION ACTIVITY] No own offer was found "
+                            + "in conversation for marketplace listing {}.",
+                    listing.listingId()
+            );
+
+            return;
+        }
+
+
+        if (
+                activitySnapshot
+                        .sellerMessageAfterLatestOwnOffer()
+        ) {
+
+            log.info(
+                    "[CONVERSATION ACTIVITY] Marketplace listing {} "
+                            + "has a normal seller message after "
+                            + "the latest own offer. "
+                            + "Latest seller message at {}: {}",
+                    listing.listingId(),
+                    activitySnapshot
+                            .latestSellerMessageAt(),
+                    abbreviate(
+                            activitySnapshot
+                                    .latestSellerMessageText(),
+                            160
+                    )
+            );
+        }
+
+
+        if (
+                activitySnapshot
+                        .readIndicatorAfterLatestOwnOffer()
+        ) {
+
+            log.info(
+                    "[CONVERSATION ACTIVITY] Marketplace listing {} "
+                            + "shows the Vinted read indicator after "
+                            + "the latest own offer.",
+                    listing.listingId()
+            );
+        }
+
+
+        if (
+                !activitySnapshot
+                        .sellerMessageAfterLatestOwnOffer()
+                        && !activitySnapshot
+                        .readIndicatorAfterLatestOwnOffer()
+        ) {
+
+            log.debug(
+                    "[CONVERSATION ACTIVITY] Marketplace listing {} "
+                            + "has no normal seller message and no read "
+                            + "indicator after the latest own offer.",
+                    listing.listingId()
+            );
+        }
+    }
+
+
+    private void persistConversationActivity(
+            ListingResponseDto listing,
+            ConversationActivitySnapshot activitySnapshot
+    ) {
+
+        if (
+                !activitySnapshot.inspectionSucceeded()
+                        || !activitySnapshot.latestOwnOfferFound()
+        ) {
+
+            return;
+        }
+
+
+        boolean sellerActivityCanBePersisted =
+                activitySnapshot
+                        .sellerMessageAfterLatestOwnOffer()
+                        && activitySnapshot
+                        .latestSellerMessageAt()
+                        != null;
+
+
+        boolean readDetected =
+                activitySnapshot
+                        .readIndicatorAfterLatestOwnOffer();
+
+
+        if (
+                !sellerActivityCanBePersisted
+                        && !readDetected
+        ) {
+
+            return;
+        }
+
+
+        NegotiationActivityRequestDto request =
+                new NegotiationActivityRequestDto(
+                        sellerActivityCanBePersisted
+                                ? activitySnapshot
+                                .latestSellerMessageAt()
+                                : null,
+                        readDetected
+                );
+
+
+        try {
+
+            negotiationActivityClient.recordActivity(
+                    context.getBot()
+                            .getId(),
+                    listing.id(),
+                    request
+            );
+
+        } catch (Exception exception) {
+
+            /*
+             * Zapis timera jest dodatkową warstwą nad działającym
+             * mechanizmem negocjacji. Awaria backendowego endpointu
+             * nie może zablokować dotychczasowej decyzji:
+             * ACCEPT / REJECT / COUNTER / WAIT.
+             */
+            log.warn(
+                    "[NEGOTIATION ACTIVITY API] Could not persist "
+                            + "activity for backend listing {}, "
+                            + "marketplace listing {}: {}",
+                    listing.id(),
+                    listing.listingId(),
+                    getFriendlyErrorMessage(
+                            exception
+                    )
+            );
+
+
+            log.trace(
+                    "[NEGOTIATION ACTIVITY API] Full persistence "
+                            + "exception for backend listing {}.",
+                    listing.id(),
+                    exception
+            );
+        }
+    }
+
+
+    private String abbreviate(
+            String value,
+            int maximumLength
+    ) {
+
+        if (value == null) {
+
+            return "<none>";
+        }
+
+
+        String normalized =
+                value.replaceAll(
+                                "\\s+",
+                                " "
+                        )
+                        .trim();
+
+
+        if (
+                normalized.length()
+                        <= maximumLength
+        ) {
+
+            return normalized;
+        }
+
+
+        return normalized
+                .substring(
+                        0,
+                        maximumLength
+                )
+                + "...";
     }
 
 
@@ -618,6 +1082,233 @@ public class ExistingNegotiationProcessor {
                     exception
             );
         }
+    }
+
+
+    private boolean matchesConfiguredTarget(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration
+    ) {
+
+        String configuredModel =
+                normalizeTargetValue(
+                        configuration.getModel()
+                );
+
+
+        /*
+         * Zachowujemy zgodność ze starszymi konfiguracjami,
+         * które nie miały modelu.
+         *
+         * Jeżeli model jest skonfigurowany, guard działa fail-closed:
+         * listing bez tytułu albo z innym tytułem nie może być dalej
+         * automatycznie negocjowany.
+         */
+        if (configuredModel.isBlank()) {
+
+            return true;
+        }
+
+
+        String configuredBrand =
+                normalizeTargetValue(
+                        configuration.getBrand()
+                );
+
+
+        String expectedTitle;
+
+
+        if (
+                configuredBrand.isBlank()
+                        || configuredModel.equals(
+                        configuredBrand
+                )
+                        || configuredModel.startsWith(
+                        configuredBrand + " "
+                )
+        ) {
+
+            expectedTitle =
+                    configuredModel;
+
+        } else {
+
+            expectedTitle =
+                    configuredBrand
+                            + " "
+                            + configuredModel;
+        }
+
+
+        String actualTitle =
+                normalizeTargetValue(
+                        listing.title()
+                );
+
+
+        boolean matches =
+                expectedTitle.equals(
+                        actualTitle
+                );
+
+
+        if (!matches) {
+
+            log.error(
+                    "[TARGET GUARD] Target mismatch detected before opening "
+                            + "conversation. Backend listing {}, marketplace "
+                            + "listing {}. Expected normalized title='{}', "
+                            + "actual normalized title='{}'.",
+                    listing.id(),
+                    listing.listingId(),
+                    expectedTitle,
+                    actualTitle
+            );
+        }
+
+
+        return matches;
+    }
+
+
+    private ListingResponseDto finishWrongTargetNegotiation(
+            ListingResponseDto listing
+    ) {
+
+        if (
+                listing.currentStep() == null
+                        || listing.currentStep() <= 0
+        ) {
+
+            throw new IllegalStateException(
+                    "Cannot finish wrong-target negotiation because backend "
+                            + "listing "
+                            + listing.id()
+                            + " has an invalid current step: "
+                            + listing.currentStep()
+            );
+        }
+
+
+        if (
+                listing.currentPrice() == null
+                        && listing.originalPrice() == null
+        ) {
+
+            throw new IllegalStateException(
+                    "Cannot finish wrong-target negotiation because backend "
+                            + "listing "
+                            + listing.id()
+                            + " has no current or original price"
+            );
+        }
+
+
+        UpdateListingRequestDto request =
+                new UpdateListingRequestDto(
+                        "FINISHED",
+                        listing.currentPrice() != null
+                                ? listing.currentPrice()
+                                : listing.originalPrice(),
+                        listing.currentStep(),
+                        false,
+                        listing.conversationId(),
+                        listing.conversationUrl()
+                );
+
+
+        ListingResponseDto updatedListing =
+                listingClient.updateListing(
+                        context.getBot()
+                                .getId(),
+                        listing.id(),
+                        request
+                );
+
+
+        if (
+                !"FINISHED".equals(
+                        updatedListing.status()
+                )
+        ) {
+
+            throw new IllegalStateException(
+                    "Backend returned an unexpected status after stopping "
+                            + "wrong-target negotiation. Expected FINISHED, "
+                            + "actual: "
+                            + updatedListing.status()
+            );
+        }
+
+
+        if (
+                Boolean.TRUE.equals(
+                        updatedListing.awaitingSellerResponse()
+                )
+        ) {
+
+            throw new IllegalStateException(
+                    "Backend listing "
+                            + listing.id()
+                            + " still has awaitingSellerResponse=true "
+                            + "after wrong-target negotiation was stopped"
+            );
+        }
+
+
+        return updatedListing;
+    }
+
+
+    private String normalizeTargetValue(
+            String value
+    ) {
+
+        if (value == null) {
+
+            return "";
+        }
+
+
+        /*
+         * Galaxy S25 i Galaxy S25+ muszą pozostać różnymi modelami.
+         */
+        String preparedValue =
+                value.replace(
+                                "+",
+                                " plus "
+                        )
+                        .replace(
+                                "＋",
+                                " plus "
+                        );
+
+
+        String withoutDiacritics =
+                Normalizer.normalize(
+                                preparedValue,
+                                Normalizer.Form.NFD
+                        )
+                        .replaceAll(
+                                "\\p{M}+",
+                                ""
+                        );
+
+
+        return withoutDiacritics
+                .toLowerCase(
+                        Locale.ROOT
+                )
+                .replaceAll(
+                        "[^a-z0-9]+",
+                        " "
+                )
+                .trim()
+                .replaceAll(
+                        "\\s+",
+                        " "
+                );
     }
 
 

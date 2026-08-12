@@ -33,16 +33,32 @@ export function buildCreateBotRequest(
                     .brand
                     .name,
 
-            model:
+            targetMode:
                 validatedForm
-                    .model
-                    .name,
+                    .targetMode,
+
+            model:
+                validatedForm.model
+                    ?.name
+                ?? null,
+
+            searchQuery:
+                validatedForm
+                    .searchQuery,
 
             minPrice:
                 validatedForm.minPrice,
 
             maxPrice:
                 validatedForm.maxPrice,
+
+            autoRaiseOfferToVintedMinimum:
+                validatedForm
+                    .autoRaiseOfferToVintedMinimum,
+
+            maxAutomaticOffer:
+                validatedForm
+                    .maxAutomaticOffer,
 
             dailyNegotiationBudget:
                 validatedForm

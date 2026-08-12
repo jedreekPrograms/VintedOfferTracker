@@ -32,7 +32,7 @@ function NegotiationStepsSection({
             <div className="bot-form-section-header">
                 <div>
                     <span className="bot-form-step">
-                        5
+                        6
                     </span>
 
                     <h2 className="content-card-title">

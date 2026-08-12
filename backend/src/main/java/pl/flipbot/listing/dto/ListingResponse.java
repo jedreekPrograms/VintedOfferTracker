@@ -33,4 +33,10 @@ public class ListingResponse {
     private String status;
 
     private LocalDateTime decisionAt;
+
+    private LocalDateTime currentStepStartedAt;
+
+    private LocalDateTime sellerActivityAt;
+
+    private LocalDateTime readDetectedAt;
 }

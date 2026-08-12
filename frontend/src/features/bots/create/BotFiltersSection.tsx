@@ -4,6 +4,10 @@ import type {
     DictionaryModel,
 } from "../../../types/dictionaries";
 
+import type {
+    TargetMode,
+} from "../../../types/bots";
+
 interface BotFiltersSectionProps {
     categories: DictionaryCategory[];
     brands: DictionaryBrand[];
@@ -11,7 +15,12 @@ interface BotFiltersSectionProps {
 
     selectedCategoryId: string;
     selectedBrandId: string;
+
+    targetMode: TargetMode;
+
     selectedModelId: string;
+
+    searchQuery: string;
 
     minPrice: string;
     maxPrice: string;
@@ -27,8 +36,16 @@ interface BotFiltersSectionProps {
         brandId: string,
     ) => void;
 
+    onTargetModeChange: (
+        targetMode: TargetMode,
+    ) => void;
+
     onModelChange: (
         modelId: string,
+    ) => void;
+
+    onSearchQueryChange: (
+        value: string,
     ) => void;
 
     onMinPriceChange: (
@@ -47,7 +64,12 @@ function BotFiltersSection({
 
     selectedCategoryId,
     selectedBrandId,
+
+    targetMode,
+
     selectedModelId,
+
+    searchQuery,
 
     minPrice,
     maxPrice,
@@ -57,7 +79,9 @@ function BotFiltersSection({
 
     onCategoryChange,
     onBrandChange,
+    onTargetModeChange,
     onModelChange,
+    onSearchQueryChange,
 
     onMinPriceChange,
     onMaxPriceChange,
@@ -83,6 +107,14 @@ function BotFiltersSection({
                 === selectedModelId,
         ) ?? null;
 
+    const normalizedSearchQuery =
+        searchQuery
+            .trim()
+            .replace(
+                /\s+/g,
+                " ",
+            );
+
     return (
         <article className="content-card">
             <div className="bot-form-section-header">
@@ -97,9 +129,10 @@ function BotFiltersSection({
                 </div>
 
                 <p className="content-card-text">
-                    Kategorie, marki i modele
-                    pochodzą z ręcznie utworzonych
-                    słowników.
+                    Kategoria i marka pochodzą
+                    z ręcznie utworzonych słowników.
+                    Model możesz wybrać z Vinted
+                    albo wyszukiwać własną frazą.
                 </p>
             </div>
 
@@ -195,53 +228,123 @@ function BotFiltersSection({
                         <div className="form-field">
                             <label
                                 className="form-label"
-                                htmlFor="bot-model"
+                                htmlFor="target-mode"
                             >
-                                Model
+                                Sposób wyszukiwania modelu
                             </label>
 
                             <select
-                                id="bot-model"
+                                id="target-mode"
                                 className="form-select"
                                 value={
-                                    selectedModelId
-                                }
-                                disabled={
-                                    selectedBrandId
-                                        .length === 0
-                                    || areModelsLoading
+                                    targetMode
                                 }
                                 onChange={(event) => {
-                                    onModelChange(
-                                        event.target.value,
+                                    onTargetModeChange(
+                                        event.target.value as TargetMode,
                                     );
                                 }}
                             >
-                                <option value="">
-                                    {areModelsLoading
-                                        ? "Pobieranie modeli..."
-                                        : "Wybierz model"}
+                                <option value="VINTED_MODEL">
+                                    Model dostępny na Vinted
                                 </option>
 
-                                {models.map(
-                                    (model) => (
-                                        <option
-                                            key={
-                                                model.id
-                                            }
-                                            value={
-                                                model.id
-                                            }
-                                        >
-                                            {model.name}
-                                        </option>
-                                    ),
-                                )}
+                                <option value="SEARCH_QUERY">
+                                    Własna fraza wyszukiwania
+                                </option>
                             </select>
                         </div>
                     </div>
 
-                    <div className="bot-form-grid bot-form-grid-two bot-form-price-grid">
+                    <div className="bot-form-grid bot-form-grid-three">
+                        <div className="form-field">
+                            {targetMode === "VINTED_MODEL" ? (
+                                <>
+                                    <label
+                                        className="form-label"
+                                        htmlFor="bot-model"
+                                    >
+                                        Model
+                                    </label>
+
+                                    <select
+                                        id="bot-model"
+                                        className="form-select"
+                                        value={
+                                            selectedModelId
+                                        }
+                                        disabled={
+                                            selectedBrandId
+                                                .length === 0
+                                            || areModelsLoading
+                                        }
+                                        onChange={(event) => {
+                                            onModelChange(
+                                                event.target.value,
+                                            );
+                                        }}
+                                    >
+                                        <option value="">
+                                            {areModelsLoading
+                                                ? "Pobieranie modeli..."
+                                                : "Wybierz model"}
+                                        </option>
+
+                                        {models.map(
+                                            (model) => (
+                                                <option
+                                                    key={
+                                                        model.id
+                                                    }
+                                                    value={
+                                                        model.id
+                                                    }
+                                                >
+                                                    {model.name}
+                                                </option>
+                                            ),
+                                        )}
+                                    </select>
+
+                                    <span className="form-help">
+                                        Bot wybierze dokładny model
+                                        z filtra Vinted.
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    <label
+                                        className="form-label"
+                                        htmlFor="bot-search-query"
+                                    >
+                                        Fraza wyszukiwania
+                                    </label>
+
+                                    <input
+                                        id="bot-search-query"
+                                        className="form-input"
+                                        type="text"
+                                        value={
+                                            searchQuery
+                                        }
+                                        maxLength={255}
+                                        placeholder="np. Galaxy Tab S11 Ultra"
+                                        onChange={(event) => {
+                                            onSearchQueryChange(
+                                                event.target.value,
+                                            );
+                                        }}
+                                    />
+
+                                    <span className="form-help">
+                                        Użyj tego trybu, gdy Vinted
+                                        nie ma jeszcze danego modelu
+                                        na swojej liście.
+                                    </span>
+                                </>
+                            )}
+                        </div>
+
                         <div className="form-field">
                             <label
                                 className="form-label"
@@ -303,7 +406,8 @@ function BotFiltersSection({
                         </div>
                     )}
 
-                    {selectedBrand !== null
+                    {targetMode === "VINTED_MODEL"
+                        && selectedBrand !== null
                         && selectedModel !== null && (
                         <div className="bot-selection-preview">
                             <span className="bot-selection-preview-label">
@@ -315,6 +419,34 @@ function BotFiltersSection({
                                 {" → "}
                                 {selectedModel.name}
                             </strong>
+                        </div>
+                    )}
+
+                    {targetMode === "SEARCH_QUERY"
+                        && selectedBrand !== null
+                        && normalizedSearchQuery.length > 0 && (
+                        <div className="bot-selection-preview">
+                            <span className="bot-selection-preview-label">
+                                Wyszukiwanie tekstowe
+                            </span>
+
+                            <strong>
+                                {selectedBrand.name}
+                                {" → "}
+                                {normalizedSearchQuery}
+                            </strong>
+                        </div>
+                    )}
+
+                    {targetMode === "SEARCH_QUERY" && (
+                        <div className="information-box">
+                            W kolejnym etapie Playwright
+                            będzie wpisywał tę frazę
+                            do wyszukiwarki Vinted.
+                            Przed wysłaniem oferty
+                            dodatkowy matcher sprawdzi,
+                            czy tytuł rzeczywiście pasuje
+                            do oczekiwanego modelu.
                         </div>
                     )}
                 </>

@@ -11,23 +11,52 @@ public class BotConfigurationMapper {
 
     private final NegotiationStepMapper negotiationStepMapper;
 
-    public BotConfigurationResponse map(BotConfiguration configuration) {
+    public BotConfigurationResponse map(
+            BotConfiguration configuration
+    ) {
 
         return BotConfigurationResponse.builder()
-                .marketplace(configuration.getMarketplace())
-                .categoryPath(configuration.getCategoryPath())
-                .brand(configuration.getBrand())
-                .model(configuration.getModel())
-                .minPrice(configuration.getMinPrice())
-                .maxPrice(configuration.getMaxPrice())
+                .marketplace(
+                        configuration.getMarketplace()
+                )
+                .categoryPath(
+                        configuration.getCategoryPath()
+                )
+                .brand(
+                        configuration.getBrand()
+                )
+                .targetMode(
+                        configuration.getTargetMode()
+                )
+                .model(
+                        configuration.getModel()
+                )
+                .searchQuery(
+                        configuration.getSearchQuery()
+                )
+                .minPrice(
+                        configuration.getMinPrice()
+                )
+                .maxPrice(
+                        configuration.getMaxPrice()
+                )
+                .autoRaiseOfferToVintedMinimum(
+                        configuration.getAutoRaiseOfferToVintedMinimum()
+                )
+                .maxAutomaticOffer(
+                        configuration.getMaxAutomaticOffer()
+                )
+                .dailyNegotiationBudget(
+                        configuration.getDailyNegotiationBudget()
+                )
                 .negotiationSteps(
                         configuration.getNegotiationSteps()
                                 .stream()
-                                .map(negotiationStepMapper::map)
+                                .map(
+                                        negotiationStepMapper::map
+                                )
                                 .toList()
                 )
                 .build();
-
     }
-
 }

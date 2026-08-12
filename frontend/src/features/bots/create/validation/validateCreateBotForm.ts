@@ -62,19 +62,52 @@ export function validateCreateBotForm({
         );
     }
 
-    if (selectedModel === null) {
-        return invalid(
-            "Wybierz model.",
-        );
-    }
+    let validatedModel:
+        DictionaryModel | null =
+        null;
+
+    let validatedSearchQuery:
+        string | null =
+        null;
 
     if (
-        selectedModel.brandId
-        !== selectedBrand.id
+        form.targetMode
+        === "VINTED_MODEL"
     ) {
-        return invalid(
-            "Wybrany model nie należy do wybranej marki.",
-        );
+        if (selectedModel === null) {
+            return invalid(
+                "Wybierz model z listy Vinted.",
+            );
+        }
+
+        if (
+            selectedModel.brandId
+            !== selectedBrand.id
+        ) {
+            return invalid(
+                "Wybrany model nie należy do wybranej marki.",
+            );
+        }
+
+        validatedModel =
+            selectedModel;
+    } else {
+        const normalizedSearchQuery =
+            normalizeText(
+                form.searchQuery,
+            );
+
+        if (
+            normalizedSearchQuery.length
+            === 0
+        ) {
+            return invalid(
+                "Wpisz frazę wyszukiwania modelu.",
+            );
+        }
+
+        validatedSearchQuery =
+            normalizedSearchQuery;
     }
 
     const minPriceResult =
@@ -111,6 +144,38 @@ export function validateCreateBotForm({
         return invalid(
             "Minimalna cena nie może być większa od maksymalnej.",
         );
+    }
+
+    let maxAutomaticOffer:
+        number | null =
+        null;
+
+    if (
+        form.autoRaiseOfferToVintedMinimum
+    ) {
+        const maxAutomaticOfferResult =
+            parseRequiredPositiveNumber(
+                form.maxAutomaticOffer,
+                "Maksymalna automatyczna oferta jest wymagana i musi być większa od 0.",
+            );
+
+        if (!maxAutomaticOfferResult.valid) {
+            return invalid(
+                maxAutomaticOfferResult.errorMessage,
+            );
+        }
+
+        maxAutomaticOffer =
+            maxAutomaticOfferResult.value;
+
+        if (
+            maxAutomaticOffer
+            > maxPrice
+        ) {
+            return invalid(
+                "Maksymalna automatyczna oferta nie może być większa od maksymalnej ceny ogłoszenia.",
+            );
+        }
     }
 
     const dailyNegotiationBudget =
@@ -219,6 +284,18 @@ export function validateCreateBotForm({
         });
     }
 
+    if (
+        form.autoRaiseOfferToVintedMinimum
+        && maxAutomaticOffer !== null
+        && negotiationSteps.length > 0
+        && maxAutomaticOffer
+        < negotiationSteps[0].offerPrice
+    ) {
+        return invalid(
+            "Maksymalna automatyczna oferta nie może być niższa od ceny pierwszego kroku negocjacji.",
+        );
+    }
+
     return {
         valid: true,
 
@@ -238,11 +315,22 @@ export function validateCreateBotForm({
             brand:
                 selectedBrand,
 
+            targetMode:
+                form.targetMode,
+
             model:
-                selectedModel,
+                validatedModel,
+
+            searchQuery:
+                validatedSearchQuery,
 
             minPrice,
             maxPrice,
+
+            autoRaiseOfferToVintedMinimum:
+                form.autoRaiseOfferToVintedMinimum,
+
+            maxAutomaticOffer,
 
             dailyNegotiationBudget,
 

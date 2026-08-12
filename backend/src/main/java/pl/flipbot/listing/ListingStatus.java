@@ -12,6 +12,7 @@ public enum ListingStatus {
 
     UNAVAILABLE,
     REJECTED,
+    EXPIRED,
     PURCHASED,
     FINISHED
 }

@@ -96,6 +96,100 @@ public class ListingStatusUpdater {
     }
 
 
+    public ListingResponseDto markExpired(
+            ListingResponseDto listing
+    ) {
+
+        BigDecimal price =
+                listing.currentPrice()
+                        != null
+                        ? listing.currentPrice()
+                        : listing.originalPrice();
+
+
+        if (price == null) {
+
+            throw new IllegalStateException(
+                    "Cannot mark backend listing "
+                            + listing.id()
+                            + " as EXPIRED because its price is null"
+            );
+        }
+
+
+        ListingResponseDto updatedListing =
+                updateNegotiationStatus(
+                        listing,
+                        "EXPIRED",
+                        price
+                );
+
+
+        if (
+                !"EXPIRED".equals(
+                        updatedListing.status()
+                )
+        ) {
+
+            throw new IllegalStateException(
+                    "Backend returned an unexpected status. Expected "
+                            + "EXPIRED, actual: "
+                            + updatedListing.status()
+            );
+        }
+
+
+        return updatedListing;
+    }
+
+
+    public ListingResponseDto markNegotiationUnavailable(
+            ListingResponseDto listing
+    ) {
+
+        BigDecimal price =
+                listing.currentPrice()
+                        != null
+                        ? listing.currentPrice()
+                        : listing.originalPrice();
+
+
+        if (price == null) {
+
+            throw new IllegalStateException(
+                    "Cannot mark backend listing "
+                            + listing.id()
+                            + " as UNAVAILABLE because its price is null"
+            );
+        }
+
+
+        ListingResponseDto updatedListing =
+                updateNegotiationStatus(
+                        listing,
+                        "UNAVAILABLE",
+                        price
+                );
+
+
+        if (
+                !"UNAVAILABLE".equals(
+                        updatedListing.status()
+                )
+        ) {
+
+            throw new IllegalStateException(
+                    "Backend returned an unexpected status. Expected "
+                            + "UNAVAILABLE, actual: "
+                            + updatedListing.status()
+            );
+        }
+
+
+        return updatedListing;
+    }
+
+
     public void markUnavailable(
             Long botId,
             ListingResponseDto listing

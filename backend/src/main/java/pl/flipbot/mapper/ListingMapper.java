@@ -48,6 +48,15 @@ public class ListingMapper {
                 .decisionAt(
                         listing.getDecisionAt()
                 )
+                .currentStepStartedAt(
+                        listing.getCurrentStepStartedAt()
+                )
+                .sellerActivityAt(
+                        listing.getSellerActivityAt()
+                )
+                .readDetectedAt(
+                        listing.getReadDetectedAt()
+                )
                 .build();
     }
 }

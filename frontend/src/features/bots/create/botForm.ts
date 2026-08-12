@@ -4,6 +4,10 @@ import type {
     DictionaryModel,
 } from "../../../types/dictionaries";
 
+import type {
+    TargetMode,
+} from "../../../types/bots";
+
 export type NegotiationStepField =
     | "offerPrice"
     | "maxAcceptedCounterOffer"
@@ -24,10 +28,19 @@ export interface CreateBotFormValues {
 
     selectedCategoryId: string;
     selectedBrandId: string;
+
+    targetMode: TargetMode;
+
     selectedModelId: string;
+
+    searchQuery: string;
 
     minPrice: string;
     maxPrice: string;
+
+    autoRaiseOfferToVintedMinimum: boolean;
+
+    maxAutomaticOffer: string;
 
     dailyNegotiationBudget: string;
 
@@ -48,10 +61,19 @@ export interface ValidatedCreateBotForm {
 
     category: DictionaryCategory;
     brand: DictionaryBrand;
-    model: DictionaryModel;
+
+    targetMode: TargetMode;
+
+    model: DictionaryModel | null;
+
+    searchQuery: string | null;
 
     minPrice: number;
     maxPrice: number;
+
+    autoRaiseOfferToVintedMinimum: boolean;
+
+    maxAutomaticOffer: number | null;
 
     dailyNegotiationBudget: number;
 

@@ -4,6 +4,10 @@ import {
 } from "react";
 
 import type {
+    TargetMode,
+} from "../../../../types/bots";
+
+import type {
     CreateBotFormValues,
     NegotiationStepField,
     NegotiationStepForm,
@@ -20,12 +24,24 @@ function createInitialForm(): CreateBotFormValues {
 
         selectedCategoryId: "",
         selectedBrandId: "",
+
+        targetMode:
+            "VINTED_MODEL",
+
         selectedModelId: "",
+
+        searchQuery: "",
 
         minPrice: "",
         maxPrice: "",
 
-        dailyNegotiationBudget: "25",
+        autoRaiseOfferToVintedMinimum:
+            false,
+
+        maxAutomaticOffer: "",
+
+        dailyNegotiationBudget:
+            "25",
 
         negotiationSteps: [
             {
@@ -108,7 +124,19 @@ export function useCreateBotForm() {
                  * Poprzednio wybrany model należał
                  * do poprzedniej marki.
                  */
-                selectedModelId: "",
+                selectedModelId:
+                    "",
+            }),
+        );
+    }
+
+    function setTargetMode(
+        targetMode: TargetMode,
+    ) {
+        setForm(
+            (currentForm) => ({
+                ...currentForm,
+                targetMode,
             }),
         );
     }
@@ -121,6 +149,18 @@ export function useCreateBotForm() {
                 ...currentForm,
                 selectedModelId:
                     modelId,
+            }),
+        );
+    }
+
+    function setSearchQuery(
+        value: string,
+    ) {
+        setForm(
+            (currentForm) => ({
+                ...currentForm,
+                searchQuery:
+                    value,
             }),
         );
     }
@@ -143,6 +183,30 @@ export function useCreateBotForm() {
             (currentForm) => ({
                 ...currentForm,
                 maxPrice: value,
+            }),
+        );
+    }
+
+    function setAutoRaiseOfferToVintedMinimum(
+        value: boolean,
+    ) {
+        setForm(
+            (currentForm) => ({
+                ...currentForm,
+                autoRaiseOfferToVintedMinimum:
+                    value,
+            }),
+        );
+    }
+
+    function setMaxAutomaticOffer(
+        value: string,
+    ) {
+        setForm(
+            (currentForm) => ({
+                ...currentForm,
+                maxAutomaticOffer:
+                    value,
             }),
         );
     }
@@ -271,10 +335,15 @@ export function useCreateBotForm() {
 
         setCategory,
         setBrand,
+        setTargetMode,
         setModel,
+        setSearchQuery,
 
         setMinPrice,
         setMaxPrice,
+
+        setAutoRaiseOfferToVintedMinimum,
+        setMaxAutomaticOffer,
 
         setDailyNegotiationBudget,
 

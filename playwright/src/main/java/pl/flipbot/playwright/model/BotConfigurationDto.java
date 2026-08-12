@@ -16,14 +16,27 @@ public class BotConfigurationDto {
 
     private String brand;
 
+    /*
+     * VINTED_MODEL albo SEARCH_QUERY.
+     *
+     * Na etapie 3A Playwright tylko odbiera tę wartość.
+     * Obsługę SEARCH_QUERY dodamy w kolejnym etapie.
+     */
+    private String targetMode;
+
     private String model;
+
+    private String searchQuery;
 
     private BigDecimal minPrice;
 
     private BigDecimal maxPrice;
 
+    private Boolean autoRaiseOfferToVintedMinimum;
+
+    private BigDecimal maxAutomaticOffer;
+
     private Integer dailyNegotiationBudget;
 
     private List<NegotiationStepDto> negotiationSteps;
-
 }

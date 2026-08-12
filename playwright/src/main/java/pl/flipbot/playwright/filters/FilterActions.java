@@ -3,105 +3,303 @@ package pl.flipbot.playwright.filters;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.AriaRole;
-import lombok.RequiredArgsConstructor;
 import com.microsoft.playwright.options.WaitForSelectorState;
+import lombok.RequiredArgsConstructor;
+
 @RequiredArgsConstructor
 public class FilterActions {
 
+    private static final double FILTER_TRIGGER_TIMEOUT_MS =
+            10_000;
+
+    private static final double FILTER_OPTION_TIMEOUT_MS =
+            8_000;
+
+    private static final double UI_SETTLE_DELAY_MS =
+            250;
+
+
     private final Page page;
 
-    public void openFilter(String filterTestId) {
 
-        Locator filter = page.getByTestId(filterTestId);
-
-        filter.waitFor();
-        filter.click();
-
-    }
-
-    public void selectOption(String option) {
-
-        Locator locator = page.getByRole(
-                AriaRole.BUTTON,
-                new Page.GetByRoleOptions()
-                        .setName(option)
-        );
-
-        locator.waitFor();
-        locator.click();
-
-    }
-
-    public void waitForOption(
-            String option
+    public void openFilter(
+            String filterTestId
     ) {
 
-        page.getByRole(
-                AriaRole.BUTTON,
-                new Page.GetByRoleOptions()
-                        .setName(option)
-        ).waitFor(
+        Locator filter =
+                page.getByTestId(
+                        filterTestId
+                );
+
+
+        filter.waitFor(
                 new Locator.WaitForOptions()
                         .setState(
                                 WaitForSelectorState.VISIBLE
                         )
                         .setTimeout(
-                                5_000
+                                FILTER_TRIGGER_TIMEOUT_MS
                         )
+        );
+
+
+        filter.click();
+
+
+        /*
+         * Vinted renderuje zawartość popupu asynchronicznie.
+         * Krótka pauza zmniejsza ryzyko, że od razu zaczniemy
+         * szukać opcji w poprzednim / niedorenderowanym stanie.
+         */
+        page.waitForTimeout(
+                UI_SETTLE_DELAY_MS
         );
     }
 
-    public void fillInput(String testId, String value) {
 
-        Locator input = page.getByTestId(testId);
+    public void selectOption(
+            String option
+    ) {
 
-        input.waitFor();
-        input.fill(value);
+        Locator locator =
+                getExactOption(
+                        option
+                );
 
+
+        locator.waitFor(
+                new Locator.WaitForOptions()
+                        .setState(
+                                WaitForSelectorState.VISIBLE
+                        )
+                        .setTimeout(
+                                FILTER_OPTION_TIMEOUT_MS
+                        )
+        );
+
+
+        locator.click();
+
+
+        /*
+         * Po wejściu o poziom niżej Vinted musi wyrenderować
+         * kolejną listę kategorii.
+         */
+        page.waitForTimeout(
+                UI_SETTLE_DELAY_MS
+        );
     }
+
+
+    public void waitForOption(
+            String option
+    ) {
+
+        getExactOption(
+                option
+        )
+                .waitFor(
+                        new Locator.WaitForOptions()
+                                .setState(
+                                        WaitForSelectorState.VISIBLE
+                                )
+                                .setTimeout(
+                                        FILTER_OPTION_TIMEOUT_MS
+                                )
+                );
+    }
+
+
+    public void fillInput(
+            String testId,
+            String value
+    ) {
+
+        Locator input =
+                page.getByTestId(
+                        testId
+                );
+
+
+        input.waitFor(
+                new Locator.WaitForOptions()
+                        .setState(
+                                WaitForSelectorState.VISIBLE
+                        )
+                        .setTimeout(
+                                FILTER_TRIGGER_TIMEOUT_MS
+                        )
+        );
+
+
+        input.fill(
+                value
+        );
+    }
+
 
     public void pressEnter() {
 
-        page.keyboard().press("Enter");
-
+        page.keyboard()
+                .press(
+                        "Enter"
+                );
     }
 
-    public void clickSelector(String selector) {
-        page.locator(selector).click();
+
+    public void clickSelector(
+            String selector
+    ) {
+
+        Locator locator =
+                page.locator(
+                                selector
+                        )
+                        .first();
+
+
+        locator.waitFor(
+                new Locator.WaitForOptions()
+                        .setState(
+                                WaitForSelectorState.VISIBLE
+                        )
+                        .setTimeout(
+                                FILTER_TRIGGER_TIMEOUT_MS
+                        )
+        );
+
+
+        locator.click();
     }
 
-    // 1. Pozwoli wpisać tekst w dowolny input za pomocą selektora CSS (np. ID elementu)
-    public void fillInputBySelector(String selector, Object value) {
-        Locator input = page.locator(selector);
-        input.waitFor();
-        input.fill(String.valueOf(value));
-        input.waitFor();
+
+    public void fillInputBySelector(
+            String selector,
+            Object value
+    ) {
+
+        Locator input =
+                page.locator(
+                                selector
+                        )
+                        .first();
+
+
+        input.waitFor(
+                new Locator.WaitForOptions()
+                        .setState(
+                                WaitForSelectorState.VISIBLE
+                        )
+                        .setTimeout(
+                                FILTER_TRIGGER_TIMEOUT_MS
+                        )
+        );
+
+
+        input.fill(
+                String.valueOf(
+                        value
+                )
+        );
     }
 
-    public void clickModel(String model) {
 
-        Locator modelLocator = page.locator(
-                "[data-testid^='selectable-item-brand_collection-']"
-        ).filter(
-                new Locator.FilterOptions()
-                        .setHasText(model)
-        ).first();
+    public void clickModel(
+            String model
+    ) {
 
-        modelLocator.waitFor();
+        Locator modelLocator =
+                page.locator(
+                                "[data-testid^='selectable-item-brand_collection-']"
+                        )
+                        .filter(
+                                new Locator.FilterOptions()
+                                        .setHasText(
+                                                model
+                                        )
+                        )
+                        .first();
+
+
+        modelLocator.waitFor(
+                new Locator.WaitForOptions()
+                        .setState(
+                                WaitForSelectorState.VISIBLE
+                        )
+                        .setTimeout(
+                                FILTER_OPTION_TIMEOUT_MS
+                        )
+        );
+
+
         modelLocator.click();
 
+
+        page.waitForTimeout(
+                UI_SETTLE_DELAY_MS
+        );
     }
+
 
     public void clickConfirmButton() {
 
-        Locator button = page.getByTestId(
-                "filter-selection-button"
+        Locator button =
+                page.getByTestId(
+                                "filter-selection-button"
+                        )
+                        .first();
+
+
+        button.waitFor(
+                new Locator.WaitForOptions()
+                        .setState(
+                                WaitForSelectorState.VISIBLE
+                        )
+                        .setTimeout(
+                                FILTER_TRIGGER_TIMEOUT_MS
+                        )
         );
 
-        button.waitFor();
+
         button.click();
 
+
+        page.waitForTimeout(
+                UI_SETTLE_DELAY_MS
+        );
     }
+
+
+    /*
+     * Resetuje popup / dropdown przed ponowną próbą.
+     *
+     * To jest ważne dla CategoryNavigator:
+     * jeżeli próba skończyła się np. na drugim poziomie kategorii,
+     * kolejny openFilter() nie może pracować na pozostawionym
+     * częściowo otwartym stanie.
+     *
+     * Escape na zamkniętym popupie jest bezpieczny.
+     */
+    public void dismissOpenOverlaySafely() {
+
+        try {
+
+            page.keyboard()
+                    .press(
+                            "Escape"
+                    );
+
+
+            page.waitForTimeout(
+                    UI_SETTLE_DELAY_MS
+            );
+
+        } catch (RuntimeException ignored) {
+
+            // Best-effort cleanup przed retry.
+        }
+    }
+
 
     public void clickOutsideSafely() {
 
@@ -109,27 +307,27 @@ public class FilterActions {
                 """
                 () => {
                     const target = document.body;
-    
+
                     const eventOptions = {
                         bubbles: true,
                         cancelable: true,
                         view: window
                     };
-    
+
                     target.dispatchEvent(
                         new MouseEvent(
                             "mousedown",
                             eventOptions
                         )
                     );
-    
+
                     target.dispatchEvent(
                         new MouseEvent(
                             "mouseup",
                             eventOptions
                         )
                     );
-    
+
                     target.dispatchEvent(
                         new MouseEvent(
                             "click",
@@ -140,10 +338,12 @@ public class FilterActions {
                 """
         );
 
+
         page.waitForTimeout(
                 1_000
         );
     }
+
 
     public void waitForTimeout(
             double milliseconds
@@ -152,5 +352,23 @@ public class FilterActions {
         page.waitForTimeout(
                 milliseconds
         );
+    }
+
+
+    private Locator getExactOption(
+            String option
+    ) {
+
+        return page.getByRole(
+                        AriaRole.BUTTON,
+                        new Page.GetByRoleOptions()
+                                .setName(
+                                        option
+                                )
+                                .setExact(
+                                        true
+                                )
+                )
+                .first();
     }
 }

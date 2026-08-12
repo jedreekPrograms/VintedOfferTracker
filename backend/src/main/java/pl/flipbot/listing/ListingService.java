@@ -11,18 +11,22 @@ import pl.flipbot.exception.BotNotFoundException;
 import pl.flipbot.listing.dto.CreateListingRequest;
 import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
+import pl.flipbot.listing.dto.NegotiationActivityRequest;
+import pl.flipbot.listing.dto.NegotiationActivityResponse;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
 
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
-import java.time.LocalDateTime;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -216,7 +220,6 @@ public class ListingService {
         if (uniqueRequests.isEmpty()) {
 
             return List.of();
-
         }
 
         Set<String> existingListingIds =
@@ -235,7 +238,6 @@ public class ListingService {
             )) {
 
                 continue;
-
             }
 
             try {
@@ -265,16 +267,13 @@ public class ListingService {
                     );
 
                     throw exception;
-
                 }
 
                 log.debug(
                         "Listing {} was claimed concurrently by another bot",
                         listingRequest.getListingId()
                 );
-
             }
-
         }
 
         log.info(
@@ -326,6 +325,9 @@ public class ListingService {
                         .status(
                                 ListingStatus.NEGOTIATING
                         )
+                        .currentStepStartedAt(
+                                LocalDateTime.now()
+                        )
                         .bot(bot)
                         .build();
 
@@ -361,6 +363,34 @@ public class ListingService {
                                 )
                         );
 
+        ListingStatus previousStatus =
+                listing.getStatus();
+
+        Integer previousStep =
+                listing.getCurrentStep();
+
+        /*
+         * Ważne:
+         *
+         * currentStepStartedAt ma oznaczać moment rozpoczęcia
+         * AKTUALNEGO kroku, a nie moment dowolnego PATCH-a.
+         *
+         * Dlatego resetujemy timer tylko gdy:
+         * 1. listing właśnie wchodzi do NEGOTIATING, albo
+         * 2. numer kroku rzeczywiście się zmienił.
+         */
+        boolean negotiationStepStarted =
+                request.getStatus()
+                        == ListingStatus.NEGOTIATING
+                        && (
+                        previousStatus
+                                != ListingStatus.NEGOTIATING
+                                || !Objects.equals(
+                                previousStep,
+                                request.getCurrentStep()
+                        )
+                );
+
         listing.setCurrentPrice(
                 request.getCurrentPrice()
         );
@@ -385,11 +415,201 @@ public class ListingService {
                 request.getStatus()
         );
 
+        if (
+                request.getStatus()
+                        == ListingStatus.EXPIRED
+        ) {
+
+            listing.setDecisionAt(
+                    LocalDateTime.now()
+            );
+        }
+
+        if (negotiationStepStarted) {
+
+            LocalDateTime now =
+                    LocalDateTime.now();
+
+            listing.setCurrentStepStartedAt(
+                    now
+            );
+
+            /*
+             * Nowy krok = nowy zegar aktywności.
+             *
+             * Stare "Przeczytane" albo stara wiadomość sprzedającego
+             * nie mogą wpływać na kolejny krok negocjacji.
+             */
+            listing.setSellerActivityAt(
+                    null
+            );
+
+            listing.setReadDetectedAt(
+                    null
+            );
+
+            log.info(
+                    "Listing {} for bot {} started negotiation step {} at {}. "
+                            + "Seller activity timers were reset.",
+                    listingId,
+                    botId,
+                    request.getCurrentStep(),
+                    now
+            );
+        }
+
         return listingMapper.map(
                 listing
         );
 
     }
+
+    @Transactional
+    public NegotiationActivityResponse recordNegotiationActivity(
+            Long botId,
+            Long listingId,
+            NegotiationActivityRequest request
+    ) {
+
+        Listing listing =
+                listingRepository.findByIdAndBotId(
+                                listingId,
+                                botId
+                        )
+                        .orElseThrow(
+                                () -> new NoSuchElementException(
+                                        "Listing "
+                                                + listingId
+                                                + " was not found for bot "
+                                                + botId
+                                )
+                        );
+
+
+        if (
+                listing.getStatus()
+                        != ListingStatus.NEGOTIATING
+        ) {
+
+            throw new IllegalStateException(
+                    "Negotiation activity can only be recorded for "
+                            + "NEGOTIATING listings. Listing "
+                            + listingId
+                            + " currently has status "
+                            + listing.getStatus()
+            );
+        }
+
+
+        LocalDateTime sellerActivityAt =
+                request.sellerActivityAt();
+
+
+        if (sellerActivityAt != null) {
+
+            /*
+             * Wiadomość sprzedającego musi należeć do AKTUALNEGO
+             * kroku negocjacji.
+             *
+             * Jest to dodatkowe zabezpieczenie przed starymi wiadomościami
+             * widocznymi nadal w DOM rozmowy Vinted. Jeżeli timestamp
+             * wiadomości jest starszy niż moment rozpoczęcia aktualnego
+             * kroku, nie może uruchamiać nowego timera 3h.
+             */
+            boolean belongsToCurrentStep =
+                    listing.getCurrentStepStartedAt()
+                            == null
+                            || !sellerActivityAt.isBefore(
+                            listing.getCurrentStepStartedAt()
+                    );
+
+            if (!belongsToCurrentStep) {
+
+                log.debug(
+                        "Ignoring stale seller activity {} for listing {} "
+                                + "because current step {} started at {}",
+                        sellerActivityAt,
+                        listingId,
+                        listing.getCurrentStep(),
+                        listing.getCurrentStepStartedAt()
+                );
+
+            } else if (
+                    listing.getSellerActivityAt()
+                            == null
+                            || sellerActivityAt.isAfter(
+                            listing.getSellerActivityAt()
+                    )
+            ) {
+
+                /*
+                 * Ten sam komunikat będzie widziany podczas wielu kolejnych
+                 * cykli workera, dlatego nie ustawiamy po prostu "now()".
+                 * Pole przesuwamy wyłącznie dla rzeczywiście nowszej
+                 * wiadomości sprzedającego.
+                 */
+                listing.setSellerActivityAt(
+                        sellerActivityAt
+                );
+
+                log.info(
+                        "Listing {} for bot {} recorded seller activity at {}",
+                        listingId,
+                        botId,
+                        sellerActivityAt
+                );
+            }
+        }
+
+
+        if (
+                request.readDetected()
+                        && listing.getReadDetectedAt()
+                        == null
+        ) {
+
+            /*
+             * Vinted pokazuje nam tylko stan "Przeczytane",
+             * bez czasu jego wystąpienia.
+             *
+             * Dlatego zapisujemy moment PIERWSZEGO wykrycia.
+             * Kolejne skany nie mogą przesuwać tego zegara.
+             */
+            LocalDateTime readDetectedAt =
+                    LocalDateTime.now();
+
+            listing.setReadDetectedAt(
+                    readDetectedAt
+            );
+
+            log.info(
+                    "Listing {} for bot {} recorded first read detection at {}",
+                    listingId,
+                    botId,
+                    readDetectedAt
+            );
+        }
+
+
+        return mapNegotiationActivity(
+                listing
+        );
+    }
+
+
+    private NegotiationActivityResponse mapNegotiationActivity(
+            Listing listing
+    ) {
+
+        return new NegotiationActivityResponse(
+                listing.getId(),
+                listing.getCurrentStep(),
+                listing.getCurrentStepStartedAt(),
+                listing.getSellerActivityAt(),
+                listing.getReadDetectedAt()
+        );
+    }
+
 
     private List<ListingResponse> getListingsByStatus(
             Long botId,
@@ -424,7 +644,6 @@ public class ListingService {
             throw new BotNotFoundException(
                     botId
             );
-
         }
 
     }
@@ -443,11 +662,9 @@ public class ListingService {
                     request.getListingId(),
                     request
             );
-
         }
 
         return uniqueRequests;
-
     }
 
     private Set<String> findExistingListingIds(
@@ -467,11 +684,9 @@ public class ListingService {
             existingListingIds.add(
                     listing.getListingId()
             );
-
         }
 
         return existingListingIds;
-
     }
 
     private boolean isUniqueConstraintViolation(
@@ -490,16 +705,13 @@ public class ListingService {
             )) {
 
                 return true;
-
             }
 
             currentCause =
                     currentCause.getCause();
-
         }
 
         return false;
-
     }
 
 }

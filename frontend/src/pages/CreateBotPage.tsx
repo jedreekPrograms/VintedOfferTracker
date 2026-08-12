@@ -23,12 +23,19 @@ import NegotiationBudgetSection
 import NegotiationStepsSection
     from "../features/bots/create/NegotiationStepsSection";
 
+import OfferStrategySection
+    from "../features/bots/create/OfferStrategySection";
+
 import VintedAccountSection
     from "../features/bots/create/VintedAccountSection";
 
 import type {
     NegotiationStepField,
 } from "../features/bots/create/botForm";
+
+import type {
+    TargetMode,
+} from "../types/bots";
 
 import {
     useBotDictionaries,
@@ -59,10 +66,15 @@ function CreateBotPage() {
 
         setCategory,
         setBrand,
+        setTargetMode,
         setModel,
+        setSearchQuery,
 
         setMinPrice,
         setMaxPrice,
+
+        setAutoRaiseOfferToVintedMinimum,
+        setMaxAutomaticOffer,
 
         setDailyNegotiationBudget,
 
@@ -173,11 +185,31 @@ function CreateBotPage() {
         clearDictionaryError();
     }
 
+    function changeTargetMode(
+        targetMode: TargetMode,
+    ) {
+        setTargetMode(
+            targetMode,
+        );
+
+        clearMessages();
+    }
+
     function changeModel(
         modelId: string,
     ) {
         setModel(
             modelId,
+        );
+
+        clearMessages();
+    }
+
+    function changeSearchQuery(
+        value: string,
+    ) {
+        setSearchQuery(
+            value,
         );
 
         clearMessages();
@@ -197,6 +229,26 @@ function CreateBotPage() {
         value: string,
     ) {
         setMaxPrice(
+            value,
+        );
+
+        clearMessages();
+    }
+
+    function changeAutoRaiseOffer(
+        value: boolean,
+    ) {
+        setAutoRaiseOfferToVintedMinimum(
+            value,
+        );
+
+        clearMessages();
+    }
+
+    function changeMaxAutomaticOffer(
+        value: string,
+    ) {
+        setMaxAutomaticOffer(
             value,
         );
 
@@ -394,8 +446,14 @@ function CreateBotPage() {
                         selectedBrandId={
                             form.selectedBrandId
                         }
+                        targetMode={
+                            form.targetMode
+                        }
                         selectedModelId={
                             form.selectedModelId
+                        }
+                        searchQuery={
+                            form.searchQuery
                         }
                         minPrice={
                             form.minPrice
@@ -415,8 +473,14 @@ function CreateBotPage() {
                         onBrandChange={
                             changeBrand
                         }
+                        onTargetModeChange={
+                            changeTargetMode
+                        }
                         onModelChange={
                             changeModel
+                        }
+                        onSearchQueryChange={
+                            changeSearchQuery
                         }
                         onMinPriceChange={
                             changeMinPrice
@@ -432,6 +496,26 @@ function CreateBotPage() {
                         }
                         onBudgetChange={
                             changeNegotiationBudget
+                        }
+                    />
+
+                    <OfferStrategySection
+                        autoRaiseOfferToVintedMinimum={
+                            form.autoRaiseOfferToVintedMinimum
+                        }
+                        maxAutomaticOffer={
+                            form.maxAutomaticOffer
+                        }
+                        firstConfiguredOffer={
+                            form.negotiationSteps[0]
+                                ?.offerPrice
+                            ?? ""
+                        }
+                        onAutoRaiseChange={
+                            changeAutoRaiseOffer
+                        }
+                        onMaxAutomaticOfferChange={
+                            changeMaxAutomaticOffer
                         }
                     />
 
