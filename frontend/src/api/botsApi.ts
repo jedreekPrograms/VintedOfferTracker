@@ -213,6 +213,50 @@ export async function updateBot(
 }
 
 
+export async function deleteBot(
+    botId: number,
+): Promise<void> {
+
+    const response =
+        await fetch(
+            `${BOTS_BASE_URL}/${botId}`,
+            {
+                method: "DELETE",
+            },
+        );
+
+
+    if (response.status === 404) {
+
+        throw new Error(
+            `Nie znaleziono bota ${botId}.`,
+        );
+    }
+
+
+    if (response.status === 409) {
+
+        throw new Error(
+            await getApiErrorMessage(
+                response,
+                "Nie można usunąć tego bota. Najpierw zatrzymaj go i zakończ aktywne negocjacje.",
+            ),
+        );
+    }
+
+
+    if (!response.ok) {
+
+        throw new Error(
+            await getApiErrorMessage(
+                response,
+                `Nie udało się usunąć bota. Status HTTP: ${response.status}.`,
+            ),
+        );
+    }
+}
+
+
 export async function startBot(
     botId: number,
 ): Promise<void> {

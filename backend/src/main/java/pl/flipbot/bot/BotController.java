@@ -18,6 +18,8 @@ public class BotController {
 
     private final BotService botService;
 
+    private final BotDeletionService botDeletionService;
+
     @GetMapping
     public List<BotResponse> getAllBots() {
 
@@ -53,6 +55,16 @@ public class BotController {
         return botService.updateBot(
                 botId,
                 request
+        );
+    }
+
+    @DeleteMapping("/{botId}")
+    public void deleteBot(
+            @PathVariable Long botId
+    ) {
+
+        botDeletionService.deleteBot(
+                botId
         );
     }
 
