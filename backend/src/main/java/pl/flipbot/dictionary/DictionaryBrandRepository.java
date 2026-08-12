@@ -11,6 +11,10 @@ public interface DictionaryBrandRepository
             String name
     );
 
-    List<DictionaryBrand> findAllByOrderByNameAsc();
+    boolean existsByNameIgnoreCaseAndIdNot(
+            String name,
+            Long id
+    );
 
+    List<DictionaryBrand> findAllByOrderByNameAsc();
 }
