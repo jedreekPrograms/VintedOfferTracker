@@ -12,6 +12,8 @@ import pl.flipbot.playwright.model.BotDetailsDto;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 public class FilterService {
@@ -22,17 +24,13 @@ public class FilterService {
     private static final String SEARCH_QUERY =
             "SEARCH_QUERY";
 
-    private static final int FILTER_APPLY_MAX_ATTEMPTS =
-            3;
-
-    private static final double FILTER_APPLY_RETRY_DELAY_MS =
-            750;
-
-    private static final double URL_PARAMETER_WAIT_MS =
-            4_000;
 
     private static final String VINTED_SEARCH_INPUT_SELECTOR =
             "form[action='/catalog'] input[name='search_text']";
+
+
+    private static final double URL_PERSIST_TIMEOUT_MS =
+            5_000;
 
 
     private final Page page;
@@ -109,11 +107,8 @@ public class FilterService {
 
 
         /*
-         * SEARCH_QUERY wykonujemy na początku.
-         *
-         * Wyszukiwarka Vinted może przeładować katalog.
-         * Dopiero po niej nakładamy kategorię i markę,
-         * żeby finalnie zawsze były obecne.
+         * SEARCH_QUERY na początku, bo Enter przeładowuje /catalog.
+         * Po nim ustawiamy normalnie kategorię i markę.
          */
         if (
                 SEARCH_QUERY.equals(
@@ -147,6 +142,18 @@ public class FilterService {
             applyCategory(
                     bot
             );
+
+
+            /*
+             * Nie zmieniamy sposobu KLIKANIA kategorii.
+             * Jedynie po sukcesie sprawdzamy, czy Vinted faktycznie
+             * zapisało kategorię do URL.
+             */
+            requireUrlParameter(
+                    "catalog[]",
+                    "Category",
+                    URL_PERSIST_TIMEOUT_MS
+            );
         }
 
 
@@ -161,6 +168,21 @@ public class FilterService {
 
             applyBrand(
                     bot
+            );
+
+
+            requireUrlParameter(
+                    "brand_ids[]",
+                    "Brand",
+                    URL_PERSIST_TIMEOUT_MS
+            );
+
+
+            log.info(
+                    "[FILTER] Brand filter persisted: '{}'. Current URL: {}",
+                    configuration
+                            .getBrand(),
+                    page.url()
             );
 
         } else {
@@ -178,28 +200,48 @@ public class FilterService {
                 )
         ) {
 
-            if (hasModel(bot)) {
-
-                log.info(
-                        "[FILTER] Applying model: '{}'",
-                        configuration
-                                .getModel()
-                );
-
-
-                applyModel(
-                        bot
-                );
-
-            } else {
+            if (!hasModel(bot)) {
 
                 throw new IllegalStateException(
                         "VINTED_MODEL target mode requires a non-blank model"
                 );
             }
+
+
+            log.info(
+                    "[FILTER] Applying model: '{}'",
+                    configuration
+                            .getModel()
+            );
+
+
+            applyModel(
+                    bot
+            );
+
+
+            requireUrlParameter(
+                    "brand_collection_ids[]",
+                    "Model",
+                    URL_PERSIST_TIMEOUT_MS
+            );
+
+
+            log.info(
+                    "[FILTER] Model filter persisted: '{}'. Current URL: {}",
+                    configuration
+                            .getModel(),
+                    page.url()
+            );
         }
 
 
+        /*
+         * Cena PRZED sortowaniem.
+         *
+         * W logach Vinted czasami usuwało order=newest_first
+         * przy późniejszym zatwierdzeniu ceny.
+         */
         if (hasPrice(bot)) {
 
             log.info(
@@ -218,11 +260,8 @@ public class FilterService {
 
 
         /*
-         * Sortowanie nakładamy NA KOŃCU.
-         *
-         * W realnym logu Vinted potrafiło zgubić order=newest_first
-         * po późniejszej zmianie ceny. Dzięki tej kolejności nic już
-         * po sortowaniu nie zmienia katalogowych filtrów.
+         * Sortowanie jako ostatni filtr.
+         * Po nim nic już nie powinno przebudować URL katalogu.
          */
         log.info(
                 "[FILTER] Applying sort: newest first."
@@ -255,27 +294,6 @@ public class FilterService {
                 bot.getConfiguration()
                         .getCategoryPath()
         );
-
-
-        if (
-                !waitForUrlParameterPresent(
-                        "catalog[]",
-                        URL_PARAMETER_WAIT_MS
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Vinted category UI completed, but catalog[] "
-                            + "was not persisted in the URL. URL: "
-                            + page.url()
-            );
-        }
-
-
-        log.info(
-                "[FILTER] Category filter persisted in URL. Current URL: {}",
-                page.url()
-        );
     }
 
 
@@ -283,115 +301,31 @@ public class FilterService {
             BotDetailsDto bot
     ) {
 
-        String brand =
+        /*
+         * To jest stary, działający sposób:
+         * open -> wait -> select -> confirm.
+         *
+         * Nie dokładamy Escape ani exact-name.
+         */
+        actions.openFilter(
+                FilterSelectors.BRAND_FILTER
+        );
+
+
+        actions.waitForOption(
                 bot.getConfiguration()
-                        .getBrand();
+                        .getBrand()
+        );
 
 
-        RuntimeException lastException =
-                null;
+        actions.selectOption(
+                bot.getConfiguration()
+                        .getBrand()
+        );
 
 
-        for (
-                int attempt = 1;
-                attempt <= FILTER_APPLY_MAX_ATTEMPTS;
-                attempt++
-        ) {
-
-            actions.dismissOpenOverlaySafely();
-
-
-            try {
-
-                log.info(
-                        "[FILTER BRAND] Applying brand '{}'. Attempt {}/{}.",
-                        brand,
-                        attempt,
-                        FILTER_APPLY_MAX_ATTEMPTS
-                );
-
-
-                actions.openFilter(
-                        FilterSelectors.BRAND_FILTER
-                );
-
-
-                actions.waitForOption(
-                        brand
-                );
-
-
-                actions.selectOption(
-                        brand
-                );
-
-
-                actions.clickConfirmButton();
-
-
-                if (
-                        waitForUrlParameterPresent(
-                                "brand_ids[]",
-                                URL_PARAMETER_WAIT_MS
-                        )
-                ) {
-
-                    log.info(
-                            "[FILTER BRAND] Brand '{}' persisted in URL. "
-                                    + "Current URL: {}",
-                            brand,
-                            page.url()
-                    );
-
-
-                    return;
-                }
-
-
-                throw new IllegalStateException(
-                        "Brand selection did not persist brand_ids[] in URL"
-                );
-
-            } catch (RuntimeException exception) {
-
-                lastException =
-                        exception;
-
-
-                log.warn(
-                        "[FILTER BRAND] Attempt {}/{} failed for '{}': {}",
-                        attempt,
-                        FILTER_APPLY_MAX_ATTEMPTS,
-                        brand,
-                        firstLineMessage(
-                                exception
-                        )
-                );
-
-
-                actions.dismissOpenOverlaySafely();
-
-
-                if (
-                        attempt < FILTER_APPLY_MAX_ATTEMPTS
-                ) {
-
-                    actions.waitForTimeout(
-                            FILTER_APPLY_RETRY_DELAY_MS
-                    );
-                }
-            }
-        }
-
-
-        throw new IllegalStateException(
-                "Could not apply brand filter after "
-                        + FILTER_APPLY_MAX_ATTEMPTS
-                        + " attempts. Brand='"
-                        + brand
-                        + "'. URL: "
-                        + page.url(),
-                lastException
+        actions.clickSelector(
+                FilterSelectors.FILTER_SELECTION
         );
     }
 
@@ -405,119 +339,35 @@ public class FilterService {
                         .getModel();
 
 
-        RuntimeException lastException =
-                null;
-
-
-        for (
-                int attempt = 1;
-                attempt <= FILTER_APPLY_MAX_ATTEMPTS;
-                attempt++
-        ) {
-
-            actions.dismissOpenOverlaySafely();
-
-
-            try {
-
-                log.info(
-                        "[FILTER MODEL] Applying model '{}'. Attempt {}/{}.",
-                        model,
-                        attempt,
-                        FILTER_APPLY_MAX_ATTEMPTS
-                );
-
-
-                actions.openFilter(
-                        FilterSelectors.MODEL_FILTER
-                );
-
-
-                actions.fillInputBySelector(
-                        FilterSelectors.MODEL_SEARCH_INPUT,
-                        model
-                );
-
-
-                log.info(
-                        "[FILTER MODEL] Searching Vinted model option for '{}'.",
-                        model
-                );
-
-
-                actions.clickModel(
-                        model
-                );
-
-
-                actions.clickConfirmButton();
-
-
-                if (
-                        waitForUrlParameterPresent(
-                                "brand_collection_ids[]",
-                                URL_PARAMETER_WAIT_MS
-                        )
-                ) {
-
-                    log.info(
-                            "[FILTER MODEL] Model '{}' persisted in URL. "
-                                    + "Current URL: {}",
-                            model,
-                            page.url()
-                    );
-
-
-                    return;
-                }
-
-
-                throw new IllegalStateException(
-                        "Model selection did not persist "
-                                + "brand_collection_ids[] in URL"
-                );
-
-            } catch (RuntimeException exception) {
-
-                lastException =
-                        exception;
-
-
-                log.warn(
-                        "[FILTER MODEL] Attempt {}/{} failed for '{}': {}",
-                        attempt,
-                        FILTER_APPLY_MAX_ATTEMPTS,
-                        model,
-                        firstLineMessage(
-                                exception
-                        )
-                );
-
-
-                actions.dismissOpenOverlaySafely();
-
-
-                if (
-                        attempt < FILTER_APPLY_MAX_ATTEMPTS
-                ) {
-
-                    actions.waitForTimeout(
-                            FILTER_APPLY_RETRY_DELAY_MS
-                    );
-                }
-            }
-        }
-
-
-        throw new IllegalStateException(
-                "Could not apply model filter after "
-                        + FILTER_APPLY_MAX_ATTEMPTS
-                        + " attempts. Model='"
-                        + model
-                        + "'. URL: "
-                        + page.url(),
-                lastException
+        actions.openFilter(
+                FilterSelectors.MODEL_FILTER
         );
+
+
+        actions.fillInputBySelector(
+                FilterSelectors.MODEL_SEARCH_INPUT,
+                model
+        );
+
+
+        log.info(
+                "[FILTER] Searching Vinted model option for '{}'.",
+                model
+        );
+
+
+        actions.clickModel(
+                model
+        );
+
+
+        log.info(
+                "[FILTER] Vinted model option clicked for '{}'.",
+                model
+        );
+
+
+        actions.clickConfirmButton();
     }
 
 
@@ -539,24 +389,8 @@ public class FilterService {
 
 
         /*
-         * Vinted renderuje DWA inputy z tym samym:
-         *
-         * id="search_text"
-         * name="search_text"
-         * data-testid="search-text--input"
-         *
-         * Jeden znajduje się w desktopowym <header>,
-         * a drugi w dodatkowym pasku wyszukiwania strony.
-         *
-         * Dlatego NIE wolno używać po prostu:
-         *
-         * page.locator("#search_text")
-         *
-         * bo Playwright strict mode widzi dwa elementy.
-         *
-         * Najpierw preferujemy widoczny input w <header>.
-         * Jeśli layout Vinted się zmieni, korzystamy z pierwszego
-         * widocznego inputa formularza /catalog.
+         * Vinted potrafi renderować dwa inputy search_text.
+         * Ta poprawka zostaje, bo została już potwierdzona testem.
          */
         Locator searchInput =
                 resolveVisibleSearchInput();
@@ -619,16 +453,6 @@ public class FilterService {
         );
 
 
-        /*
-         * Input znajduje się w formularzu:
-         *
-         * action="/catalog"
-         * method="get"
-         * name="search_text"
-         *
-         * Enter powinien więc przejść do:
-         * /catalog?search_text=...
-         */
         searchInput.press(
                 "Enter"
         );
@@ -764,61 +588,40 @@ public class FilterService {
 
     private void applySortBy() {
 
-        actions.dismissOpenOverlaySafely();
+        actions.openFilter(
+                FilterSelectors.SORT_BY
+        );
 
 
-        try {
+        actions.clickSelector(
+                FilterSelectors.SORT_BY_NEWEST
+        );
 
-            actions.openFilter(
-                    FilterSelectors.SORT_BY
+
+        if (
+                waitForUrlParameterValue(
+                        "order",
+                        "newest_first",
+                        4_000
+                )
+        ) {
+
+            log.info(
+                    "[FILTER SORT] newest_first persisted through UI. "
+                            + "Current URL: {}",
+                    page.url()
             );
 
 
-            actions.clickSelector(
-                    FilterSelectors.SORT_BY_NEWEST
-            );
-
-
-            if (
-                    waitForUrlParameterEquals(
-                            "order",
-                            "newest_first",
-                            URL_PARAMETER_WAIT_MS
-                    )
-            ) {
-
-                log.info(
-                        "[FILTER SORT] newest_first persisted through UI. "
-                                + "Current URL: {}",
-                        page.url()
-                );
-
-
-                return;
-            }
-
-        } catch (RuntimeException exception) {
-
-            log.warn(
-                    "[FILTER SORT] UI sort action failed or did not persist: {}",
-                    firstLineMessage(
-                            exception
-                    )
-            );
+            return;
         }
 
 
         /*
-         * Bezpieczny fallback.
-         *
-         * order=newest_first nie wymaga żadnego ukrytego ID,
-         * więc możemy zachować wszystkie istniejące parametry
-         * (search_text, catalog[], brand_ids[], model, ceny)
-         * i tylko dopisać / podmienić order.
+         * UI czasami kliknie sort, ale parametr znika / nie zapisuje się.
+         * Dla order nie potrzebujemy żadnego ID z Vinted,
+         * więc bezpiecznie poprawiamy wyłącznie ten parametr.
          */
-        actions.dismissOpenOverlaySafely();
-
-
         String currentUrl =
                 page.url();
 
@@ -850,10 +653,10 @@ public class FilterService {
 
 
         if (
-                !waitForUrlParameterEquals(
-                        "order",
-                        "newest_first",
-                        URL_PARAMETER_WAIT_MS
+                !"newest_first".equals(
+                        getUrlParameter(
+                                "order"
+                        )
                 )
         ) {
 
@@ -862,13 +665,6 @@ public class FilterService {
                             + page.url()
             );
         }
-
-
-        log.info(
-                "[FILTER SORT] newest_first persisted through URL fallback. "
-                        + "Current URL: {}",
-                page.url()
-        );
     }
 
 
@@ -918,13 +714,6 @@ public class FilterService {
             );
 
 
-            /*
-             * Vinted wcześniej zapisywało price_from,
-             * ale czasami nie zatwierdzało price_to po samym
-             * kliknięciu poza popupem.
-             *
-             * Enter na ostatnim polu wymusza zatwierdzenie formularza.
-             */
             inputToCommit =
                     page.locator(
                             FilterSelectors.MAX_PRICE
@@ -954,11 +743,7 @@ public class FilterService {
 
 
         /*
-         * Druga warstwa dla maxPrice.
-         *
-         * Jeśli UI Vinted nadal nie dopisało price_to,
-         * zachowujemy wszystkie już ustawione parametry katalogu
-         * i dopisujemy price_to bezpośrednio do bieżącego URL.
+         * Zachowujemy potwierdzoną poprawkę price_to.
          */
         if (
                 configuration.getMaxPrice()
@@ -972,21 +757,14 @@ public class FilterService {
                     page.url();
 
 
-            String separator =
-                    currentUrl.contains(
-                            "?"
-                    )
-                            ? "&"
-                            : "?";
-
-
             String correctedUrl =
-                    currentUrl
-                            + separator
-                            + "price_to="
-                            + configuration
-                            .getMaxPrice()
-                            .toPlainString();
+                    withOrReplacedUrlParameter(
+                            currentUrl,
+                            "price_to",
+                            configuration
+                                    .getMaxPrice()
+                                    .toPlainString()
+                    );
 
 
             log.warn(
@@ -1003,7 +781,7 @@ public class FilterService {
 
 
             actions.waitForTimeout(
-                    1_500
+                    1_000
             );
         }
 
@@ -1026,221 +804,6 @@ public class FilterService {
                 "[FILTER PRICE] Price filter completed. Current URL: {}",
                 page.url()
         );
-    }
-
-
-    private boolean waitForUrlParameterPresent(
-            String parameterName,
-            double timeoutMilliseconds
-    ) {
-
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) timeoutMilliseconds;
-
-
-        while (
-                System.currentTimeMillis()
-                        <= deadline
-        ) {
-
-            String value =
-                    getUrlParameter(
-                            parameterName
-                    );
-
-
-            if (
-                    value != null
-            ) {
-
-                return true;
-            }
-
-
-            actions.waitForTimeout(
-                    200
-            );
-        }
-
-
-        return false;
-    }
-
-
-    private boolean waitForUrlParameterEquals(
-            String parameterName,
-            String expectedValue,
-            double timeoutMilliseconds
-    ) {
-
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) timeoutMilliseconds;
-
-
-        while (
-                System.currentTimeMillis()
-                        <= deadline
-        ) {
-
-            String value =
-                    getUrlParameter(
-                            parameterName
-                    );
-
-
-            if (
-                    expectedValue.equals(
-                            value
-                    )
-            ) {
-
-                return true;
-            }
-
-
-            actions.waitForTimeout(
-                    200
-            );
-        }
-
-
-        return false;
-    }
-
-
-    private String withOrReplacedUrlParameter(
-            String url,
-            String parameterName,
-            String parameterValue
-    ) {
-
-        String encodedPair =
-                parameterName
-                        + "="
-                        + parameterValue;
-
-
-        String parameterRegex =
-                "([?&])"
-                        + java.util.regex.Pattern.quote(
-                        parameterName
-                )
-                        + "=[^&#]*";
-
-
-        if (
-                java.util.regex.Pattern
-                        .compile(
-                                parameterRegex
-                        )
-                        .matcher(
-                                url
-                        )
-                        .find()
-        ) {
-
-            return url.replaceFirst(
-                    parameterRegex,
-                    "$1"
-                            + encodedPair
-            );
-        }
-
-
-        String fragment =
-                "";
-
-
-        String withoutFragment =
-                url;
-
-
-        int fragmentIndex =
-                url.indexOf(
-                        '#'
-                );
-
-
-        if (
-                fragmentIndex >= 0
-        ) {
-
-            fragment =
-                    url.substring(
-                            fragmentIndex
-                    );
-
-
-            withoutFragment =
-                    url.substring(
-                            0,
-                            fragmentIndex
-                    );
-        }
-
-
-        String separator =
-                withoutFragment.contains(
-                        "?"
-                )
-                        ? "&"
-                        : "?";
-
-
-        return withoutFragment
-                + separator
-                + encodedPair
-                + fragment;
-    }
-
-
-    private String firstLineMessage(
-            RuntimeException exception
-    ) {
-
-        if (exception == null) {
-
-            return "Unknown error";
-        }
-
-
-        String message =
-                exception.getMessage();
-
-
-        if (
-                message == null
-                        || message.isBlank()
-        ) {
-
-            return exception
-                    .getClass()
-                    .getSimpleName();
-        }
-
-
-        int lineBreak =
-                message.indexOf(
-                        '\n'
-                );
-
-
-        if (
-                lineBreak > 0
-        ) {
-
-            return message
-                    .substring(
-                            0,
-                            lineBreak
-                    )
-                    .trim();
-        }
-
-
-        return message.trim();
     }
 
 
@@ -1292,9 +855,8 @@ public class FilterService {
 
         if (
                 hasCategory(bot)
-                        && !hasAnyUrlParameter(
-                        "catalog[]",
-                        "catalog%5B%5D"
+                        && !hasUrlParameter(
+                        "catalog[]"
                 )
         ) {
 
@@ -1308,9 +870,8 @@ public class FilterService {
 
         if (
                 hasBrand(bot)
-                        && !hasAnyUrlParameter(
-                        "brand_ids[]",
-                        "brand_ids%5B%5D"
+                        && !hasUrlParameter(
+                        "brand_ids[]"
                 )
         ) {
 
@@ -1318,6 +879,25 @@ public class FilterService {
                     "Final Vinted catalog URL does not contain a brand filter. "
                             + "Configured brand: '"
                             + configuration.getBrand()
+                            + "'. URL: "
+                            + page.url()
+            );
+        }
+
+
+        if (
+                VINTED_MODEL.equals(
+                        targetMode
+                )
+                        && !hasUrlParameter(
+                        "brand_collection_ids[]"
+                )
+        ) {
+
+            throw new IllegalStateException(
+                    "Final Vinted catalog URL does not contain a model filter. "
+                            + "Configured model: '"
+                            + configuration.getModel()
                             + "'. URL: "
                             + page.url()
             );
@@ -1403,11 +983,13 @@ public class FilterService {
         log.info(
                 "[FILTER VERIFY] Final filters verified. "
                         + "targetMode={}, searchQuery='{}', category={}, "
-                        + "brand='{}', minPrice={}, maxPrice={}, order={}.",
+                        + "brand='{}', model='{}', minPrice={}, maxPrice={}, "
+                        + "order={}.",
                 targetMode,
                 configuration.getSearchQuery(),
                 configuration.getCategoryPath(),
                 configuration.getBrand(),
+                configuration.getModel(),
                 configuration.getMinPrice(),
                 configuration.getMaxPrice(),
                 order
@@ -1415,48 +997,124 @@ public class FilterService {
     }
 
 
-    private String normalizeSearchQuery(
-            String searchQuery
+    private void requireUrlParameter(
+            String parameterName,
+            String label,
+            double timeoutMilliseconds
     ) {
 
-        if (searchQuery == null) {
+        if (
+                waitForUrlParameterPresent(
+                        parameterName,
+                        timeoutMilliseconds
+                )
+        ) {
 
-            return "";
+            log.info(
+                    "[FILTER VERIFY] {} persisted in URL. {}={}",
+                    label,
+                    parameterName,
+                    getUrlParameter(
+                            parameterName
+                    )
+            );
+
+
+            return;
         }
 
 
-        return searchQuery
-                .trim()
-                .replaceAll(
-                        "\\s+",
-                        " "
-                );
+        throw new IllegalStateException(
+                label
+                        + " filter action finished, but URL parameter '"
+                        + parameterName
+                        + "' is missing. URL: "
+                        + page.url()
+        );
     }
 
 
-    private boolean hasAnyUrlParameter(
-            String... parameterNames
+    private boolean waitForUrlParameterPresent(
+            String parameterName,
+            double timeoutMilliseconds
     ) {
 
-        String currentUrl =
-                page.url();
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) timeoutMilliseconds;
 
 
-        for (String parameterName : parameterNames) {
+        while (
+                System.currentTimeMillis()
+                        <= deadline
+        ) {
 
             if (
-                    currentUrl.contains(
+                    hasUrlParameter(
                             parameterName
-                                    + "="
                     )
             ) {
 
                 return true;
             }
+
+
+            actions.waitForTimeout(
+                    200
+            );
         }
 
 
         return false;
+    }
+
+
+    private boolean waitForUrlParameterValue(
+            String parameterName,
+            String expectedValue,
+            double timeoutMilliseconds
+    ) {
+
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) timeoutMilliseconds;
+
+
+        while (
+                System.currentTimeMillis()
+                        <= deadline
+        ) {
+
+            if (
+                    expectedValue.equals(
+                            getUrlParameter(
+                                    parameterName
+                            )
+                    )
+            ) {
+
+                return true;
+            }
+
+
+            actions.waitForTimeout(
+                    200
+            );
+        }
+
+
+        return false;
+    }
+
+
+    private boolean hasUrlParameter(
+            String parameterName
+    ) {
+
+        return getUrlParameter(
+                parameterName
+        )
+                != null;
     }
 
 
@@ -1488,6 +1146,24 @@ public class FilterService {
                 currentUrl.substring(
                         questionMarkIndex + 1
                 );
+
+
+        int fragmentIndex =
+                query.indexOf(
+                        '#'
+                );
+
+
+        if (
+                fragmentIndex >= 0
+        ) {
+
+            query =
+                    query.substring(
+                            0,
+                            fragmentIndex
+                    );
+        }
 
 
         for (
@@ -1545,6 +1221,112 @@ public class FilterService {
 
 
         return null;
+    }
+
+
+    private String withOrReplacedUrlParameter(
+            String url,
+            String parameterName,
+            String parameterValue
+    ) {
+
+        String fragment =
+                "";
+
+
+        String withoutFragment =
+                url;
+
+
+        int fragmentIndex =
+                url.indexOf(
+                        '#'
+                );
+
+
+        if (
+                fragmentIndex >= 0
+        ) {
+
+            fragment =
+                    url.substring(
+                            fragmentIndex
+                    );
+
+
+            withoutFragment =
+                    url.substring(
+                            0,
+                            fragmentIndex
+                    );
+        }
+
+
+        String encodedParameterName =
+                Pattern.quote(
+                        parameterName
+                );
+
+
+        Pattern pattern =
+                Pattern.compile(
+                        "([?&])"
+                                + encodedParameterName
+                                + "=[^&#]*"
+                );
+
+
+        Matcher matcher =
+                pattern.matcher(
+                        withoutFragment
+                );
+
+
+        if (matcher.find()) {
+
+            return matcher.replaceFirst(
+                    "$1"
+                            + parameterName
+                            + "="
+                            + parameterValue
+            )
+                    + fragment;
+        }
+
+
+        String separator =
+                withoutFragment.contains(
+                        "?"
+                )
+                        ? "&"
+                        : "?";
+
+
+        return withoutFragment
+                + separator
+                + parameterName
+                + "="
+                + parameterValue
+                + fragment;
+    }
+
+
+    private String normalizeSearchQuery(
+            String searchQuery
+    ) {
+
+        if (searchQuery == null) {
+
+            return "";
+        }
+
+
+        return searchQuery
+                .trim()
+                .replaceAll(
+                        "\\s+",
+                        " "
+                );
     }
 
 
@@ -1658,21 +1440,5 @@ public class FilterService {
                 || bot.getConfiguration()
                 .getMaxPrice()
                 != null;
-    }
-
-
-    private boolean hasUrlParameter(
-            String parameterName
-    ) {
-
-        String marker =
-                parameterName
-                        + "=";
-
-
-        return page.url()
-                .contains(
-                        marker
-                );
     }
 }

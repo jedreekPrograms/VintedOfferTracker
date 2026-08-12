@@ -4,56 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/configuration/TargetMode.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/dto/NegotiationActivityRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/dto/NegotiationActivityResponse.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/resources/db/migration/V11__add_negotiation_activity_timestamps.sql" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/resources/db/migration/V12__add_expired_listing_status.sql" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../backend/src/main/resources/db/migration/V13__add_bot_target_mode_and_offer_strategy.sql" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/NegotiationActivityClient.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/dto/NegotiationActivityRequestDto.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/dto/NegotiationActivityResponseDto.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/ConversationActivityDetector.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/ConversationActivitySnapshot.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/ConversationAvailabilityDetector.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/PendingNegotiationDecision.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/PendingNegotiationPolicy.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/target/ListingDetailTargetInspector.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/target/ListingTargetAssessment.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/target/ListingTargetMatcher.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/target/VintedRateLimitException.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/BotService.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/BotService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/configuration/BotConfiguration.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/configuration/BotConfiguration.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/dto/BotConfigurationResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/dto/BotConfigurationResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/dto/CreateBotConfigurationRequest.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/bot/dto/CreateBotConfigurationRequest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/BotListingController.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/BotListingController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/Listing.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/Listing.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingService.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingStatus.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/ListingStatus.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/dto/ListingResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/listing/dto/ListingResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/mapper/BotConfigurationMapper.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/mapper/BotConfigurationMapper.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/mapper/ListingMapper.java" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/src/main/java/pl/flipbot/mapper/ListingMapper.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/features/bots/create/BotFiltersSection.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/features/bots/create/BotFiltersSection.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/features/bots/create/NegotiationStepsSection.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/features/bots/create/NegotiationStepsSection.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/features/bots/create/botForm.ts" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/features/bots/create/botForm.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/features/bots/create/hooks/useCreateBotForm.ts" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/features/bots/create/hooks/useCreateBotForm.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/features/bots/create/mappers/buildCreateBotRequest.ts" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/features/bots/create/mappers/buildCreateBotRequest.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/features/bots/create/validation/validateCreateBotForm.ts" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/features/bots/create/validation/validateCreateBotForm.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/pages/CreateBotPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/pages/CreateBotPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../frontend/src/types/bots.ts" beforeDir="false" afterPath="$PROJECT_DIR$/../frontend/src/types/bots.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/ListingStatusUpdater.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/ListingStatusUpdater.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/dto/ListingResponseDto.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/api/listing/dto/ListingResponseDto.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterActions.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterActions.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterService.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/FilterService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/category/CategoryNavigator.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/filters/category/CategoryNavigator.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/marketplace/MarketplaceNavigator.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/marketplace/MarketplaceNavigator.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/model/BotConfigurationDto.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/model/BotConfigurationDto.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/ExistingNegotiationProcessor.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/ExistingNegotiationProcessor.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/NewNegotiationProcessor.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/negotiation/NewNegotiationProcessor.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/BotWorker.java" beforeDir="false" afterPath="$PROJECT_DIR$/../playwright/src/main/java/pl/flipbot/playwright/worker/BotWorker.java" afterDir="false" />
-    </list>
+    <list default="true" id="54a1ec26-5894-499c-a7f5-1b0389b94e2a" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />

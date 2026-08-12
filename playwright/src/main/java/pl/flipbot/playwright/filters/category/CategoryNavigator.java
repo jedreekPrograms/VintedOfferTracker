@@ -13,7 +13,7 @@ import java.util.List;
 public class CategoryNavigator {
 
     private static final int MAX_ATTEMPTS =
-            4;
+            3;
 
     private static final double RETRY_DELAY_MS =
             1_000;
@@ -45,17 +45,6 @@ public class CategoryNavigator {
                 attempt++
         ) {
 
-            /*
-             * Każda próba musi zaczynać się od czystego stanu.
-             *
-             * Wcześniej po timeoutcie popup potrafił zostać otwarty
-             * na drugim poziomie kategorii. Następne openFilter()
-             * mogło wtedy zamknąć / przełączyć popup zamiast
-             * otworzyć kategorię od początku.
-             */
-            actions.dismissOpenOverlaySafely();
-
-
             try {
 
                 log.info(
@@ -66,17 +55,22 @@ public class CategoryNavigator {
                 );
 
 
+                /*
+                 * To jest dokładnie styl nawigacji, na którym
+                 * filtr kategorii działał wcześniej:
+                 *
+                 * otwórz filtr
+                 * -> poczekaj na Elektronika
+                 * -> kliknij Elektronika
+                 * -> poczekaj na następny poziom
+                 * -> kliknij ...
+                 *
+                 * Nie wciskamy Escape pomiędzy próbami i nie
+                 * zmieniamy semantyki accessible-name.
+                 */
                 selectCategoryPath(
                         categoryPath
                 );
-
-
-                /*
-                 * Po wybraniu ostatniej kategorii zamykamy ewentualny
-                 * pozostały overlay. Sam wybór kategorii jest już zapisany
-                 * przez Vinted w URL.
-                 */
-                actions.dismissOpenOverlaySafely();
 
 
                 log.info(
@@ -109,13 +103,6 @@ public class CategoryNavigator {
                         MAX_ATTEMPTS,
                         exception
                 );
-
-
-                /*
-                 * Najważniejsza część retry:
-                 * zamykamy niedokończony popup zanim spróbujemy od nowa.
-                 */
-                actions.dismissOpenOverlaySafely();
 
 
                 if (

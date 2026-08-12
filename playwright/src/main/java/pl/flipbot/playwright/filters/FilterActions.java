@@ -9,16 +9,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class FilterActions {
 
-    private static final double FILTER_TRIGGER_TIMEOUT_MS =
-            10_000;
-
-    private static final double FILTER_OPTION_TIMEOUT_MS =
-            8_000;
-
-    private static final double UI_SETTLE_DELAY_MS =
-            250;
-
-
     private final Page page;
 
 
@@ -32,28 +22,19 @@ public class FilterActions {
                 );
 
 
-        filter.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                FILTER_TRIGGER_TIMEOUT_MS
-                        )
-        );
-
-
-        filter.click();
-
-
         /*
-         * Vinted renderuje zawartość popupu asynchronicznie.
-         * Krótka pauza zmniejsza ryzyko, że od razu zaczniemy
-         * szukać opcji w poprzednim / niedorenderowanym stanie.
+         * Wracamy do mechaniki, która realnie działała wcześniej.
+         *
+         * Nie dokładamy tutaj:
+         * - exact accessible-name,
+         * - .first(),
+         * - Escape przed kliknięciem,
+         * - sztucznego przełączania overlay.
+         *
+         * Vinted samo renderuje i przełącza kolejne poziomy filtra.
          */
-        page.waitForTimeout(
-                UI_SETTLE_DELAY_MS
-        );
+        filter.waitFor();
+        filter.click();
     }
 
 
@@ -62,32 +43,17 @@ public class FilterActions {
     ) {
 
         Locator locator =
-                getExactOption(
-                        option
+                page.getByRole(
+                        AriaRole.BUTTON,
+                        new Page.GetByRoleOptions()
+                                .setName(
+                                        option
+                                )
                 );
 
 
-        locator.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                FILTER_OPTION_TIMEOUT_MS
-                        )
-        );
-
-
+        locator.waitFor();
         locator.click();
-
-
-        /*
-         * Po wejściu o poziom niżej Vinted musi wyrenderować
-         * kolejną listę kategorii.
-         */
-        page.waitForTimeout(
-                UI_SETTLE_DELAY_MS
-        );
     }
 
 
@@ -95,16 +61,20 @@ public class FilterActions {
             String option
     ) {
 
-        getExactOption(
-                option
-        )
+        page.getByRole(
+                        AriaRole.BUTTON,
+                        new Page.GetByRoleOptions()
+                                .setName(
+                                        option
+                                )
+                )
                 .waitFor(
                         new Locator.WaitForOptions()
                                 .setState(
                                         WaitForSelectorState.VISIBLE
                                 )
                                 .setTimeout(
-                                        FILTER_OPTION_TIMEOUT_MS
+                                        5_000
                                 )
                 );
     }
@@ -121,17 +91,7 @@ public class FilterActions {
                 );
 
 
-        input.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                FILTER_TRIGGER_TIMEOUT_MS
-                        )
-        );
-
-
+        input.waitFor();
         input.fill(
                 value
         );
@@ -151,25 +111,10 @@ public class FilterActions {
             String selector
     ) {
 
-        Locator locator =
-                page.locator(
-                                selector
-                        )
-                        .first();
-
-
-        locator.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                FILTER_TRIGGER_TIMEOUT_MS
-                        )
-        );
-
-
-        locator.click();
+        page.locator(
+                        selector
+                )
+                .click();
     }
 
 
@@ -180,27 +125,20 @@ public class FilterActions {
 
         Locator input =
                 page.locator(
-                                selector
-                        )
-                        .first();
+                        selector
+                );
 
 
-        input.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                FILTER_TRIGGER_TIMEOUT_MS
-                        )
-        );
-
+        input.waitFor();
 
         input.fill(
                 String.valueOf(
                         value
                 )
         );
+
+
+        input.waitFor();
     }
 
 
@@ -221,23 +159,8 @@ public class FilterActions {
                         .first();
 
 
-        modelLocator.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                FILTER_OPTION_TIMEOUT_MS
-                        )
-        );
-
-
+        modelLocator.waitFor();
         modelLocator.click();
-
-
-        page.waitForTimeout(
-                UI_SETTLE_DELAY_MS
-        );
     }
 
 
@@ -245,59 +168,12 @@ public class FilterActions {
 
         Locator button =
                 page.getByTestId(
-                                "filter-selection-button"
-                        )
-                        .first();
+                        "filter-selection-button"
+                );
 
 
-        button.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                FILTER_TRIGGER_TIMEOUT_MS
-                        )
-        );
-
-
+        button.waitFor();
         button.click();
-
-
-        page.waitForTimeout(
-                UI_SETTLE_DELAY_MS
-        );
-    }
-
-
-    /*
-     * Resetuje popup / dropdown przed ponowną próbą.
-     *
-     * To jest ważne dla CategoryNavigator:
-     * jeżeli próba skończyła się np. na drugim poziomie kategorii,
-     * kolejny openFilter() nie może pracować na pozostawionym
-     * częściowo otwartym stanie.
-     *
-     * Escape na zamkniętym popupie jest bezpieczny.
-     */
-    public void dismissOpenOverlaySafely() {
-
-        try {
-
-            page.keyboard()
-                    .press(
-                            "Escape"
-                    );
-
-
-            page.waitForTimeout(
-                    UI_SETTLE_DELAY_MS
-            );
-
-        } catch (RuntimeException ignored) {
-
-            // Best-effort cleanup przed retry.
-        }
     }
 
 
@@ -352,23 +228,5 @@ public class FilterActions {
         page.waitForTimeout(
                 milliseconds
         );
-    }
-
-
-    private Locator getExactOption(
-            String option
-    ) {
-
-        return page.getByRole(
-                        AriaRole.BUTTON,
-                        new Page.GetByRoleOptions()
-                                .setName(
-                                        option
-                                )
-                                .setExact(
-                                        true
-                                )
-                )
-                .first();
     }
 }
