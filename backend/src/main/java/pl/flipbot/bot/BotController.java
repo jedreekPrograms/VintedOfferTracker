@@ -7,6 +7,7 @@ import pl.flipbot.bot.dto.BotPlaywrightResponse;
 import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.bot.dto.RunningBotResponse;
+import pl.flipbot.bot.dto.UpdateBotRequest;
 
 import java.util.List;
 
@@ -19,32 +20,66 @@ public class BotController {
 
     @GetMapping
     public List<BotResponse> getAllBots() {
+
         return botService.getAllBots();
     }
 
-    @PostMapping
-    public BotResponse createBot(@Valid @RequestBody CreateBotRequest request) {
+    @GetMapping("/{botId}")
+    public BotResponse getBot(
+            @PathVariable Long botId
+    ) {
 
-        return botService.createBot(request);
+        return botService.getBot(
+                botId
+        );
+    }
+
+    @PostMapping
+    public BotResponse createBot(
+            @Valid @RequestBody CreateBotRequest request
+    ) {
+
+        return botService.createBot(
+                request
+        );
+    }
+
+    @PatchMapping("/{botId}")
+    public BotResponse updateBot(
+            @PathVariable Long botId,
+            @Valid @RequestBody UpdateBotRequest request
+    ) {
+
+        return botService.updateBot(
+                botId,
+                request
+        );
     }
 
     @GetMapping("/running")
     public List<RunningBotResponse> getRunningBotIds() {
 
         return botService.getRunningBotIds();
-
     }
 
     @PatchMapping("/{botId}/start")
-    public void startBot(@PathVariable Long botId) {
+    public void startBot(
+            @PathVariable Long botId
+    ) {
 
-        botService.startBot(botId);
+        botService.startBot(
+                botId
+        );
     }
 
     @PatchMapping("/{botId}/stop")
-    public void stopBot(@PathVariable Long botId) {
+    public void stopBot(
+            @PathVariable Long botId
+    ) {
 
-        botService.stopBot(botId);
+        botService.stopBot(
+                botId
+        );
     }
 
     @GetMapping("/{botId}/playwright")
@@ -52,8 +87,8 @@ public class BotController {
             @PathVariable Long botId
     ) {
 
-
-        return botService.getPlaywrightBot(botId);
-
+        return botService.getPlaywrightBot(
+                botId
+        );
     }
 }

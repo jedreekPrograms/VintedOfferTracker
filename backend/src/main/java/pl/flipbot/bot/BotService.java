@@ -11,13 +11,17 @@ import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotConfigurationRequest;
 import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.bot.dto.RunningBotResponse;
+import pl.flipbot.bot.dto.UpdateBotRequest;
 import pl.flipbot.exception.BotAlreadyExistsException;
 import pl.flipbot.exception.BotNotFoundException;
+import pl.flipbot.listing.ListingRepository;
+import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotMapper;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -28,6 +32,8 @@ public class BotService {
 
     private final BotConfigurationRepository
             botConfigurationRepository;
+
+    private final ListingRepository listingRepository;
 
     private final BotMapper botMapper;
 
@@ -40,6 +46,18 @@ public class BotService {
                         botMapper::map
                 )
                 .toList();
+    }
+
+
+    public BotResponse getBot(
+            Long botId
+    ) {
+
+        return botMapper.map(
+                getBotEntity(
+                        botId
+                )
+        );
     }
 
 
@@ -85,10 +103,14 @@ public class BotService {
         Bot bot =
                 Bot.builder()
                         .name(
-                                request.getName()
+                                normalizeRequiredText(
+                                        request.getName()
+                                )
                         )
                         .email(
-                                request.getEmail()
+                                normalizeRequiredText(
+                                        request.getEmail()
+                                )
                         )
                         .password(
                                 request.getPassword()
@@ -112,8 +134,10 @@ public class BotService {
                                         .getMarketplace()
                         )
                         .categoryPath(
-                                configurationRequest
-                                        .getCategoryPath()
+                                new ArrayList<>(
+                                        configurationRequest
+                                                .getCategoryPath()
+                                )
                         )
                         .brand(
                                 normalizeRequiredText(
@@ -128,18 +152,18 @@ public class BotService {
                                 targetMode
                                         == TargetMode.VINTED_MODEL
                                         ? normalizeRequiredText(
-                                                configurationRequest
-                                                        .getModel()
-                                        )
+                                        configurationRequest
+                                                .getModel()
+                                )
                                         : null
                         )
                         .searchQuery(
                                 targetMode
                                         == TargetMode.SEARCH_QUERY
                                         ? normalizeRequiredText(
-                                                configurationRequest
-                                                        .getSearchQuery()
-                                        )
+                                        configurationRequest
+                                                .getSearchQuery()
+                                )
                                         : null
                         )
                         .minPrice(
@@ -156,7 +180,7 @@ public class BotService {
                         .maxAutomaticOffer(
                                 autoRaiseOfferToVintedMinimum
                                         ? configurationRequest
-                                                .getMaxAutomaticOffer()
+                                        .getMaxAutomaticOffer()
                                         : null
                         )
                         .dailyNegotiationBudget(
@@ -174,44 +198,11 @@ public class BotService {
         );
 
 
-        int stepNumber =
-                1;
-
-
-        for (
-                CreateNegotiationStepRequest stepRequest
-                : configurationRequest.getNegotiationSteps()
-        ) {
-
-            NegotiationStep step =
-                    NegotiationStep.builder()
-                            .stepNumber(
-                                    stepNumber++
-                            )
-                            .offerPrice(
-                                    stepRequest
-                                            .getOfferPrice()
-                            )
-                            .maxAcceptedCounterOffer(
-                                    stepRequest
-                                            .getMaxAcceptedCounterOffer()
-                            )
-                            .message(
-                                    stepRequest
-                                            .getMessage()
-                            )
-                            .configuration(
-                                    configuration
-                            )
-                            .build();
-
-
-            configuration
-                    .getNegotiationSteps()
-                    .add(
-                            step
-                    );
-        }
+        replaceNegotiationSteps(
+                configuration,
+                configurationRequest
+                        .getNegotiationSteps()
+        );
 
 
         botConfigurationRepository.save(
@@ -226,20 +217,203 @@ public class BotService {
 
 
     @Transactional
+    public BotResponse updateBot(
+            Long botId,
+            UpdateBotRequest request
+    ) {
+
+        Bot bot =
+                getBotEntity(
+                        botId
+                );
+
+
+        if (
+                bot.getStatus()
+                        != BotStatus.STOPPED
+        ) {
+
+            throw new IllegalStateException(
+                    "Only a stopped bot can be edited."
+            );
+        }
+
+
+        ensureBotHasNoActiveNegotiations(
+                botId
+        );
+
+
+        String normalizedEmail =
+                normalizeRequiredText(
+                        request.getEmail()
+                );
+
+
+        if (
+                botRepository.existsByEmailAndIdNot(
+                        normalizedEmail,
+                        botId
+                )
+        ) {
+
+            throw new BotAlreadyExistsException(
+                    normalizedEmail
+            );
+        }
+
+
+        CreateBotConfigurationRequest configurationRequest =
+                request.getConfiguration();
+
+
+        validateConfiguration(
+                configurationRequest
+        );
+
+
+        BotConfiguration configuration =
+                bot.getConfiguration();
+
+
+        if (
+                configuration == null
+        ) {
+
+            throw new IllegalStateException(
+                    "Bot configuration does not exist."
+            );
+        }
+
+
+        TargetMode targetMode =
+                resolveTargetMode(
+                        configurationRequest
+                );
+
+
+        boolean autoRaiseOfferToVintedMinimum =
+                Boolean.TRUE.equals(
+                        configurationRequest
+                                .getAutoRaiseOfferToVintedMinimum()
+                );
+
+
+        bot.setName(
+                normalizeRequiredText(
+                        request.getName()
+                )
+        );
+
+        bot.setEmail(
+                normalizedEmail
+        );
+
+
+        if (
+                request.getPassword() != null
+                        && !request.getPassword()
+                        .isBlank()
+        ) {
+
+            bot.setPassword(
+                    request.getPassword()
+            );
+        }
+
+
+        configuration.setMarketplace(
+                configurationRequest
+                        .getMarketplace()
+        );
+
+        configuration.setCategoryPath(
+                new ArrayList<>(
+                        configurationRequest
+                                .getCategoryPath()
+                )
+        );
+
+        configuration.setBrand(
+                normalizeRequiredText(
+                        configurationRequest
+                                .getBrand()
+                )
+        );
+
+        configuration.setTargetMode(
+                targetMode
+        );
+
+        configuration.setModel(
+                targetMode
+                        == TargetMode.VINTED_MODEL
+                        ? normalizeRequiredText(
+                        configurationRequest
+                                .getModel()
+                )
+                        : null
+        );
+
+        configuration.setSearchQuery(
+                targetMode
+                        == TargetMode.SEARCH_QUERY
+                        ? normalizeRequiredText(
+                        configurationRequest
+                                .getSearchQuery()
+                )
+                        : null
+        );
+
+        configuration.setMinPrice(
+                configurationRequest
+                        .getMinPrice()
+        );
+
+        configuration.setMaxPrice(
+                configurationRequest
+                        .getMaxPrice()
+        );
+
+        configuration.setAutoRaiseOfferToVintedMinimum(
+                autoRaiseOfferToVintedMinimum
+        );
+
+        configuration.setMaxAutomaticOffer(
+                autoRaiseOfferToVintedMinimum
+                        ? configurationRequest
+                        .getMaxAutomaticOffer()
+                        : null
+        );
+
+        configuration.setDailyNegotiationBudget(
+                configurationRequest
+                        .getDailyNegotiationBudget()
+        );
+
+
+        replaceNegotiationSteps(
+                configuration,
+                configurationRequest
+                        .getNegotiationSteps()
+        );
+
+
+        return botMapper.map(
+                bot
+        );
+    }
+
+
+    @Transactional
     public void startBot(
             Long botId
     ) {
 
         Bot bot =
-                botRepository.findById(
-                                botId
-                        )
-                        .orElseThrow(
-                                () ->
-                                        new BotNotFoundException(
-                                                botId
-                                        )
-                        );
+                getBotEntity(
+                        botId
+                );
 
 
         bot.setStatus(
@@ -254,15 +428,9 @@ public class BotService {
     ) {
 
         Bot bot =
-                botRepository.findById(
-                                botId
-                        )
-                        .orElseThrow(
-                                () ->
-                                        new BotNotFoundException(
-                                                botId
-                                        )
-                        );
+                getBotEntity(
+                        botId
+                );
 
 
         bot.setStatus(
@@ -276,15 +444,9 @@ public class BotService {
     ) {
 
         Bot bot =
-                botRepository.findById(
-                                botId
-                        )
-                        .orElseThrow(
-                                () ->
-                                        new BotNotFoundException(
-                                                botId
-                                        )
-                        );
+                getBotEntity(
+                        botId
+                );
 
 
         if (
@@ -318,6 +480,108 @@ public class BotService {
     }
 
 
+    private Bot getBotEntity(
+            Long botId
+    ) {
+
+        return botRepository.findById(
+                        botId
+                )
+                .orElseThrow(
+                        () ->
+                                new BotNotFoundException(
+                                        botId
+                                )
+                );
+    }
+
+
+    private void ensureBotHasNoActiveNegotiations(
+            Long botId
+    ) {
+
+        boolean hasNegotiatingListings =
+                !listingRepository
+                        .findByBotIdAndStatusOrderByIdAsc(
+                                botId,
+                                ListingStatus.NEGOTIATING
+                        )
+                        .isEmpty();
+
+
+        boolean hasActionRequiredListings =
+                !listingRepository
+                        .findByBotIdAndStatusOrderByIdAsc(
+                                botId,
+                                ListingStatus.ACTION_REQUIRED
+                        )
+                        .isEmpty();
+
+
+        if (
+                hasNegotiatingListings
+                        || hasActionRequiredListings
+        ) {
+
+            throw new IllegalStateException(
+                    "Bot cannot be edited while it has active negotiations "
+                            + "or listings requiring user action."
+            );
+        }
+    }
+
+
+    private void replaceNegotiationSteps(
+            BotConfiguration configuration,
+            List<CreateNegotiationStepRequest> stepRequests
+    ) {
+
+        configuration
+                .getNegotiationSteps()
+                .clear();
+
+
+        int stepNumber =
+                1;
+
+
+        for (
+                CreateNegotiationStepRequest stepRequest
+                : stepRequests
+        ) {
+
+            NegotiationStep step =
+                    NegotiationStep.builder()
+                            .stepNumber(
+                                    stepNumber++
+                            )
+                            .offerPrice(
+                                    stepRequest
+                                            .getOfferPrice()
+                            )
+                            .maxAcceptedCounterOffer(
+                                    stepRequest
+                                            .getMaxAcceptedCounterOffer()
+                            )
+                            .message(
+                                    stepRequest
+                                            .getMessage()
+                            )
+                            .configuration(
+                                    configuration
+                            )
+                            .build();
+
+
+            configuration
+                    .getNegotiationSteps()
+                    .add(
+                            step
+                    );
+        }
+    }
+
+
     private void validateConfiguration(
             CreateBotConfigurationRequest request
     ) {
@@ -337,7 +601,7 @@ public class BotService {
         if (
                 request.getDailyNegotiationBudget()
                         == null
-                || request.getDailyNegotiationBudget()
+                        || request.getDailyNegotiationBudget()
                         <= 0
         ) {
 
@@ -350,7 +614,7 @@ public class BotService {
         if (
                 request.getNegotiationSteps()
                         == null
-                || request.getNegotiationSteps()
+                        || request.getNegotiationSteps()
                         .isEmpty()
         ) {
 
@@ -399,8 +663,8 @@ public class BotService {
 
             if (
                     maxAutomaticOffer == null
-                    || maxAutomaticOffer.signum()
-                    <= 0
+                            || maxAutomaticOffer.signum()
+                            <= 0
             ) {
 
                 throw new IllegalArgumentException(
@@ -413,7 +677,7 @@ public class BotService {
 
             if (
                     request.getMaxPrice() != null
-                    && maxAutomaticOffer.compareTo(
+                            && maxAutomaticOffer.compareTo(
                             request.getMaxPrice()
                     ) > 0
             ) {
@@ -451,7 +715,7 @@ public class BotService {
 
         if (
                 minPrice == null
-                || maxPrice == null
+                        || maxPrice == null
         ) {
 
             return;
@@ -460,7 +724,7 @@ public class BotService {
 
         if (
                 minPrice.signum() < 0
-                || maxPrice.signum() < 0
+                        || maxPrice.signum() < 0
         ) {
 
             throw new IllegalArgumentException(
@@ -490,7 +754,7 @@ public class BotService {
 
         if (
                 value == null
-                || value.isBlank()
+                        || value.isBlank()
         ) {
 
             throw new IllegalArgumentException(

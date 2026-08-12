@@ -8,5 +8,12 @@ public interface BotRepository extends JpaRepository<Bot, Long> {
 
     boolean existsByEmail(String email);
 
-    List<Bot> findByStatus(BotStatus status);
+    boolean existsByEmailAndIdNot(
+            String email,
+            Long id
+    );
+
+    List<Bot> findByStatus(
+            BotStatus status
+    );
 }
