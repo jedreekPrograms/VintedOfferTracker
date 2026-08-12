@@ -1,4 +1,5 @@
 import type {
+    BotDetails,
     BotListItem,
     CreateBotRequest,
 } from "../types/bots";
@@ -32,6 +33,39 @@ export async function getBots(): Promise<BotListItem[]> {
 
 
     return response.json() as Promise<BotListItem[]>;
+}
+
+
+export async function getBot(
+    botId: number,
+): Promise<BotDetails> {
+
+    const response =
+        await fetch(
+            `${BOTS_BASE_URL}/${botId}`,
+        );
+
+
+    if (response.status === 404) {
+
+        throw new Error(
+            `Nie znaleziono bota ${botId}.`,
+        );
+    }
+
+
+    if (!response.ok) {
+
+        throw new Error(
+            await getApiErrorMessage(
+                response,
+                `Nie udało się pobrać bota ${botId}. Status HTTP: ${response.status}.`,
+            ),
+        );
+    }
+
+
+    return response.json() as Promise<BotDetails>;
 }
 
 
@@ -113,6 +147,72 @@ export async function createBot(
 }
 
 
+export async function updateBot(
+    botId: number,
+    request: CreateBotRequest,
+): Promise<void> {
+
+    const response =
+        await fetch(
+            `${BOTS_BASE_URL}/${botId}`,
+            {
+                method: "PATCH",
+
+                headers: {
+                    "Content-Type":
+                        "application/json",
+                },
+
+                body:
+                    JSON.stringify(
+                        request,
+                    ),
+            },
+        );
+
+
+    if (response.status === 400) {
+
+        throw new Error(
+            await getApiErrorMessage(
+                response,
+                "Backend odrzucił zmienioną konfigurację bota. Sprawdź wprowadzone dane.",
+            ),
+        );
+    }
+
+
+    if (response.status === 404) {
+
+        throw new Error(
+            `Nie znaleziono bota ${botId}.`,
+        );
+    }
+
+
+    if (response.status === 409) {
+
+        throw new Error(
+            await getApiErrorMessage(
+                response,
+                "Nie można edytować tego bota w jego obecnym stanie.",
+            ),
+        );
+    }
+
+
+    if (!response.ok) {
+
+        throw new Error(
+            await getApiErrorMessage(
+                response,
+                `Nie udało się zapisać zmian bota. Status HTTP: ${response.status}.`,
+            ),
+        );
+    }
+}
+
+
 export async function startBot(
     botId: number,
 ): Promise<void> {
@@ -170,4 +270,40 @@ export async function stopBot(
             `Nie udało się zatrzymać bota. Status HTTP: ${response.status}.`,
         );
     }
+}
+
+
+async function getApiErrorMessage(
+    response: Response,
+    fallbackMessage: string,
+): Promise<string> {
+
+    try {
+
+        const body =
+            await response.json() as {
+                message?: unknown;
+            };
+
+
+        if (
+            typeof body.message
+            === "string"
+            && body.message.trim().length
+            > 0
+        ) {
+
+            return body.message;
+        }
+
+    } catch {
+
+        /*
+         * Odpowiedź nie musi mieć JSON-a.
+         * W takim przypadku używamy komunikatu zapasowego.
+         */
+    }
+
+
+    return fallbackMessage;
 }

@@ -31,14 +31,12 @@ function BotsPage() {
         setBots,
     ] = useState<BotListItem[]>([]);
 
-
     const [
         quotaByBotId,
         setQuotaByBotId,
     ] = useState<Record<number, BotOfferQuota>>(
         {},
     );
-
 
     const [
         isLoading,
@@ -47,14 +45,12 @@ function BotsPage() {
         true,
     );
 
-
     const [
         actionBotId,
         setActionBotId,
     ] = useState<number | null>(
         null,
     );
-
 
     const [
         errorMessage,
@@ -72,7 +68,6 @@ function BotsPage() {
                     true,
                 );
 
-
                 setErrorMessage(
                     null,
                 );
@@ -80,9 +75,6 @@ function BotsPage() {
 
                 try {
 
-                    /*
-                     * Najpierw pobieramy wszystkie boty.
-                     */
                     const loadedBots =
                         await getBots();
 
@@ -92,19 +84,6 @@ function BotsPage() {
                     );
 
 
-                    /*
-                     * Następnie równolegle pobieramy quota
-                     * dla każdego bota.
-                     *
-                     * Przykład:
-                     *
-                     * bot 1 -> GET /offer-quota
-                     * bot 2 -> GET /offer-quota
-                     * bot 3 -> GET /offer-quota
-                     *
-                     * Wszystkie requesty wykonują się
-                     * jednocześnie.
-                     */
                     const quotaResults =
                         await Promise.all(
                             loadedBots.map(
@@ -129,11 +108,6 @@ function BotsPage() {
 
                                     } catch (error) {
 
-                                        /*
-                                         * Jeżeli quota jednego bota
-                                         * się nie pobierze, nadal
-                                         * pokazujemy pozostałe boty.
-                                         */
                                         console.error(
                                             `Nie udało się pobrać quota dla bota ${bot.id}.`,
                                             error,
@@ -224,7 +198,6 @@ function BotsPage() {
             botId,
         );
 
-
         setErrorMessage(
             null,
         );
@@ -237,10 +210,6 @@ function BotsPage() {
             );
 
 
-            /*
-             * Odświeżamy zarówno status bota,
-             * jak i jego quota.
-             */
             await loadBots();
 
         } catch (error) {
@@ -276,7 +245,6 @@ function BotsPage() {
         setActionBotId(
             botId,
         );
-
 
         setErrorMessage(
             null,
@@ -330,8 +298,8 @@ function BotsPage() {
 
 
                     <p className="page-description">
-                        Zarządzaj botami, ich aktualnym stanem
-                        oraz dziennym limitem ofert.
+                        Zarządzaj botami, ich aktualnym stanem,
+                        konfiguracją oraz dziennym limitem ofert.
                     </p>
 
                 </div>
@@ -617,26 +585,37 @@ function BotsPage() {
                                                                                     </button>
                                                                                 )
                                                                                 : (
-                                                                                    <button
-                                                                                        className="bot-start-button"
-                                                                                        type="button"
-                                                                                        disabled={
-                                                                                            isActionInProgress
-                                                                                        }
-                                                                                        onClick={
-                                                                                            () => {
-                                                                                                void handleStartBot(
-                                                                                                    bot.id,
-                                                                                                );
+                                                                                    <>
+                                                                                        <button
+                                                                                            className="bot-start-button"
+                                                                                            type="button"
+                                                                                            disabled={
+                                                                                                isActionInProgress
                                                                                             }
-                                                                                        }
-                                                                                    >
-                                                                                        {
-                                                                                            isActionInProgress
-                                                                                                ? "Uruchamianie..."
-                                                                                                : "Uruchom"
-                                                                                        }
-                                                                                    </button>
+                                                                                            onClick={
+                                                                                                () => {
+                                                                                                    void handleStartBot(
+                                                                                                        bot.id,
+                                                                                                    );
+                                                                                                }
+                                                                                            }
+                                                                                        >
+                                                                                            {
+                                                                                                isActionInProgress
+                                                                                                    ? "Uruchamianie..."
+                                                                                                    : "Uruchom"
+                                                                                            }
+                                                                                        </button>
+
+                                                                                        <Link
+                                                                                            className="secondary-button"
+                                                                                            to={
+                                                                                                `/bots/${bot.id}/edit`
+                                                                                            }
+                                                                                        >
+                                                                                            Edytuj
+                                                                                        </Link>
+                                                                                    </>
                                                                                 )
                                                                         }
 

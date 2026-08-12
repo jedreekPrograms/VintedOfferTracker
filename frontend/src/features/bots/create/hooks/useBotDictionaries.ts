@@ -24,6 +24,8 @@ interface UseBotDictionariesResult {
     isLoadingDictionaries: boolean;
     areModelsLoading: boolean;
 
+    modelsBrandId: string | null;
+
     dictionaryErrorMessage: string | null;
 
     reloadDictionaries: () => Promise<void>;
@@ -59,6 +61,13 @@ export function useBotDictionaries(
         areModelsLoading,
         setAreModelsLoading,
     ] = useState(false);
+
+    const [
+        modelsBrandId,
+        setModelsBrandId,
+    ] = useState<string | null>(
+        null,
+    );
 
     const [
         dictionaryErrorMessage,
@@ -116,6 +125,10 @@ export function useBotDictionaries(
                 ) {
                     setModels([]);
 
+                    setModelsBrandId(
+                        null,
+                    );
+
                     return;
                 }
 
@@ -130,6 +143,10 @@ export function useBotDictionaries(
                 ) {
                     setModels([]);
 
+                    setModelsBrandId(
+                        selectedBrandId,
+                    );
+
                     setDictionaryErrorMessage(
                         "Identyfikator marki jest nieprawidłowy.",
                     );
@@ -139,6 +156,10 @@ export function useBotDictionaries(
 
                 setAreModelsLoading(
                     true,
+                );
+
+                setModelsBrandId(
+                    null,
                 );
 
                 setDictionaryErrorMessage(
@@ -154,8 +175,16 @@ export function useBotDictionaries(
                     setModels(
                         loadedModels,
                     );
+
+                    setModelsBrandId(
+                        selectedBrandId,
+                    );
                 } catch (error) {
                     setModels([]);
+
+                    setModelsBrandId(
+                        selectedBrandId,
+                    );
 
                     setDictionaryErrorMessage(
                         getErrorMessage(
@@ -199,6 +228,8 @@ export function useBotDictionaries(
 
         isLoadingDictionaries,
         areModelsLoading,
+
+        modelsBrandId,
 
         dictionaryErrorMessage,
 
