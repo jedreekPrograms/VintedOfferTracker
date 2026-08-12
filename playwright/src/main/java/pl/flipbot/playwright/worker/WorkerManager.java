@@ -34,12 +34,6 @@ public class WorkerManager implements AutoCloseable {
             new BotApiClient();
 
 
-    /*
-     * Ten executor robi WYŁĄCZNIE synchronizację:
-     * backend RUNNING bots <-> lokalne workery.
-     *
-     * Nie uruchamiamy na nim Playwrighta.
-     */
     private final ScheduledExecutorService syncExecutor =
             Executors.newSingleThreadScheduledExecutor(
                     namedThreadFactory(
@@ -48,13 +42,6 @@ public class WorkerManager implements AutoCloseable {
             );
 
 
-    /*
-     * Każdy task w tym poolu tworzy własny:
-     * Playwright -> Browser -> BrowserContext -> BotWorker.
-     *
-     * Dzięki temu obiekty Playwright danego bota nigdy
-     * nie są współdzielone między wątkami.
-     */
     private final ExecutorService workerExecutor =
             Executors.newFixedThreadPool(
                     MAX_CONCURRENT_BOTS,
@@ -64,7 +51,7 @@ public class WorkerManager implements AutoCloseable {
             );
 
 
-    private final Map<Long, Future<?>> workers =
+    private final Map<Long, WorkerHandle> workers =
             new ConcurrentHashMap<>();
 
 
@@ -131,11 +118,11 @@ public class WorkerManager implements AutoCloseable {
                             );
 
 
-            stopInactiveWorkers(
+            requestStopForInactiveWorkers(
                     runningBotIds
             );
 
-            removeFinishedWorkers();
+            removeFullyFinishedWorkers();
 
             startMissingWorkers(
                     runningBotIds
@@ -176,13 +163,14 @@ public class WorkerManager implements AutoCloseable {
         workers.forEach(
                 (
                         botId,
-                        future
+                        handle
                 ) -> {
 
                     boolean cancellationRequested =
-                            future.cancel(
-                                    true
-                            );
+                            handle.future()
+                                    .cancel(
+                                            true
+                                    );
 
 
                     log.info(
@@ -285,10 +273,17 @@ public class WorkerManager implements AutoCloseable {
                         );
 
 
-                Future<?> previous =
+                WorkerHandle handle =
+                        new WorkerHandle(
+                                runtime,
+                                future
+                        );
+
+
+                WorkerHandle previous =
                         workers.putIfAbsent(
                                 botId,
-                                future
+                                handle
                         );
 
 
@@ -327,61 +322,80 @@ public class WorkerManager implements AutoCloseable {
     }
 
 
-    private void stopInactiveWorkers(
+    private void requestStopForInactiveWorkers(
             Set<Long> runningBotIds
     ) {
 
-        workers.entrySet()
-                .removeIf(
-                        entry -> {
+        workers.forEach(
+                (
+                        botId,
+                        handle
+                ) -> {
 
-                            Long botId =
-                                    entry.getKey();
+                    if (
+                            runningBotIds.contains(
+                                    botId
+                            )
+                    ) {
 
-
-                            if (
-                                    runningBotIds.contains(
-                                            botId
-                                    )
-                            ) {
-
-                                return false;
-                            }
+                        return;
+                    }
 
 
-                            boolean cancellationRequested =
-                                    entry.getValue()
-                                            .cancel(
-                                                    true
-                                            );
+                    Future<?> future =
+                            handle.future();
 
 
-                            log.info(
-                                    "Bot {} is no longer RUNNING. Worker cancellation requested: {}.",
-                                    botId,
-                                    cancellationRequested
+                    if (
+                            future.isCancelled()
+                                    || handle.runtime().isFinished()
+                    ) {
+
+                        return;
+                    }
+
+
+                    boolean cancellationRequested =
+                            future.cancel(
+                                    true
                             );
 
 
-                            return true;
-                        }
-                );
+                    log.info(
+                            "Bot {} is no longer RUNNING. Worker cancellation requested: {}. "
+                                    + "The handle will remain registered until the runtime really finishes.",
+                            botId,
+                            cancellationRequested
+                    );
+                }
+        );
     }
 
 
-    private void removeFinishedWorkers() {
+    private void removeFullyFinishedWorkers() {
 
         workers.entrySet()
                 .removeIf(
                         entry -> {
 
-                            Future<?> future =
+                            WorkerHandle handle =
                                     entry.getValue();
 
 
+                            boolean runtimeFinished =
+                                    handle.runtime()
+                                            .isFinished();
+
+                            boolean cancelledBeforeStart =
+                                    handle.future()
+                                            .isCancelled()
+                                            && !handle.runtime()
+                                            .isStarted();
+
+
                             if (
-                                    !future.isDone()
-                                            && !future.isCancelled()
+                                    !runtimeFinished
+                                            && !cancelledBeforeStart
                             ) {
 
                                 return false;
@@ -389,7 +403,8 @@ public class WorkerManager implements AutoCloseable {
 
 
                             log.info(
-                                    "Removing finished worker handle for bot {}. Backend state will decide whether it should be restarted.",
+                                    "Removing fully finished worker handle for bot {}. "
+                                            + "Backend state will decide whether it should be restarted.",
                                     entry.getKey()
                             );
 
@@ -460,5 +475,12 @@ public class WorkerManager implements AutoCloseable {
 
             return thread;
         };
+    }
+
+
+    private record WorkerHandle(
+            BotWorkerRuntime runtime,
+            Future<?> future
+    ) {
     }
 }
