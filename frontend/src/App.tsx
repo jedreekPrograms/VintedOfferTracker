@@ -13,6 +13,7 @@ import EditBotWithDeletePage from "./pages/EditBotWithDeletePage";
 import ActionRequiredPage from "./pages/ActionRequiredPage";
 import HistoryPage from "./pages/HistoryPage";
 import DictionariesPage from "./pages/DictionariesPage";
+import DictionaryManagementPage from "./pages/DictionaryManagementPage";
 
 
 function App() {
@@ -56,6 +57,11 @@ function App() {
                 <Route
                     path="/dictionaries"
                     element={<DictionariesPage />}
+                />
+
+                <Route
+                    path="/dictionaries/manage"
+                    element={<DictionaryManagementPage />}
                 />
 
             </Route>
