@@ -10,6 +10,7 @@ import type {
 const DICTIONARIES_BASE_URL =
     "/api/dictionaries";
 
+
 export async function getBrands(): Promise<DictionaryBrand[]> {
     const response = await fetch(
         `${DICTIONARIES_BASE_URL}/brands`,
@@ -23,6 +24,7 @@ export async function getBrands(): Promise<DictionaryBrand[]> {
 
     return response.json() as Promise<DictionaryBrand[]>;
 }
+
 
 export async function createBrand(
     request: CreateDictionaryBrandRequest,
@@ -38,26 +40,51 @@ export async function createBrand(
         },
     );
 
-    if (response.status === 409) {
-        throw new Error(
-            `Marka „${request.name}” już istnieje.`,
-        );
-    }
-
-    if (response.status === 400) {
-        throw new Error(
-            "Nazwa marki jest nieprawidłowa.",
-        );
-    }
-
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się dodać marki. Status HTTP: ${response.status}`,
-        );
-    }
-
-    return response.json() as Promise<DictionaryBrand>;
+    return readDictionaryResponse(
+        response,
+        `Nie udało się dodać marki.`,
+    );
 }
+
+
+export async function updateBrand(
+    brandId: number,
+    request: CreateDictionaryBrandRequest,
+): Promise<DictionaryBrand> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
+
+    return readDictionaryResponse(
+        response,
+        "Nie udało się zmienić marki.",
+    );
+}
+
+
+export async function deleteBrand(
+    brandId: number,
+): Promise<void> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}`,
+        {
+            method: "DELETE",
+        },
+    );
+
+    await ensureDictionaryMutationSucceeded(
+        response,
+        "Nie udało się usunąć marki.",
+    );
+}
+
 
 export async function getCategories(): Promise<DictionaryCategory[]> {
     const response = await fetch(
@@ -73,6 +100,7 @@ export async function getCategories(): Promise<DictionaryCategory[]> {
     return response.json() as Promise<DictionaryCategory[]>;
 }
 
+
 export async function createCategory(
     request: CreateDictionaryCategoryRequest,
 ): Promise<DictionaryCategory> {
@@ -87,26 +115,51 @@ export async function createCategory(
         },
     );
 
-    if (response.status === 409) {
-        throw new Error(
-            `Kategoria „${request.categoryPath.join(" > ")}” już istnieje.`,
-        );
-    }
-
-    if (response.status === 400) {
-        throw new Error(
-            "Ścieżka kategorii jest nieprawidłowa.",
-        );
-    }
-
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się dodać kategorii. Status HTTP: ${response.status}`,
-        );
-    }
-
-    return response.json() as Promise<DictionaryCategory>;
+    return readDictionaryResponse(
+        response,
+        "Nie udało się dodać kategorii.",
+    );
 }
+
+
+export async function updateCategory(
+    categoryId: number,
+    request: CreateDictionaryCategoryRequest,
+): Promise<DictionaryCategory> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/categories/${categoryId}`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
+
+    return readDictionaryResponse(
+        response,
+        "Nie udało się zmienić kategorii.",
+    );
+}
+
+
+export async function deleteCategory(
+    categoryId: number,
+): Promise<void> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/categories/${categoryId}`,
+        {
+            method: "DELETE",
+        },
+    );
+
+    await ensureDictionaryMutationSucceeded(
+        response,
+        "Nie udało się usunąć kategorii.",
+    );
+}
+
 
 export async function getModelsByBrand(
     brandId: number,
@@ -115,20 +168,18 @@ export async function getModelsByBrand(
         `${DICTIONARIES_BASE_URL}/brands/${brandId}/models`,
     );
 
-    if (response.status === 404) {
-        throw new Error(
-            "Wybrana marka nie istnieje.",
-        );
-    }
-
     if (!response.ok) {
         throw new Error(
-            `Nie udało się pobrać modeli. Status HTTP: ${response.status}`,
+            await getApiErrorMessage(
+                response,
+                `Nie udało się pobrać modeli. Status HTTP: ${response.status}`,
+            ),
         );
     }
 
     return response.json() as Promise<DictionaryModel[]>;
 }
+
 
 export async function createModel(
     brandId: number,
@@ -145,29 +196,104 @@ export async function createModel(
         },
     );
 
-    if (response.status === 404) {
-        throw new Error(
-            "Wybrana marka nie istnieje.",
-        );
-    }
+    return readDictionaryResponse(
+        response,
+        "Nie udało się dodać modelu.",
+    );
+}
 
-    if (response.status === 409) {
-        throw new Error(
-            `Model „${request.name}” już istnieje dla wybranej marki.`,
-        );
-    }
 
-    if (response.status === 400) {
-        throw new Error(
-            "Nazwa modelu jest nieprawidłowa.",
-        );
-    }
+export async function updateModel(
+    brandId: number,
+    modelId: number,
+    request: CreateDictionaryModelRequest,
+): Promise<DictionaryModel> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}/models/${modelId}`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
 
+    return readDictionaryResponse(
+        response,
+        "Nie udało się zmienić modelu.",
+    );
+}
+
+
+export async function deleteModel(
+    brandId: number,
+    modelId: number,
+): Promise<void> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}/models/${modelId}`,
+        {
+            method: "DELETE",
+        },
+    );
+
+    await ensureDictionaryMutationSucceeded(
+        response,
+        "Nie udało się usunąć modelu.",
+    );
+}
+
+
+async function readDictionaryResponse<T>(
+    response: Response,
+    fallbackMessage: string,
+): Promise<T> {
     if (!response.ok) {
         throw new Error(
-            `Nie udało się dodać modelu. Status HTTP: ${response.status}`,
+            await getApiErrorMessage(
+                response,
+                fallbackMessage,
+            ),
         );
     }
 
-    return response.json() as Promise<DictionaryModel>;
+    return response.json() as Promise<T>;
+}
+
+
+async function ensureDictionaryMutationSucceeded(
+    response: Response,
+    fallbackMessage: string,
+): Promise<void> {
+    if (!response.ok) {
+        throw new Error(
+            await getApiErrorMessage(
+                response,
+                fallbackMessage,
+            ),
+        );
+    }
+}
+
+
+async function getApiErrorMessage(
+    response: Response,
+    fallbackMessage: string,
+): Promise<string> {
+    try {
+        const body = await response.json() as {
+            message?: unknown;
+        };
+
+        if (
+            typeof body.message === "string"
+            && body.message.trim().length > 0
+        ) {
+            return body.message;
+        }
+    } catch {
+        // Odpowiedź nie musi zawierać JSON-a.
+    }
+
+    return fallbackMessage;
 }
