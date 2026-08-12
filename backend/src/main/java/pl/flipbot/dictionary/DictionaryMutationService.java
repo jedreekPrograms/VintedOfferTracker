@@ -32,11 +32,13 @@ public class DictionaryMutationService {
     private final BotConfigurationRepository configurationRepository;
     private final ListingRepository listingRepository;
 
+
     @Transactional
     public DictionaryBrandResponse updateBrand(
             Long brandId,
             CreateDictionaryBrandRequest request
     ) {
+
         DictionaryBrand brand = brandRepository.findById(brandId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Brand was not found: " + brandId
@@ -64,11 +66,18 @@ public class DictionaryMutationService {
         brand.setName(newName);
         affected.forEach(configuration -> configuration.setBrand(newName));
 
-        return new DictionaryBrandResponse(brand.getId(), brand.getName());
+        return new DictionaryBrandResponse(
+                brand.getId(),
+                brand.getName()
+        );
     }
 
+
     @Transactional
-    public void deleteBrand(Long brandId) {
+    public void deleteBrand(
+            Long brandId
+    ) {
+
         DictionaryBrand brand = brandRepository.findById(brandId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Brand was not found: " + brandId
@@ -81,7 +90,10 @@ public class DictionaryMutationService {
         }
 
         boolean usedByBot = configurationRepository.findAll().stream()
-                .anyMatch(configuration -> sameText(configuration.getBrand(), brand.getName()));
+                .anyMatch(configuration -> sameText(
+                        configuration.getBrand(),
+                        brand.getName()
+                ));
 
         if (usedByBot) {
             throw new IllegalStateException(
@@ -92,12 +104,14 @@ public class DictionaryMutationService {
         brandRepository.delete(brand);
     }
 
+
     @Transactional
     public DictionaryModelResponse updateModel(
             Long brandId,
             Long modelId,
             CreateDictionaryModelRequest request
     ) {
+
         DictionaryBrand brand = brandRepository.findById(brandId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Brand was not found: " + brandId
@@ -108,11 +122,10 @@ public class DictionaryMutationService {
                         "Model was not found: " + modelId
                 ));
 
-        if (!model.getBrand().getId().equals(brandId)) {
-            throw new DictionaryEntryNotFoundException(
-                    "Model " + modelId + " does not belong to brand " + brandId
-            );
-        }
+        ensureModelBelongsToBrand(
+                model,
+                brandId
+        );
 
         String oldName = model.getName();
         String newName = normalizeName(request.getName(), "Model");
@@ -125,14 +138,23 @@ public class DictionaryMutationService {
 
         if (duplicate) {
             throw new DictionaryEntryAlreadyExistsException(
-                    "Model already exists for brand " + brand.getName() + ": " + newName
+                    "Model already exists for brand "
+                            + brand.getName()
+                            + ": "
+                            + newName
             );
         }
 
         List<BotConfiguration> affected = configurationRepository.findAll().stream()
-                .filter(configuration -> configuration.getTargetMode() == TargetMode.VINTED_MODEL)
-                .filter(configuration -> sameText(configuration.getBrand(), brand.getName()))
-                .filter(configuration -> sameText(configuration.getModel(), oldName))
+                .filter(this::usesVintedModel)
+                .filter(configuration -> sameText(
+                        configuration.getBrand(),
+                        brand.getName()
+                ))
+                .filter(configuration -> sameText(
+                        configuration.getModel(),
+                        oldName
+                ))
                 .toList();
 
         ensureConfigurationsCanBeChanged(affected);
@@ -148,23 +170,32 @@ public class DictionaryMutationService {
         );
     }
 
+
     @Transactional
-    public void deleteModel(Long brandId, Long modelId) {
+    public void deleteModel(
+            Long brandId,
+            Long modelId
+    ) {
+
         DictionaryModel model = modelRepository.findById(modelId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Model was not found: " + modelId
                 ));
 
-        if (!model.getBrand().getId().equals(brandId)) {
-            throw new DictionaryEntryNotFoundException(
-                    "Model " + modelId + " does not belong to brand " + brandId
-            );
-        }
+        ensureModelBelongsToBrand(
+                model,
+                brandId
+        );
 
         boolean usedByBot = configurationRepository.findAll().stream()
-                .filter(configuration -> configuration.getTargetMode() == TargetMode.VINTED_MODEL)
-                .anyMatch(configuration -> sameText(configuration.getBrand(), model.getBrand().getName())
-                        && sameText(configuration.getModel(), model.getName()));
+                .filter(this::usesVintedModel)
+                .anyMatch(configuration -> sameText(
+                        configuration.getBrand(),
+                        model.getBrand().getName()
+                ) && sameText(
+                        configuration.getModel(),
+                        model.getName()
+                ));
 
         if (usedByBot) {
             throw new IllegalStateException(
@@ -175,11 +206,13 @@ public class DictionaryMutationService {
         modelRepository.delete(model);
     }
 
+
     @Transactional
     public DictionaryCategoryResponse updateCategory(
             Long categoryId,
             CreateDictionaryCategoryRequest request
     ) {
+
         DictionaryCategory category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Category was not found: " + categoryId
@@ -200,14 +233,22 @@ public class DictionaryMutationService {
         }
 
         List<BotConfiguration> affected = configurationRepository.findAll().stream()
-                .filter(configuration -> samePath(configuration.getCategoryPath(), oldPath))
+                .filter(configuration -> samePath(
+                        configuration.getCategoryPath(),
+                        oldPath
+                ))
                 .toList();
 
         ensureConfigurationsCanBeChanged(affected);
 
         category.setPath(newStoredPath);
         category.setName(newPath.get(newPath.size() - 1));
-        affected.forEach(configuration -> configuration.setCategoryPath(new ArrayList<>(newPath)));
+
+        affected.forEach(configuration ->
+                configuration.setCategoryPath(
+                        new ArrayList<>(newPath)
+                )
+        );
 
         return new DictionaryCategoryResponse(
                 category.getId(),
@@ -217,8 +258,12 @@ public class DictionaryMutationService {
         );
     }
 
+
     @Transactional
-    public void deleteCategory(Long categoryId) {
+    public void deleteCategory(
+            Long categoryId
+    ) {
+
         DictionaryCategory category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Category was not found: " + categoryId
@@ -227,7 +272,10 @@ public class DictionaryMutationService {
         List<String> categoryPath = splitPath(category.getPath());
 
         boolean usedByBot = configurationRepository.findAll().stream()
-                .anyMatch(configuration -> samePath(configuration.getCategoryPath(), categoryPath));
+                .anyMatch(configuration -> samePath(
+                        configuration.getCategoryPath(),
+                        categoryPath
+                ));
 
         if (usedByBot) {
             throw new IllegalStateException(
@@ -238,8 +286,13 @@ public class DictionaryMutationService {
         categoryRepository.delete(category);
     }
 
-    private void ensureConfigurationsCanBeChanged(List<BotConfiguration> configurations) {
+
+    private void ensureConfigurationsCanBeChanged(
+            List<BotConfiguration> configurations
+    ) {
+
         for (BotConfiguration configuration : configurations) {
+
             if (configuration.getBot().getStatus() != BotStatus.STOPPED) {
                 throw new IllegalStateException(
                         "Dictionary entry cannot be edited while it is used by a running bot."
@@ -249,11 +302,17 @@ public class DictionaryMutationService {
             Long botId = configuration.getBot().getId();
 
             boolean hasNegotiating = !listingRepository
-                    .findByBotIdAndStatusOrderByIdAsc(botId, ListingStatus.NEGOTIATING)
+                    .findByBotIdAndStatusOrderByIdAsc(
+                            botId,
+                            ListingStatus.NEGOTIATING
+                    )
                     .isEmpty();
 
             boolean hasActionRequired = !listingRepository
-                    .findByBotIdAndStatusOrderByIdAsc(botId, ListingStatus.ACTION_REQUIRED)
+                    .findByBotIdAndStatusOrderByIdAsc(
+                            botId,
+                            ListingStatus.ACTION_REQUIRED
+                    )
                     .isEmpty();
 
             if (hasNegotiating || hasActionRequired) {
@@ -264,56 +323,126 @@ public class DictionaryMutationService {
         }
     }
 
-    private String normalizeName(String value, String label) {
+
+    private void ensureModelBelongsToBrand(
+            DictionaryModel model,
+            Long brandId
+    ) {
+
+        if (!model.getBrand().getId().equals(brandId)) {
+            throw new DictionaryEntryNotFoundException(
+                    "Model "
+                            + model.getId()
+                            + " does not belong to brand "
+                            + brandId
+            );
+        }
+    }
+
+
+    private boolean usesVintedModel(
+            BotConfiguration configuration
+    ) {
+
+        return configuration.getTargetMode() == null
+                || configuration.getTargetMode() == TargetMode.VINTED_MODEL;
+    }
+
+
+    private String normalizeName(
+            String value,
+            String label
+    ) {
+
         if (value == null) {
-            throw new IllegalArgumentException(label + " name cannot be null");
+            throw new IllegalArgumentException(
+                    label + " name cannot be null"
+            );
         }
 
-        String normalized = value.trim().replaceAll("\\s+", " ");
+        String normalized = value
+                .trim()
+                .replaceAll("\\s+", " ");
 
         if (normalized.isBlank()) {
-            throw new IllegalArgumentException(label + " name cannot be blank");
+            throw new IllegalArgumentException(
+                    label + " name cannot be blank"
+            );
         }
 
         return normalized;
     }
 
-    private List<String> normalizeCategoryPath(List<String> categoryPath) {
+
+    private List<String> normalizeCategoryPath(
+            List<String> categoryPath
+    ) {
+
         if (categoryPath == null || categoryPath.isEmpty()) {
-            throw new IllegalArgumentException("Category path cannot be empty");
+            throw new IllegalArgumentException(
+                    "Category path cannot be empty"
+            );
         }
 
         return categoryPath.stream()
-                .map(element -> normalizeName(element, "Category path element"))
+                .map(element -> normalizeName(
+                        element,
+                        "Category path element"
+                ))
                 .peek(element -> {
                     if (element.contains(">")) {
                         throw new IllegalArgumentException(
-                                "Category path element cannot contain the '>' character: " + element
+                                "Category path element cannot contain the '>' character: "
+                                        + element
                         );
                     }
                 })
                 .toList();
     }
 
-    private List<String> splitPath(String path) {
-        return Arrays.stream(path.split("\\s*>\\s*"))
+
+    private List<String> splitPath(
+            String path
+    ) {
+
+        return Arrays.stream(
+                        path.split("\\s*>\\s*")
+                )
                 .map(String::trim)
                 .filter(element -> !element.isBlank())
                 .toList();
     }
 
-    private boolean sameText(String left, String right) {
-        return left != null && right != null
-                && left.trim().equalsIgnoreCase(right.trim());
+
+    private boolean sameText(
+            String left,
+            String right
+    ) {
+
+        return left != null
+                && right != null
+                && left.trim().equalsIgnoreCase(
+                        right.trim()
+                );
     }
 
-    private boolean samePath(List<String> left, List<String> right) {
-        if (left == null || right == null || left.size() != right.size()) {
+
+    private boolean samePath(
+            List<String> left,
+            List<String> right
+    ) {
+
+        if (left == null
+                || right == null
+                || left.size() != right.size()) {
             return false;
         }
 
         for (int index = 0; index < left.size(); index++) {
-            if (!sameText(left.get(index), right.get(index))) {
+            if (!sameText(
+                    left.get(index),
+                    right.get(index)
+            )) {
                 return false;
             }
         }
