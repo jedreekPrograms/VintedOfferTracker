@@ -10,6 +10,7 @@ import type {
 const DICTIONARIES_BASE_URL =
     "/api/dictionaries";
 
+
 export async function getBrands(): Promise<DictionaryBrand[]> {
     const response = await fetch(
         `${DICTIONARIES_BASE_URL}/brands`,
@@ -23,6 +24,7 @@ export async function getBrands(): Promise<DictionaryBrand[]> {
 
     return response.json() as Promise<DictionaryBrand[]>;
 }
+
 
 export async function createBrand(
     request: CreateDictionaryBrandRequest,
@@ -59,6 +61,48 @@ export async function createBrand(
     return response.json() as Promise<DictionaryBrand>;
 }
 
+
+export async function updateBrand(
+    brandId: number,
+    request: CreateDictionaryBrandRequest,
+): Promise<DictionaryBrand> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się zmienić marki.",
+    );
+
+    return response.json() as Promise<DictionaryBrand>;
+}
+
+
+export async function deleteBrand(
+    brandId: number,
+): Promise<void> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}`,
+        {
+            method: "DELETE",
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się usunąć marki.",
+    );
+}
+
+
 export async function getCategories(): Promise<DictionaryCategory[]> {
     const response = await fetch(
         `${DICTIONARIES_BASE_URL}/categories`,
@@ -72,6 +116,7 @@ export async function getCategories(): Promise<DictionaryCategory[]> {
 
     return response.json() as Promise<DictionaryCategory[]>;
 }
+
 
 export async function createCategory(
     request: CreateDictionaryCategoryRequest,
@@ -108,6 +153,48 @@ export async function createCategory(
     return response.json() as Promise<DictionaryCategory>;
 }
 
+
+export async function updateCategory(
+    categoryId: number,
+    request: CreateDictionaryCategoryRequest,
+): Promise<DictionaryCategory> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/categories/${categoryId}`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się zmienić kategorii.",
+    );
+
+    return response.json() as Promise<DictionaryCategory>;
+}
+
+
+export async function deleteCategory(
+    categoryId: number,
+): Promise<void> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/categories/${categoryId}`,
+        {
+            method: "DELETE",
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się usunąć kategorii.",
+    );
+}
+
+
 export async function getModelsByBrand(
     brandId: number,
 ): Promise<DictionaryModel[]> {
@@ -129,6 +216,7 @@ export async function getModelsByBrand(
 
     return response.json() as Promise<DictionaryModel[]>;
 }
+
 
 export async function createModel(
     brandId: number,
@@ -170,4 +258,83 @@ export async function createModel(
     }
 
     return response.json() as Promise<DictionaryModel>;
+}
+
+
+export async function updateModel(
+    brandId: number,
+    modelId: number,
+    request: CreateDictionaryModelRequest,
+): Promise<DictionaryModel> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}/models/${modelId}`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się zmienić modelu.",
+    );
+
+    return response.json() as Promise<DictionaryModel>;
+}
+
+
+export async function deleteModel(
+    brandId: number,
+    modelId: number,
+): Promise<void> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}/models/${modelId}`,
+        {
+            method: "DELETE",
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się usunąć modelu.",
+    );
+}
+
+
+async function assertMutationResponse(
+    response: Response,
+    fallbackMessage: string,
+): Promise<void> {
+    if (response.ok) {
+        return;
+    }
+
+    let backendMessage: string | null =
+        null;
+
+    try {
+        const body = await response.json() as {
+            message?: unknown;
+        };
+
+        if (
+            typeof body.message === "string"
+            && body.message.trim().length > 0
+        ) {
+            backendMessage = body.message;
+        }
+    } catch {
+        backendMessage = null;
+    }
+
+    if (backendMessage !== null) {
+        throw new Error(backendMessage);
+    }
+
+    throw new Error(
+        `${fallbackMessage} Status HTTP: ${response.status}.`,
+    );
 }
