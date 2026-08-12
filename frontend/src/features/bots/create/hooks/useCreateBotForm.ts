@@ -317,6 +317,37 @@ export function useCreateBotForm() {
         );
     }
 
+    function replaceForm(
+        values: CreateBotFormValues,
+    ) {
+
+        setForm(
+            values,
+        );
+
+
+        const highestStepId =
+            values.negotiationSteps
+                .reduce(
+                    (
+                        highestId,
+                        step,
+                    ) =>
+                        Math.max(
+                            highestId,
+                            step.id,
+                        ),
+                    0,
+                );
+
+
+        nextNegotiationStepId.current =
+            Math.max(
+                highestStepId + 1,
+                1,
+            );
+    }
+
     function resetForm() {
         setForm(
             createInitialForm(),
@@ -351,6 +382,7 @@ export function useCreateBotForm() {
         removeNegotiationStep,
         updateNegotiationStep,
 
+        replaceForm,
         resetForm,
     };
 }

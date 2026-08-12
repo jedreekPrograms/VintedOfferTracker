@@ -2,6 +2,8 @@ interface VintedAccountSectionProps {
     email: string;
     password: string;
 
+    passwordOptional?: boolean;
+
     onEmailChange: (value: string) => void;
     onPasswordChange: (value: string) => void;
 }
@@ -9,6 +11,8 @@ interface VintedAccountSectionProps {
 function VintedAccountSection({
     email,
     password,
+
+    passwordOptional = false,
 
     onEmailChange,
     onPasswordChange,
@@ -61,7 +65,11 @@ function VintedAccountSection({
                         className="form-label"
                         htmlFor="vinted-password"
                     >
-                        Hasło
+                        {
+                            passwordOptional
+                                ? "Hasło (opcjonalnie)"
+                                : "Hasło"
+                        }
                     </label>
 
                     <input
@@ -70,7 +78,11 @@ function VintedAccountSection({
                         type="password"
                         value={password}
                         autoComplete="current-password"
-                        placeholder="Hasło do konta Vinted"
+                        placeholder={
+                            passwordOptional
+                                ? "Pozostaw puste, aby zachować obecne hasło"
+                                : "Hasło do konta Vinted"
+                        }
                         onChange={(event) => {
                             onPasswordChange(
                                 event.target.value,
@@ -81,8 +93,22 @@ function VintedAccountSection({
             </div>
 
             <div className="information-box">
-                Konto zostanie przypisane wyłącznie
-                do tego konkretnego bota.
+                {
+                    passwordOptional
+                        ? (
+                            <>
+                                Pozostaw pole hasła puste,
+                                jeśli nie chcesz zmieniać
+                                danych logowania tego bota.
+                            </>
+                        )
+                        : (
+                            <>
+                                Konto zostanie przypisane wyłącznie
+                                do tego konkretnego bota.
+                            </>
+                        )
+                }
             </div>
         </article>
     );

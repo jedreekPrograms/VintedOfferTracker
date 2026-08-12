@@ -16,6 +16,8 @@ interface ValidateCreateBotFormArguments {
     selectedCategory: DictionaryCategory | null;
     selectedBrand: DictionaryBrand | null;
     selectedModel: DictionaryModel | null;
+
+    requirePassword?: boolean;
 }
 
 export function validateCreateBotForm({
@@ -23,6 +25,7 @@ export function validateCreateBotForm({
     selectedCategory,
     selectedBrand,
     selectedModel,
+    requirePassword = true,
 }: ValidateCreateBotFormArguments): CreateBotFormValidationResult {
     const normalizedBotName =
         normalizeText(
@@ -44,7 +47,10 @@ export function validateCreateBotForm({
         );
     }
 
-    if (form.password.length === 0) {
+    if (
+        requirePassword
+        && form.password.length === 0
+    ) {
         return invalid(
             "Wpisz hasło konta Vinted.",
         );

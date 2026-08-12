@@ -9,6 +9,7 @@ import AppLayout from "./layout/AppLayout";
 import DashboardPage from "./pages/DashboardPage";
 import BotsPage from "./pages/BotsPage";
 import CreateBotPage from "./pages/CreateBotPage";
+import EditBotPage from "./pages/EditBotPage";
 import ActionRequiredPage from "./pages/ActionRequiredPage";
 import HistoryPage from "./pages/HistoryPage";
 import DictionariesPage from "./pages/DictionariesPage";
@@ -35,6 +36,11 @@ function App() {
                 <Route
                     path="/bots/create"
                     element={<CreateBotPage />}
+                />
+
+                <Route
+                    path="/bots/:botId/edit"
+                    element={<EditBotPage />}
                 />
 
                 <Route
