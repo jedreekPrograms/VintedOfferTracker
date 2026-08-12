@@ -40,13 +40,43 @@ public class BrowserManager implements AutoCloseable {
         );
 
 
-        this.playwright =
+        Playwright createdPlaywright =
                 Playwright.create();
 
-        this.browser =
-                BrowserFactory.createBrowser(
-                        playwright
+
+        Browser createdBrowser;
+
+
+        try {
+
+            createdBrowser =
+                    BrowserFactory.createBrowser(
+                            createdPlaywright
+                    );
+
+        } catch (RuntimeException exception) {
+
+            try {
+
+                createdPlaywright.close();
+
+            } catch (Exception closeException) {
+
+                exception.addSuppressed(
+                        closeException
                 );
+            }
+
+
+            throw exception;
+        }
+
+
+        this.playwright =
+                createdPlaywright;
+
+        this.browser =
+                createdBrowser;
     }
 
 
