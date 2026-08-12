@@ -1,29 +1,58 @@
 package pl.flipbot.playwright;
 
 import lombok.extern.slf4j.Slf4j;
-import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.worker.WorkerManager;
 
 @Slf4j
 public class FlipBotPlaywrightApplication {
 
-    public static void main(String[] args) {
+    public static void main(
+            String[] args
+    ) {
 
-        log.info("Starting FlipBot Playwright...");
+        log.info(
+                "Starting FlipBot Playwright..."
+        );
 
-        try (BrowserManager browserManager = new BrowserManager()) {
 
-            WorkerManager workerManager =
-                    new WorkerManager(browserManager);
+        WorkerManager workerManager =
+                new WorkerManager();
+
+
+        Thread shutdownHook =
+                new Thread(
+                        workerManager::stop,
+                        "flipbot-shutdown"
+                );
+
+
+        Runtime.getRuntime()
+                .addShutdownHook(
+                        shutdownHook
+                );
+
+
+        try {
 
             workerManager.start();
 
-            Thread.currentThread().join();
-        } catch (InterruptedException e) {
 
-            Thread.currentThread().interrupt();
+            Thread.currentThread()
+                    .join();
+
+        } catch (InterruptedException exception) {
+
+            Thread.currentThread()
+                    .interrupt();
+
+
+            log.info(
+                    "FlipBot Playwright main thread was interrupted."
+            );
+
+        } finally {
+
+            workerManager.stop();
         }
-
     }
-
 }
