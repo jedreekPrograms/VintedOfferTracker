@@ -22,6 +22,7 @@ public class DictionaryController {
 
     private final DictionaryCategoryService dictionaryCategoryService;
 
+
     @GetMapping("/categories")
     public ResponseEntity<List<DictionaryCategoryResponse>>
     getAllCategories() {
@@ -29,8 +30,8 @@ public class DictionaryController {
         return ResponseEntity.ok(
                 dictionaryCategoryService.getAllCategories()
         );
-
     }
+
 
     @PostMapping("/categories")
     public ResponseEntity<DictionaryCategoryResponse>
@@ -40,20 +41,48 @@ public class DictionaryController {
             CreateDictionaryCategoryRequest request
     ) {
 
-        DictionaryCategoryResponse createdCategory =
-                dictionaryCategoryService.createCategory(
-                        request
-                );
-
         return ResponseEntity
-                .status(
-                        HttpStatus.CREATED
-                )
+                .status(HttpStatus.CREATED)
                 .body(
-                        createdCategory
+                        dictionaryCategoryService
+                                .createCategory(
+                                        request
+                                )
                 );
-
     }
+
+
+    @PatchMapping("/categories/{categoryId}")
+    public ResponseEntity<DictionaryCategoryResponse>
+    updateCategory(
+            @PathVariable Long categoryId,
+            @Valid
+            @RequestBody
+            CreateDictionaryCategoryRequest request
+    ) {
+
+        return ResponseEntity.ok(
+                dictionaryCategoryService
+                        .updateCategory(
+                                categoryId,
+                                request
+                        )
+        );
+    }
+
+
+    @DeleteMapping("/categories/{categoryId}")
+    public ResponseEntity<Void> deleteCategory(
+            @PathVariable Long categoryId
+    ) {
+
+        dictionaryCategoryService.deleteCategory(
+                categoryId
+        );
+
+        return ResponseEntity.noContent().build();
+    }
+
 
     @GetMapping("/brands")
     public ResponseEntity<List<DictionaryBrandResponse>>
@@ -62,8 +91,8 @@ public class DictionaryController {
         return ResponseEntity.ok(
                 dictionaryBrandService.getAllBrands()
         );
-
     }
+
 
     @PostMapping("/brands")
     public ResponseEntity<DictionaryBrandResponse>
@@ -73,20 +102,48 @@ public class DictionaryController {
             CreateDictionaryBrandRequest request
     ) {
 
-        DictionaryBrandResponse createBrand =
-                dictionaryBrandService.createBrand(
-                        request
-                );
-
         return ResponseEntity
-                .status(
-                        HttpStatus.CREATED
-                )
+                .status(HttpStatus.CREATED)
                 .body(
-                        createBrand
+                        dictionaryBrandService
+                                .createBrand(
+                                        request
+                                )
                 );
-
     }
+
+
+    @PatchMapping("/brands/{brandId}")
+    public ResponseEntity<DictionaryBrandResponse>
+    updateBrand(
+            @PathVariable Long brandId,
+            @Valid
+            @RequestBody
+            CreateDictionaryBrandRequest request
+    ) {
+
+        return ResponseEntity.ok(
+                dictionaryBrandService
+                        .updateBrand(
+                                brandId,
+                                request
+                        )
+        );
+    }
+
+
+    @DeleteMapping("/brands/{brandId}")
+    public ResponseEntity<Void> deleteBrand(
+            @PathVariable Long brandId
+    ) {
+
+        dictionaryBrandService.deleteBrand(
+                brandId
+        );
+
+        return ResponseEntity.noContent().build();
+    }
+
 
     @GetMapping("/brands/{brandId}/models")
     public ResponseEntity<List<DictionaryModelResponse>>
@@ -99,8 +156,8 @@ public class DictionaryController {
                         brandId
                 )
         );
-
     }
+
 
     @PostMapping("/brands/{brandId}/models")
     public ResponseEntity<DictionaryModelResponse>
@@ -111,20 +168,50 @@ public class DictionaryController {
             CreateDictionaryModelRequest request
     ) {
 
-        DictionaryModelResponse createModel =
-                dictionaryModelService.createModel(
-                        brandId,
-                        request
-                );
-
         return ResponseEntity
-                .status(
-                        HttpStatus.CREATED
-                )
+                .status(HttpStatus.CREATED)
                 .body(
-                        createModel
+                        dictionaryModelService
+                                .createModel(
+                                        brandId,
+                                        request
+                                )
                 );
-
     }
 
+
+    @PatchMapping("/brands/{brandId}/models/{modelId}")
+    public ResponseEntity<DictionaryModelResponse>
+    updateModel(
+            @PathVariable Long brandId,
+            @PathVariable Long modelId,
+            @Valid
+            @RequestBody
+            CreateDictionaryModelRequest request
+    ) {
+
+        return ResponseEntity.ok(
+                dictionaryModelService
+                        .updateModel(
+                                brandId,
+                                modelId,
+                                request
+                        )
+        );
+    }
+
+
+    @DeleteMapping("/brands/{brandId}/models/{modelId}")
+    public ResponseEntity<Void> deleteModel(
+            @PathVariable Long brandId,
+            @PathVariable Long modelId
+    ) {
+
+        dictionaryModelService.deleteModel(
+                brandId,
+                modelId
+        );
+
+        return ResponseEntity.noContent().build();
+    }
 }
