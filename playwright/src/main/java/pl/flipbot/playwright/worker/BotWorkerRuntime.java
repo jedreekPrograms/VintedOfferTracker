@@ -4,10 +4,18 @@ import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 @Slf4j
 public class BotWorkerRuntime implements Runnable {
 
     private final BotDetailsDto bot;
+
+    private final AtomicBoolean started =
+            new AtomicBoolean(false);
+
+    private final AtomicBoolean finished =
+            new AtomicBoolean(false);
 
 
     public BotWorkerRuntime(
@@ -31,8 +39,33 @@ public class BotWorkerRuntime implements Runnable {
     }
 
 
+    public boolean isStarted() {
+
+        return started.get();
+    }
+
+
+    public boolean isFinished() {
+
+        return finished.get();
+    }
+
+
     @Override
     public void run() {
+
+        if (
+                !started.compareAndSet(
+                        false,
+                        true
+                )
+        ) {
+
+            throw new IllegalStateException(
+                    "BotWorkerRuntime can only be executed once."
+            );
+        }
+
 
         Long botId =
                 bot.getId();
@@ -68,6 +101,11 @@ public class BotWorkerRuntime implements Runnable {
             );
 
         } finally {
+
+            finished.set(
+                    true
+            );
+
 
             log.info(
                     "[RUNTIME] Isolated Playwright runtime for bot {} finished on thread {}.",
