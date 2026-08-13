@@ -113,7 +113,7 @@ public class WorkerManager implements AutoCloseable {
                             .collect(
                                     Collectors.toMap(
                                             RunningBotDto::getId,
-                                            RunningBotDto::isHasActiveNegotiations,
+                                            RunningBotDto::hasActiveNegotiations,
                                             (left, right) -> left
                                     )
                             );
