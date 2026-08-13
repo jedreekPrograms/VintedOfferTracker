@@ -30,127 +30,52 @@ public class BotContext implements AutoCloseable {
             BrowserManager browserManager
     ) {
 
-        this.bot =
-                bot;
+        this.bot = bot;
+        this.sessionManager = new SessionManager();
 
+        Path sessionFile = null;
 
-        this.sessionManager =
-                new SessionManager();
-
-
-        Path sessionFile =
-                null;
-
-
-        if (
-                sessionManager.sessionExists(
-                        bot.getId()
-                )
-        ) {
-
-            sessionFile =
-                    sessionManager.sessionFile(
-                            bot.getId()
-                    );
+        if (sessionManager.sessionExists(bot.getId())) {
+            sessionFile = sessionManager.sessionFile(bot.getId());
         }
 
+        this.browserContext = browserManager.createContext(sessionFile);
+        this.page = resolveMainPage();
 
-        this.browserContext =
-                browserManager.createContext(
-                        sessionFile
-                );
-
-
-        /*
-         * Wybieramy główną stronę bota.
-         *
-         * Jeżeli w kontekście została jakaś
-         * strona Vinted, używamy jej.
-         *
-         * W przeciwnym razie tworzymy nową.
-         */
-        this.page =
-                resolveMainPage();
-
-
-        /*
-         * Zamykamy stare dodatkowe karty,
-         * które mogły zostać zapisane / otwarte
-         * wcześniej.
-         */
         closeExistingExtraPages();
-
-
-        /*
-         * Od tej chwili każda nowa karta
-         * lub popup zostanie automatycznie
-         * zamknięty.
-         */
         registerPopupGuard();
     }
 
 
     private Page resolveMainPage() {
 
-        List<Page> existingPages =
-                browserContext.pages();
+        List<Page> existingPages = browserContext.pages();
 
-
-        /*
-         * Najpierw szukamy istniejącej
-         * strony Vinted.
-         */
-        for (
-                Page existingPage
-                : existingPages
-        ) {
-
-            if (
-                    isVintedPage(
-                            existingPage
-                    )
-            ) {
-
+        for (Page existingPage : existingPages) {
+            if (isVintedPage(existingPage)) {
                 log.info(
                         "[BROWSER] Reusing existing Vinted page: {}",
                         existingPage.url()
                 );
 
-
                 return existingPage;
             }
         }
 
-
-        /*
-         * Jeżeli istnieje jakaś zwykła karta,
-         * możemy wykorzystać pierwszą.
-         *
-         * LoginService i tak później wykona
-         * navigate() na Vinted.
-         */
-        if (
-                !existingPages.isEmpty()
-        ) {
-
-            Page existingPage =
-                    existingPages.get(0);
-
+        if (!existingPages.isEmpty()) {
+            Page existingPage = existingPages.getFirst();
 
             log.info(
                     "[BROWSER] Reusing existing browser page: {}",
                     existingPage.url()
             );
 
-
             return existingPage;
         }
-
 
         log.info(
                 "[BROWSER] No existing page found. Creating new page."
         );
-
 
         return browserContext.newPage();
     }
@@ -158,29 +83,12 @@ public class BotContext implements AutoCloseable {
 
     private void closeExistingExtraPages() {
 
-        /*
-         * Robimy kopię listy, ponieważ podczas
-         * zamykania stron browserContext.pages()
-         * będzie się zmieniać.
-         */
-        List<Page> pages =
-                new ArrayList<>(
-                        browserContext.pages()
-                );
+        List<Page> pages = new ArrayList<>(browserContext.pages());
 
-
-        for (
-                Page existingPage
-                : pages
-        ) {
-
-            if (
-                    existingPage == page
-            ) {
-
+        for (Page existingPage : pages) {
+            if (existingPage == page) {
                 continue;
             }
-
 
             closeUnexpectedPage(
                     existingPage,
@@ -194,31 +102,72 @@ public class BotContext implements AutoCloseable {
 
         browserContext.onPage(
                 newPage -> {
-
-                    /*
-                     * Głównej strony nigdy
-                     * nie zamykamy.
-                     */
-                    if (
-                            newPage == page
-                    ) {
-
+                    if (newPage == page) {
                         return;
                     }
 
-
-                    closeUnexpectedPage(
-                            newPage,
-                            "new popup/page"
-                    );
+                    handleNewPageSafely(newPage);
                 }
         );
 
-
         log.info(
-                "[BROWSER] Popup guard enabled for bot {}.",
+                "[BROWSER] Popup guard enabled for bot {}. "
+                        + "Blank/transient and Vinted pages are preserved; "
+                        + "only clearly external pages are closed.",
                 bot.getId()
         );
+    }
+
+
+    private void handleNewPageSafely(Page newPage) {
+
+        try {
+            String url = normalizeUrl(newPage.url());
+
+            /*
+             * A freshly-created Playwright Page commonly starts with an empty
+             * URL or about:blank before navigation is committed. Closing it at
+             * this point can interrupt a legitimate Vinted interaction. This
+             * was observed during brand-filter confirmation, where an empty
+             * popup/page event correlated with brand persistence failures.
+             *
+             * Keep transient blank pages. They belong to this short-lived
+             * BrowserContext and will be cleaned up when the bot job closes.
+             */
+            if (isTransientBlankUrl(url)) {
+                log.debug(
+                        "[BROWSER] Preserving transient blank popup/page for bot {}.",
+                        bot.getId()
+                );
+                return;
+            }
+
+            if (isVintedUrl(url)) {
+                log.debug(
+                        "[BROWSER] Preserving additional Vinted page for bot {}. URL: {}",
+                        bot.getId(),
+                        url
+                );
+                return;
+            }
+
+            closeUnexpectedPage(
+                    newPage,
+                    "external popup/page"
+            );
+
+        } catch (Exception exception) {
+            /*
+             * Popup guarding is defensive only. It must never break the main
+             * bot flow because a newly-created page was not readable yet.
+             */
+            log.debug(
+                    "[BROWSER] Could not classify new popup/page for bot {}. "
+                            + "Leaving it open until the BrowserContext closes.",
+                    bot.getId(),
+                    exception
+            );
+        }
     }
 
 
@@ -228,10 +177,7 @@ public class BotContext implements AutoCloseable {
     ) {
 
         try {
-
-            String url =
-                    unexpectedPage.url();
-
+            String url = unexpectedPage.url();
 
             log.warn(
                     "[BROWSER] Closing unexpected browser page. "
@@ -241,11 +187,9 @@ public class BotContext implements AutoCloseable {
                     url
             );
 
-
             unexpectedPage.close();
 
         } catch (Exception exception) {
-
             log.warn(
                     "[BROWSER] Could not close unexpected page for bot {}.",
                     bot.getId(),
@@ -255,36 +199,38 @@ public class BotContext implements AutoCloseable {
     }
 
 
-    private boolean isVintedPage(
-            Page candidate
-    ) {
+    private boolean isVintedPage(Page candidate) {
 
         try {
-
-            String url =
-                    candidate.url();
-
-
-            if (
-                    url == null
-                            || url.isBlank()
-            ) {
-
-                return false;
-            }
-
-
-            return url.startsWith(
-                    "https://www.vinted.pl"
-            )
-                    || url.startsWith(
-                    "https://vinted.pl"
+            return isVintedUrl(
+                    normalizeUrl(candidate.url())
             );
 
         } catch (Exception exception) {
-
             return false;
         }
+    }
+
+
+    private boolean isVintedUrl(String url) {
+
+        return url.startsWith("https://www.vinted.pl")
+                || url.startsWith("https://vinted.pl");
+    }
+
+
+    private boolean isTransientBlankUrl(String url) {
+
+        return url.isBlank()
+                || "about:blank".equalsIgnoreCase(url);
+    }
+
+
+    private String normalizeUrl(String url) {
+
+        return url == null
+                ? ""
+                : url.trim();
     }
 
 
