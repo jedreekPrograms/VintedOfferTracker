@@ -103,7 +103,11 @@ public class FirstOfferActionGuardCoordinator {
                     friendlyMessage(exception)
             );
 
-            throw exception;
+            throw new IllegalStateException(
+                    "Could not release FIRST_OFFER action guard before real submit for listing "
+                            + listing.id(),
+                    exception
+            );
         }
     }
 
