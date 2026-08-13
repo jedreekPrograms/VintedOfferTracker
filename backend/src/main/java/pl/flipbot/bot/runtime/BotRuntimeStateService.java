@@ -38,12 +38,12 @@ public class BotRuntimeStateService {
         Instant now = Instant.now();
 
         switch (request.getEventType()) {
-            case QUEUED -> applyQueued(state, request, now);
+            case QUEUED -> applyQueued(state, request);
             case RUN_STARTED -> applyRunStarted(state, request, now);
             case RUN_SUCCEEDED -> applyRunSucceeded(state, request, now);
             case RUN_FAILED -> applyRunFailed(state, request, now);
             case RATE_LIMITED -> applyRateLimited(state, request, now);
-            case IDLE -> applyIdle(state, now);
+            case IDLE -> applyIdle(state);
         }
 
         state.setUpdatedAt(now);
@@ -71,13 +71,11 @@ public class BotRuntimeStateService {
 
     private void applyQueued(
             BotRuntimeState state,
-            BotRuntimeEventRequest request,
-            Instant now
+            BotRuntimeEventRequest request
     ) {
         state.setRuntimeStatus(BotRuntimeStatus.QUEUED);
         state.setNextRunAt(toInstant(request.getNextRunAtEpochMs()));
         state.setWorkerSlot(null);
-        state.setUpdatedAt(now);
     }
 
     private void applyRunStarted(
@@ -99,6 +97,7 @@ public class BotRuntimeStateService {
         state.setRuntimeStatus(BotRuntimeStatus.IDLE);
         state.setLastRunFinishedAt(now);
         state.setLastRunDurationMs(safeDuration(request.getDurationMs()));
+        state.setNextRunAt(null);
         state.setConsecutiveFailures(0);
         state.setLastError(null);
         state.setWorkerSlot(null);
@@ -112,6 +111,7 @@ public class BotRuntimeStateService {
         state.setRuntimeStatus(BotRuntimeStatus.ERROR);
         state.setLastRunFinishedAt(now);
         state.setLastRunDurationMs(safeDuration(request.getDurationMs()));
+        state.setNextRunAt(toInstant(request.getNextRunAtEpochMs()));
         state.setConsecutiveFailures(state.getConsecutiveFailures() + 1);
         state.setLastError(normalizeError(request.getErrorMessage()));
         state.setWorkerSlot(null);
@@ -130,14 +130,10 @@ public class BotRuntimeStateService {
         state.setWorkerSlot(null);
     }
 
-    private void applyIdle(
-            BotRuntimeState state,
-            Instant now
-    ) {
+    private void applyIdle(BotRuntimeState state) {
         state.setRuntimeStatus(BotRuntimeStatus.IDLE);
         state.setNextRunAt(null);
         state.setWorkerSlot(null);
-        state.setUpdatedAt(now);
     }
 
     private Long safeDuration(Long durationMs) {
