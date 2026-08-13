@@ -171,8 +171,14 @@ public class RealActionPreflight {
             return;
         }
 
+        long nullEntries = steps.stream().filter(step -> step == null).count();
+        if (nullEntries > 0) {
+            failures.add("negotiationSteps contain " + nullEntries + " null entrie(s)");
+        }
+
         List<NegotiationStepDto> sorted =
                 steps.stream()
+                        .filter(step -> step != null)
                         .sorted(Comparator.comparing(
                                 NegotiationStepDto::getStepNumber,
                                 Comparator.nullsLast(Integer::compareTo)
@@ -184,12 +190,6 @@ public class RealActionPreflight {
         for (int index = 0; index < sorted.size(); index++) {
             NegotiationStepDto step = sorted.get(index);
             int expectedStepNumber = index + 1;
-
-            if (step == null) {
-                failures.add("negotiationSteps contain a null entry");
-                continue;
-            }
-
             Integer stepNumber = step.getStepNumber();
 
             if (stepNumber == null || stepNumber != expectedStepNumber) {
@@ -215,7 +215,7 @@ public class RealActionPreflight {
 
         NegotiationStepDto firstStep =
                 sorted.stream()
-                        .filter(step -> step != null && Integer.valueOf(1).equals(step.getStepNumber()))
+                        .filter(step -> Integer.valueOf(1).equals(step.getStepNumber()))
                         .findFirst()
                         .orElse(null);
 
