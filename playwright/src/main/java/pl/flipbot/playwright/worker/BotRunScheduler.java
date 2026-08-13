@@ -17,39 +17,26 @@ public class BotRunScheduler {
         WORKING
     }
 
-    private final DelayQueue<ScheduledBotTask> queue =
-            new DelayQueue<>();
-
-    private final Set<Long> enabledBots =
-            new HashSet<>();
-
-    private final Map<Long, RunState> stateByBotId =
-            new HashMap<>();
-
+    private final DelayQueue<ScheduledBotTask> queue = new DelayQueue<>();
+    private final Set<Long> enabledBots = new HashSet<>();
+    private final Map<Long, RunState> stateByBotId = new HashMap<>();
     private final RuntimeTelemetryReporter telemetryReporter;
 
-    public BotRunScheduler(
-            RuntimeTelemetryReporter telemetryReporter
-    ) {
+    public BotRunScheduler(RuntimeTelemetryReporter telemetryReporter) {
         this.telemetryReporter = telemetryReporter;
     }
 
-    public synchronized void reconcileRunningBots(
-            Set<Long> runningBotIds
-    ) {
+    public synchronized void reconcileRunningBots(Set<Long> runningBotIds) {
         Set<Long> normalizedRunningBotIds =
                 runningBotIds.stream()
                         .filter(botId -> botId != null && botId > 0)
                         .collect(java.util.stream.Collectors.toSet());
 
-        Set<Long> botsToDisable =
-                new HashSet<>(enabledBots);
-
+        Set<Long> botsToDisable = new HashSet<>(enabledBots);
         botsToDisable.removeAll(normalizedRunningBotIds);
 
         for (Long botId : botsToDisable) {
             enabledBots.remove(botId);
-
             RunState currentState = stateByBotId.get(botId);
 
             if (currentState == RunState.QUEUED) {
@@ -76,10 +63,7 @@ public class BotRunScheduler {
             if (newlyEnabled && !stateByBotId.containsKey(botId)) {
                 queue.offer(ScheduledBotTask.now(botId));
                 stateByBotId.put(botId, RunState.QUEUED);
-                telemetryReporter.queued(
-                        botId,
-                        System.currentTimeMillis()
-                );
+                telemetryReporter.queued(botId, System.currentTimeMillis());
 
                 log.info(
                         "[SCHEDULER] Scheduled newly RUNNING bot {} immediately.",
@@ -89,8 +73,7 @@ public class BotRunScheduler {
         }
     }
 
-    public ScheduledBotTask takeNext()
-            throws InterruptedException {
+    public ScheduledBotTask takeNext() throws InterruptedException {
         while (true) {
             ScheduledBotTask task = queue.take();
 
@@ -114,7 +97,8 @@ public class BotRunScheduler {
 
     public synchronized void completeRun(
             Long botId,
-            long nextDelayMillis
+            long nextDelayMillis,
+            boolean reportQueued
     ) {
         if (!enabledBots.contains(botId)) {
             stateByBotId.remove(botId);
@@ -130,19 +114,20 @@ public class BotRunScheduler {
 
         long safeDelayMillis = Math.max(0L, nextDelayMillis);
 
-        ScheduledBotTask nextTask =
+        queue.offer(
                 ScheduledBotTask.afterDelay(
                         botId,
                         safeDelayMillis
-                );
-
-        queue.offer(nextTask);
+                )
+        );
         stateByBotId.put(botId, RunState.QUEUED);
 
-        telemetryReporter.queued(
-                botId,
-                System.currentTimeMillis() + safeDelayMillis
-        );
+        if (reportQueued) {
+            telemetryReporter.queued(
+                    botId,
+                    System.currentTimeMillis() + safeDelayMillis
+            );
+        }
 
         log.info(
                 "[SCHEDULER] Bot {} queued again in {} ms. Queue size: {}.",
