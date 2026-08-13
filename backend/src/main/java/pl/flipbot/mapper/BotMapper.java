@@ -40,6 +40,14 @@ public class BotMapper {
 
     }
 
+    public RunningBotResponse mapRunning(Bot bot) {
+
+        return mapRunning(
+                bot,
+                false
+        );
+    }
+
     public RunningBotResponse mapRunning(
             Bot bot,
             boolean hasActiveNegotiations
