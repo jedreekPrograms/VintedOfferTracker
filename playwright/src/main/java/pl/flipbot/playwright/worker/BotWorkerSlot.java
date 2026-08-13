@@ -35,12 +35,14 @@ public class BotWorkerSlot implements Runnable {
     @Override
     public void run() {
         log.info(
-                "[SLOT {}] Starting reusable worker slot on thread {}.",
+                "[SLOT {}] Starting reusable worker slot on thread {}. Browser will launch lazily on first claimed job.",
                 slotNumber,
                 Thread.currentThread().getName()
         );
 
-        try (BrowserManager browserManager = new BrowserManager()) {
+        BrowserManager browserManager = null;
+
+        try {
             while (!Thread.currentThread().isInterrupted()) {
                 ScheduledBotTask task = scheduler.takeNext();
                 Long botId = task.botId();
@@ -69,6 +71,15 @@ public class BotWorkerSlot implements Runnable {
                             scheduler.queuedCount(),
                             scheduler.workingCount()
                     );
+
+                    if (browserManager == null) {
+                        log.info(
+                                "[SLOT {}] Launching Playwright browser runtime for the first claimed job.",
+                                slotNumber
+                        );
+
+                        browserManager = new BrowserManager();
+                    }
 
                     BotDetailsDto bot = botApiClient.getBot(botId);
 
@@ -180,12 +191,24 @@ public class BotWorkerSlot implements Runnable {
 
         } catch (Exception exception) {
             log.error(
-                    "[SLOT {}] Worker slot stopped because its Playwright runtime failed.",
+                    "[SLOT {}] Worker slot stopped because its runtime failed.",
                     slotNumber,
                     exception
             );
 
         } finally {
+            if (browserManager != null) {
+                try {
+                    browserManager.close();
+                } catch (Exception exception) {
+                    log.warn(
+                            "[SLOT {}] Could not close Playwright browser runtime cleanly.",
+                            slotNumber,
+                            exception
+                    );
+                }
+            }
+
             log.info(
                     "[SLOT {}] Worker slot stopped.",
                     slotNumber
