@@ -44,12 +44,14 @@ public class BotWorkerSlot implements Runnable {
             while (!Thread.currentThread().isInterrupted()) {
                 ScheduledBotTask task = scheduler.takeNext();
                 Long botId = task.botId();
+                ScheduledJobType jobType = task.jobType();
 
                 long nextDelayMillis =
                         TimeUnit.SECONDS.toMillis(
-                                config.normalRunDelaySeconds()
+                                config.normalDelaySeconds(jobType)
                         );
 
+                boolean delayAllJobs = false;
                 boolean reportQueuedAfterRun = true;
                 long startedAtNanos = System.nanoTime();
 
@@ -60,8 +62,9 @@ public class BotWorkerSlot implements Runnable {
 
                 try {
                     log.info(
-                            "[SLOT {}] Claimed bot {}. Queue={}, working={}.",
+                            "[SLOT {}] Claimed {} for bot {}. Queue={}, working={}.",
                             slotNumber,
+                            jobType,
                             botId,
                             scheduler.queuedCount(),
                             scheduler.workingCount()
@@ -75,7 +78,7 @@ public class BotWorkerSlot implements Runnable {
                                     browserManager
                             );
 
-                    runExecutor.executeOneRun();
+                    runExecutor.executeJob(jobType);
 
                     long durationMs = elapsedMillis(startedAtNanos);
                     telemetryReporter.runSucceeded(
@@ -84,10 +87,12 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                     log.info(
-                            "[SLOT {}] Bot {} completed one scheduled run in {} ms.",
+                            "[SLOT {}] Bot {} completed {} in {} ms. Normal interval={} seconds.",
                             slotNumber,
                             botId,
-                            durationMs
+                            jobType,
+                            durationMs,
+                            config.normalDelaySeconds(jobType)
                     );
 
                 } catch (VintedRateLimitException exception) {
@@ -95,6 +100,7 @@ public class BotWorkerSlot implements Runnable {
                             TimeUnit.SECONDS.toMillis(
                                     config.rateLimitDelaySeconds()
                             );
+                    delayAllJobs = true;
                     reportQueuedAfterRun = false;
 
                     long durationMs = elapsedMillis(startedAtNanos);
@@ -109,17 +115,19 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                     log.warn(
-                            "[SLOT {}] Bot {} hit an explicit Vinted rate limit. "
-                                    + "Next run delayed by {} seconds.",
+                            "[SLOT {}] Bot {} hit an explicit Vinted rate limit during {}. "
+                                    + "All jobs delayed by {} seconds.",
                             slotNumber,
                             botId,
+                            jobType,
                             config.rateLimitDelaySeconds()
                     );
 
                     log.debug(
-                            "[SLOT {}] Rate-limit exception for bot {}.",
+                            "[SLOT {}] Rate-limit exception for bot {} during {}.",
                             slotNumber,
                             botId,
+                            jobType,
                             exception
                     );
 
@@ -128,6 +136,7 @@ public class BotWorkerSlot implements Runnable {
                             TimeUnit.SECONDS.toMillis(
                                     config.failureDelaySeconds()
                             );
+                    delayAllJobs = true;
                     reportQueuedAfterRun = false;
 
                     long durationMs = elapsedMillis(startedAtNanos);
@@ -142,10 +151,11 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                     log.error(
-                            "[SLOT {}] Bot {} failed during its scheduled run. "
-                                    + "Next attempt in {} seconds.",
+                            "[SLOT {}] Bot {} failed during {}. "
+                                    + "All jobs delayed by {} seconds.",
                             slotNumber,
                             botId,
+                            jobType,
                             config.failureDelaySeconds(),
                             exception
                     );
@@ -153,7 +163,9 @@ public class BotWorkerSlot implements Runnable {
                 } finally {
                     scheduler.completeRun(
                             botId,
+                            jobType,
                             nextDelayMillis,
+                            delayAllJobs,
                             reportQueuedAfterRun
                     );
                 }
