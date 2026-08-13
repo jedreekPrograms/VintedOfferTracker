@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pl.flipbot.dashboard.dto.DashboardStatsResponse;
+import pl.flipbot.dashboard.dto.RuntimeDashboardResponse;
 
 @RestController
 @RequestMapping("/api/dashboard")
@@ -15,6 +16,9 @@ public class DashboardController {
 
     private final DashboardStatsService
             dashboardStatsService;
+
+    private final RuntimeDashboardService
+            runtimeDashboardService;
 
     @GetMapping("/stats")
     public ResponseEntity<DashboardStatsResponse>
@@ -29,6 +33,15 @@ public class DashboardController {
                 dashboardStatsService.getStats(
                         period
                 )
+        );
+    }
+
+    @GetMapping("/runtime")
+    public ResponseEntity<RuntimeDashboardResponse>
+    getRuntimeDashboard() {
+
+        return ResponseEntity.ok(
+                runtimeDashboardService.getRuntimeDashboard()
         );
     }
 }
