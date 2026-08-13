@@ -14,8 +14,9 @@ import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 @Slf4j
 public class ScheduledBotRunExecutor {
 
-    private static final boolean REAL_OFFERS_ENABLED = false;
-    private static final boolean REAL_NEXT_STEPS_ENABLED = false;
+    private static final ScheduledRealActionConfig REAL_ACTION_CONFIG =
+            ScheduledRealActionConfig.fromEnvironment();
+
     private static final boolean REAL_OFFER_ONE_SHOT_TEST_MODE = true;
     private static final int MAX_REAL_OFFERS_PER_RUN = 1;
     private static final int MAX_REAL_NEXT_STEPS_PER_RUN = 1;
@@ -41,8 +42,12 @@ public class ScheduledBotRunExecutor {
     }
 
     /**
-     * Compatibility helper preserving the old full-run lifecycle:
-     * one context, one login, negotiations first, then catalog.
+     * Compatibility helper preserving the old full-run lifecycle.
+     *
+     * Real actions are intentionally NEVER enabled through this helper.
+     * Controlled real actions are available only through typed scheduler jobs,
+     * so a compatibility full run cannot perform a negotiation action and a
+     * catalog action in the same invocation.
      */
     public void executeOneRun() {
         executeInternal(null);
@@ -64,6 +69,15 @@ public class ScheduledBotRunExecutor {
             ScheduledJobType jobType
     ) {
         Long botId = bot.getId();
+
+        boolean realOffersEnabled =
+                jobType == ScheduledJobType.CATALOG_SCAN
+                        && REAL_ACTION_CONFIG.realOffersEnabledFor(botId);
+
+        boolean realNextStepsEnabled =
+                jobType == ScheduledJobType.NEGOTIATION_CHECK
+                        && REAL_ACTION_CONFIG.realNextStepsEnabledFor(botId);
+
         BotContext context = new BotContext(bot, browserManager);
         boolean loginReady = false;
 
@@ -83,7 +97,7 @@ public class ScheduledBotRunExecutor {
                             listingClient,
                             offerQuotaClient,
                             listingStatusUpdater,
-                            REAL_NEXT_STEPS_ENABLED,
+                            realNextStepsEnabled,
                             MAX_REAL_NEXT_STEPS_PER_RUN
                     );
 
@@ -93,7 +107,7 @@ public class ScheduledBotRunExecutor {
                             listingClient,
                             offerQuotaClient,
                             listingStatusUpdater,
-                            REAL_OFFERS_ENABLED,
+                            realOffersEnabled,
                             MAX_REAL_OFFERS_PER_RUN
                     );
 
@@ -102,14 +116,15 @@ public class ScheduledBotRunExecutor {
                             context,
                             existingNegotiationProcessor,
                             catalogWorkProcessor,
-                            REAL_OFFERS_ENABLED,
+                            realOffersEnabled,
                             REAL_OFFER_ONE_SHOT_TEST_MODE
                     );
 
-            log.info(
-                    "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN mode.",
-                    jobType == null ? "FULL_RUN" : jobType,
-                    botId
+            logExecutionMode(
+                    jobType,
+                    botId,
+                    realOffersEnabled,
+                    realNextStepsEnabled
             );
 
             loginService.login();
@@ -149,5 +164,40 @@ public class ScheduledBotRunExecutor {
                 );
             }
         }
+    }
+
+    private void logExecutionMode(
+            ScheduledJobType jobType,
+            Long botId,
+            boolean realOffersEnabled,
+            boolean realNextStepsEnabled
+    ) {
+        String jobLabel =
+                jobType == null
+                        ? "FULL_RUN"
+                        : jobType.name();
+
+        if (!realOffersEnabled && !realNextStepsEnabled) {
+            log.info(
+                    "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN mode. "
+                            + "realOffers=false, realNextSteps=false.",
+                    jobLabel,
+                    botId
+            );
+
+            return;
+        }
+
+        log.warn(
+                "[SCHEDULED JOB] CONTROLLED REAL ACTION MODE for {} / bot {}. "
+                        + "realOffers={}, realNextSteps={}, maxRealOffersPerRun={}, "
+                        + "maxRealNextStepsPerRun={}.",
+                jobLabel,
+                botId,
+                realOffersEnabled,
+                realNextStepsEnabled,
+                MAX_REAL_OFFERS_PER_RUN,
+                MAX_REAL_NEXT_STEPS_PER_RUN
+        );
     }
 }
