@@ -5,17 +5,33 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 @Slf4j
 public class BotRunExecutor {
+
+    /**
+     * Process-wide test safety gate.
+     *
+     * ScheduledBotRunExecutor/BotRunExecutor instances are recreated for
+     * individual scheduler jobs and jobs may move between worker slots.
+     * Therefore one-shot state cannot live in an instance field.
+     *
+     * The set intentionally survives all scheduler jobs in this JVM and is
+     * cleared only by restarting the Playwright process.
+     */
+    private static final Set<Long> REAL_OFFER_ONE_SHOT_CONSUMED_BOTS =
+            ConcurrentHashMap.newKeySet();
+
+    private static final Set<Long> REAL_OFFER_ONE_SHOT_LOCK_LOGGED_BOTS =
+            ConcurrentHashMap.newKeySet();
 
     private final BotContext context;
     private final ExistingNegotiationProcessor existingNegotiationProcessor;
     private final CatalogWorkProcessor catalogWorkProcessor;
     private final boolean realOffersEnabledForThisBot;
     private final boolean realOfferOneShotTestMode;
-
-    private boolean realOfferCatalogCycleConsumed = false;
-    private boolean realOfferCatalogLockLogged = false;
 
     public BotRunExecutor(
             BotContext context,
@@ -98,45 +114,82 @@ public class BotRunExecutor {
     }
 
     private void executeCatalogWithSafetyGuards() {
-        if (realOffersEnabledForThisBot
-                && realOfferOneShotTestMode
-                && realOfferCatalogCycleConsumed) {
+        Long botId = context.getBot().getId();
 
-            if (!realOfferCatalogLockLogged) {
+        if (isRealOfferOneShotArmed()
+                && REAL_OFFER_ONE_SHOT_CONSUMED_BOTS.contains(botId)) {
+
+            if (REAL_OFFER_ONE_SHOT_LOCK_LOGGED_BOTS.add(botId)) {
                 log.warn(
-                        "[REAL OFFER TEST] One-shot catalog cycle has already been consumed for bot {}. "
-                                + "Catalog scanning and NEW real negotiations are locked until worker restart.",
-                        context.getBot().getId()
+                        "[REAL OFFER TEST] The process-wide one-shot real-offer allowance has already been consumed for bot {}. "
+                                + "Catalog scanning and NEW real negotiations are locked for this bot until the Playwright process is restarted.",
+                        botId
                 );
-                realOfferCatalogLockLogged = true;
             }
 
             return;
         }
 
-        if (realOffersEnabledForThisBot
-                && realOfferOneShotTestMode) {
-
-            realOfferCatalogCycleConsumed = true;
-
+        if (isRealOfferOneShotArmed()) {
             log.warn(
-                    "[REAL OFFER TEST] Starting the ONLY catalog cycle allowed for bot {} "
-                            + "during this worker session.",
-                    context.getBot().getId()
+                    "[REAL OFFER TEST] Starting a controlled catalog cycle for bot {}. "
+                            + "The process-wide one-shot allowance will be consumed only after the backend confirms a new NEGOTIATING listing. "
+                            + "If this armed catalog cycle fails with an exception, the allowance will be consumed conservatively because submit state may be unknown.",
+                    botId
             );
         }
 
-        catalogWorkProcessor.process();
+        boolean newRealNegotiationStarted;
 
-        if (realOffersEnabledForThisBot
-                && realOfferOneShotTestMode) {
+        try {
+            newRealNegotiationStarted =
+                    catalogWorkProcessor.process();
+
+        } catch (RuntimeException exception) {
+            if (isRealOfferOneShotArmed()) {
+                consumeOneShot(botId);
+
+                log.error(
+                        "[REAL OFFER TEST] Armed catalog cycle for bot {} failed with an exception. "
+                                + "The process-wide one-shot allowance is now locked until Playwright restart as a fail-closed precaution.",
+                        botId
+                );
+            }
+
+            throw exception;
+        }
+
+        if (!isRealOfferOneShotArmed()) {
+            return;
+        }
+
+        if (newRealNegotiationStarted) {
+            consumeOneShot(botId);
 
             log.warn(
-                    "[REAL OFFER TEST] The one-shot catalog cycle for bot {} finished. "
-                            + "New catalog work is now locked until worker restart.",
-                    context.getBot().getId()
+                    "[REAL OFFER TEST] Backend confirmed that bot {} started a new NEGOTIATING listing. "
+                            + "The process-wide one-shot allowance is now consumed. No further NEW real negotiation may start until Playwright restart.",
+                    botId
             );
+
+            return;
         }
+
+        log.warn(
+                "[REAL OFFER TEST] Controlled catalog cycle for bot {} finished without starting a new real negotiation. "
+                        + "The one-shot allowance remains available for a later catalog cycle.",
+                botId
+        );
+    }
+
+    private boolean isRealOfferOneShotArmed() {
+        return realOffersEnabledForThisBot
+                && realOfferOneShotTestMode;
+    }
+
+    private void consumeOneShot(Long botId) {
+        REAL_OFFER_ONE_SHOT_CONSUMED_BOTS.add(botId);
+        REAL_OFFER_ONE_SHOT_LOCK_LOGGED_BOTS.remove(botId);
     }
 
     private long elapsedMillis(long startedAtNanos) {
