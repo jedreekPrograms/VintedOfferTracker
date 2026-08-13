@@ -14,6 +14,7 @@ import pl.flipbot.bot.dto.RunningBotResponse;
 import pl.flipbot.bot.dto.UpdateBotRequest;
 import pl.flipbot.exception.BotAlreadyExistsException;
 import pl.flipbot.exception.BotNotFoundException;
+import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotMapper;
@@ -22,7 +23,9 @@ import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -299,6 +302,14 @@ public class BotService {
                 );
 
 
+        boolean negotiationStepsChanged =
+                negotiationStepsChanged(
+                        configuration,
+                        configurationRequest
+                                .getNegotiationSteps()
+                );
+
+
         bot.setName(
                 normalizeRequiredText(
                         request.getName()
@@ -397,6 +408,14 @@ public class BotService {
                 configurationRequest
                         .getNegotiationSteps()
         );
+
+
+        if (negotiationStepsChanged) {
+
+            resetSkippedOfferTooLowListings(
+                    botId
+            );
+        }
 
 
         return botMapper.map(
@@ -526,6 +545,124 @@ public class BotService {
             throw new IllegalStateException(
                     "Bot cannot be edited while it has active negotiations "
                             + "or listings requiring user action."
+            );
+        }
+    }
+
+
+    private boolean negotiationStepsChanged(
+            BotConfiguration configuration,
+            List<CreateNegotiationStepRequest> requestedSteps
+    ) {
+
+        List<NegotiationStep> existingSteps =
+                configuration
+                        .getNegotiationSteps()
+                        .stream()
+                        .sorted(
+                                Comparator.comparing(
+                                        step ->
+                                                step.getStepNumber() == null
+                                                        ? Integer.MAX_VALUE
+                                                        : step.getStepNumber()
+                                )
+                        )
+                        .toList();
+
+
+        if (
+                existingSteps.size()
+                        != requestedSteps.size()
+        ) {
+
+            return true;
+        }
+
+
+        for (
+                int index = 0;
+                index < existingSteps.size();
+                index++
+        ) {
+
+            NegotiationStep existingStep =
+                    existingSteps.get(
+                            index
+                    );
+
+            CreateNegotiationStepRequest requestedStep =
+                    requestedSteps.get(
+                            index
+                    );
+
+
+            if (
+                    !Objects.equals(
+                            existingStep.getStepNumber(),
+                            index + 1
+                    )
+                            || !sameDecimal(
+                            existingStep.getOfferPrice(),
+                            requestedStep.getOfferPrice()
+                    )
+                            || !sameDecimal(
+                            existingStep.getMaxAcceptedCounterOffer(),
+                            requestedStep.getMaxAcceptedCounterOffer()
+                    )
+                            || !Objects.equals(
+                            existingStep.getMessage(),
+                            requestedStep.getMessage()
+                    )
+            ) {
+
+                return true;
+            }
+        }
+
+
+        return false;
+    }
+
+
+    private boolean sameDecimal(
+            BigDecimal left,
+            BigDecimal right
+    ) {
+
+        if (
+                left == null
+                        || right == null
+        ) {
+
+            return left == right;
+        }
+
+
+        return left.compareTo(
+                right
+        ) == 0;
+    }
+
+
+    private void resetSkippedOfferTooLowListings(
+            Long botId
+    ) {
+
+        List<Listing> skippedListings =
+                listingRepository
+                        .findByBotIdAndStatusOrderByIdAsc(
+                                botId,
+                                ListingStatus.SKIPPED_OFFER_TOO_LOW
+                        );
+
+
+        for (
+                Listing listing
+                : skippedListings
+        ) {
+
+            listing.setStatus(
+                    ListingStatus.DISCOVERED
             );
         }
     }
