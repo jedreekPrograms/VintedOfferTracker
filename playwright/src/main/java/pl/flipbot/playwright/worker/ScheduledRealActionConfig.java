@@ -12,7 +12,9 @@ public record ScheduledRealActionConfig(
         boolean realNextStepsRequested,
         Set<Long> allowedBotIds,
         boolean confirmationValid,
-        boolean preflightOnly
+        boolean preflightOnly,
+        boolean productionModeRequested,
+        boolean productionConfirmationValid
 ) {
 
     private static final String REAL_OFFERS_ENV =
@@ -33,8 +35,17 @@ public record ScheduledRealActionConfig(
     private static final String PREFLIGHT_ONLY_ENV =
             "FLIPBOT_REAL_ACTION_PREFLIGHT_ONLY";
 
+    private static final String PRODUCTION_MODE_ENV =
+            "FLIPBOT_REAL_ACTION_PRODUCTION_MODE";
+
+    private static final String PRODUCTION_CONFIRM_ENV =
+            "FLIPBOT_REAL_ACTION_PRODUCTION_CONFIRM";
+
     private static final String EXPECTED_CONFIRMATION =
             "I_UNDERSTAND_REAL_ACTIONS";
+
+    private static final String EXPECTED_PRODUCTION_CONFIRMATION =
+            "I_UNDERSTAND_CONTINUOUS_REAL_ACTIONS";
 
     public static ScheduledRealActionConfig fromEnvironment() {
         boolean realOffersRequested =
@@ -55,13 +66,24 @@ public record ScheduledRealActionConfig(
         boolean preflightOnly =
                 readBoolean(PREFLIGHT_ONLY_ENV, false);
 
+        boolean productionModeRequested =
+                readBoolean(PRODUCTION_MODE_ENV, false);
+
+        String productionConfirmation =
+                System.getenv(PRODUCTION_CONFIRM_ENV);
+
+        boolean productionConfirmationValid =
+                EXPECTED_PRODUCTION_CONFIRMATION.equals(productionConfirmation);
+
         ScheduledRealActionConfig config =
                 new ScheduledRealActionConfig(
                         realOffersRequested,
                         realNextStepsRequested,
                         allowedBotIds,
                         confirmationValid,
-                        preflightOnly
+                        preflightOnly,
+                        productionModeRequested,
+                        productionConfirmationValid
                 );
 
         if (!realOffersRequested && !realNextStepsRequested) {
@@ -86,6 +108,17 @@ public record ScheduledRealActionConfig(
             return config;
         }
 
+        if (productionModeRequested && !productionConfirmationValid) {
+            log.error(
+                    "[REAL ACTION CONFIG] Production mode was requested but its dedicated confirmation gate is incomplete. "
+                            + "Exact {} token is required when {}=true. Effective mode remains DRY RUN.",
+                    PRODUCTION_CONFIRM_ENV,
+                    PRODUCTION_MODE_ENV
+            );
+
+            return config;
+        }
+
         if (preflightOnly) {
             log.warn(
                     "[REAL ACTION CONFIG] PREFLIGHT ONLY mode is armed for bot allowlist {}. "
@@ -100,10 +133,24 @@ public record ScheduledRealActionConfig(
             return config;
         }
 
+        if (productionModeEnabled()) {
+            log.warn(
+                    "[REAL ACTION CONFIG] PRODUCTION REAL ACTION MODE is armed for bot allowlist {}. "
+                            + "First offers requested={}, next steps requested={}. "
+                            + "Persistent guards, backend quota and per-run action limits remain enforced. "
+                            + "The process-wide first-offer one-shot test lock is disabled.",
+                    allowedBotIds,
+                    realOffersRequested,
+                    realNextStepsRequested
+            );
+
+            return config;
+        }
+
         log.warn(
                 "[REAL ACTION CONFIG] CONTROLLED REAL ACTION MODE is armed for bot allowlist {}. "
                         + "First offers requested={}, next steps requested={}. "
-                        + "Per-run and one-shot limits remain enforced per bot.",
+                        + "Per-run and first-offer one-shot test limits remain enforced per bot.",
                 allowedBotIds,
                 realOffersRequested,
                 realNextStepsRequested
@@ -132,8 +179,21 @@ public record ScheduledRealActionConfig(
                 && !preflightOnly;
     }
 
+    public boolean productionModeEnabled() {
+        return productionModeRequested
+                && productionConfirmationValid
+                && confirmationValid
+                && !preflightOnly
+                && !allowedBotIds.isEmpty();
+    }
+
+    public boolean firstOfferOneShotTestModeEnabled() {
+        return !productionModeEnabled();
+    }
+
     public boolean isArmedFor(Long botId) {
         return confirmationValid
+                && (!productionModeRequested || productionConfirmationValid)
                 && botId != null
                 && allowedBotIds.contains(botId);
     }
