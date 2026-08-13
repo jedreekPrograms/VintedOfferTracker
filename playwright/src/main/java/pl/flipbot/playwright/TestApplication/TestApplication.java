@@ -28,6 +28,15 @@ public class TestApplication {
             );
         }
 
+        log.warn(
+                "[TEST MODE] TestApplication is a legacy/manual SINGLE-BOT runner. "
+                        + "It will execute only the first RUNNING bot out of {} and does NOT "
+                        + "use WorkerManager worker slots or scheduler runtime telemetry. "
+                        + "To run multiple bots concurrently and populate the /runtime dashboard, "
+                        + "start FlipBotPlaywrightApplication instead.",
+                runningBots.size()
+        );
+
         RunningBotDto runningBot =
                 runningBots.getFirst();
 
