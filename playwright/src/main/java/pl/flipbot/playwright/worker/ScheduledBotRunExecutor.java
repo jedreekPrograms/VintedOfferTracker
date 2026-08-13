@@ -169,7 +169,18 @@ public class ScheduledBotRunExecutor {
             }
 
 
-            context.close();
+            try {
+
+                context.close();
+
+            } catch (Exception exception) {
+
+                log.warn(
+                        "[SCHEDULED RUN] Could not close browser context cleanly for bot {}.",
+                        botId,
+                        exception
+                );
+            }
         }
     }
 }
