@@ -13,6 +13,10 @@ const navigationItems: NavigationItem[] = [
         end: true,
     },
     {
+        label: "Runtime",
+        path: "/runtime",
+    },
+    {
         label: "Boty",
         path:"/bots",
     },
