@@ -9,4 +9,6 @@ public class RunningBotResponse {
 
     private Long id;
 
+    private boolean hasActiveNegotiations;
+
 }
