@@ -1,6 +1,7 @@
 package pl.flipbot.playwright.context;
 
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.Frame;
 import com.microsoft.playwright.Page;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,9 @@ import java.util.List;
 @Getter
 public class BotContext implements AutoCloseable {
 
+    private static final int MAX_CONCURRENT_EXTRA_PAGES = 2;
+    private static final int POPUP_STORM_EVENT_LIMIT = 10;
+
     private final BotDetailsDto bot;
 
     private final BrowserContext browserContext;
@@ -23,6 +27,10 @@ public class BotContext implements AutoCloseable {
     private final Page page;
 
     private final SessionManager sessionManager;
+
+    private int extraPageEvents;
+
+    private boolean popupStormDetected;
 
 
     public BotContext(
@@ -106,37 +114,109 @@ public class BotContext implements AutoCloseable {
                         return;
                     }
 
-                    handleNewPageSafely(newPage);
+                    extraPageEvents++;
+
+                    if (extraPageEvents > POPUP_STORM_EVENT_LIMIT) {
+                        if (!popupStormDetected) {
+                            popupStormDetected = true;
+
+                            log.error(
+                                    "[BROWSER] POPUP STORM detected for bot {} after {} extra-page events. "
+                                            + "All subsequent extra pages will be closed immediately.",
+                                    bot.getId(),
+                                    extraPageEvents
+                            );
+                        }
+
+                        closeUnexpectedPage(
+                                newPage,
+                                "popup storm hard limit"
+                        );
+                        return;
+                    }
+
+                    int extraPagesOpen = Math.max(
+                            0,
+                            browserContext.pages().size() - 1
+                    );
+
+                    if (extraPagesOpen > MAX_CONCURRENT_EXTRA_PAGES) {
+                        log.warn(
+                                "[BROWSER] Too many extra pages for bot {}: {} open. "
+                                        + "Closing newest page defensively.",
+                                bot.getId(),
+                                extraPagesOpen
+                        );
+
+                        closeUnexpectedPage(
+                                newPage,
+                                "concurrent extra-page limit"
+                        );
+                        return;
+                    }
+
+                    registerNavigationGuard(newPage);
+                    classifyExtraPage(newPage, "new popup/page");
                 }
         );
 
         log.info(
                 "[BROWSER] Popup guard enabled for bot {}. "
-                        + "Blank/transient and Vinted pages are preserved; "
-                        + "only clearly external pages are closed.",
-                bot.getId()
+                        + "Blank pages are re-checked after navigation; "
+                        + "external pages are closed; concurrent extras are limited to {}; "
+                        + "popup-storm limit={} events per bot job.",
+                bot.getId(),
+                MAX_CONCURRENT_EXTRA_PAGES,
+                POPUP_STORM_EVENT_LIMIT
         );
     }
 
 
-    private void handleNewPageSafely(Page newPage) {
+    private void registerNavigationGuard(Page extraPage) {
+
+        extraPage.onFrameNavigated(
+                frame -> {
+                    if (!isMainFrame(extraPage, frame)) {
+                        return;
+                    }
+
+                    classifyExtraPage(
+                            extraPage,
+                            "extra page navigated"
+                    );
+                }
+        );
+    }
+
+
+    private boolean isMainFrame(
+            Page candidatePage,
+            Frame frame
+    ) {
 
         try {
-            String url = normalizeUrl(newPage.url());
+            return frame == candidatePage.mainFrame();
+        } catch (Exception exception) {
+            return false;
+        }
+    }
 
-            /*
-             * A freshly-created Playwright Page commonly starts with an empty
-             * URL or about:blank before navigation is committed. Closing it at
-             * this point can interrupt a legitimate Vinted interaction. This
-             * was observed during brand-filter confirmation, where an empty
-             * popup/page event correlated with brand persistence failures.
-             *
-             * Keep transient blank pages. They belong to this short-lived
-             * BrowserContext and will be cleaned up when the bot job closes.
-             */
+
+    private void classifyExtraPage(
+            Page extraPage,
+            String reason
+    ) {
+
+        try {
+            if (extraPage.isClosed()) {
+                return;
+            }
+
+            String url = normalizeUrl(extraPage.url());
+
             if (isTransientBlankUrl(url)) {
                 log.debug(
-                        "[BROWSER] Preserving transient blank popup/page for bot {}.",
+                        "[BROWSER] Waiting for transient blank extra page to navigate. Bot: {}.",
                         bot.getId()
                 );
                 return;
@@ -152,18 +232,14 @@ public class BotContext implements AutoCloseable {
             }
 
             closeUnexpectedPage(
-                    newPage,
-                    "external popup/page"
+                    extraPage,
+                    reason + ", external URL"
             );
 
         } catch (Exception exception) {
-            /*
-             * Popup guarding is defensive only. It must never break the main
-             * bot flow because a newly-created page was not readable yet.
-             */
             log.debug(
-                    "[BROWSER] Could not classify new popup/page for bot {}. "
-                            + "Leaving it open until the BrowserContext closes.",
+                    "[BROWSER] Could not classify extra page for bot {}. "
+                            + "The concurrent-page and popup-storm limits remain active.",
                     bot.getId(),
                     exception
             );
@@ -177,7 +253,11 @@ public class BotContext implements AutoCloseable {
     ) {
 
         try {
-            String url = unexpectedPage.url();
+            if (unexpectedPage == page || unexpectedPage.isClosed()) {
+                return;
+            }
+
+            String url = normalizeUrl(unexpectedPage.url());
 
             log.warn(
                     "[BROWSER] Closing unexpected browser page. "
