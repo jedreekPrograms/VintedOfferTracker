@@ -159,7 +159,30 @@ public class FilterActions {
     }
 
     public void clickOutsideSafely() {
-        page.evaluate("""() => { const target=document.body; const e={bubbles:true,cancelable:true,view:window}; target.dispatchEvent(new MouseEvent("mousedown",e)); target.dispatchEvent(new MouseEvent("mouseup",e)); target.dispatchEvent(new MouseEvent("click",e)); }""");
+        page.evaluate(
+                """
+                () => {
+                    const target = document.body;
+                    const e = {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    };
+        
+                    target.dispatchEvent(
+                            new MouseEvent("mousedown", e)
+                    );
+        
+                    target.dispatchEvent(
+                            new MouseEvent("mouseup", e)
+                    );
+        
+                    target.dispatchEvent(
+                            new MouseEvent("click", e)
+                    );
+                }
+                """
+        );
         page.waitForTimeout(1_000);
     }
 
