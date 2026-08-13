@@ -13,6 +13,8 @@ import pl.flipbot.playwright.negotiation.NewNegotiationProcessor;
 public class CatalogWorkProcessor {
 
     private final BotContext context;
+    private final ListingClient listingClient;
+    private final boolean realOffersEnabled;
 
     private final MarketplaceNavigator
             marketplaceNavigator;
@@ -38,6 +40,12 @@ public class CatalogWorkProcessor {
 
         this.context =
                 context;
+
+        this.listingClient =
+                listingClient;
+
+        this.realOffersEnabled =
+                realOffersEnabled;
 
 
         this.marketplaceNavigator =
@@ -72,7 +80,22 @@ public class CatalogWorkProcessor {
     }
 
 
-    public void process() {
+    /**
+     * @return true only when this real-offer catalog cycle caused the backend
+     * to contain more active NEGOTIATING listings than before the cycle.
+     * Dry-run cycles always return false.
+     */
+    public boolean process() {
+
+        Long botId =
+                context.getBot()
+                        .getId();
+
+        int negotiatingBefore =
+                realOffersEnabled
+                        ? listingClient.getNegotiatingListings(botId).size()
+                        : 0;
+
 
         /*
          * 1. Otwieramy katalog.
@@ -109,7 +132,7 @@ public class CatalogWorkProcessor {
                             + "after current-scan and price guards."
             );
 
-            return;
+            return false;
         }
 
 
@@ -125,5 +148,28 @@ public class CatalogWorkProcessor {
         newNegotiationProcessor.process(
                 priceEligibleListings
         );
+
+
+        if (!realOffersEnabled) {
+            return false;
+        }
+
+
+        int negotiatingAfter =
+                listingClient.getNegotiatingListings(botId).size();
+
+        boolean newNegotiationStarted =
+                negotiatingAfter > negotiatingBefore;
+
+
+        log.info(
+                "[REAL OFFER TEST] Active negotiations before catalog={}, after catalog={}. New negotiation started={}.",
+                negotiatingBefore,
+                negotiatingAfter,
+                newNegotiationStarted
+        );
+
+
+        return newNegotiationStarted;
     }
 }
