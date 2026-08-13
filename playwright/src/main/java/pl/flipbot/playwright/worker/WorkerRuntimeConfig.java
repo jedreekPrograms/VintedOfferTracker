@@ -10,7 +10,8 @@ public record WorkerRuntimeConfig(
         long catalogScanIntervalSeconds,
         long failureDelaySeconds,
         long rateLimitDelaySeconds,
-        long shutdownTimeoutSeconds
+        long shutdownTimeoutSeconds,
+        boolean schedulerHeadless
 ) {
 
     private static final int DEFAULT_WORKER_COUNT = 10;
@@ -22,6 +23,7 @@ public record WorkerRuntimeConfig(
     private static final long DEFAULT_FAILURE_DELAY_SECONDS = 60L;
     private static final long DEFAULT_RATE_LIMIT_DELAY_SECONDS = 10L * 60L;
     private static final long DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 30L;
+    private static final boolean DEFAULT_SCHEDULER_HEADLESS = true;
 
     public static WorkerRuntimeConfig fromEnvironment() {
 
@@ -67,6 +69,10 @@ public record WorkerRuntimeConfig(
                         DEFAULT_SHUTDOWN_TIMEOUT_SECONDS,
                         1L,
                         300L
+                ),
+                readBoolean(
+                        "FLIPBOT_SCHEDULER_HEADLESS",
+                        DEFAULT_SCHEDULER_HEADLESS
                 )
         );
     }
@@ -156,5 +162,32 @@ public record WorkerRuntimeConfig(
 
             return defaultValue;
         }
+    }
+
+    private static boolean readBoolean(
+            String environmentName,
+            boolean defaultValue
+    ) {
+        String rawValue = System.getenv(environmentName);
+
+        if (rawValue == null || rawValue.isBlank()) {
+            return defaultValue;
+        }
+
+        String normalized = rawValue.trim().toLowerCase();
+
+        return switch (normalized) {
+            case "true", "1", "yes", "y", "on" -> true;
+            case "false", "0", "no", "n", "off" -> false;
+            default -> {
+                log.warn(
+                        "Invalid {}='{}'. Using default {}.",
+                        environmentName,
+                        rawValue,
+                        defaultValue
+                );
+                yield defaultValue;
+            }
+        };
     }
 }
