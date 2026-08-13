@@ -2,6 +2,7 @@ package pl.flipbot.playwright.negotiation;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
+import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
 import pl.flipbot.playwright.api.listing.NegotiationActivityClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.NegotiationActivityRequestDto;
@@ -9,7 +10,6 @@ import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.api.quota.OfferQuotaClient;
 import pl.flipbot.playwright.api.quota.dto.OfferQuotaReservationResponseDto;
 import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 
 import java.text.Normalizer;
@@ -20,39 +20,19 @@ import java.util.Locale;
 public class ExistingNegotiationProcessor {
 
     private final BotContext context;
-
     private final ListingClient listingClient;
-
     private final OfferQuotaClient offerQuotaClient;
-
-    private final ListingStatusUpdater
-            listingStatusUpdater;
-
-    private final NegotiationConversationProcessor
-            negotiationConversationProcessor;
-
-    private final ConversationAvailabilityDetector
-            conversationAvailabilityDetector;
-
-    private final ConversationActivityDetector
-            conversationActivityDetector;
-
-    private final NegotiationActivityClient
-            negotiationActivityClient;
-
-    private final NegotiationDecisionService
-            negotiationDecisionService;
-
-    private final PendingNegotiationPolicy
-            pendingNegotiationPolicy;
-
-    private final NextNegotiationStepExecutor
-            nextNegotiationStepExecutor;
-
+    private final ListingStatusUpdater listingStatusUpdater;
+    private final NegotiationConversationProcessor negotiationConversationProcessor;
+    private final ConversationAvailabilityDetector conversationAvailabilityDetector;
+    private final ConversationActivityDetector conversationActivityDetector;
+    private final NegotiationActivityClient negotiationActivityClient;
+    private final NegotiationDecisionService negotiationDecisionService;
+    private final PendingNegotiationPolicy pendingNegotiationPolicy;
+    private final NextNegotiationStepExecutor nextNegotiationStepExecutor;
+    private final NextStepActionGuardCoordinator nextStepActionGuardCoordinator;
     private final boolean realNextStepsEnabled;
-
     private final int maxRealNextStepsPerRun;
-
 
     public ExistingNegotiationProcessor(
             BotContext context,
@@ -62,68 +42,32 @@ public class ExistingNegotiationProcessor {
             boolean realNextStepsEnabled,
             int maxRealNextStepsPerRun
     ) {
-
-        this.context =
-                context;
-
-        this.listingClient =
-                listingClient;
-
-        this.offerQuotaClient =
-                offerQuotaClient;
-
-        this.listingStatusUpdater =
-                listingStatusUpdater;
-
+        this.context = context;
+        this.listingClient = listingClient;
+        this.offerQuotaClient = offerQuotaClient;
+        this.listingStatusUpdater = listingStatusUpdater;
         this.negotiationConversationProcessor =
-                new NegotiationConversationProcessor(
-                        context
-                );
-
+                new NegotiationConversationProcessor(context);
         this.conversationAvailabilityDetector =
-                new ConversationAvailabilityDetector(
-                        context
-                );
-
+                new ConversationAvailabilityDetector(context);
         this.conversationActivityDetector =
-                new ConversationActivityDetector(
-                        context
-                );
-
-        this.negotiationActivityClient =
-                new NegotiationActivityClient();
-
-        this.negotiationDecisionService =
-                new NegotiationDecisionService();
-
-        this.pendingNegotiationPolicy =
-                new PendingNegotiationPolicy();
-
+                new ConversationActivityDetector(context);
+        this.negotiationActivityClient = new NegotiationActivityClient();
+        this.negotiationDecisionService = new NegotiationDecisionService();
+        this.pendingNegotiationPolicy = new PendingNegotiationPolicy();
         this.nextNegotiationStepExecutor =
-                new NextNegotiationStepExecutor(
-                        context
-                );
-
-        this.realNextStepsEnabled =
-                realNextStepsEnabled;
-
-        this.maxRealNextStepsPerRun =
-                maxRealNextStepsPerRun;
+                new NextNegotiationStepExecutor(context);
+        this.nextStepActionGuardCoordinator =
+                new NextStepActionGuardCoordinator();
+        this.realNextStepsEnabled = realNextStepsEnabled;
+        this.maxRealNextStepsPerRun = maxRealNextStepsPerRun;
     }
 
-
     public boolean process() {
-
-        Long botId =
-                context.getBot()
-                        .getId();
-
+        Long botId = context.getBot().getId();
 
         List<ListingResponseDto> negotiatingListings =
-                listingClient.getNegotiatingListings(
-                        botId
-                );
-
+                listingClient.getNegotiatingListings(botId);
 
         log.info(
                 "Bot {} currently has {} active negotiations",
@@ -131,64 +75,39 @@ public class ExistingNegotiationProcessor {
                 negotiatingListings.size()
         );
 
-
-        return inspectExistingNegotiations(
-                negotiatingListings
-        );
+        return inspectExistingNegotiations(negotiatingListings);
     }
-
 
     private boolean inspectExistingNegotiations(
             List<ListingResponseDto> negotiatingListings
     ) {
-
         if (negotiatingListings.isEmpty()) {
-
             log.info(
-                    "[CONVERSATION] There are no active negotiations "
-                            + "to inspect."
+                    "[CONVERSATION] There are no active negotiations to inspect."
             );
-
             return false;
         }
 
-
         BotConfigurationDto configuration =
-                context.getBot()
-                        .getConfiguration();
-
+                context.getBot().getConfiguration();
 
         if (configuration == null) {
-
             throw new IllegalStateException(
                     "Bot configuration is missing"
             );
         }
 
-
         log.info(
-                "[CONVERSATION] Starting inspection of {} "
-                        + "active negotiations.",
+                "[CONVERSATION] Starting inspection of {} active negotiations.",
                 negotiatingListings.size()
         );
 
+        int inspectedCount = 0;
+        int sentNextSteps = 0;
 
-        int inspectedCount =
-                0;
-
-        int sentNextSteps =
-                0;
-
-
-        for (
-                ListingResponseDto listing
-                : negotiatingListings
-        ) {
-
+        for (ListingResponseDto listing : negotiatingListings) {
             try {
-
                 inspectedCount++;
-
 
                 log.info(
                         "[CONVERSATION] Inspecting negotiation {}/{}. "
@@ -202,43 +121,9 @@ public class ExistingNegotiationProcessor {
                         listing.currentStep()
                 );
 
-
-                /*
-                 * LEGACY TARGET GUARD.
-                 *
-                 * Ten guard chroni istniejące NEGOTIATING, które mogły
-                 * zostać rozpoczęte wcześniej, zanim mieliśmy pełne
-                 * zabezpieczenie brand/model.
-                 *
-                 * Nie ufamy temu, że skoro listing jest już NEGOTIATING,
-                 * to na pewno należy do aktualnego celu bota.
-                 *
-                 * Przykład historycznego błędu:
-                 *
-                 *   bot: Samsung + Galaxy S25
-                 *   listing: Samsung Galaxy S22 Ultra
-                 *
-                 * Taki listing:
-                 * - NIE może dostać kolejnego kroku,
-                 * - NIE może zająć kolejnego quota slotu,
-                 * - NIE może trafić do ACTION_REQUIRED,
-                 * - powinien przestać zajmować aktywny slot negocjacji.
-                 *
-                 * FINISHED oznacza tutaj techniczne zakończenie starej,
-                 * błędnie rozpoczętej automatyzacji. Nie oznacza zakupu.
-                 */
-                if (
-                        !matchesConfiguredTarget(
-                                listing,
-                                configuration
-                        )
-                ) {
-
+                if (!matchesConfiguredTarget(listing, configuration)) {
                     ListingResponseDto finishedListing =
-                            finishWrongTargetNegotiation(
-                                    listing
-                            );
-
+                            finishWrongTargetNegotiation(listing);
 
                     log.error(
                             "[TARGET GUARD] Existing negotiation for marketplace "
@@ -255,7 +140,6 @@ public class ExistingNegotiationProcessor {
                             listing.title()
                     );
 
-
                     log.info(
                             "[TARGET GUARD] Backend listing {} is now {} "
                                     + "and no longer occupies an active "
@@ -263,47 +147,15 @@ public class ExistingNegotiationProcessor {
                             finishedListing.id(),
                             finishedListing.status()
                     );
-
-
                     continue;
                 }
 
-
                 NegotiationConversationSnapshot snapshot =
-                        negotiationConversationProcessor
-                                .inspectSnapshot(
-                                        listing
-                                );
+                        negotiationConversationProcessor.inspectSnapshot(listing);
 
-
-                /*
-                 * Dostępność przedmiotu ma wyższy priorytet niż:
-                 * - stara kontroferta,
-                 * - ACCEPT / REJECT,
-                 * - timery 3h / 48h,
-                 * - próba wysłania następnego kroku.
-                 *
-                 * Jeżeli Vinted pokazuje:
-                 *
-                 *   "Przedmiot jest niedostępny"
-                 *   "Przedmiot został sprzedany lub usunięty"
-                 *
-                 * kończymy negocjację jako UNAVAILABLE ZANIM zostanie
-                 * zarezerwowany jakikolwiek kolejny slot quota.
-                 */
-                if (
-                        conversationAvailabilityDetector
-                                .isUnavailable(
-                                        listing
-                                )
-                ) {
-
+                if (conversationAvailabilityDetector.isUnavailable(listing)) {
                     ListingResponseDto unavailableListing =
-                            listingStatusUpdater
-                                    .markNegotiationUnavailable(
-                                            listing
-                                    );
-
+                            listingStatusUpdater.markNegotiationUnavailable(listing);
 
                     log.warn(
                             "[AVAILABILITY] Marketplace listing {} was changed "
@@ -312,53 +164,18 @@ public class ExistingNegotiationProcessor {
                                     + "or removed. No new quota slot was reserved.",
                             unavailableListing.listingId()
                     );
-
-
                     continue;
                 }
 
-
-                /*
-                 * Na tym etapie tylko obserwujemy dodatkową aktywność:
-                 * - zwykłą wiadomość sprzedającego po naszej ostatniej ofercie,
-                 * - wskaźnik "Przeczytane" po naszej ostatniej ofercie.
-                 *
-                 * To NIE zmienia jeszcze żadnej decyzji negocjacyjnej
-                 * i nie wysyła żadnej dodatkowej oferty.
-                 */
                 ConversationActivitySnapshot activitySnapshot =
-                        conversationActivityDetector
-                                .inspect();
+                        conversationActivityDetector.inspect();
 
-
-                logConversationActivity(
-                        listing,
-                        activitySnapshot
-                );
-
-
-                persistConversationActivity(
-                        listing,
-                        activitySnapshot
-                );
-
+                logConversationActivity(listing, activitySnapshot);
+                persistConversationActivity(listing, activitySnapshot);
 
                 boolean stepWasSent;
 
-
-                /*
-                 * Formalne stany Vinted zawsze mają pierwszeństwo:
-                 * ACCEPTED / REJECTED / SELLER_COUNTER_OFFER / UNKNOWN
-                 * nadal obsługuje istniejący NegotiationDecisionService.
-                 *
-                 * Nowa polityka czasowa działa WYŁĄCZNIE wtedy,
-                 * gdy formalny stan aktualnej oferty nadal jest PENDING.
-                 */
-                if (
-                        snapshot.result()
-                                == NegotiationConversationResult.PENDING
-                ) {
-
+                if (snapshot.result() == NegotiationConversationResult.PENDING) {
                     PendingNegotiationDecision pendingDecision =
                             pendingNegotiationPolicy.decide(
                                     listing,
@@ -366,33 +183,21 @@ public class ExistingNegotiationProcessor {
                                     configuration
                             );
 
-
-                    if (
-                            pendingDecision.action()
-                                    == PendingNegotiationDecision.Action.WAIT
-                    ) {
-
+                    if (pendingDecision.action()
+                            == PendingNegotiationDecision.Action.WAIT) {
                         log.info(
                                 "[PENDING POLICY] Marketplace listing {} "
                                         + "remains NEGOTIATING. Reason: {}",
                                 listing.listingId(),
                                 pendingDecision.reason()
                         );
-
                         continue;
                     }
 
-
-                    if (
-                            pendingDecision.action()
-                                    == PendingNegotiationDecision.Action.EXPIRE
-                    ) {
-
+                    if (pendingDecision.action()
+                            == PendingNegotiationDecision.Action.EXPIRE) {
                         ListingResponseDto expiredListing =
-                                listingStatusUpdater.markExpired(
-                                        listing
-                                );
-
+                                listingStatusUpdater.markExpired(listing);
 
                         log.warn(
                                 "[PENDING POLICY] Marketplace listing {} "
@@ -404,20 +209,16 @@ public class ExistingNegotiationProcessor {
                                 expiredListing.listingId(),
                                 pendingDecision.reason()
                         );
-
                         continue;
                     }
 
-
                     if (pendingDecision.nextStep() == null) {
-
                         throw new IllegalStateException(
                                 "Pending policy selected SEND_NEXT_STEP "
                                         + "without a next step for backend listing "
                                         + listing.id()
                         );
                     }
-
 
                     NegotiationDecision timedDecision =
                             NegotiationDecision.sendNextStep(
@@ -426,23 +227,19 @@ public class ExistingNegotiationProcessor {
                                     pendingDecision.reason()
                             );
 
-
                     stepWasSent =
                             handleNegotiationDecision(
                                     listing,
                                     snapshot,
                                     timedDecision
                             );
-
                 } else {
-
                     NegotiationDecision decision =
                             negotiationDecisionService.decide(
                                     listing,
                                     snapshot,
                                     configuration
                             );
-
 
                     stepWasSent =
                             handleNegotiationDecision(
@@ -452,11 +249,8 @@ public class ExistingNegotiationProcessor {
                             );
                 }
 
-
                 if (stepWasSent) {
-
                     sentNextSteps++;
-
 
                     log.warn(
                             "[NEXT STEP REAL] Sent next steps during "
@@ -465,32 +259,22 @@ public class ExistingNegotiationProcessor {
                             maxRealNextStepsPerRun
                     );
 
-
-                    if (
-                            sentNextSteps
-                                    >= maxRealNextStepsPerRun
-                    ) {
-
+                    if (sentNextSteps >= maxRealNextStepsPerRun) {
                         log.warn(
                                 "[NEXT STEP REAL] Real next-step limit "
                                         + "for this run has been reached."
                         );
-
                         break;
                     }
                 }
-
             } catch (Exception exception) {
-
                 log.error(
                         "[CONVERSATION] Failed to inspect backend listing {}, "
                                 + "marketplace listing {}, conversation {}: {}",
                         listing.id(),
                         listing.listingId(),
                         listing.conversationId(),
-                        getFriendlyErrorMessage(
-                                exception
-                        )
+                        getFriendlyErrorMessage(exception)
                 );
 
                 log.trace(
@@ -501,7 +285,6 @@ public class ExistingNegotiationProcessor {
             }
         }
 
-
         log.info(
                 "[CONVERSATION] Finished inspection. "
                         + "Inspected: {}, real next steps sent: {}.",
@@ -509,67 +292,47 @@ public class ExistingNegotiationProcessor {
                 sentNextSteps
         );
 
-
         return sentNextSteps > 0;
     }
-
 
     private void logConversationActivity(
             ListingResponseDto listing,
             ConversationActivitySnapshot activitySnapshot
     ) {
-
         if (!activitySnapshot.inspectionSucceeded()) {
-
             log.debug(
                     "[CONVERSATION ACTIVITY] Activity inspection "
                             + "was unavailable for marketplace listing {}.",
                     listing.listingId()
             );
-
             return;
         }
 
-
         if (!activitySnapshot.latestOwnOfferFound()) {
-
             log.debug(
                     "[CONVERSATION ACTIVITY] No own offer was found "
                             + "in conversation for marketplace listing {}.",
                     listing.listingId()
             );
-
             return;
         }
 
-
-        if (
-                activitySnapshot
-                        .sellerMessageAfterLatestOwnOffer()
-        ) {
-
+        if (activitySnapshot.sellerMessageAfterLatestOwnOffer()) {
             log.info(
                     "[CONVERSATION ACTIVITY] Marketplace listing {} "
                             + "has a normal seller message after "
                             + "the latest own offer. "
                             + "Latest seller message at {}: {}",
                     listing.listingId(),
-                    activitySnapshot
-                            .latestSellerMessageAt(),
+                    activitySnapshot.latestSellerMessageAt(),
                     abbreviate(
-                            activitySnapshot
-                                    .latestSellerMessageText(),
+                            activitySnapshot.latestSellerMessageText(),
                             160
                     )
             );
         }
 
-
-        if (
-                activitySnapshot
-                        .readIndicatorAfterLatestOwnOffer()
-        ) {
-
+        if (activitySnapshot.readIndicatorAfterLatestOwnOffer()) {
             log.info(
                     "[CONVERSATION ACTIVITY] Marketplace listing {} "
                             + "shows the Vinted read indicator after "
@@ -578,14 +341,8 @@ public class ExistingNegotiationProcessor {
             );
         }
 
-
-        if (
-                !activitySnapshot
-                        .sellerMessageAfterLatestOwnOffer()
-                        && !activitySnapshot
-                        .readIndicatorAfterLatestOwnOffer()
-        ) {
-
+        if (!activitySnapshot.sellerMessageAfterLatestOwnOffer()
+                && !activitySnapshot.readIndicatorAfterLatestOwnOffer()) {
             log.debug(
                     "[CONVERSATION ACTIVITY] Marketplace listing {} "
                             + "has no normal seller message and no read "
@@ -595,81 +352,49 @@ public class ExistingNegotiationProcessor {
         }
     }
 
-
     private void persistConversationActivity(
             ListingResponseDto listing,
             ConversationActivitySnapshot activitySnapshot
     ) {
-
-        if (
-                !activitySnapshot.inspectionSucceeded()
-                        || !activitySnapshot.latestOwnOfferFound()
-        ) {
-
+        if (!activitySnapshot.inspectionSucceeded()
+                || !activitySnapshot.latestOwnOfferFound()) {
             return;
         }
-
 
         boolean sellerActivityCanBePersisted =
-                activitySnapshot
-                        .sellerMessageAfterLatestOwnOffer()
-                        && activitySnapshot
-                        .latestSellerMessageAt()
-                        != null;
-
+                activitySnapshot.sellerMessageAfterLatestOwnOffer()
+                        && activitySnapshot.latestSellerMessageAt() != null;
 
         boolean readDetected =
-                activitySnapshot
-                        .readIndicatorAfterLatestOwnOffer();
+                activitySnapshot.readIndicatorAfterLatestOwnOffer();
 
-
-        if (
-                !sellerActivityCanBePersisted
-                        && !readDetected
-        ) {
-
+        if (!sellerActivityCanBePersisted && !readDetected) {
             return;
         }
-
 
         NegotiationActivityRequestDto request =
                 new NegotiationActivityRequestDto(
                         sellerActivityCanBePersisted
-                                ? activitySnapshot
-                                .latestSellerMessageAt()
+                                ? activitySnapshot.latestSellerMessageAt()
                                 : null,
                         readDetected
                 );
 
-
         try {
-
             negotiationActivityClient.recordActivity(
-                    context.getBot()
-                            .getId(),
+                    context.getBot().getId(),
                     listing.id(),
                     request
             );
-
         } catch (Exception exception) {
-
-            /*
-             * Zapis timera jest dodatkową warstwą nad działającym
-             * mechanizmem negocjacji. Awaria backendowego endpointu
-             * nie może zablokować dotychczasowej decyzji:
-             * ACCEPT / REJECT / COUNTER / WAIT.
-             */
             log.warn(
                     "[NEGOTIATION ACTIVITY API] Could not persist "
                             + "activity for backend listing {}, "
                             + "marketplace listing {}: {}",
                     listing.id(),
                     listing.listingId(),
-                    getFriendlyErrorMessage(
-                            exception
-                    )
+                    getFriendlyErrorMessage(exception)
             );
-
 
             log.trace(
                     "[NEGOTIATION ACTIVITY API] Full persistence "
@@ -680,54 +405,31 @@ public class ExistingNegotiationProcessor {
         }
     }
 
-
     private String abbreviate(
             String value,
             int maximumLength
     ) {
-
         if (value == null) {
-
             return "<none>";
         }
 
-
         String normalized =
-                value.replaceAll(
-                                "\\s+",
-                                " "
-                        )
-                        .trim();
+                value.replaceAll("\\s+", " ").trim();
 
-
-        if (
-                normalized.length()
-                        <= maximumLength
-        ) {
-
+        if (normalized.length() <= maximumLength) {
             return normalized;
         }
 
-
-        return normalized
-                .substring(
-                        0,
-                        maximumLength
-                )
-                + "...";
+        return normalized.substring(0, maximumLength) + "...";
     }
-
 
     private boolean handleNegotiationDecision(
             ListingResponseDto listing,
             NegotiationConversationSnapshot snapshot,
             NegotiationDecision decision
     ) {
-
         return switch (decision.type()) {
-
             case WAIT -> {
-
                 log.info(
                         "[DECISION] Marketplace listing {} remains "
                                 + "NEGOTIATING. The bot is waiting "
@@ -737,19 +439,15 @@ public class ExistingNegotiationProcessor {
                         snapshot.result(),
                         decision.reason()
                 );
-
                 yield false;
             }
 
-
             case MARK_ACTION_REQUIRED -> {
-
                 ListingResponseDto updatedListing =
                         listingStatusUpdater.markActionRequired(
                                 listing,
                                 decision
                         );
-
 
                 log.warn(
                         "[DECISION] Marketplace listing {} was changed "
@@ -763,27 +461,18 @@ public class ExistingNegotiationProcessor {
                         updatedListing.currentPrice(),
                         decision.reason()
                 );
-
-
                 yield false;
             }
 
-
             case SEND_NEXT_STEP ->
-                    processNextStep(
-                            listing,
-                            decision
-                    );
-
+                    processNextStep(listing, decision);
 
             case MARK_REJECTED -> {
-
                 ListingResponseDto updatedListing =
                         listingStatusUpdater.markRejected(
                                 listing,
                                 decision
                         );
-
 
                 log.warn(
                         "[DECISION] Marketplace listing {} was changed "
@@ -795,14 +484,10 @@ public class ExistingNegotiationProcessor {
                         updatedListing.currentPrice(),
                         decision.reason()
                 );
-
-
                 yield false;
             }
 
-
             case KEEP_UNKNOWN -> {
-
                 log.warn(
                         "[DECISION] Marketplace listing {} remains "
                                 + "NEGOTIATING because the conversation "
@@ -810,28 +495,22 @@ public class ExistingNegotiationProcessor {
                         listing.listingId(),
                         decision.reason()
                 );
-
-
                 yield false;
             }
         };
     }
 
-
     private boolean processNextStep(
             ListingResponseDto listing,
             NegotiationDecision decision
     ) {
-
         if (decision.nextStep() == null) {
-
             throw new IllegalStateException(
                     "Decision SEND_NEXT_STEP contains no next step "
                             + "for backend listing "
                             + listing.id()
             );
         }
-
 
         log.warn(
                 "[DECISION] Marketplace listing {} qualifies "
@@ -847,15 +526,7 @@ public class ExistingNegotiationProcessor {
                 decision.reason()
         );
 
-
-        /*
-         * DRY RUN.
-         *
-         * Nie rezerwujemy quota, bo niczego
-         * faktycznie nie wysyłamy.
-         */
         if (!realNextStepsEnabled) {
-
             log.warn(
                     "[NEXT STEP DRY RUN] Real next steps are disabled. "
                             + "Preparing step {} for marketplace listing {} "
@@ -864,16 +535,13 @@ public class ExistingNegotiationProcessor {
                     listing.listingId()
             );
 
-
             NextStepPreparationResult preparationResult =
                     nextNegotiationStepExecutor.prepareDryRun(
                             listing,
                             decision.nextStep()
                     );
 
-
             switch (preparationResult) {
-
                 case PREPARED -> log.warn(
                         "[NEXT STEP DRY RUN] Marketplace listing {} "
                                 + "passed next-step validation. "
@@ -883,7 +551,6 @@ public class ExistingNegotiationProcessor {
                         decision.nextStep().getStepNumber(),
                         decision.nextStep().getOfferPrice()
                 );
-
 
                 case OFFER_TOO_LOW -> log.warn(
                         "[NEXT STEP DRY RUN] Marketplace listing {} "
@@ -896,25 +563,50 @@ public class ExistingNegotiationProcessor {
                 );
             }
 
-
             return false;
         }
 
+        Long botId = context.getBot().getId();
 
-        Long botId =
-                context.getBot()
-                        .getId();
-
-
-        OfferQuotaReservationResponseDto quotaReservation =
-                offerQuotaClient.reserveSlot(
-                        botId
+        var guardRequestId =
+                nextStepActionGuardCoordinator.acquire(
+                        botId,
+                        listing,
+                        decision.nextStep()
                 );
 
+        if (guardRequestId == null) {
+            log.error(
+                    "[NEXT STEP REAL] Persistent NEXT_STEP guard blocked "
+                            + "marketplace listing {}. No quota was reserved "
+                            + "and no real submit was attempted.",
+                    listing.listingId()
+            );
+            return false;
+        }
 
-        if (
-                !quotaReservation.reserved()
-        ) {
+        OfferQuotaReservationResponseDto quotaReservation;
+
+        try {
+            quotaReservation =
+                    offerQuotaClient.reserveSlot(botId);
+        } catch (Exception exception) {
+            nextStepActionGuardCoordinator.releaseBeforeSubmitOrRetrySafely(
+                    botId,
+                    listing,
+                    guardRequestId,
+                    "quota reservation failed before real submit"
+            );
+            throw exception;
+        }
+
+        if (!quotaReservation.reserved()) {
+            nextStepActionGuardCoordinator.releaseBeforeSubmitOrRetrySafely(
+                    botId,
+                    listing,
+                    guardRequestId,
+                    "daily quota not reserved"
+            );
 
             log.warn(
                     "[NEXT STEP REAL] Daily offer quota exhausted for bot {}. "
@@ -929,13 +621,12 @@ public class ExistingNegotiationProcessor {
                     listing.listingId()
             );
 
-
             return false;
         }
 
-
         log.warn(
                 "[NEXT STEP REAL] Real next steps are enabled. "
+                        + "Persistent guard and quota are reserved. "
                         + "The bot will now send step {} with price {} "
                         + "for marketplace listing {}. "
                         + "Quota after reservation: {}/{}, remaining: {}.",
@@ -947,29 +638,23 @@ public class ExistingNegotiationProcessor {
                 quotaReservation.remaining()
         );
 
-
         NextStepExecutionResult executionResult;
 
-
         try {
-
             executionResult =
                     nextNegotiationStepExecutor.sendNextStep(
                             listing,
                             decision.nextStep()
                     );
-
         } catch (Exception exception) {
-
             log.error(
-                    "[NEXT STEP REAL] Failed after reserving quota for "
-                            + "marketplace listing {}: {}. "
-                            + "The quota slot will NOT be released because "
-                            + "the delivery state is unknown.",
+                    "[NEXT STEP REAL] Failed after reserving quota and "
+                            + "entering the real next-step flow for marketplace "
+                            + "listing {}: {}. The quota slot and persistent "
+                            + "guard will NOT be released because delivery "
+                            + "state is unknown.",
                     listing.listingId(),
-                    getFriendlyErrorMessage(
-                            exception
-                    )
+                    getFriendlyErrorMessage(exception)
             );
 
             log.trace(
@@ -977,16 +662,16 @@ public class ExistingNegotiationProcessor {
                     listing.listingId(),
                     exception
             );
-
-
             throw exception;
         }
 
-
-        if (
-                executionResult
-                        == NextStepExecutionResult.SENT
-        ) {
+        if (executionResult == NextStepExecutionResult.SENT) {
+            nextStepActionGuardCoordinator
+                    .releaseAfterConfirmedSuccessBestEffort(
+                            botId,
+                            listing,
+                            guardRequestId
+                    );
 
             log.warn(
                     "[NEXT STEP REAL] Step {} was sent successfully "
@@ -1001,22 +686,22 @@ public class ExistingNegotiationProcessor {
                     quotaReservation.remaining()
             );
 
-
             return true;
         }
 
-
-        if (
-                executionResult
-                        == NextStepExecutionResult.OFFER_TOO_LOW
-        ) {
-
+        if (executionResult == NextStepExecutionResult.OFFER_TOO_LOW) {
             releaseQuotaSlot(
                     botId,
                     listing,
                     "next-step offer too low"
             );
 
+            nextStepActionGuardCoordinator.releaseBeforeSubmitOrRetrySafely(
+                    botId,
+                    listing,
+                    guardRequestId,
+                    "next-step offer too low before submit"
+            );
 
             log.error(
                     "[NEXT STEP REAL] Step {} was not sent for marketplace "
@@ -1027,10 +712,8 @@ public class ExistingNegotiationProcessor {
                     decision.nextStep().getOfferPrice()
             );
 
-
             return false;
         }
-
 
         throw new IllegalStateException(
                 "Unexpected next-step execution result: "
@@ -1038,19 +721,13 @@ public class ExistingNegotiationProcessor {
         );
     }
 
-
     private void releaseQuotaSlot(
             Long botId,
             ListingResponseDto listing,
             String reason
     ) {
-
         try {
-
-            offerQuotaClient.releaseSlot(
-                    botId
-            );
-
+            offerQuotaClient.releaseSlot(botId);
 
             log.info(
                     "[OFFER QUOTA] Released quota slot for bot {} "
@@ -1059,9 +736,7 @@ public class ExistingNegotiationProcessor {
                     listing.listingId(),
                     reason
             );
-
         } catch (Exception exception) {
-
             log.error(
                     "[OFFER QUOTA] Failed to release quota slot for bot {} "
                             + "and marketplace listing {}. "
@@ -1070,9 +745,7 @@ public class ExistingNegotiationProcessor {
                     botId,
                     listing.listingId(),
                     reason,
-                    getFriendlyErrorMessage(
-                            exception
-                    )
+                    getFriendlyErrorMessage(exception)
             );
 
             log.trace(
@@ -1084,77 +757,36 @@ public class ExistingNegotiationProcessor {
         }
     }
 
-
     private boolean matchesConfiguredTarget(
             ListingResponseDto listing,
             BotConfigurationDto configuration
     ) {
-
         String configuredModel =
-                normalizeTargetValue(
-                        configuration.getModel()
-                );
+                normalizeTargetValue(configuration.getModel());
 
-
-        /*
-         * Zachowujemy zgodność ze starszymi konfiguracjami,
-         * które nie miały modelu.
-         *
-         * Jeżeli model jest skonfigurowany, guard działa fail-closed:
-         * listing bez tytułu albo z innym tytułem nie może być dalej
-         * automatycznie negocjowany.
-         */
         if (configuredModel.isBlank()) {
-
             return true;
         }
 
-
         String configuredBrand =
-                normalizeTargetValue(
-                        configuration.getBrand()
-                );
-
+                normalizeTargetValue(configuration.getBrand());
 
         String expectedTitle;
 
-
-        if (
-                configuredBrand.isBlank()
-                        || configuredModel.equals(
-                        configuredBrand
-                )
-                        || configuredModel.startsWith(
-                        configuredBrand + " "
-                )
-        ) {
-
-            expectedTitle =
-                    configuredModel;
-
+        if (configuredBrand.isBlank()
+                || configuredModel.equals(configuredBrand)
+                || configuredModel.startsWith(configuredBrand + " ")) {
+            expectedTitle = configuredModel;
         } else {
-
-            expectedTitle =
-                    configuredBrand
-                            + " "
-                            + configuredModel;
+            expectedTitle = configuredBrand + " " + configuredModel;
         }
 
-
         String actualTitle =
-                normalizeTargetValue(
-                        listing.title()
-                );
+                normalizeTargetValue(listing.title());
 
-
-        boolean matches =
-                expectedTitle.equals(
-                        actualTitle
-                );
-
+        boolean matches = expectedTitle.equals(actualTitle);
 
         if (!matches) {
-
             log.error(
                     "[TARGET GUARD] Target mismatch detected before opening "
                             + "conversation. Backend listing {}, marketplace "
@@ -1167,20 +799,14 @@ public class ExistingNegotiationProcessor {
             );
         }
 
-
         return matches;
     }
-
 
     private ListingResponseDto finishWrongTargetNegotiation(
             ListingResponseDto listing
     ) {
-
-        if (
-                listing.currentStep() == null
-                        || listing.currentStep() <= 0
-        ) {
-
+        if (listing.currentStep() == null
+                || listing.currentStep() <= 0) {
             throw new IllegalStateException(
                     "Cannot finish wrong-target negotiation because backend "
                             + "listing "
@@ -1190,12 +816,8 @@ public class ExistingNegotiationProcessor {
             );
         }
 
-
-        if (
-                listing.currentPrice() == null
-                        && listing.originalPrice() == null
-        ) {
-
+        if (listing.currentPrice() == null
+                && listing.originalPrice() == null) {
             throw new IllegalStateException(
                     "Cannot finish wrong-target negotiation because backend "
                             + "listing "
@@ -1203,7 +825,6 @@ public class ExistingNegotiationProcessor {
                             + " has no current or original price"
             );
         }
-
 
         UpdateListingRequestDto request =
                 new UpdateListingRequestDto(
@@ -1217,22 +838,14 @@ public class ExistingNegotiationProcessor {
                         listing.conversationUrl()
                 );
 
-
         ListingResponseDto updatedListing =
                 listingClient.updateListing(
-                        context.getBot()
-                                .getId(),
+                        context.getBot().getId(),
                         listing.id(),
                         request
                 );
 
-
-        if (
-                !"FINISHED".equals(
-                        updatedListing.status()
-                )
-        ) {
-
+        if (!"FINISHED".equals(updatedListing.status())) {
             throw new IllegalStateException(
                     "Backend returned an unexpected status after stopping "
                             + "wrong-target negotiation. Expected FINISHED, "
@@ -1241,13 +854,9 @@ public class ExistingNegotiationProcessor {
             );
         }
 
-
-        if (
-                Boolean.TRUE.equals(
-                        updatedListing.awaitingSellerResponse()
-                )
-        ) {
-
+        if (Boolean.TRUE.equals(
+                updatedListing.awaitingSellerResponse()
+        )) {
             throw new IllegalStateException(
                     "Backend listing "
                             + listing.id()
@@ -1256,103 +865,48 @@ public class ExistingNegotiationProcessor {
             );
         }
 
-
         return updatedListing;
     }
 
-
-    private String normalizeTargetValue(
-            String value
-    ) {
-
+    private String normalizeTargetValue(String value) {
         if (value == null) {
-
             return "";
         }
 
-
-        /*
-         * Galaxy S25 i Galaxy S25+ muszą pozostać różnymi modelami.
-         */
         String preparedValue =
-                value.replace(
-                                "+",
-                                " plus "
-                        )
-                        .replace(
-                                "＋",
-                                " plus "
-                        );
-
+                value.replace("+", " plus ")
+                        .replace("＋", " plus ");
 
         String withoutDiacritics =
                 Normalizer.normalize(
                                 preparedValue,
                                 Normalizer.Form.NFD
                         )
-                        .replaceAll(
-                                "\\p{M}+",
-                                ""
-                        );
-
+                        .replaceAll("\\p{M}+", "");
 
         return withoutDiacritics
-                .toLowerCase(
-                        Locale.ROOT
-                )
-                .replaceAll(
-                        "[^a-z0-9]+",
-                        " "
-                )
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", " ")
                 .trim()
-                .replaceAll(
-                        "\\s+",
-                        " "
-                );
+                .replaceAll("\\s+", " ");
     }
 
-
-    private String getFriendlyErrorMessage(
-            Throwable exception
-    ) {
-
+    private String getFriendlyErrorMessage(Throwable exception) {
         if (exception == null) {
-
             return "Unknown error";
         }
 
+        String message = exception.getMessage();
 
-        String message =
-                exception.getMessage();
-
-
-        if (
-                message == null
-                        || message.isBlank()
-        ) {
-
-            return exception
-                    .getClass()
-                    .getSimpleName();
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
         }
 
+        int firstLineEnd = message.indexOf('\n');
 
-        int firstLineEnd =
-                message.indexOf('\n');
-
-
-        if (
-                firstLineEnd > 0
-        ) {
-
-            return message
-                    .substring(
-                            0,
-                            firstLineEnd
-                    )
-                    .trim();
+        if (firstLineEnd > 0) {
+            return message.substring(0, firstLineEnd).trim();
         }
-
 
         return message.trim();
     }
