@@ -2,13 +2,15 @@ package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Objects;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Slf4j
 public record ScheduledRealActionConfig(
         boolean realOffersRequested,
         boolean realNextStepsRequested,
-        Long allowedBotId,
+        Set<Long> allowedBotIds,
         boolean confirmationValid,
         boolean preflightOnly
 ) {
@@ -19,7 +21,10 @@ public record ScheduledRealActionConfig(
     private static final String REAL_NEXT_STEPS_ENV =
             "FLIPBOT_REAL_NEXT_STEPS_ENABLED";
 
-    private static final String BOT_ID_ENV =
+    private static final String BOT_IDS_ENV =
+            "FLIPBOT_REAL_ACTION_BOT_IDS";
+
+    private static final String LEGACY_BOT_ID_ENV =
             "FLIPBOT_REAL_ACTION_BOT_ID";
 
     private static final String CONFIRM_ENV =
@@ -38,8 +43,8 @@ public record ScheduledRealActionConfig(
         boolean realNextStepsRequested =
                 readBoolean(REAL_NEXT_STEPS_ENV, false);
 
-        Long allowedBotId =
-                readPositiveLongOrNull(BOT_ID_ENV);
+        Set<Long> allowedBotIds =
+                readAllowedBotIds();
 
         String confirmation =
                 System.getenv(CONFIRM_ENV);
@@ -54,7 +59,7 @@ public record ScheduledRealActionConfig(
                 new ScheduledRealActionConfig(
                         realOffersRequested,
                         realNextStepsRequested,
-                        allowedBotId,
+                        allowedBotIds,
                         confirmationValid,
                         preflightOnly
                 );
@@ -68,12 +73,13 @@ public record ScheduledRealActionConfig(
             return config;
         }
 
-        if (allowedBotId == null || !confirmationValid) {
+        if (allowedBotIds.isEmpty() || !confirmationValid) {
             log.error(
                     "[REAL ACTION CONFIG] Real actions were requested but the safety gate is incomplete. "
-                            + "Required: positive {} and exact {} token. "
+                            + "Required: at least one positive bot id in {} (or legacy {}) and exact {} token. "
                             + "Effective mode remains DRY RUN.",
-                    BOT_ID_ENV,
+                    BOT_IDS_ENV,
+                    LEGACY_BOT_ID_ENV,
                     CONFIRM_ENV
             );
 
@@ -82,10 +88,10 @@ public record ScheduledRealActionConfig(
 
         if (preflightOnly) {
             log.warn(
-                    "[REAL ACTION CONFIG] PREFLIGHT ONLY mode is armed for bot {}. "
+                    "[REAL ACTION CONFIG] PREFLIGHT ONLY mode is armed for bot allowlist {}. "
                             + "Requested first offers={}, next steps={}. "
                             + "No real submit can be executed while {}=true.",
-                    allowedBotId,
+                    allowedBotIds,
                     realOffersRequested,
                     realNextStepsRequested,
                     PREFLIGHT_ONLY_ENV
@@ -95,10 +101,10 @@ public record ScheduledRealActionConfig(
         }
 
         log.warn(
-                "[REAL ACTION CONFIG] CONTROLLED REAL ACTION MODE is armed for bot {} only. "
+                "[REAL ACTION CONFIG] CONTROLLED REAL ACTION MODE is armed for bot allowlist {}. "
                         + "First offers requested={}, next steps requested={}. "
-                        + "Per-run limits remain hard-capped by the executor.",
-                allowedBotId,
+                        + "Per-run and one-shot limits remain enforced per bot.",
+                allowedBotIds,
                 realOffersRequested,
                 realNextStepsRequested
         );
@@ -128,8 +134,97 @@ public record ScheduledRealActionConfig(
 
     public boolean isArmedFor(Long botId) {
         return confirmationValid
-                && allowedBotId != null
-                && Objects.equals(allowedBotId, botId);
+                && botId != null
+                && allowedBotIds.contains(botId);
+    }
+
+    private static Set<Long> readAllowedBotIds() {
+        String rawIds =
+                System.getenv(BOT_IDS_ENV);
+
+        if (rawIds != null && !rawIds.isBlank()) {
+            Set<Long> parsedIds =
+                    parsePositiveLongSetOrEmpty(
+                            BOT_IDS_ENV,
+                            rawIds
+                    );
+
+            if (System.getenv(LEGACY_BOT_ID_ENV) != null) {
+                log.info(
+                        "[REAL ACTION CONFIG] {} is set, so legacy {} is ignored.",
+                        BOT_IDS_ENV,
+                        LEGACY_BOT_ID_ENV
+                );
+            }
+
+            return parsedIds;
+        }
+
+        Long legacyBotId =
+                readPositiveLongOrNull(LEGACY_BOT_ID_ENV);
+
+        if (legacyBotId == null) {
+            return Set.of();
+        }
+
+        log.info(
+                "[REAL ACTION CONFIG] Using legacy {}={}. Prefer {} for multi-bot allowlists.",
+                LEGACY_BOT_ID_ENV,
+                legacyBotId,
+                BOT_IDS_ENV
+        );
+
+        return Set.of(legacyBotId);
+    }
+
+    private static Set<Long> parsePositiveLongSetOrEmpty(
+            String environmentName,
+            String rawValue
+    ) {
+        LinkedHashSet<Long> ids =
+                new LinkedHashSet<>();
+
+        String[] tokens =
+                rawValue.split(",", -1);
+
+        try {
+            for (String token : tokens) {
+                String trimmed =
+                        token.trim();
+
+                if (trimmed.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "Bot id entry cannot be blank"
+                    );
+                }
+
+                long parsed =
+                        Long.parseLong(trimmed);
+
+                if (parsed <= 0L) {
+                    throw new IllegalArgumentException(
+                            "Bot id must be positive"
+                    );
+                }
+
+                ids.add(parsed);
+            }
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[REAL ACTION CONFIG] Invalid {} value '{}'. "
+                            + "The entire real-action bot allowlist is disabled.",
+                    environmentName,
+                    rawValue
+            );
+
+            return Set.of();
+        }
+
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+
+        return Collections.unmodifiableSet(ids);
     }
 
     private static boolean readBoolean(
