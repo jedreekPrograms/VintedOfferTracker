@@ -25,10 +25,7 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                     }
             );
 
-    public void queued(
-            Long botId,
-            long nextRunAtEpochMs
-    ) {
+    public void queued(Long botId, long nextRunAtEpochMs) {
         send(
                 botId,
                 new RuntimeTelemetryEventRequest(
@@ -41,10 +38,7 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         );
     }
 
-    public void runStarted(
-            Long botId,
-            int workerSlot
-    ) {
+    public void runStarted(Long botId, int workerSlot) {
         send(
                 botId,
                 new RuntimeTelemetryEventRequest(
@@ -57,10 +51,7 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         );
     }
 
-    public void runSucceeded(
-            Long botId,
-            long durationMs
-    ) {
+    public void runSucceeded(Long botId, long durationMs) {
         send(
                 botId,
                 new RuntimeTelemetryEventRequest(
@@ -76,13 +67,14 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
     public void runFailed(
             Long botId,
             long durationMs,
+            long nextRunAtEpochMs,
             String errorMessage
     ) {
         send(
                 botId,
                 new RuntimeTelemetryEventRequest(
                         "RUN_FAILED",
-                        null,
+                        nextRunAtEpochMs,
                         durationMs,
                         null,
                         errorMessage
@@ -126,9 +118,7 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
             RuntimeTelemetryEventRequest request
     ) {
         try {
-            executor.execute(
-                    () -> sendNow(botId, request)
-            );
+            executor.execute(() -> sendNow(botId, request));
         } catch (RejectedExecutionException exception) {
             log.debug(
                     "[TELEMETRY] Reporter is already shutting down. Dropping {} for bot {}.",
