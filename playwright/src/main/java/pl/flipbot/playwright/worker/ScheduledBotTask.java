@@ -5,22 +5,13 @@ import java.util.concurrent.TimeUnit;
 
 public record ScheduledBotTask(
         Long botId,
+        ScheduledJobType jobType,
         long runAtNanos
 ) implements Delayed {
 
-    public static ScheduledBotTask now(
-            Long botId
-    ) {
-
-        return new ScheduledBotTask(
-                botId,
-                System.nanoTime()
-        );
-    }
-
-
     public static ScheduledBotTask afterDelay(
             Long botId,
+            ScheduledJobType jobType,
             long delayMillis
     ) {
 
@@ -30,16 +21,15 @@ public record ScheduledBotTask(
                         delayMillis
                 );
 
-
         return new ScheduledBotTask(
                 botId,
+                jobType,
                 System.nanoTime()
                         + TimeUnit.MILLISECONDS.toNanos(
                         safeDelayMillis
                 )
         );
     }
-
 
     @Override
     public long getDelay(
@@ -50,39 +40,43 @@ public record ScheduledBotTask(
                 runAtNanos
                         - System.nanoTime();
 
-
         return unit.convert(
                 remainingNanos,
                 TimeUnit.NANOSECONDS
         );
     }
 
-
     @Override
     public int compareTo(
             Delayed other
     ) {
 
-        if (
-                other == this
-        ) {
-
+        if (other == this) {
             return 0;
         }
 
-
         long difference =
-                getDelay(
-                        TimeUnit.NANOSECONDS
-                )
-                        - other.getDelay(
-                        TimeUnit.NANOSECONDS
-                );
+                getDelay(TimeUnit.NANOSECONDS)
+                        - other.getDelay(TimeUnit.NANOSECONDS);
 
+        if (difference != 0L) {
+            return Long.compare(difference, 0L);
+        }
 
-        return Long.compare(
-                difference,
-                0L
-        );
+        if (other instanceof ScheduledBotTask otherTask) {
+            int botComparison =
+                    Long.compare(
+                            botId,
+                            otherTask.botId
+                    );
+
+            if (botComparison != 0) {
+                return botComparison;
+            }
+
+            return jobType.compareTo(otherTask.jobType);
+        }
+
+        return 0;
     }
 }
