@@ -55,6 +55,8 @@ public class WorkerManager implements AutoCloseable {
     private final AtomicBoolean stopping =
             new AtomicBoolean(false);
 
+    private int startedSlotCount = 0;
+
     public void start() {
         if (!started.compareAndSet(false, true)) {
             log.warn("WorkerManager is already started.");
@@ -62,10 +64,10 @@ public class WorkerManager implements AutoCloseable {
         }
 
         log.info(
-                "Starting scheduler runtime. Worker slots={}, sync={}s, "
-                        + "negotiation check={}s, catalog scan={}s, "
-                        + "failure retry={}s, rate-limit retry={}s.",
+                "Starting scheduler runtime. Max worker slots={}, scheduler headless={}, sync={}s, "
+                        + "negotiation check={}s, catalog scan={}s, failure retry={}s, rate-limit retry={}s.",
                 config.workerCount(),
+                config.schedulerHeadless(),
                 config.syncIntervalSeconds(),
                 config.negotiationCheckIntervalSeconds(),
                 config.catalogScanIntervalSeconds(),
@@ -73,28 +75,19 @@ public class WorkerManager implements AutoCloseable {
                 config.rateLimitDelaySeconds()
         );
 
-        startWorkerSlots();
-
+        /*
+         * Worker slots are deliberately NOT started here.
+         * The first scheduler sync knows how many bots are actually RUNNING,
+         * and starts only min(RUNNING, configured max) consumers. This avoids
+         * waking ten independent Chrome runtimes for two bots and prevents the
+         * same tiny bot fleet from gradually migrating through unused slots.
+         */
         syncExecutor.scheduleWithFixedDelay(
                 this::syncRunningBots,
                 0L,
                 config.syncIntervalSeconds(),
                 TimeUnit.SECONDS
         );
-    }
-
-    private void startWorkerSlots() {
-        for (int slotNumber = 1; slotNumber <= config.workerCount(); slotNumber++) {
-            BotWorkerSlot slot =
-                    new BotWorkerSlot(
-                            slotNumber,
-                            scheduler,
-                            config,
-                            telemetryReporter
-                    );
-
-            slotFutures.add(slotExecutor.submit(slot));
-        }
     }
 
     private void syncRunningBots() {
@@ -120,6 +113,13 @@ public class WorkerManager implements AutoCloseable {
 
             scheduler.reconcileRunningBots(runningBots);
 
+            int requiredSlots = Math.min(
+                    config.workerCount(),
+                    runningBots.size()
+            );
+
+            ensureWorkerSlots(requiredSlots);
+
             long activeNegotiationBots =
                     runningBots.values()
                             .stream()
@@ -128,11 +128,12 @@ public class WorkerManager implements AutoCloseable {
 
             log.info(
                     "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
-                            + "queued={}, working={}, slots={}.",
+                            + "queued={}, working={}, activeSlots={}, maxSlots={}.",
                     scheduler.enabledBotCount(),
                     activeNegotiationBots,
                     scheduler.queuedCount(),
                     scheduler.workingCount(),
+                    currentStartedSlotCount(),
                     config.workerCount()
             );
         } catch (Exception exception) {
@@ -143,16 +144,51 @@ public class WorkerManager implements AutoCloseable {
         }
     }
 
+    private synchronized void ensureWorkerSlots(int requiredSlotCount) {
+        int targetSlotCount = Math.max(
+                0,
+                Math.min(
+                        requiredSlotCount,
+                        config.workerCount()
+                )
+        );
+
+        while (startedSlotCount < targetSlotCount) {
+            int slotNumber = ++startedSlotCount;
+
+            BotWorkerSlot slot =
+                    new BotWorkerSlot(
+                            slotNumber,
+                            scheduler,
+                            config,
+                            telemetryReporter
+                    );
+
+            slotFutures.add(slotExecutor.submit(slot));
+
+            log.info(
+                    "[SCHEDULER] Started worker slot {}/{} because current RUNNING bot count requires it.",
+                    slotNumber,
+                    config.workerCount()
+            );
+        }
+    }
+
+    private synchronized int currentStartedSlotCount() {
+        return startedSlotCount;
+    }
+
     public void stop() {
         if (!stopping.compareAndSet(false, true)) {
             return;
         }
 
         log.info(
-                "Stopping scheduler runtime. RUNNING={}, queued={}, working={}.",
+                "Stopping scheduler runtime. RUNNING={}, queued={}, working={}, activeSlots={}.",
                 scheduler.enabledBotCount(),
                 scheduler.queuedCount(),
-                scheduler.workingCount()
+                scheduler.workingCount(),
+                currentStartedSlotCount()
         );
 
         scheduler.shutdown();
