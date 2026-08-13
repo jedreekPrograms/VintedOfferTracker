@@ -35,9 +35,10 @@ public class BotWorkerSlot implements Runnable {
     @Override
     public void run() {
         log.info(
-                "[SLOT {}] Starting reusable worker slot on thread {}. Browser will launch lazily on first claimed job.",
+                "[SLOT {}] Starting reusable worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}.",
                 slotNumber,
-                Thread.currentThread().getName()
+                Thread.currentThread().getName(),
+                config.schedulerHeadless()
         );
 
         BrowserManager browserManager = null;
@@ -74,11 +75,14 @@ public class BotWorkerSlot implements Runnable {
 
                     if (browserManager == null) {
                         log.info(
-                                "[SLOT {}] Launching Playwright browser runtime for the first claimed job.",
-                                slotNumber
+                                "[SLOT {}] Launching Playwright browser runtime for the first claimed job. headless={}",
+                                slotNumber,
+                                config.schedulerHeadless()
                         );
 
-                        browserManager = new BrowserManager();
+                        browserManager = new BrowserManager(
+                                config.schedulerHeadless()
+                        );
                     }
 
                     BotDetailsDto bot = botApiClient.getBot(botId);
