@@ -9,4 +9,10 @@ public class RunningBotDto {
 
     private Long id;
 
+    private boolean hasActiveNegotiations;
+
+    public boolean hasActiveNegotiations() {
+        return hasActiveNegotiations;
+    }
+
 }

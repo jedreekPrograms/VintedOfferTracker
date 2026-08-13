@@ -14,93 +14,68 @@ import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 @Slf4j
 public class ScheduledBotRunExecutor {
 
-    /*
-     * Scheduler mode is intentionally DRY RUN for real actions.
-     * We do not reuse the old manual test flags here.
-     */
-    private static final boolean REAL_OFFERS_ENABLED =
-            false;
-
-    private static final boolean REAL_NEXT_STEPS_ENABLED =
-            false;
-
-    private static final boolean REAL_OFFER_ONE_SHOT_TEST_MODE =
-            true;
-
-    private static final int MAX_REAL_OFFERS_PER_RUN =
-            1;
-
-    private static final int MAX_REAL_NEXT_STEPS_PER_RUN =
-            1;
-
+    private static final boolean REAL_OFFERS_ENABLED = false;
+    private static final boolean REAL_NEXT_STEPS_ENABLED = false;
+    private static final boolean REAL_OFFER_ONE_SHOT_TEST_MODE = true;
+    private static final int MAX_REAL_OFFERS_PER_RUN = 1;
+    private static final int MAX_REAL_NEXT_STEPS_PER_RUN = 1;
 
     private final BotDetailsDto bot;
-
     private final BrowserManager browserManager;
-
 
     public ScheduledBotRunExecutor(
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
-
-        if (
-                bot == null
-                        || bot.getId() == null
-                        || bot.getId() <= 0
-        ) {
+        if (bot == null
+                || bot.getId() == null
+                || bot.getId() <= 0) {
 
             throw new IllegalArgumentException(
                     "Bot details with a positive ID are required."
             );
         }
 
-
-        this.bot =
-                bot;
-
-        this.browserManager =
-                browserManager;
+        this.bot = bot;
+        this.browserManager = browserManager;
     }
 
-
+    /**
+     * Compatibility helper preserving the old full-run lifecycle:
+     * one context, one login, negotiations first, then catalog.
+     */
     public void executeOneRun() {
+        executeInternal(null);
+    }
 
-        Long botId =
-                bot.getId();
+    public void executeJob(
+            ScheduledJobType jobType
+    ) {
+        if (jobType == null) {
+            throw new IllegalArgumentException(
+                    "Scheduled job type is required."
+            );
+        }
 
+        executeInternal(jobType);
+    }
 
-        BotContext context =
-                new BotContext(
-                        bot,
-                        browserManager
-                );
-
-
-        boolean loginReady =
-                false;
-
+    private void executeInternal(
+            ScheduledJobType jobType
+    ) {
+        Long botId = bot.getId();
+        BotContext context = new BotContext(bot, browserManager);
+        boolean loginReady = false;
 
         try {
-
-            LoginService loginService =
-                    new LoginService(
-                            context
-                    );
-
-
-            ListingClient listingClient =
-                    new ListingClient();
-
-            OfferQuotaClient offerQuotaClient =
-                    new OfferQuotaClient();
-
+            LoginService loginService = new LoginService(context);
+            ListingClient listingClient = new ListingClient();
+            OfferQuotaClient offerQuotaClient = new OfferQuotaClient();
             ListingStatusUpdater listingStatusUpdater =
                     new ListingStatusUpdater(
                             context,
                             listingClient
                     );
-
 
             ExistingNegotiationProcessor existingNegotiationProcessor =
                     new ExistingNegotiationProcessor(
@@ -112,7 +87,6 @@ public class ScheduledBotRunExecutor {
                             MAX_REAL_NEXT_STEPS_PER_RUN
                     );
 
-
             CatalogWorkProcessor catalogWorkProcessor =
                     new CatalogWorkProcessor(
                             context,
@@ -123,7 +97,6 @@ public class ScheduledBotRunExecutor {
                             MAX_REAL_OFFERS_PER_RUN
                     );
 
-
             BotRunExecutor botRunExecutor =
                     new BotRunExecutor(
                             context,
@@ -133,50 +106,44 @@ public class ScheduledBotRunExecutor {
                             REAL_OFFER_ONE_SHOT_TEST_MODE
                     );
 
-
             log.info(
-                    "[SCHEDULED RUN] Preparing bot {} in DRY RUN mode.",
+                    "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN mode.",
+                    jobType == null ? "FULL_RUN" : jobType,
                     botId
             );
 
-
             loginService.login();
+            loginReady = true;
 
-            loginReady =
-                    true;
-
-
-            botRunExecutor.executeOneRun();
+            if (jobType == null) {
+                botRunExecutor.executeOneRun();
+            } else {
+                switch (jobType) {
+                    case NEGOTIATION_CHECK ->
+                            botRunExecutor.executeNegotiationCheck();
+                    case CATALOG_SCAN ->
+                            botRunExecutor.executeCatalogScan();
+                }
+            }
 
         } finally {
-
-            if (
-                    loginReady
-            ) {
-
+            if (loginReady) {
                 try {
-
                     context.saveSession();
-
                 } catch (Exception exception) {
-
                     log.warn(
-                            "[SCHEDULED RUN] Could not save session for bot {} before closing its context.",
+                            "[SCHEDULED JOB] Could not save session for bot {} before closing its context.",
                             botId,
                             exception
                     );
                 }
             }
 
-
             try {
-
                 context.close();
-
             } catch (Exception exception) {
-
                 log.warn(
-                        "[SCHEDULED RUN] Could not close browser context cleanly for bot {}.",
+                        "[SCHEDULED JOB] Could not close browser context cleanly for bot {}.",
                         botId,
                         exception
                 );

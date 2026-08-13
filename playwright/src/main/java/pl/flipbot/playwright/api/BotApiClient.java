@@ -13,7 +13,7 @@ public class BotApiClient extends ApiClient {
 
     public List<RunningBotDto> getRunningBots() {
 
-        HttpResponse<String> response = get("/api/bots/running");
+        HttpResponse<String> response = get("/api/scheduler/bots/running");
 
         try {
 

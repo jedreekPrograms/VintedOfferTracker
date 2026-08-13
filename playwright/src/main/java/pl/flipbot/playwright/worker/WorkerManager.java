@@ -7,7 +7,7 @@ import pl.flipbot.playwright.model.RunningBotDto;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -30,7 +30,10 @@ public class WorkerManager implements AutoCloseable {
             new RuntimeTelemetryReporter();
 
     private final BotRunScheduler scheduler =
-            new BotRunScheduler(telemetryReporter);
+            new BotRunScheduler(
+                    config,
+                    telemetryReporter
+            );
 
     private final ScheduledExecutorService syncExecutor =
             Executors.newSingleThreadScheduledExecutor(
@@ -59,11 +62,13 @@ public class WorkerManager implements AutoCloseable {
         }
 
         log.info(
-                "Starting scheduler runtime. Worker slots={}, sync={}s, normal run delay={}s, "
+                "Starting scheduler runtime. Worker slots={}, sync={}s, "
+                        + "negotiation check={}s, catalog scan={}s, "
                         + "failure retry={}s, rate-limit retry={}s.",
                 config.workerCount(),
                 config.syncIntervalSeconds(),
-                config.normalRunDelaySeconds(),
+                config.negotiationCheckIntervalSeconds(),
+                config.catalogScanIntervalSeconds(),
                 config.failureDelaySeconds(),
                 config.rateLimitDelaySeconds()
         );
@@ -98,18 +103,34 @@ public class WorkerManager implements AutoCloseable {
         }
 
         try {
-            Set<Long> runningBotIds =
+            Map<Long, Boolean> runningBots =
                     botApiClient.getRunningBots()
                             .stream()
-                            .map(RunningBotDto::getId)
-                            .filter(botId -> botId != null && botId > 0)
-                            .collect(Collectors.toSet());
+                            .filter(
+                                    bot -> bot.getId() != null
+                                            && bot.getId() > 0
+                            )
+                            .collect(
+                                    Collectors.toMap(
+                                            RunningBotDto::getId,
+                                            RunningBotDto::hasActiveNegotiations,
+                                            (left, right) -> left
+                                    )
+                            );
 
-            scheduler.reconcileRunningBots(runningBotIds);
+            scheduler.reconcileRunningBots(runningBots);
+
+            long activeNegotiationBots =
+                    runningBots.values()
+                            .stream()
+                            .filter(Boolean::booleanValue)
+                            .count();
 
             log.info(
-                    "[SCHEDULER] Sync complete. RUNNING={}, queued={}, working={}, slots={}.",
+                    "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
+                            + "queued={}, working={}, slots={}.",
                     scheduler.enabledBotCount(),
+                    activeNegotiationBots,
                     scheduler.queuedCount(),
                     scheduler.workingCount(),
                     config.workerCount()

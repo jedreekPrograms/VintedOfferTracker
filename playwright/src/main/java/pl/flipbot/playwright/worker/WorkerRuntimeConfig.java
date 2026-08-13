@@ -6,7 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 public record WorkerRuntimeConfig(
         int workerCount,
         long syncIntervalSeconds,
-        long normalRunDelaySeconds,
+        long negotiationCheckIntervalSeconds,
+        long catalogScanIntervalSeconds,
         long failureDelaySeconds,
         long rateLimitDelaySeconds,
         long shutdownTimeoutSeconds
@@ -16,11 +17,11 @@ public record WorkerRuntimeConfig(
     private static final int MAX_WORKER_COUNT = 100;
 
     private static final long DEFAULT_SYNC_INTERVAL_SECONDS = 5L;
-    private static final long DEFAULT_NORMAL_RUN_DELAY_SECONDS = 30L;
+    private static final long DEFAULT_NEGOTIATION_CHECK_INTERVAL_SECONDS = 120L;
+    private static final long DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS = 15L * 60L;
     private static final long DEFAULT_FAILURE_DELAY_SECONDS = 60L;
     private static final long DEFAULT_RATE_LIMIT_DELAY_SECONDS = 10L * 60L;
     private static final long DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 30L;
-
 
     public static WorkerRuntimeConfig fromEnvironment() {
 
@@ -38,9 +39,15 @@ public record WorkerRuntimeConfig(
                         60L
                 ),
                 readLong(
-                        "FLIPBOT_RUN_INTERVAL_SECONDS",
-                        DEFAULT_NORMAL_RUN_DELAY_SECONDS,
-                        0L,
+                        "FLIPBOT_NEGOTIATION_CHECK_INTERVAL_SECONDS",
+                        DEFAULT_NEGOTIATION_CHECK_INTERVAL_SECONDS,
+                        30L,
+                        60L * 60L
+                ),
+                readLong(
+                        "FLIPBOT_CATALOG_SCAN_INTERVAL_SECONDS",
+                        DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS,
+                        60L,
                         24L * 60L * 60L
                 ),
                 readLong(
@@ -64,6 +71,14 @@ public record WorkerRuntimeConfig(
         );
     }
 
+    public long normalDelaySeconds(
+            ScheduledJobType jobType
+    ) {
+        return switch (jobType) {
+            case NEGOTIATION_CHECK -> negotiationCheckIntervalSeconds;
+            case CATALOG_SCAN -> catalogScanIntervalSeconds;
+        };
+    }
 
     private static int readInt(
             String environmentName,
@@ -72,34 +87,16 @@ public record WorkerRuntimeConfig(
             int maximum
     ) {
 
-        String rawValue =
-                System.getenv(
-                        environmentName
-                );
+        String rawValue = System.getenv(environmentName);
 
-
-        if (
-                rawValue == null
-                        || rawValue.isBlank()
-        ) {
-
+        if (rawValue == null || rawValue.isBlank()) {
             return defaultValue;
         }
 
-
         try {
+            int parsedValue = Integer.parseInt(rawValue.trim());
 
-            int parsedValue =
-                    Integer.parseInt(
-                            rawValue.trim()
-                    );
-
-
-            if (
-                    parsedValue < minimum
-                            || parsedValue > maximum
-            ) {
-
+            if (parsedValue < minimum || parsedValue > maximum) {
                 throw new IllegalArgumentException(
                         "Value is outside allowed range "
                                 + minimum
@@ -108,11 +105,9 @@ public record WorkerRuntimeConfig(
                 );
             }
 
-
             return parsedValue;
 
         } catch (RuntimeException exception) {
-
             log.warn(
                     "Invalid {}='{}'. Using default {}.",
                     environmentName,
@@ -120,11 +115,9 @@ public record WorkerRuntimeConfig(
                     defaultValue
             );
 
-
             return defaultValue;
         }
     }
-
 
     private static long readLong(
             String environmentName,
@@ -133,34 +126,16 @@ public record WorkerRuntimeConfig(
             long maximum
     ) {
 
-        String rawValue =
-                System.getenv(
-                        environmentName
-                );
+        String rawValue = System.getenv(environmentName);
 
-
-        if (
-                rawValue == null
-                        || rawValue.isBlank()
-        ) {
-
+        if (rawValue == null || rawValue.isBlank()) {
             return defaultValue;
         }
 
-
         try {
+            long parsedValue = Long.parseLong(rawValue.trim());
 
-            long parsedValue =
-                    Long.parseLong(
-                            rawValue.trim()
-                    );
-
-
-            if (
-                    parsedValue < minimum
-                            || parsedValue > maximum
-            ) {
-
+            if (parsedValue < minimum || parsedValue > maximum) {
                 throw new IllegalArgumentException(
                         "Value is outside allowed range "
                                 + minimum
@@ -169,18 +144,15 @@ public record WorkerRuntimeConfig(
                 );
             }
 
-
             return parsedValue;
 
         } catch (RuntimeException exception) {
-
             log.warn(
                     "Invalid {}='{}'. Using default {}.",
                     environmentName,
                     rawValue,
                     defaultValue
             );
-
 
             return defaultValue;
         }
