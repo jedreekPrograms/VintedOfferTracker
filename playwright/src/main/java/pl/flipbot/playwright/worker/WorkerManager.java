@@ -2,12 +2,11 @@ package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.BotApiClient;
-import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.model.RunningBotDto;
 
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -20,39 +19,35 @@ import java.util.stream.Collectors;
 @Slf4j
 public class WorkerManager implements AutoCloseable {
 
-    private static final int MAX_CONCURRENT_BOTS =
-            10;
-
-    private static final long SYNC_INTERVAL_SECONDS =
-            5L;
-
-    private static final long SHUTDOWN_TIMEOUT_SECONDS =
-            20L;
-
+    private final WorkerRuntimeConfig config =
+            WorkerRuntimeConfig.fromEnvironment();
 
     private final BotApiClient botApiClient =
             new BotApiClient();
+
+    private final BotRunScheduler scheduler =
+            new BotRunScheduler();
 
 
     private final ScheduledExecutorService syncExecutor =
             Executors.newSingleThreadScheduledExecutor(
                     namedThreadFactory(
-                            "flipbot-worker-sync-"
+                            "flipbot-scheduler-sync-"
                     )
             );
 
 
-    private final ExecutorService workerExecutor =
+    private final ExecutorService slotExecutor =
             Executors.newFixedThreadPool(
-                    MAX_CONCURRENT_BOTS,
+                    config.workerCount(),
                     namedThreadFactory(
-                            "flipbot-bot-worker-"
+                            "flipbot-worker-slot-"
                     )
             );
 
 
-    private final Map<Long, WorkerHandle> workers =
-            new ConcurrentHashMap<>();
+    private final List<Future<?>> slotFutures =
+            new ArrayList<>();
 
 
     private final AtomicBoolean started =
@@ -80,22 +75,58 @@ public class WorkerManager implements AutoCloseable {
 
 
         log.info(
-                "Starting WorkerManager. Max concurrent bots: {}, sync interval: {} seconds.",
-                MAX_CONCURRENT_BOTS,
-                SYNC_INTERVAL_SECONDS
+                "Starting scheduler runtime. Worker slots={}, sync={}s, normal run delay={}s, "
+                        + "failure retry={}s, rate-limit retry={}s.",
+                config.workerCount(),
+                config.syncIntervalSeconds(),
+                config.normalRunDelaySeconds(),
+                config.failureDelaySeconds(),
+                config.rateLimitDelaySeconds()
         );
 
 
+        startWorkerSlots();
+
+
         syncExecutor.scheduleWithFixedDelay(
-                this::syncWorkers,
-                0,
-                SYNC_INTERVAL_SECONDS,
+                this::syncRunningBots,
+                0L,
+                config.syncIntervalSeconds(),
                 TimeUnit.SECONDS
         );
     }
 
 
-    public void syncWorkers() {
+    private void startWorkerSlots() {
+
+        for (
+                int slotNumber = 1;
+                slotNumber <= config.workerCount();
+                slotNumber++
+        ) {
+
+            BotWorkerSlot slot =
+                    new BotWorkerSlot(
+                            slotNumber,
+                            scheduler,
+                            config
+                    );
+
+
+            Future<?> future =
+                    slotExecutor.submit(
+                            slot
+                    );
+
+
+            slotFutures.add(
+                    future
+            );
+        }
+    }
+
+
+    private void syncRunningBots() {
 
         if (
                 stopping.get()
@@ -113,25 +144,29 @@ public class WorkerManager implements AutoCloseable {
                             .map(
                                     RunningBotDto::getId
                             )
+                            .filter(botId -> botId != null && botId > 0)
                             .collect(
                                     Collectors.toSet()
                             );
 
 
-            requestStopForInactiveWorkers(
+            scheduler.reconcileRunningBots(
                     runningBotIds
             );
 
-            removeFullyFinishedWorkers();
 
-            startMissingWorkers(
-                    runningBotIds
+            log.info(
+                    "[SCHEDULER] Sync complete. RUNNING={}, queued={}, working={}, slots={}.",
+                    scheduler.enabledBotCount(),
+                    scheduler.queuedCount(),
+                    scheduler.workingCount(),
+                    config.workerCount()
             );
 
         } catch (Exception exception) {
 
             log.error(
-                    "Failed to synchronize bot workers",
+                    "Failed to synchronize RUNNING bots with scheduler.",
                     exception
             );
         }
@@ -152,55 +187,43 @@ public class WorkerManager implements AutoCloseable {
 
 
         log.info(
-                "Stopping WorkerManager. Active/queued workers: {}.",
-                workers.size()
+                "Stopping scheduler runtime. RUNNING={}, queued={}, working={}.",
+                scheduler.enabledBotCount(),
+                scheduler.queuedCount(),
+                scheduler.workingCount()
         );
 
+
+        scheduler.shutdown();
 
         syncExecutor.shutdownNow();
 
 
-        workers.forEach(
-                (
-                        botId,
-                        handle
-                ) -> {
-
-                    boolean cancellationRequested =
-                            handle.future()
-                                    .cancel(
-                                            true
-                                    );
-
-
-                    log.info(
-                            "Shutdown cancellation requested for bot {}: {}.",
-                            botId,
-                            cancellationRequested
-                    );
-                }
+        slotFutures.forEach(
+                future -> future.cancel(
+                        true
+                )
         );
 
-
-        workerExecutor.shutdownNow();
+        slotExecutor.shutdownNow();
 
 
         awaitTermination(
                 syncExecutor,
-                "worker synchronization executor"
+                "scheduler synchronization executor"
         );
 
         awaitTermination(
-                workerExecutor,
-                "bot worker executor"
+                slotExecutor,
+                "worker slot executor"
         );
 
 
-        workers.clear();
+        slotFutures.clear();
 
 
         log.info(
-                "WorkerManager stopped."
+                "Scheduler runtime stopped."
         );
     }
 
@@ -209,209 +232,6 @@ public class WorkerManager implements AutoCloseable {
     public void close() {
 
         stop();
-    }
-
-
-    private void startMissingWorkers(
-            Set<Long> runningBotIds
-    ) {
-
-        for (
-                Long botId
-                : runningBotIds
-        ) {
-
-            if (
-                    stopping.get()
-            ) {
-
-                return;
-            }
-
-
-            if (
-                    botId == null
-                            || botId <= 0
-            ) {
-
-                log.warn(
-                        "Ignoring invalid running bot ID returned by backend: {}.",
-                        botId
-                );
-
-                continue;
-            }
-
-
-            if (
-                    workers.containsKey(
-                            botId
-                    )
-            ) {
-
-                continue;
-            }
-
-
-            try {
-
-                BotDetailsDto bot =
-                        botApiClient.getBot(
-                                botId
-                        );
-
-
-                BotWorkerRuntime runtime =
-                        new BotWorkerRuntime(
-                                bot
-                        );
-
-
-                Future<?> future =
-                        workerExecutor.submit(
-                                runtime
-                        );
-
-
-                WorkerHandle handle =
-                        new WorkerHandle(
-                                runtime,
-                                future
-                        );
-
-
-                WorkerHandle previous =
-                        workers.putIfAbsent(
-                                botId,
-                                handle
-                        );
-
-
-                if (
-                        previous != null
-                ) {
-
-                    future.cancel(
-                            true
-                    );
-
-
-                    log.warn(
-                            "A worker for bot {} appeared concurrently. The duplicate task was cancelled.",
-                            botId
-                    );
-
-                    continue;
-                }
-
-
-                log.info(
-                        "Started isolated worker runtime for bot {}.",
-                        botId
-                );
-
-            } catch (Exception exception) {
-
-                log.error(
-                        "Could not start worker for bot {}. Other bots will still be synchronized.",
-                        botId,
-                        exception
-                );
-            }
-        }
-    }
-
-
-    private void requestStopForInactiveWorkers(
-            Set<Long> runningBotIds
-    ) {
-
-        workers.forEach(
-                (
-                        botId,
-                        handle
-                ) -> {
-
-                    if (
-                            runningBotIds.contains(
-                                    botId
-                            )
-                    ) {
-
-                        return;
-                    }
-
-
-                    Future<?> future =
-                            handle.future();
-
-
-                    if (
-                            future.isCancelled()
-                                    || handle.runtime().isFinished()
-                    ) {
-
-                        return;
-                    }
-
-
-                    boolean cancellationRequested =
-                            future.cancel(
-                                    true
-                            );
-
-
-                    log.info(
-                            "Bot {} is no longer RUNNING. Worker cancellation requested: {}. "
-                                    + "The handle will remain registered until the runtime really finishes.",
-                            botId,
-                            cancellationRequested
-                    );
-                }
-        );
-    }
-
-
-    private void removeFullyFinishedWorkers() {
-
-        workers.entrySet()
-                .removeIf(
-                        entry -> {
-
-                            WorkerHandle handle =
-                                    entry.getValue();
-
-
-                            boolean runtimeFinished =
-                                    handle.runtime()
-                                            .isFinished();
-
-                            boolean cancelledBeforeStart =
-                                    handle.future()
-                                            .isCancelled()
-                                            && !handle.runtime()
-                                            .isStarted();
-
-
-                            if (
-                                    !runtimeFinished
-                                            && !cancelledBeforeStart
-                            ) {
-
-                                return false;
-                            }
-
-
-                            log.info(
-                                    "Removing fully finished worker handle for bot {}. "
-                                            + "Backend state will decide whether it should be restarted.",
-                                    entry.getKey()
-                            );
-
-
-                            return true;
-                        }
-                );
     }
 
 
@@ -424,7 +244,7 @@ public class WorkerManager implements AutoCloseable {
 
             if (
                     !executor.awaitTermination(
-                            SHUTDOWN_TIMEOUT_SECONDS,
+                            config.shutdownTimeoutSeconds(),
                             TimeUnit.SECONDS
                     )
             ) {
@@ -432,7 +252,7 @@ public class WorkerManager implements AutoCloseable {
                 log.warn(
                         "{} did not terminate within {} seconds.",
                         executorName,
-                        SHUTDOWN_TIMEOUT_SECONDS
+                        config.shutdownTimeoutSeconds()
                 );
             }
 
@@ -475,12 +295,5 @@ public class WorkerManager implements AutoCloseable {
 
             return thread;
         };
-    }
-
-
-    private record WorkerHandle(
-            BotWorkerRuntime runtime,
-            Future<?> future
-    ) {
     }
 }
