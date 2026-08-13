@@ -2,6 +2,7 @@ package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.BotApiClient;
+import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
 import pl.flipbot.playwright.model.RunningBotDto;
 
 import java.util.ArrayList;
@@ -25,30 +26,25 @@ public class WorkerManager implements AutoCloseable {
     private final BotApiClient botApiClient =
             new BotApiClient();
 
-    private final BotRunScheduler scheduler =
-            new BotRunScheduler();
+    private final RuntimeTelemetryReporter telemetryReporter =
+            new RuntimeTelemetryReporter();
 
+    private final BotRunScheduler scheduler =
+            new BotRunScheduler(telemetryReporter);
 
     private final ScheduledExecutorService syncExecutor =
             Executors.newSingleThreadScheduledExecutor(
-                    namedThreadFactory(
-                            "flipbot-scheduler-sync-"
-                    )
+                    namedThreadFactory("flipbot-scheduler-sync-")
             );
-
 
     private final ExecutorService slotExecutor =
             Executors.newFixedThreadPool(
                     config.workerCount(),
-                    namedThreadFactory(
-                            "flipbot-worker-slot-"
-                    )
+                    namedThreadFactory("flipbot-worker-slot-")
             );
-
 
     private final List<Future<?>> slotFutures =
             new ArrayList<>();
-
 
     private final AtomicBoolean started =
             new AtomicBoolean(false);
@@ -56,23 +52,11 @@ public class WorkerManager implements AutoCloseable {
     private final AtomicBoolean stopping =
             new AtomicBoolean(false);
 
-
     public void start() {
-
-        if (
-                !started.compareAndSet(
-                        false,
-                        true
-                )
-        ) {
-
-            log.warn(
-                    "WorkerManager is already started."
-            );
-
+        if (!started.compareAndSet(false, true)) {
+            log.warn("WorkerManager is already started.");
             return;
         }
-
 
         log.info(
                 "Starting scheduler runtime. Worker slots={}, sync={}s, normal run delay={}s, "
@@ -84,9 +68,7 @@ public class WorkerManager implements AutoCloseable {
                 config.rateLimitDelaySeconds()
         );
 
-
         startWorkerSlots();
-
 
         syncExecutor.scheduleWithFixedDelay(
                 this::syncRunningBots,
@@ -96,64 +78,34 @@ public class WorkerManager implements AutoCloseable {
         );
     }
 
-
     private void startWorkerSlots() {
-
-        for (
-                int slotNumber = 1;
-                slotNumber <= config.workerCount();
-                slotNumber++
-        ) {
-
+        for (int slotNumber = 1; slotNumber <= config.workerCount(); slotNumber++) {
             BotWorkerSlot slot =
                     new BotWorkerSlot(
                             slotNumber,
                             scheduler,
-                            config
+                            config,
+                            telemetryReporter
                     );
 
-
-            Future<?> future =
-                    slotExecutor.submit(
-                            slot
-                    );
-
-
-            slotFutures.add(
-                    future
-            );
+            slotFutures.add(slotExecutor.submit(slot));
         }
     }
 
-
     private void syncRunningBots() {
-
-        if (
-                stopping.get()
-        ) {
-
+        if (stopping.get()) {
             return;
         }
 
-
         try {
-
             Set<Long> runningBotIds =
                     botApiClient.getRunningBots()
                             .stream()
-                            .map(
-                                    RunningBotDto::getId
-                            )
+                            .map(RunningBotDto::getId)
                             .filter(botId -> botId != null && botId > 0)
-                            .collect(
-                                    Collectors.toSet()
-                            );
+                            .collect(Collectors.toSet());
 
-
-            scheduler.reconcileRunningBots(
-                    runningBotIds
-            );
-
+            scheduler.reconcileRunningBots(runningBotIds);
 
             log.info(
                     "[SCHEDULER] Sync complete. RUNNING={}, queued={}, working={}, slots={}.",
@@ -162,9 +114,7 @@ public class WorkerManager implements AutoCloseable {
                     scheduler.workingCount(),
                     config.workerCount()
             );
-
         } catch (Exception exception) {
-
             log.error(
                     "Failed to synchronize RUNNING bots with scheduler.",
                     exception
@@ -172,19 +122,10 @@ public class WorkerManager implements AutoCloseable {
         }
     }
 
-
     public void stop() {
-
-        if (
-                !stopping.compareAndSet(
-                        false,
-                        true
-                )
-        ) {
-
+        if (!stopping.compareAndSet(false, true)) {
             return;
         }
-
 
         log.info(
                 "Stopping scheduler runtime. RUNNING={}, queued={}, working={}.",
@@ -193,75 +134,43 @@ public class WorkerManager implements AutoCloseable {
                 scheduler.workingCount()
         );
 
-
         scheduler.shutdown();
-
         syncExecutor.shutdownNow();
 
-
-        slotFutures.forEach(
-                future -> future.cancel(
-                        true
-                )
-        );
-
+        slotFutures.forEach(future -> future.cancel(true));
         slotExecutor.shutdownNow();
 
-
-        awaitTermination(
-                syncExecutor,
-                "scheduler synchronization executor"
-        );
-
-        awaitTermination(
-                slotExecutor,
-                "worker slot executor"
-        );
-
+        awaitTermination(syncExecutor, "scheduler synchronization executor");
+        awaitTermination(slotExecutor, "worker slot executor");
 
         slotFutures.clear();
+        telemetryReporter.close();
 
-
-        log.info(
-                "Scheduler runtime stopped."
-        );
+        log.info("Scheduler runtime stopped.");
     }
-
 
     @Override
     public void close() {
-
         stop();
     }
-
 
     private void awaitTermination(
             ExecutorService executor,
             String executorName
     ) {
-
         try {
-
-            if (
-                    !executor.awaitTermination(
-                            config.shutdownTimeoutSeconds(),
-                            TimeUnit.SECONDS
-                    )
-            ) {
-
+            if (!executor.awaitTermination(
+                    config.shutdownTimeoutSeconds(),
+                    TimeUnit.SECONDS
+            )) {
                 log.warn(
                         "{} did not terminate within {} seconds.",
                         executorName,
                         config.shutdownTimeoutSeconds()
                 );
             }
-
         } catch (InterruptedException exception) {
-
-            Thread.currentThread()
-                    .interrupt();
-
-
+            Thread.currentThread().interrupt();
             log.warn(
                     "Interrupted while waiting for {} to terminate.",
                     executorName
@@ -269,30 +178,17 @@ public class WorkerManager implements AutoCloseable {
         }
     }
 
-
     private static java.util.concurrent.ThreadFactory namedThreadFactory(
             String prefix
     ) {
-
-        AtomicInteger sequence =
-                new AtomicInteger(1);
-
+        AtomicInteger sequence = new AtomicInteger(1);
 
         return runnable -> {
-
-            Thread thread =
-                    new Thread(
-                            runnable,
-                            prefix
-                                    + sequence.getAndIncrement()
-                    );
-
-
-            thread.setDaemon(
-                    false
+            Thread thread = new Thread(
+                    runnable,
+                    prefix + sequence.getAndIncrement()
             );
-
-
+            thread.setDaemon(false);
             return thread;
         };
     }
