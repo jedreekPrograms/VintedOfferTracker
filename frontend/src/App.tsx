@@ -7,6 +7,7 @@ import {
 import AppLayout from "./layout/AppLayout";
 
 import DashboardPage from "./pages/DashboardPage";
+import RuntimeDashboardPage from "./pages/RuntimeDashboardPage";
 import BotsPage from "./pages/BotsPage";
 import CreateBotPage from "./pages/CreateBotPage";
 import EditBotWithDeletePage from "./pages/EditBotWithDeletePage";
@@ -27,6 +28,11 @@ function App() {
                 <Route
                     index
                     element={<DashboardPage />}
+                />
+
+                <Route
+                    path="/runtime"
+                    element={<RuntimeDashboardPage />}
                 />
 
                 <Route
