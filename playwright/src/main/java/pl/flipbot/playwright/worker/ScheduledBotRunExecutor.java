@@ -41,14 +41,26 @@ public class ScheduledBotRunExecutor {
     }
 
     /**
-     * Compatibility helper. The scheduler itself uses executeJob(...).
+     * Compatibility helper preserving the old full-run lifecycle:
+     * one context, one login, negotiations first, then catalog.
      */
     public void executeOneRun() {
-        executeJob(ScheduledJobType.NEGOTIATION_CHECK);
-        executeJob(ScheduledJobType.CATALOG_SCAN);
+        executeInternal(null);
     }
 
     public void executeJob(
+            ScheduledJobType jobType
+    ) {
+        if (jobType == null) {
+            throw new IllegalArgumentException(
+                    "Scheduled job type is required."
+            );
+        }
+
+        executeInternal(jobType);
+    }
+
+    private void executeInternal(
             ScheduledJobType jobType
     ) {
         Long botId = bot.getId();
@@ -96,18 +108,22 @@ public class ScheduledBotRunExecutor {
 
             log.info(
                     "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN mode.",
-                    jobType,
+                    jobType == null ? "FULL_RUN" : jobType,
                     botId
             );
 
             loginService.login();
             loginReady = true;
 
-            switch (jobType) {
-                case NEGOTIATION_CHECK ->
-                        botRunExecutor.executeNegotiationCheck();
-                case CATALOG_SCAN ->
-                        botRunExecutor.executeCatalogScan();
+            if (jobType == null) {
+                botRunExecutor.executeOneRun();
+            } else {
+                switch (jobType) {
+                    case NEGOTIATION_CHECK ->
+                            botRunExecutor.executeNegotiationCheck();
+                    case CATALOG_SCAN ->
+                            botRunExecutor.executeCatalogScan();
+                }
             }
 
         } finally {
