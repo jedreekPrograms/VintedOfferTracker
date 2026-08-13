@@ -11,4 +11,8 @@ public class RunningBotDto {
 
     private boolean hasActiveNegotiations;
 
+    public boolean hasActiveNegotiations() {
+        return hasActiveNegotiations;
+    }
+
 }
