@@ -40,10 +40,14 @@ public class BotMapper {
 
     }
 
-    public RunningBotResponse mapRunning(Bot bot) {
+    public RunningBotResponse mapRunning(
+            Bot bot,
+            boolean hasActiveNegotiations
+    ) {
 
         return RunningBotResponse.builder()
                 .id(bot.getId())
+                .hasActiveNegotiations(hasActiveNegotiations)
                 .build();
     }
 }
