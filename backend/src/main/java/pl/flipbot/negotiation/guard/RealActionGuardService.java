@@ -39,6 +39,34 @@ public class RealActionGuardService {
         if (requestReplay != null) {
             validateReplay(requestReplay, listing, request);
 
+            if (isConfirmedByListingState(requestReplay, listing)) {
+                log.warn(
+                        "[REAL ACTION GUARD] Replay request {} refers to an action already confirmed by listing state. "
+                                + "Removing stale guard and refusing reacquisition. Bot={}, listing={}, action={}, step={}, status={}, currentStep={}",
+                        request.requestId(),
+                        botId,
+                        listingId,
+                        requestReplay.getActionType(),
+                        requestReplay.getStepNumber(),
+                        listing.getStatus(),
+                        listing.getCurrentStep()
+                );
+
+                realActionGuardRepository.delete(requestReplay);
+                realActionGuardRepository.flush();
+
+                return new RealActionGuardResponse(
+                        false,
+                        true,
+                        null,
+                        requestReplay.getActionType(),
+                        requestReplay.getStepNumber(),
+                        requestReplay.getCreatedAt()
+                );
+            }
+
+            validateActionAgainstListing(listing, request);
+
             log.info(
                     "[REAL ACTION GUARD] Replayed acquisition for bot {}, listing {}, action {}, step {}, requestId={}",
                     botId,
