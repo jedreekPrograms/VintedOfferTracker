@@ -43,11 +43,7 @@ public class ScheduledBotRunExecutor {
 
     /**
      * Compatibility helper preserving the old full-run lifecycle.
-     *
      * Real actions are intentionally NEVER enabled through this helper.
-     * Controlled real actions are available only through typed scheduler jobs,
-     * so a compatibility full run cannot perform a negotiation action and a
-     * catalog action in the same invocation.
      */
     public void executeOneRun() {
         executeInternal(null);
@@ -70,6 +66,14 @@ public class ScheduledBotRunExecutor {
     ) {
         Long botId = bot.getId();
 
+        boolean firstOfferRequested =
+                jobType == ScheduledJobType.CATALOG_SCAN
+                        && REAL_ACTION_CONFIG.realOffersRequestedFor(botId);
+
+        boolean nextStepRequested =
+                jobType == ScheduledJobType.NEGOTIATION_CHECK
+                        && REAL_ACTION_CONFIG.realNextStepsRequestedFor(botId);
+
         boolean realOffersEnabled =
                 jobType == ScheduledJobType.CATALOG_SCAN
                         && REAL_ACTION_CONFIG.realOffersEnabledFor(botId);
@@ -85,6 +89,42 @@ public class ScheduledBotRunExecutor {
             LoginService loginService = new LoginService(context);
             ListingClient listingClient = new ListingClient();
             OfferQuotaClient offerQuotaClient = new OfferQuotaClient();
+
+            if (firstOfferRequested || nextStepRequested) {
+                RealActionPreflight.Result preflight =
+                        new RealActionPreflight().validate(
+                                bot,
+                                jobType,
+                                listingClient,
+                                firstOfferRequested,
+                                nextStepRequested
+                        );
+
+                if (!preflight.ready()) {
+                    realOffersEnabled = false;
+                    realNextStepsEnabled = false;
+
+                    log.error(
+                            "[REAL ACTION PREFLIGHT] Real actions downgraded to DRY RUN for bot {} / {} because preflight is BLOCKED.",
+                            botId,
+                            jobType
+                    );
+                }
+            }
+
+            if (REAL_ACTION_CONFIG.preflightOnly()
+                    && (firstOfferRequested || nextStepRequested)) {
+                realOffersEnabled = false;
+                realNextStepsEnabled = false;
+
+                log.warn(
+                        "[REAL ACTION PREFLIGHT] PREFLIGHT ONLY is active for bot {} / {}. "
+                                + "Validation may report READY, but real submit remains disabled.",
+                        botId,
+                        jobType
+                );
+            }
+
             ListingStatusUpdater listingStatusUpdater =
                     new ListingStatusUpdater(
                             context,
@@ -124,7 +164,9 @@ public class ScheduledBotRunExecutor {
                     jobType,
                     botId,
                     realOffersEnabled,
-                    realNextStepsEnabled
+                    realNextStepsEnabled,
+                    firstOfferRequested,
+                    nextStepRequested
             );
 
             loginService.login();
@@ -170,12 +212,27 @@ public class ScheduledBotRunExecutor {
             ScheduledJobType jobType,
             Long botId,
             boolean realOffersEnabled,
-            boolean realNextStepsEnabled
+            boolean realNextStepsEnabled,
+            boolean firstOfferRequested,
+            boolean nextStepRequested
     ) {
         String jobLabel =
                 jobType == null
                         ? "FULL_RUN"
                         : jobType.name();
+
+        if (REAL_ACTION_CONFIG.preflightOnly()
+                && (firstOfferRequested || nextStepRequested)) {
+            log.warn(
+                    "[SCHEDULED JOB] Preparing {} for bot {} in PREFLIGHT ONLY / DRY RUN mode. "
+                            + "requestedFirstOffer={}, requestedNextStep={}, realOffers=false, realNextSteps=false.",
+                    jobLabel,
+                    botId,
+                    firstOfferRequested,
+                    nextStepRequested
+            );
+            return;
+        }
 
         if (!realOffersEnabled && !realNextStepsEnabled) {
             log.info(
@@ -184,7 +241,6 @@ public class ScheduledBotRunExecutor {
                     jobLabel,
                     botId
             );
-
             return;
         }
 
