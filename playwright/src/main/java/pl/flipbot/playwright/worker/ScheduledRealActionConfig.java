@@ -9,7 +9,8 @@ public record ScheduledRealActionConfig(
         boolean realOffersRequested,
         boolean realNextStepsRequested,
         Long allowedBotId,
-        boolean confirmationValid
+        boolean confirmationValid,
+        boolean preflightOnly
 ) {
 
     private static final String REAL_OFFERS_ENV =
@@ -23,6 +24,9 @@ public record ScheduledRealActionConfig(
 
     private static final String CONFIRM_ENV =
             "FLIPBOT_REAL_ACTION_CONFIRM";
+
+    private static final String PREFLIGHT_ONLY_ENV =
+            "FLIPBOT_REAL_ACTION_PREFLIGHT_ONLY";
 
     private static final String EXPECTED_CONFIRMATION =
             "I_UNDERSTAND_REAL_ACTIONS";
@@ -43,12 +47,16 @@ public record ScheduledRealActionConfig(
         boolean confirmationValid =
                 EXPECTED_CONFIRMATION.equals(confirmation);
 
+        boolean preflightOnly =
+                readBoolean(PREFLIGHT_ONLY_ENV, false);
+
         ScheduledRealActionConfig config =
                 new ScheduledRealActionConfig(
                         realOffersRequested,
                         realNextStepsRequested,
                         allowedBotId,
-                        confirmationValid
+                        confirmationValid,
+                        preflightOnly
                 );
 
         if (!realOffersRequested && !realNextStepsRequested) {
@@ -72,6 +80,20 @@ public record ScheduledRealActionConfig(
             return config;
         }
 
+        if (preflightOnly) {
+            log.warn(
+                    "[REAL ACTION CONFIG] PREFLIGHT ONLY mode is armed for bot {}. "
+                            + "Requested first offers={}, next steps={}. "
+                            + "No real submit can be executed while {}=true.",
+                    allowedBotId,
+                    realOffersRequested,
+                    realNextStepsRequested,
+                    PREFLIGHT_ONLY_ENV
+            );
+
+            return config;
+        }
+
         log.warn(
                 "[REAL ACTION CONFIG] CONTROLLED REAL ACTION MODE is armed for bot {} only. "
                         + "First offers requested={}, next steps requested={}. "
@@ -84,14 +106,24 @@ public record ScheduledRealActionConfig(
         return config;
     }
 
-    public boolean realOffersEnabledFor(Long botId) {
+    public boolean realOffersRequestedFor(Long botId) {
         return realOffersRequested
                 && isArmedFor(botId);
     }
 
-    public boolean realNextStepsEnabledFor(Long botId) {
+    public boolean realNextStepsRequestedFor(Long botId) {
         return realNextStepsRequested
                 && isArmedFor(botId);
+    }
+
+    public boolean realOffersEnabledFor(Long botId) {
+        return realOffersRequestedFor(botId)
+                && !preflightOnly;
+    }
+
+    public boolean realNextStepsEnabledFor(Long botId) {
+        return realNextStepsRequestedFor(botId)
+                && !preflightOnly;
     }
 
     public boolean isArmedFor(Long botId) {
