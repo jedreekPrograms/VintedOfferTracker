@@ -1,6 +1,8 @@
 package pl.flipbot.listing;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -22,6 +24,18 @@ public interface ListingRepository
     Optional<Listing> findByIdAndBotId(
             Long listingId,
             Long botId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select listing
+            from Listing listing
+            where listing.id = :listingId
+              and listing.bot.id = :botId
+            """)
+    Optional<Listing> findByIdAndBotIdForUpdate(
+            @Param("listingId") Long listingId,
+            @Param("botId") Long botId
     );
 
     List<Listing> findByBotId(
