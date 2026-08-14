@@ -7,7 +7,7 @@ CREATE TABLE real_action_audit (
     conversation_id VARCHAR(255),
     action_type VARCHAR(32) NOT NULL,
     step_number INTEGER NOT NULL,
-    offer_price NUMERIC(38, 2) NOT NULL,
+    offer_price NUMERIC(38, 2),
     outcome VARCHAR(32) NOT NULL,
     message_status VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN',
     failure_reason VARCHAR(1000),
@@ -19,7 +19,7 @@ CREATE TABLE real_action_audit (
     CONSTRAINT ck_real_action_audit_step_number
         CHECK (step_number > 0),
     CONSTRAINT ck_real_action_audit_offer_price
-        CHECK (offer_price > 0),
+        CHECK (offer_price IS NULL OR offer_price > 0),
     CONSTRAINT ck_real_action_audit_outcome
         CHECK (outcome IN ('CONFIRMED', 'AMBIGUOUS')),
     CONSTRAINT ck_real_action_audit_message_status
