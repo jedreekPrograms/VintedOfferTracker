@@ -27,27 +27,19 @@
 }
 
 .price-matrix-card {
-    padding: 0;
-    overflow: hidden;
-}
-
-.price-matrix-scroll {
-    width: 100%;
-    overflow-x: auto;
     padding: 18px;
+    overflow: hidden;
 }
 
 .price-matrix-board {
     display: flex;
-    align-items: flex-start;
-    gap: 18px;
-    width: max-content;
-    min-width: 100%;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
 }
 
 .price-brand-sheet {
-    width: 430px;
-    flex: 0 0 430px;
+    width: 100%;
     overflow: hidden;
     border: 1px solid var(--border-color, #dce3ea);
     border-radius: 14px;
@@ -55,16 +47,58 @@
 }
 
 .price-brand-title {
+    width: 100%;
     padding: 16px 18px;
+    border: 0;
+    background: rgba(15, 23, 42, 0.035);
+    color: inherit;
+    font: inherit;
     font-size: 18px;
     font-weight: 700;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    cursor: pointer;
+}
+
+.price-brand-title[aria-expanded="true"] {
     border-bottom: 1px solid var(--border-color, #dce3ea);
-    background: rgba(15, 23, 42, 0.035);
+}
+
+.price-brand-title:hover,
+.price-brand-title:focus-visible {
+    background: rgba(15, 23, 42, 0.055);
+    outline: none;
+}
+
+.price-brand-chevron {
+    color: var(--muted-text-color, #64748b);
+    font-size: 18px;
+    line-height: 1;
+    transition: transform 140ms ease;
+}
+
+.price-brand-chevron-open {
+    transform: rotate(180deg);
+}
+
+.price-brand-content {
+    width: 100%;
+    overflow-x: auto;
 }
 
 .price-sheet-row {
     display: grid;
-    grid-template-columns: minmax(150px, 1.3fr) minmax(120px, 1fr) minmax(110px, 0.9fr);
+    grid-template-columns:
+        minmax(220px, 1.6fr)
+        minmax(145px, 0.9fr)
+        minmax(135px, 0.85fr)
+        minmax(135px, 0.8fr)
+        minmax(135px, 0.8fr)
+        minmax(135px, 0.8fr);
+    min-width: 980px;
     min-height: 58px;
     border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
@@ -171,6 +205,24 @@
     font-size: 10px;
 }
 
+.price-metric-cell {
+    flex-direction: column;
+    align-items: flex-start !important;
+    justify-content: center;
+    gap: 3px;
+}
+
+.price-metric-cell strong {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.price-metric-cell span {
+    color: var(--muted-text-color, #64748b);
+    font-size: 10px;
+    line-height: 1.25;
+}
+
 .price-sheet-empty {
     padding: 22px 18px;
     color: var(--muted-text-color, #64748b);
@@ -178,12 +230,11 @@
 }
 
 @media (max-width: 900px) {
-    .price-brand-sheet {
-        width: 390px;
-        flex-basis: 390px;
-    }
-
     .price-matrix-summary {
         display: none;
+    }
+
+    .price-matrix-card {
+        padding: 12px;
     }
 }
