@@ -6,51 +6,135 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
-import pl.flipbot.bot.dto.BotPlaywrightResponse;
-import pl.flipbot.mapper.BotMapper;
+import pl.flipbot.exception.BotAlreadyExistsException;
+import pl.flipbot.marketstats.dto.CreateMarketStatsObserverRequest;
+import pl.flipbot.marketstats.dto.MarketStatsObserverPlaywrightResponse;
+import pl.flipbot.marketstats.dto.MarketStatsObserverResponse;
+import pl.flipbot.marketstats.dto.UpdateMarketStatsObserverRequest;
 
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 public class MarketStatsObserverService {
 
     private final BotRepository botRepository;
-    private final BotMapper botMapper;
+
+    @Transactional(readOnly = true)
+    public Optional<MarketStatsObserverResponse> getObserver() {
+        return botRepository
+                .findFirstByMarketStatsObserverTrue()
+                .map(this::toResponse);
+    }
 
     @Transactional
-    public BotPlaywrightResponse getObserverBot(
-            Long botId
+    public MarketStatsObserverResponse createObserver(
+            CreateMarketStatsObserverRequest request
     ) {
-        if (botId == null || botId <= 0) {
-            throw new IllegalArgumentException(
-                    "Observer bot id must be positive."
+        if (botRepository.findFirstByMarketStatsObserverTrue().isPresent()) {
+            throw new IllegalStateException(
+                    "A market statistics observer already exists."
             );
         }
 
-        Bot bot = botRepository.findById(botId)
+        String email = normalizeRequiredText(request.email());
+
+        if (botRepository.existsByEmail(email)) {
+            throw new BotAlreadyExistsException(email);
+        }
+
+        Bot observer = Bot.builder()
+                .name(normalizeRequiredText(request.name()))
+                .email(email)
+                .password(request.password())
+                .status(BotStatus.STOPPED)
+                .marketStatsObserver(true)
+                .build();
+
+        return toResponse(
+                botRepository.save(observer)
+        );
+    }
+
+    @Transactional
+    public MarketStatsObserverResponse updateObserver(
+            UpdateMarketStatsObserverRequest request
+    ) {
+        Bot observer = requireObserver();
+        String email = normalizeRequiredText(request.email());
+
+        if (botRepository.existsByEmailAndIdNot(
+                email,
+                observer.getId()
+        )) {
+            throw new BotAlreadyExistsException(email);
+        }
+
+        observer.setName(
+                normalizeRequiredText(request.name())
+        );
+        observer.setEmail(email);
+
+        if (request.password() != null
+                && !request.password().isBlank()) {
+            observer.setPassword(request.password());
+        }
+
+        observer.setStatus(BotStatus.STOPPED);
+        observer.setMarketStatsObserver(true);
+
+        return toResponse(observer);
+    }
+
+    @Transactional
+    public void deleteObserver() {
+        botRepository.delete(
+                requireObserver()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public MarketStatsObserverPlaywrightResponse getObserverForPlaywright() {
+        Bot observer = requireObserver();
+
+        return new MarketStatsObserverPlaywrightResponse(
+                observer.getId(),
+                observer.getName(),
+                observer.getEmail(),
+                observer.getPassword()
+        );
+    }
+
+    private Bot requireObserver() {
+        return botRepository
+                .findFirstByMarketStatsObserverTrue()
                 .orElseThrow(
                         () -> new NoSuchElementException(
-                                "Observer bot was not found: " + botId
+                                "Market statistics observer does not exist."
                         )
                 );
+    }
 
-        if (bot.getStatus() != BotStatus.STOPPED) {
-            throw new IllegalStateException(
-                    "Market statistics observer bot must remain STOPPED so it cannot share its Vinted session with the normal scheduler."
+    private MarketStatsObserverResponse toResponse(
+            Bot observer
+    ) {
+        return new MarketStatsObserverResponse(
+                observer.getId(),
+                observer.getName(),
+                observer.getEmail()
+        );
+    }
+
+    private String normalizeRequiredText(
+            String value
+    ) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Observer name and e-mail cannot be blank."
             );
         }
 
-        for (Bot candidate : botRepository.findAll()) {
-            boolean shouldBeObserver = candidate.getId().equals(botId);
-
-            if (!Boolean.valueOf(shouldBeObserver).equals(
-                    candidate.getMarketStatsObserver()
-            )) {
-                candidate.setMarketStatsObserver(shouldBeObserver);
-            }
-        }
-
-        return botMapper.mapPlaywright(bot);
+        return value.trim();
     }
 }
