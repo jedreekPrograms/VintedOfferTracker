@@ -1,3 +1,6 @@
+ALTER TABLE bot
+    ADD COLUMN market_stats_observer BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE market_model_scan_state (
     model_id BIGINT PRIMARY KEY,
     initialized_at TIMESTAMP NOT NULL,
