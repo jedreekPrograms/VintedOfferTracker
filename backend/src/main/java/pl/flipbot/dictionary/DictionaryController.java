@@ -210,6 +210,26 @@ public class DictionaryController {
     }
 
 
+    @PatchMapping("/brands/{brandId}/models/{modelId}/pricing")
+    public ResponseEntity<DictionaryModelResponse>
+    updateModelPricing(
+            @PathVariable Long brandId,
+            @PathVariable Long modelId,
+            @Valid
+            @RequestBody
+            UpdateDictionaryModelPricingRequest request
+    ) {
+
+        return ResponseEntity.ok(
+                dictionaryMutationService.updateModelPricing(
+                        brandId,
+                        modelId,
+                        request
+                )
+        );
+    }
+
+
     @DeleteMapping("/brands/{brandId}/models/{modelId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteModel(
