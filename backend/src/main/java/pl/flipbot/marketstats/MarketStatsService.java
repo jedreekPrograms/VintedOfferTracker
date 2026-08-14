@@ -111,9 +111,15 @@ public class MarketStatsService {
                 cutoff
         );
 
+        boolean baselineComplete = scanStateRepository
+                .findById(modelId)
+                .map(MarketModelScanState::getBaselineCompleteAt)
+                .isPresent();
+
         return new KnownMarketListingIdsResponse(
                 modelId,
-                listingIds
+                listingIds,
+                baselineComplete
         );
     }
 
