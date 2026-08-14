@@ -1,0 +1,146 @@
+.market-observer-card {
+    margin-bottom: 20px;
+}
+
+.market-observer-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.market-observer-eyebrow {
+    margin: 0 0 6px;
+    color: var(--muted-text-color, #64748b);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.market-observer-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+}
+
+.market-observer-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.market-observer-field > span {
+    color: var(--muted-text-color, #64748b);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.market-observer-field input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #dbe2ea);
+    border-radius: 10px;
+    background: var(--card-background, #ffffff);
+    color: inherit;
+    font: inherit;
+}
+
+.market-observer-field input:focus {
+    outline: none;
+    border-color: #94a3b8;
+}
+
+.market-observer-form-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.market-observer-summary {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.1fr) minmax(260px, 1.7fr) auto auto;
+    align-items: center;
+    gap: 18px;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+}
+
+.market-observer-identity,
+.market-observer-runtime {
+    display: flex;
+}
+
+.market-observer-identity {
+    flex-direction: column;
+    gap: 4px;
+}
+
+.market-observer-identity span,
+.market-observer-runtime span,
+.market-observer-empty span {
+    color: var(--muted-text-color, #64748b);
+    font-size: 12px;
+}
+
+.market-observer-runtime {
+    align-items: center;
+    gap: 10px;
+}
+
+.market-observer-runtime > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.market-observer-status-dot {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+}
+
+.market-observer-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.market-observer-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+}
+
+@media (max-width: 900px) {
+    .market-observer-header,
+    .market-observer-summary {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .market-observer-form {
+        grid-template-columns: 1fr;
+    }
+
+    .market-observer-form-actions {
+        grid-column: auto;
+    }
+
+    .market-observer-actions {
+        justify-content: flex-start;
+    }
+}

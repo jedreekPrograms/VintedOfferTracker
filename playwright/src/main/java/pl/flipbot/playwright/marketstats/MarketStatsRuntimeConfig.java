@@ -15,8 +15,6 @@ public record MarketStatsRuntimeConfig(
 
     private static final String ENABLED_ENV =
             "FLIPBOT_MARKET_STATS_ENABLED";
-    private static final String OBSERVER_BOT_ID_ENV =
-            "FLIPBOT_MARKET_STATS_BOT_ID";
     private static final String HEADLESS_ENV =
             "FLIPBOT_MARKET_STATS_HEADLESS";
     private static final String INTERVAL_HOURS_ENV =
@@ -29,22 +27,10 @@ public record MarketStatsRuntimeConfig(
             "FLIPBOT_MARKET_STATS_INTER_MODEL_DELAY_MS";
 
     public static MarketStatsRuntimeConfig fromEnvironment() {
-        boolean requested = readBoolean(ENABLED_ENV, false);
-        Long observerBotId = readPositiveLong(OBSERVER_BOT_ID_ENV);
-        boolean enabled = requested && observerBotId != null;
-
-        if (requested && observerBotId == null) {
-            log.error(
-                    "[MARKET STATS CONFIG] {}=true, but {} is missing or invalid. Market statistics collector remains disabled.",
-                    ENABLED_ENV,
-                    OBSERVER_BOT_ID_ENV
-            );
-        }
-
         MarketStatsRuntimeConfig config =
                 new MarketStatsRuntimeConfig(
-                        enabled,
-                        observerBotId,
+                        readBoolean(ENABLED_ENV, true),
+                        null,
                         readBoolean(HEADLESS_ENV, true),
                         readLongInRange(INTERVAL_HOURS_ENV, 24L, 1L, 168L),
                         readIntInRange(MAX_LISTINGS_ENV, 600, 50, 5_000),
@@ -53,9 +39,8 @@ public record MarketStatsRuntimeConfig(
                 );
 
         log.info(
-                "[MARKET STATS CONFIG] enabled={}, observerBotId={}, headless={}, interval={}h, maxListingsPerModel={}, knownBoundary={}, interModelDelay={}ms.",
+                "[MARKET STATS CONFIG] enabled={}, observer=frontend-managed, headless={}, interval={}h, maxListingsPerModel={}, knownBoundary={}, interModelDelay={}ms.",
                 config.enabled(),
-                config.observerBotId(),
                 config.headless(),
                 config.intervalHours(),
                 config.maxListingsPerModel(),
@@ -77,23 +62,6 @@ public record MarketStatsRuntimeConfig(
         }
 
         return Boolean.parseBoolean(raw.trim());
-    }
-
-    private static Long readPositiveLong(
-            String name
-    ) {
-        String raw = System.getenv(name);
-
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-
-        try {
-            long value = Long.parseLong(raw.trim());
-            return value > 0 ? value : null;
-        } catch (NumberFormatException exception) {
-            return null;
-        }
     }
 
     private static int readIntInRange(
