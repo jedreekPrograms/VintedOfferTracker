@@ -11,6 +11,8 @@ import pl.flipbot.playwright.context.BotContext;
 @RequiredArgsConstructor
 public class PreparedNextStepCoordinator {
 
+    private static final String ACTION_TYPE = "NEXT_STEP";
+
     private final BotContext context;
     private final OfferQuotaClient offerQuotaClient;
 
@@ -34,6 +36,8 @@ public class PreparedNextStepCoordinator {
         Long botId = context.getBot().getId();
         NextStepActionGuardCoordinator guard =
                 new NextStepActionGuardCoordinator();
+        RealActionAuditCoordinator audit =
+                new RealActionAuditCoordinator(context);
         var requestId = guard.acquire(botId, listing, decision.nextStep());
 
         if (requestId == null) {
@@ -82,6 +86,14 @@ public class PreparedNextStepCoordinator {
             result = new PreparedNextStepSubmitter(context)
                     .submitPrepared(listing, decision.nextStep());
         } catch (Exception exception) {
+            audit.recordAmbiguousBestEffort(
+                    listing,
+                    ACTION_TYPE,
+                    decision.nextStep().getStepNumber(),
+                    requestId,
+                    exception
+            );
+
             log.error(
                     "Prepared next-step finalization failed for listing {}. State is kept fail-closed.",
                     listing.listingId()
@@ -90,10 +102,26 @@ public class PreparedNextStepCoordinator {
         }
 
         if (result != NextStepExecutionResult.SENT) {
-            throw new IllegalStateException(
+            IllegalStateException exception = new IllegalStateException(
                     "Unexpected next-step result: " + result
             );
+
+            audit.recordAmbiguousBestEffort(
+                    listing,
+                    ACTION_TYPE,
+                    decision.nextStep().getStepNumber(),
+                    requestId,
+                    exception
+            );
+            throw exception;
         }
+
+        audit.recordConfirmedRequired(
+                listing,
+                ACTION_TYPE,
+                decision.nextStep().getStepNumber(),
+                requestId
+        );
 
         guard.releaseAfterConfirmedSuccessBestEffort(
                 botId,
