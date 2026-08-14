@@ -3,12 +3,14 @@ package pl.flipbot.playwright.marketstats;
 import com.fasterxml.jackson.core.type.TypeReference;
 import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.exception.ApiException;
-import pl.flipbot.playwright.marketstats.dto.*;
+import pl.flipbot.playwright.marketstats.dto.KnownMarketListingIdsDto;
+import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchRequestDto;
+import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchResponseDto;
+import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
 import java.net.http.HttpResponse;
 import java.util.List;
-import java.util.Set;
 
 public class MarketStatsApiClient extends ApiClient {
 
@@ -34,7 +36,7 @@ public class MarketStatsApiClient extends ApiClient {
         );
     }
 
-    public Set<String> getKnownListingIds(
+    public KnownMarketListingIdsDto getKnownListingIds(
             Long modelId
     ) {
         HttpResponse<String> response = get(
@@ -44,14 +46,10 @@ public class MarketStatsApiClient extends ApiClient {
         );
         requireSuccess(response, "load known market listing ids");
 
-        KnownMarketListingIdsDto body = readBody(
+        return readBody(
                 response,
                 KnownMarketListingIdsDto.class
         );
-
-        return body.listingIds() == null
-                ? Set.of()
-                : Set.copyOf(body.listingIds());
     }
 
     public MarketObservationBatchResponseDto recordObservations(
