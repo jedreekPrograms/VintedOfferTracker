@@ -68,53 +68,33 @@ export function validateCreateBotForm({
         );
     }
 
-    let validatedModel:
-        DictionaryModel | null =
-        null;
-
-    let validatedSearchQuery:
-        string | null =
-        null;
+    if (selectedModel === null) {
+        return invalid(
+            "Wybierz model ze słownika.",
+        );
+    }
 
     if (
-        form.targetMode
-        === "VINTED_MODEL"
+        selectedModel.brandId
+        !== selectedBrand.id
     ) {
-        if (selectedModel === null) {
-            return invalid(
-                "Wybierz model z listy Vinted.",
-            );
-        }
-
-        if (
-            selectedModel.brandId
-            !== selectedBrand.id
-        ) {
-            return invalid(
-                "Wybrany model nie należy do wybranej marki.",
-            );
-        }
-
-        validatedModel =
-            selectedModel;
-    } else {
-        const normalizedSearchQuery =
-            normalizeText(
-                form.searchQuery,
-            );
-
-        if (
-            normalizedSearchQuery.length
-            === 0
-        ) {
-            return invalid(
-                "Wpisz frazę wyszukiwania modelu.",
-            );
-        }
-
-        validatedSearchQuery =
-            normalizedSearchQuery;
+        return invalid(
+            "Wybrany model nie należy do wybranej marki.",
+        );
     }
+
+    const targetMode =
+        selectedModel.targetMode;
+
+    const validatedModel =
+        targetMode === "VINTED_MODEL"
+            ? selectedModel
+            : null;
+
+    const validatedSearchQuery =
+        targetMode === "SEARCH_QUERY"
+            ? normalizeText(selectedModel.name)
+            : null;
 
     const minPriceResult =
         parseRequiredNonNegativeNumber(
@@ -321,8 +301,7 @@ export function validateCreateBotForm({
             brand:
                 selectedBrand,
 
-            targetMode:
-                form.targetMode,
+            targetMode,
 
             model:
                 validatedModel,
