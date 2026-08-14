@@ -13,6 +13,7 @@ import pl.flipbot.dictionary.dto.CreateDictionaryModelRequest;
 import pl.flipbot.dictionary.dto.DictionaryBrandResponse;
 import pl.flipbot.dictionary.dto.DictionaryCategoryResponse;
 import pl.flipbot.dictionary.dto.DictionaryModelResponse;
+import pl.flipbot.dictionary.dto.UpdateDictionaryModelPricingRequest;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 
@@ -31,6 +32,7 @@ public class DictionaryMutationService {
     private final DictionaryCategoryRepository categoryRepository;
     private final BotConfigurationRepository configurationRepository;
     private final ListingRepository listingRepository;
+    private final DictionaryModelService dictionaryModelService;
 
 
     @Transactional
@@ -129,6 +131,10 @@ public class DictionaryMutationService {
 
         String oldName = model.getName();
         String newName = normalizeName(request.getName(), "Model");
+        TargetMode oldTargetMode = resolveModelTargetMode(model);
+        TargetMode newTargetMode = request.getTargetMode() == null
+                ? oldTargetMode
+                : request.getTargetMode();
 
         boolean duplicate = modelRepository
                 .findAllByBrand_IdOrderByNameAsc(brandId)
@@ -146,28 +152,65 @@ public class DictionaryMutationService {
         }
 
         List<BotConfiguration> affected = configurationRepository.findAll().stream()
-                .filter(this::usesVintedModel)
                 .filter(configuration -> sameText(
                         configuration.getBrand(),
                         brand.getName()
                 ))
-                .filter(configuration -> sameText(
-                        configuration.getModel(),
+                .filter(configuration -> configurationUsesModelName(
+                        configuration,
                         oldName
                 ))
                 .toList();
 
-        ensureConfigurationsCanBeChanged(affected);
+        boolean targetDefinitionChanged =
+                !sameText(oldName, newName)
+                        || oldTargetMode != newTargetMode;
+
+        if (targetDefinitionChanged) {
+            ensureConfigurationsCanBeChanged(affected);
+        }
 
         model.setName(newName);
-        affected.forEach(configuration -> configuration.setModel(newName));
+        model.setTargetMode(newTargetMode);
 
-        return new DictionaryModelResponse(
-                model.getId(),
-                model.getName(),
-                brand.getId(),
-                brand.getName()
+        if (targetDefinitionChanged) {
+            affected.forEach(configuration -> applyModelTarget(
+                    configuration,
+                    newTargetMode,
+                    newName
+            ));
+        }
+
+        return dictionaryModelService.map(model);
+    }
+
+
+    @Transactional
+    public DictionaryModelResponse updateModelPricing(
+            Long brandId,
+            Long modelId,
+            UpdateDictionaryModelPricingRequest request
+    ) {
+
+        DictionaryModel model = modelRepository.findById(modelId)
+                .orElseThrow(() -> new DictionaryEntryNotFoundException(
+                        "Model was not found: " + modelId
+                ));
+
+        ensureModelBelongsToBrand(
+                model,
+                brandId
         );
+
+        model.setProposedOfferPrice(
+                request.getProposedOfferPrice()
+        );
+
+        model.setExpectedResalePrice(
+                request.getExpectedResalePrice()
+        );
+
+        return dictionaryModelService.map(model);
     }
 
 
@@ -188,12 +231,12 @@ public class DictionaryMutationService {
         );
 
         boolean usedByBot = configurationRepository.findAll().stream()
-                .filter(this::usesVintedModel)
-                .anyMatch(configuration -> sameText(
+                .filter(configuration -> sameText(
                         configuration.getBrand(),
                         model.getBrand().getName()
-                ) && sameText(
-                        configuration.getModel(),
+                ))
+                .anyMatch(configuration -> configurationUsesModelName(
+                        configuration,
                         model.getName()
                 ));
 
@@ -340,12 +383,55 @@ public class DictionaryMutationService {
     }
 
 
-    private boolean usesVintedModel(
-            BotConfiguration configuration
+    private boolean configurationUsesModelName(
+            BotConfiguration configuration,
+            String modelName
     ) {
 
-        return configuration.getTargetMode() == null
-                || configuration.getTargetMode() == TargetMode.VINTED_MODEL;
+        TargetMode targetMode = configuration.getTargetMode() == null
+                ? TargetMode.VINTED_MODEL
+                : configuration.getTargetMode();
+
+        if (targetMode == TargetMode.SEARCH_QUERY) {
+            return sameText(
+                    configuration.getSearchQuery(),
+                    modelName
+            );
+        }
+
+        return sameText(
+                configuration.getModel(),
+                modelName
+        );
+    }
+
+
+    private void applyModelTarget(
+            BotConfiguration configuration,
+            TargetMode targetMode,
+            String modelName
+    ) {
+
+        configuration.setTargetMode(targetMode);
+
+        if (targetMode == TargetMode.SEARCH_QUERY) {
+            configuration.setModel(null);
+            configuration.setSearchQuery(modelName);
+            return;
+        }
+
+        configuration.setModel(modelName);
+        configuration.setSearchQuery(null);
+    }
+
+
+    private TargetMode resolveModelTargetMode(
+            DictionaryModel model
+    ) {
+
+        return model.getTargetMode() == null
+                ? TargetMode.VINTED_MODEL
+                : model.getTargetMode();
     }
 
 
