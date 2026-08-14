@@ -1,6 +1,8 @@
 package pl.flipbot.playwright.negotiation;
 
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.api.audit.RealActionAuditClient;
+import pl.flipbot.playwright.api.audit.dto.RealActionAuditRequestDto;
 import pl.flipbot.playwright.api.guard.RealActionGuardClient;
 import pl.flipbot.playwright.api.guard.dto.RealActionGuardResponseDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
@@ -16,6 +18,9 @@ public class FirstOfferActionGuardCoordinator {
 
     private final RealActionGuardClient realActionGuardClient =
             new RealActionGuardClient();
+
+    private final RealActionAuditClient realActionAuditClient =
+            new RealActionAuditClient();
 
     public UUID acquire(
             Long botId,
@@ -121,6 +126,44 @@ public class FirstOfferActionGuardCoordinator {
         }
 
         try {
+            realActionAuditClient.record(
+                    botId,
+                    listing.id(),
+                    new RealActionAuditRequestDto(
+                            requestId,
+                            ACTION_TYPE,
+                            FIRST_STEP,
+                            null,
+                            "CONFIRMED",
+                            "UNKNOWN",
+                            null
+                    )
+            );
+
+            log.info(
+                    "[REAL ACTION AUDIT] FIRST_OFFER confirmed audit persisted for bot {}, marketplace listing {}, requestId={}.",
+                    botId,
+                    listing.listingId(),
+                    requestId
+            );
+        } catch (Exception exception) {
+            log.error(
+                    "[REAL ACTION AUDIT] FIRST_OFFER was confirmed by backend state, but its audit record could not be persisted for bot {}, marketplace listing {}, requestId={}. "
+                            + "The persistent guard will NOT be released; a later acquire can reconcile the confirmed audit before stale-guard cleanup. Error: {}",
+                    botId,
+                    listing.listingId(),
+                    requestId,
+                    friendlyMessage(exception)
+            );
+            log.trace(
+                    "[REAL ACTION AUDIT] Full confirmed FIRST_OFFER audit failure for listing {}.",
+                    listing.id(),
+                    exception
+            );
+            return;
+        }
+
+        try {
             realActionGuardClient.release(
                     botId,
                     listing.id(),
@@ -135,7 +178,7 @@ public class FirstOfferActionGuardCoordinator {
 
         } catch (Exception exception) {
             log.warn(
-                    "[REAL ACTION GUARD] FIRST_OFFER succeeded, but guard cleanup failed for bot {}, marketplace listing {}. "
+                    "[REAL ACTION GUARD] FIRST_OFFER succeeded and audit is persisted, but guard cleanup failed for bot {}, marketplace listing {}. "
                             + "The stale guard is safe: backend listing state can confirm the action on a later acquire. Error: {}",
                     botId,
                     listing.listingId(),
