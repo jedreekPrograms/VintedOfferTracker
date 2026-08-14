@@ -8,6 +8,7 @@ import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.dictionary.dto.CreateDictionaryModelRequest;
 import pl.flipbot.dictionary.dto.DictionaryModelResponse;
 
+import java.util.Arrays;
 import java.util.List;
 
 
@@ -15,9 +16,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DictionaryModelService {
 
+    private static final String PATH_SEPARATOR_REGEX = "\\s*>\\s*";
+
     private final DictionaryModelRepository dictionaryModelRepository;
 
     private final DictionaryBrandRepository dictionaryBrandRepository;
+
+    private final DictionaryCategoryRepository dictionaryCategoryRepository;
 
     @Transactional(
             readOnly = true
@@ -60,6 +65,24 @@ public class DictionaryModelService {
                                 )
                         );
 
+        Long categoryId = request.getCategoryId();
+
+        if (categoryId == null || categoryId <= 0) {
+            throw new IllegalArgumentException(
+                    "Dictionary model category is required."
+            );
+        }
+
+        DictionaryCategory category =
+                dictionaryCategoryRepository
+                        .findById(categoryId)
+                        .orElseThrow(
+                                () -> new DictionaryEntryNotFoundException(
+                                        "Category was not found: "
+                                                + categoryId
+                                )
+                        );
+
         String normalizedName =
                 normalizeName(
                         request.getName()
@@ -90,6 +113,9 @@ public class DictionaryModelService {
                         )
                         .brand(
                                 brand
+                        )
+                        .category(
+                                category
                         )
                         .targetMode(
                                 request.getTargetMode() == null
@@ -175,12 +201,22 @@ public class DictionaryModelService {
     DictionaryModelResponse map(
             DictionaryModel model
     ) {
+        DictionaryCategory category = model.getCategory();
 
         return new DictionaryModelResponse(
                 model.getId(),
                 model.getName(),
                 model.getBrand().getId(),
                 model.getBrand().getName(),
+                category == null ? null : category.getId(),
+                category == null ? null : category.getName(),
+                category == null ? null : category.getPath(),
+                category == null
+                        ? List.of()
+                        : Arrays.stream(category.getPath().split(PATH_SEPARATOR_REGEX))
+                        .map(String::trim)
+                        .filter(element -> !element.isBlank())
+                        .toList(),
                 model.getTargetMode() == null
                         ? TargetMode.VINTED_MODEL
                         : model.getTargetMode(),
