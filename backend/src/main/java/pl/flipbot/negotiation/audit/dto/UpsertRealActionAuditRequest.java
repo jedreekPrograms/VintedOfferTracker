@@ -15,7 +15,7 @@ public record UpsertRealActionAuditRequest(
         @NotNull UUID requestId,
         @NotNull RealActionType actionType,
         @NotNull @Positive Integer stepNumber,
-        @NotNull @DecimalMin("0.01") BigDecimal offerPrice,
+        @DecimalMin("0.01") BigDecimal offerPrice,
         @NotNull RealActionAuditOutcome outcome,
         @NotNull RealActionMessageStatus messageStatus,
         @Size(max = 1000) String failureReason
