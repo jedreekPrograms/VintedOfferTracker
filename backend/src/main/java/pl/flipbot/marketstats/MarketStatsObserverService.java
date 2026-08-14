@@ -95,15 +95,15 @@ public class MarketStatsObserverService {
     }
 
     @Transactional(readOnly = true)
-    public MarketStatsObserverPlaywrightResponse getObserverForPlaywright() {
-        Bot observer = requireObserver();
-
-        return new MarketStatsObserverPlaywrightResponse(
-                observer.getId(),
-                observer.getName(),
-                observer.getEmail(),
-                observer.getPassword()
-        );
+    public Optional<MarketStatsObserverPlaywrightResponse> getObserverForPlaywright() {
+        return botRepository
+                .findFirstByMarketStatsObserverTrue()
+                .map(observer -> new MarketStatsObserverPlaywrightResponse(
+                        observer.getId(),
+                        observer.getName(),
+                        observer.getEmail(),
+                        observer.getPassword()
+                ));
     }
 
     private Bot requireObserver() {
