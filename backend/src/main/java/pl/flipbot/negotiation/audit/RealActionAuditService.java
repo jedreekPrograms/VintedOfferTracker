@@ -7,7 +7,6 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
-import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.audit.dto.RealActionAuditResponse;
 import pl.flipbot.negotiation.audit.dto.UpsertRealActionAuditRequest;
 import pl.flipbot.negotiation.guard.RealActionGuard;
@@ -304,16 +303,13 @@ public class RealActionAuditService {
             return resolveConfirmedPrice(listing);
         }
 
-        if (request.offerPrice() != null) {
-            return requirePositivePrice(
-                    request.offerPrice(),
-                    "Audit offer price"
-            );
+        if (request.offerPrice() == null) {
+            return null;
         }
 
-        return resolveConfiguredStepPrice(
-                listing,
-                request.stepNumber()
+        return requirePositivePrice(
+                request.offerPrice(),
+                "Audit offer price"
         );
     }
 
@@ -324,42 +320,6 @@ public class RealActionAuditService {
                 listing.getCurrentPrice(),
                 "Confirmed listing current price"
         );
-    }
-
-    private BigDecimal resolveConfiguredStepPrice(
-            Listing listing,
-            Integer stepNumber
-    ) {
-        if (listing.getBot() == null
-                || listing.getBot().getConfiguration() == null
-                || listing.getBot().getConfiguration().getNegotiationSteps() == null) {
-            throw new IllegalStateException(
-                    "Cannot derive audit price because bot negotiation steps are missing"
-            );
-        }
-
-        return listing.getBot()
-                .getConfiguration()
-                .getNegotiationSteps()
-                .stream()
-                .filter(Objects::nonNull)
-                .filter(step -> Objects.equals(
-                        stepNumber,
-                        step.getStepNumber()
-                ))
-                .map(NegotiationStep::getOfferPrice)
-                .filter(Objects::nonNull)
-                .map(price -> requirePositivePrice(
-                        price,
-                        "Configured negotiation step price"
-                ))
-                .findFirst()
-                .orElseThrow(
-                        () -> new IllegalStateException(
-                                "Cannot derive audit price for negotiation step "
-                                        + stepNumber
-                        )
-                );
     }
 
     private BigDecimal requirePositivePrice(
