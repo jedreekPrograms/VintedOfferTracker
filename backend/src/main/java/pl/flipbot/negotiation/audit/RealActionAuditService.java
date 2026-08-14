@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
+import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.audit.dto.RealActionAuditResponse;
 import pl.flipbot.negotiation.audit.dto.UpsertRealActionAuditRequest;
 import pl.flipbot.negotiation.guard.RealActionGuard;
@@ -43,6 +44,69 @@ public class RealActionAuditService {
                         )
                 );
 
+        return recordWithLockedListing(
+                botId,
+                listing,
+                request
+        );
+    }
+
+    @Transactional
+    public void backfillAmbiguousFromBlockedGuard(
+            Listing listing,
+            RealActionGuard guard,
+            String reason
+    ) {
+        Objects.requireNonNull(listing, "Listing cannot be null");
+        Objects.requireNonNull(guard, "Real action guard cannot be null");
+
+        if (realActionAuditRepository.findByRequestId(guard.getRequestId()).isPresent()) {
+            return;
+        }
+
+        UpsertRealActionAuditRequest request =
+                new UpsertRealActionAuditRequest(
+                        guard.getRequestId(),
+                        guard.getActionType(),
+                        guard.getStepNumber(),
+                        null,
+                        RealActionAuditOutcome.AMBIGUOUS,
+                        RealActionMessageStatus.UNKNOWN,
+                        reason
+                );
+
+        recordWithLockedListing(
+                listing.getBot().getId(),
+                listing,
+                request
+        );
+
+        log.warn(
+                "[REAL ACTION AUDIT] Backfilled AMBIGUOUS audit from unresolved guard. requestId={}, bot={}, listing={}, action={}, step={}",
+                guard.getRequestId(),
+                listing.getBot().getId(),
+                listing.getId(),
+                guard.getActionType(),
+                guard.getStepNumber()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<RealActionAuditResponse> getForBot(
+            Long botId
+    ) {
+        return realActionAuditRepository
+                .findByBotIdOrderByCreatedAtDesc(botId)
+                .stream()
+                .map(this::map)
+                .toList();
+    }
+
+    private RealActionAuditResponse recordWithLockedListing(
+            Long botId,
+            Listing listing,
+            UpsertRealActionAuditRequest request
+    ) {
         RealActionAudit existing = realActionAuditRepository
                 .findByRequestId(request.requestId())
                 .orElse(null);
@@ -81,6 +145,11 @@ public class RealActionAuditService {
             validateConfirmedByListingState(listing, request);
         }
 
+        BigDecimal auditPrice = resolveAuditPrice(
+                listing,
+                request
+        );
+
         LocalDateTime now = LocalDateTime.now();
 
         RealActionAudit audit = RealActionAudit.builder()
@@ -91,7 +160,7 @@ public class RealActionAuditService {
                 .conversationId(normalizeNullable(listing.getConversationId()))
                 .actionType(request.actionType())
                 .stepNumber(request.stepNumber())
-                .offerPrice(request.offerPrice())
+                .offerPrice(auditPrice)
                 .outcome(request.outcome())
                 .messageStatus(request.messageStatus())
                 .failureReason(normalizeFailureReason(request.failureReason()))
@@ -115,17 +184,6 @@ public class RealActionAuditService {
         );
 
         return map(saved);
-    }
-
-    @Transactional(readOnly = true)
-    public List<RealActionAuditResponse> getForBot(
-            Long botId
-    ) {
-        return realActionAuditRepository
-                .findByBotIdOrderByCreatedAtDesc(botId)
-                .stream()
-                .map(this::map)
-                .toList();
     }
 
     private void validateGuard(
@@ -152,8 +210,7 @@ public class RealActionAuditService {
         if (!Objects.equals(audit.getBotId(), botId)
                 || !Objects.equals(audit.getBackendListingId(), listing.getId())
                 || audit.getActionType() != request.actionType()
-                || !Objects.equals(audit.getStepNumber(), request.stepNumber())
-                || audit.getOfferPrice().compareTo(request.offerPrice()) != 0) {
+                || !Objects.equals(audit.getStepNumber(), request.stepNumber())) {
             throw new IllegalStateException(
                     "Real-action audit requestId "
                             + request.requestId()
@@ -171,6 +228,7 @@ public class RealActionAuditService {
                 && request.outcome() == RealActionAuditOutcome.CONFIRMED) {
             validateConfirmedByListingState(listing, request);
             audit.setOutcome(RealActionAuditOutcome.CONFIRMED);
+            audit.setOfferPrice(resolveConfirmedPrice(listing));
             audit.setFailureReason(null);
         }
 
@@ -201,6 +259,85 @@ public class RealActionAuditService {
         }
 
         audit.setUpdatedAt(LocalDateTime.now());
+    }
+
+    private BigDecimal resolveAuditPrice(
+            Listing listing,
+            UpsertRealActionAuditRequest request
+    ) {
+        if (request.outcome() == RealActionAuditOutcome.CONFIRMED) {
+            return resolveConfirmedPrice(listing);
+        }
+
+        if (request.offerPrice() != null) {
+            return requirePositivePrice(
+                    request.offerPrice(),
+                    "Audit offer price"
+            );
+        }
+
+        return resolveConfiguredStepPrice(
+                listing,
+                request.stepNumber()
+        );
+    }
+
+    private BigDecimal resolveConfirmedPrice(
+            Listing listing
+    ) {
+        return requirePositivePrice(
+                listing.getCurrentPrice(),
+                "Confirmed listing current price"
+        );
+    }
+
+    private BigDecimal resolveConfiguredStepPrice(
+            Listing listing,
+            Integer stepNumber
+    ) {
+        if (listing.getBot() == null
+                || listing.getBot().getConfiguration() == null
+                || listing.getBot().getConfiguration().getNegotiationSteps() == null) {
+            throw new IllegalStateException(
+                    "Cannot derive audit price because bot negotiation steps are missing"
+            );
+        }
+
+        return listing.getBot()
+                .getConfiguration()
+                .getNegotiationSteps()
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(step -> Objects.equals(
+                        stepNumber,
+                        step.getStepNumber()
+                ))
+                .map(NegotiationStep::getOfferPrice)
+                .filter(Objects::nonNull)
+                .map(price -> requirePositivePrice(
+                        price,
+                        "Configured negotiation step price"
+                ))
+                .findFirst()
+                .orElseThrow(
+                        () -> new IllegalStateException(
+                                "Cannot derive audit price for negotiation step "
+                                        + stepNumber
+                        )
+                );
+    }
+
+    private BigDecimal requirePositivePrice(
+            BigDecimal value,
+            String label
+    ) {
+        if (value == null || value.signum() <= 0) {
+            throw new IllegalStateException(
+                    label + " must be positive"
+            );
+        }
+
+        return value;
     }
 
     private RealActionMessageStatus mergeMessageStatus(
