@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
+import pl.flipbot.dictionary.DictionaryCategory;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.marketstats.dto.KnownMarketListingIdsResponse;
@@ -17,6 +18,7 @@ import pl.flipbot.marketstats.dto.ModelPlanningResponse;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -32,6 +34,7 @@ public class MarketStatsService {
     private static final int TRACKING_WINDOW_DAYS = 7;
     private static final int NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
     private static final int OBSERVATION_RETENTION_DAYS = 30;
+    private static final String CATEGORY_PATH_SEPARATOR_REGEX = "\\s*>\\s*";
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
@@ -331,6 +334,17 @@ public class MarketStatsService {
             DictionaryModel model,
             List<BotConfiguration> configurations
     ) {
+        DictionaryCategory dictionaryCategory = model.getCategory();
+
+        if (dictionaryCategory != null
+                && dictionaryCategory.getPath() != null
+                && !dictionaryCategory.getPath().isBlank()) {
+            return new CategoryResolution(
+                    splitCategoryPath(dictionaryCategory.getPath()),
+                    true
+            );
+        }
+
         List<List<String>> paths = configurations.stream()
                 .filter(configuration -> matchesModel(model, configuration))
                 .map(BotConfiguration::getCategoryPath)
@@ -362,6 +376,21 @@ public class MarketStatsService {
                 List.copyOf(first),
                 true
         );
+    }
+
+    private List<String> splitCategoryPath(
+            String storedPath
+    ) {
+        if (storedPath == null || storedPath.isBlank()) {
+            return List.of();
+        }
+
+        return Arrays.stream(
+                        storedPath.split(CATEGORY_PATH_SEPARATOR_REGEX)
+                )
+                .map(String::trim)
+                .filter(element -> !element.isBlank())
+                .toList();
     }
 
     private boolean matchesModel(
