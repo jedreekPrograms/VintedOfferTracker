@@ -5,22 +5,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 
 public interface MarketListingObservationRepository
         extends JpaRepository<MarketListingObservation, Long> {
 
-    Optional<MarketListingObservation>
-    findByModel_IdAndMarketplaceListingId(
-            Long modelId,
-            String marketplaceListingId
-    );
-
     List<MarketListingObservation>
-    findAllByModel_IdAndLastSeenAtAfter(
+    findAllByModel_IdAndMarketplaceListingIdIn(
             Long modelId,
-            LocalDateTime lastSeenAfter
+            Collection<String> marketplaceListingIds
     );
 
     long countByModel_IdAndBaselineFalseAndFirstSeenAtAfter(
