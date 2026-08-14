@@ -8,11 +8,22 @@ import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
-import pl.flipbot.marketstats.dto.*;
+import pl.flipbot.marketstats.dto.KnownMarketListingIdsResponse;
+import pl.flipbot.marketstats.dto.MarketObservationBatchRequest;
+import pl.flipbot.marketstats.dto.MarketObservationBatchResponse;
+import pl.flipbot.marketstats.dto.MarketStatsTargetResponse;
+import pl.flipbot.marketstats.dto.ModelPlanningResponse;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -111,19 +122,24 @@ public class MarketStatsService {
             Long modelId,
             MarketObservationBatchRequest request
     ) {
+        Objects.requireNonNull(
+                request,
+                "Market observation request cannot be null"
+        );
+
         DictionaryModel model = requireModel(modelId);
         List<String> listingIds = normalizeListingIds(request.listingIds());
 
-        if (listingIds.isEmpty()) {
+        if (listingIds.isEmpty() && !request.complete()) {
             throw new IllegalArgumentException(
-                    "At least one valid marketplace listing id is required."
+                    "An incomplete market scan must contain at least one marketplace listing id."
             );
         }
 
         LocalDateTime now = LocalDateTime.now();
 
         MarketModelScanState state = scanStateRepository
-                .findByModelId(modelId)
+                .findByModelIdForUpdate(modelId)
                 .orElse(null);
 
         boolean createdState = state == null;
@@ -146,15 +162,17 @@ public class MarketStatsService {
         Map<String, MarketListingObservation> existingById =
                 new HashMap<>();
 
-        observationRepository
-                .findAllByModel_IdAndMarketplaceListingIdIn(
-                        modelId,
-                        listingIds
-                )
-                .forEach(observation -> existingById.put(
-                        observation.getMarketplaceListingId(),
-                        observation
-                ));
+        if (!listingIds.isEmpty()) {
+            observationRepository
+                    .findAllByModel_IdAndMarketplaceListingIdIn(
+                            modelId,
+                            listingIds
+                    )
+                    .forEach(observation -> existingById.put(
+                            observation.getMarketplaceListingId(),
+                            observation
+                    ));
+        }
 
         List<MarketListingObservation> changed = new ArrayList<>();
         int newListings = 0;
@@ -185,7 +203,9 @@ public class MarketStatsService {
             }
         }
 
-        observationRepository.saveAll(changed);
+        if (!changed.isEmpty()) {
+            observationRepository.saveAll(changed);
+        }
 
         state.setLastScanAt(now);
         state.setLastScanComplete(request.complete());
@@ -240,7 +260,7 @@ public class MarketStatsService {
                     existingBots,
                     false,
                     0,
-                    state == null ? null : state.getLastSuccessfulScanAt(),
+                    state == null ? null : state.getLastScanAt(),
                     state != null && Boolean.TRUE.equals(state.getLastScanComplete())
             );
         }
@@ -281,7 +301,7 @@ public class MarketStatsService {
                 existingBots,
                 statsReady,
                 trackedDays,
-                state.getLastSuccessfulScanAt(),
+                state.getLastScanAt(),
                 Boolean.TRUE.equals(state.getLastScanComplete())
         );
     }
