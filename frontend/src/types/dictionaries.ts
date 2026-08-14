@@ -34,7 +34,7 @@ export interface DictionaryModel {
 
 export interface CreateDictionaryModelRequest {
     name: string;
-    targetMode: TargetMode;
+    targetMode?: TargetMode;
 }
 
 export interface UpdateDictionaryModelPricingRequest {
