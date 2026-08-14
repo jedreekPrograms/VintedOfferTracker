@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
+import pl.flipbot.negotiation.audit.RealActionAuditService;
 import pl.flipbot.negotiation.guard.dto.AcquireRealActionGuardRequest;
 import pl.flipbot.negotiation.guard.dto.RealActionGuardResponse;
 import pl.flipbot.negotiation.guard.dto.ReleaseRealActionGuardRequest;
@@ -23,6 +24,7 @@ public class RealActionGuardService {
 
     private final ListingRepository listingRepository;
     private final RealActionGuardRepository realActionGuardRepository;
+    private final RealActionAuditService realActionAuditService;
 
     @Transactional
     public RealActionGuardResponse acquire(
@@ -42,7 +44,7 @@ public class RealActionGuardService {
             if (isConfirmedByListingState(requestReplay, listing)) {
                 log.warn(
                         "[REAL ACTION GUARD] Replay request {} refers to an action already confirmed by listing state. "
-                                + "Removing stale guard and refusing reacquisition. Bot={}, listing={}, action={}, step={}, status={}, currentStep={}",
+                                + "Persisting/reconciling audit before removing stale guard. Bot={}, listing={}, action={}, step={}, status={}, currentStep={}",
                         request.requestId(),
                         botId,
                         listingId,
@@ -50,6 +52,11 @@ public class RealActionGuardService {
                         requestReplay.getStepNumber(),
                         listing.getStatus(),
                         listing.getCurrentStep()
+                );
+
+                realActionAuditService.backfillConfirmedFromStaleGuard(
+                        listing,
+                        requestReplay
                 );
 
                 realActionGuardRepository.delete(requestReplay);
@@ -87,7 +94,8 @@ public class RealActionGuardService {
                 && isConfirmedByListingState(activeGuard, listing)) {
 
             log.warn(
-                    "[REAL ACTION GUARD] Removing confirmed stale guard for bot {}, listing {}, action {}, step {}, requestId={}. Listing status={}, currentStep={}",
+                    "[REAL ACTION GUARD] Found confirmed stale guard for bot {}, listing {}, action {}, step {}, requestId={}. "
+                            + "Persisting/reconciling audit before cleanup. Listing status={}, currentStep={}",
                     botId,
                     listingId,
                     activeGuard.getActionType(),
@@ -97,12 +105,23 @@ public class RealActionGuardService {
                     listing.getCurrentStep()
             );
 
+            realActionAuditService.backfillConfirmedFromStaleGuard(
+                    listing,
+                    activeGuard
+            );
+
             realActionGuardRepository.delete(activeGuard);
             realActionGuardRepository.flush();
             activeGuard = null;
         }
 
         if (activeGuard != null) {
+            realActionAuditService.backfillAmbiguousFromBlockedGuard(
+                    listing,
+                    activeGuard,
+                    "A later acquire found the persistent guard still unresolved and listing state did not confirm delivery."
+            );
+
             log.warn(
                     "[REAL ACTION GUARD] Acquisition blocked for bot {}, listing {}. Existing action={}, step={}, createdAt={}",
                     botId,
