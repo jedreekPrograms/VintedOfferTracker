@@ -4,10 +4,11 @@ import jakarta.persistence.*;
 import lombok.*;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.listing.Listing;
+import pl.flipbot.security.PasswordEncryptionConverter;
+
 import java.util.ArrayList;
 import java.util.List;
-import jakarta.persistence.Convert;
-import pl.flipbot.security.PasswordEncryptionConverter;
+
 @Entity
 @Getter
 @Setter
@@ -33,6 +34,10 @@ public class Bot {
 
     @Enumerated(EnumType.STRING)
     private BotStatus status;
+
+    @Column(name = "market_stats_observer", nullable = false)
+    @Builder.Default
+    private Boolean marketStatsObserver = false;
 
     @OneToOne(mappedBy = "bot", cascade = CascadeType.ALL, orphanRemoval = true)
     private BotConfiguration configuration;

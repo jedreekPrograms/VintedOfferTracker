@@ -1,6 +1,7 @@
 package pl.flipbot.playwright;
 
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.marketstats.MarketStatsManager;
 import pl.flipbot.playwright.worker.WorkerManager;
 
 @Slf4j
@@ -18,10 +19,16 @@ public class FlipBotPlaywrightApplication {
         WorkerManager workerManager =
                 new WorkerManager();
 
+        MarketStatsManager marketStatsManager =
+                new MarketStatsManager();
+
 
         Thread shutdownHook =
                 new Thread(
-                        workerManager::stop,
+                        () -> {
+                            marketStatsManager.stop();
+                            workerManager.stop();
+                        },
                         "flipbot-shutdown"
                 );
 
@@ -35,6 +42,7 @@ public class FlipBotPlaywrightApplication {
         try {
 
             workerManager.start();
+            marketStatsManager.start();
 
 
             Thread.currentThread()
@@ -52,6 +60,7 @@ public class FlipBotPlaywrightApplication {
 
         } finally {
 
+            marketStatsManager.stop();
             workerManager.stop();
         }
     }
