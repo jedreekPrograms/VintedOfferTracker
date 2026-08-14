@@ -51,7 +51,7 @@ public class RealActionAudit {
     @Column(name = "step_number", nullable = false)
     private Integer stepNumber;
 
-    @Column(name = "offer_price", nullable = false, precision = 38, scale = 2)
+    @Column(name = "offer_price", precision = 38, scale = 2)
     private BigDecimal offerPrice;
 
     @Enumerated(EnumType.STRING)
