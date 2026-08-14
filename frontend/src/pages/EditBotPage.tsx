@@ -59,1406 +59,524 @@ import {
     validateCreateBotForm,
 } from "../features/bots/create/validation/validateCreateBotForm";
 
-
 function EditBotPage() {
-
-    const navigate =
-        useNavigate();
-
-
-    const {
-        botId:
-            botIdParam,
-    } =
-        useParams<{
-            botId: string;
-        }>();
-
-
-    const botId =
-        Number(
-            botIdParam,
-        );
-
-
-    const isBotIdValid =
-        Number.isInteger(
-            botId,
-        )
-        && botId > 0;
-
+    const navigate = useNavigate();
+    const { botId: botIdParam } = useParams<{ botId: string }>();
+    const botId = Number(botIdParam);
+    const isBotIdValid = Number.isInteger(botId) && botId > 0;
 
     const {
         form,
-
         setBotName,
         setEmail,
         setPassword,
-
         setCategory,
         setBrand,
-        setTargetMode,
         setModel,
-        setSearchQuery,
-
         setMinPrice,
         setMaxPrice,
-
         setAutoRaiseOfferToVintedMinimum,
         setMaxAutomaticOffer,
-
         setDailyNegotiationBudget,
-
         addNegotiationStep,
         removeNegotiationStep,
         updateNegotiationStep,
-
         replaceForm,
     } = useCreateBotForm();
 
-
-    const [
-        bot,
-        setBot,
-    ] = useState<BotDetails | null>(
-        null,
-    );
-
-
-    const [
-        isLoadingBot,
-        setIsLoadingBot,
-    ] = useState(
-        true,
-    );
-
-
-    const [
-        isBaseFormInitialized,
-        setIsBaseFormInitialized,
-    ] = useState(
-        false,
-    );
-
-
-    const [
-        isInitialModelResolved,
-        setIsInitialModelResolved,
-    ] = useState(
-        false,
-    );
-
-
-    const [
-        initializationError,
-        setInitializationError,
-    ] = useState<string | null>(
-        null,
-    );
-
-
-    const [
-        errorMessage,
-        setErrorMessage,
-    ] = useState<string | null>(
-        null,
-    );
-
-
-    const [
-        isSubmitting,
-        setIsSubmitting,
-    ] = useState(
-        false,
-    );
-
+    const [bot, setBot] = useState<BotDetails | null>(null);
+    const [isLoadingBot, setIsLoadingBot] = useState(true);
+    const [isBaseInitialized, setIsBaseInitialized] = useState(false);
+    const [isModelResolved, setIsModelResolved] = useState(false);
+    const [initializationError, setInitializationError] =
+        useState<string | null>(null);
+    const [errorMessage, setErrorMessage] =
+        useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const {
         categories,
         brands,
         models,
-
         isLoadingDictionaries,
         areModelsLoading,
-
         modelsBrandId,
-
         dictionaryErrorMessage,
         clearDictionaryError,
-    } = useBotDictionaries(
-        form.selectedBrandId,
-    );
+    } = useBotDictionaries(form.selectedBrandId);
 
+    const selectedCategory = categories.find(
+        (category) => String(category.id) === form.selectedCategoryId,
+    ) ?? null;
 
-    const selectedCategory =
-        categories.find(
-            (category) =>
-                String(category.id)
-                === form.selectedCategoryId,
-        ) ?? null;
+    const selectedBrand = brands.find(
+        (brand) => String(brand.id) === form.selectedBrandId,
+    ) ?? null;
 
+    const selectedModel = models.find(
+        (model) => String(model.id) === form.selectedModelId,
+    ) ?? null;
 
-    const selectedBrand =
-        brands.find(
-            (brand) =>
-                String(brand.id)
-                === form.selectedBrandId,
-        ) ?? null;
+    const isStopped = bot !== null
+        && bot.status.toUpperCase() === "STOPPED";
 
-
-    const selectedModel =
-        models.find(
-            (model) =>
-                String(model.id)
-                === form.selectedModelId,
-        ) ?? null;
-
-
-    const isStopped =
-        bot !== null
-        && bot.status
-            .toUpperCase()
-        === "STOPPED";
-
-
-    const isFormInitialized =
-        isBaseFormInitialized
-        && isInitialModelResolved
+    const isFormInitialized = isBaseInitialized
+        && isModelResolved
         && initializationError === null;
 
+    useEffect(() => {
+        setBot(null);
+        setIsBaseInitialized(false);
+        setIsModelResolved(false);
+        setInitializationError(null);
+        setErrorMessage(null);
 
-    useEffect(
-        () => {
+        if (!isBotIdValid) {
+            setIsLoadingBot(false);
+            setInitializationError("Identyfikator bota w adresie jest nieprawidłowy.");
+            return;
+        }
 
-            setBot(
-                null,
-            );
+        let cancelled = false;
 
-            setIsBaseFormInitialized(
-                false,
-            );
+        async function loadBot() {
+            setIsLoadingBot(true);
 
-            setIsInitialModelResolved(
-                false,
-            );
-
-            setInitializationError(
-                null,
-            );
-
-            setErrorMessage(
-                null,
-            );
-
-
-            if (
-                !isBotIdValid
-            ) {
-
-                setIsLoadingBot(
-                    false,
-                );
-
-                setInitializationError(
-                    "Identyfikator bota w adresie jest nieprawidłowy.",
-                );
-
-                return;
-            }
-
-
-            let cancelled =
-                false;
-
-
-            async function loadBot() {
-
-                setIsLoadingBot(
-                    true,
-                );
-
-
-                try {
-
-                    const loadedBot =
-                        await getBot(
-                            botId,
-                        );
-
-
-                    if (
-                        !cancelled
-                    ) {
-
-                        setBot(
-                            loadedBot,
-                        );
-                    }
-
-                } catch (error) {
-
-                    if (
-                        !cancelled
-                    ) {
-
-                        setInitializationError(
-                            getErrorMessage(
-                                error,
-                                "Nie udało się pobrać konfiguracji bota.",
-                            ),
-                        );
-                    }
-
-                } finally {
-
-                    if (
-                        !cancelled
-                    ) {
-
-                        setIsLoadingBot(
-                            false,
-                        );
-                    }
+            try {
+                const loadedBot = await getBot(botId);
+                if (!cancelled) {
+                    setBot(loadedBot);
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    setInitializationError(
+                        getErrorMessage(error, "Nie udało się pobrać konfiguracji bota."),
+                    );
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsLoadingBot(false);
                 }
             }
+        }
 
+        void loadBot();
 
-            void loadBot();
+        return () => {
+            cancelled = true;
+        };
+    }, [botId, isBotIdValid]);
 
+    useEffect(() => {
+        if (
+            bot === null
+            || isLoadingDictionaries
+            || isBaseInitialized
+            || initializationError !== null
+        ) {
+            return;
+        }
 
-            return () => {
+        const matchingCategory = categories.find((category) =>
+            categoryPathsEqual(
+                category.categoryPath,
+                bot.configuration.categoryPath,
+            ),
+        );
 
-                cancelled =
-                    true;
-            };
-
-        },
-        [
-            botId,
-            isBotIdValid,
-        ],
-    );
-
-
-    useEffect(
-        () => {
-
-            if (
-                bot === null
-                || isLoadingDictionaries
-                || isBaseFormInitialized
-                || initializationError !== null
-            ) {
-
-                return;
-            }
-
-
-            const matchingCategory =
-                categories.find(
-                    (category) =>
-                        categoryPathsEqual(
-                            category.categoryPath,
-                            bot.configuration
-                                .categoryPath,
-                        ),
-                );
-
-
-            if (
-                matchingCategory === undefined
-            ) {
-
-                setInitializationError(
-                    "Nie udało się odnaleźć zapisanej kategorii bota w aktualnym słowniku.",
-                );
-
-                setIsBaseFormInitialized(
-                    true,
-                );
-
-                setIsInitialModelResolved(
-                    true,
-                );
-
-                return;
-            }
-
-
-            const matchingBrand =
-                brands.find(
-                    (brand) =>
-                        normalizedText(
-                            brand.name,
-                        )
-                        === normalizedText(
-                            bot.configuration
-                                .brand,
-                        ),
-                );
-
-
-            if (
-                matchingBrand === undefined
-            ) {
-
-                setInitializationError(
-                    "Nie udało się odnaleźć zapisanej marki bota w aktualnym słowniku.",
-                );
-
-                setIsBaseFormInitialized(
-                    true,
-                );
-
-                setIsInitialModelResolved(
-                    true,
-                );
-
-                return;
-            }
-
-
-            const targetMode =
-                resolveTargetMode(
-                    bot,
-                );
-
-
-            const negotiationSteps =
-                bot.configuration
-                    .negotiationSteps
-                    .slice()
-                    .sort(
-                        (
-                            left,
-                            right,
-                        ) =>
-                            left.stepNumber
-                            - right.stepNumber,
-                    )
-                    .map(
-                        (
-                            step,
-                            index,
-                        ) => ({
-                            id:
-                                index + 1,
-
-                            offerPrice:
-                                String(
-                                    step.offerPrice,
-                                ),
-
-                            maxAcceptedCounterOffer:
-                                step.maxAcceptedCounterOffer
-                                    === null
-                                    ? ""
-                                    : String(
-                                        step.maxAcceptedCounterOffer,
-                                    ),
-
-                            message:
-                                step.message,
-                        }),
-                    );
-
-
-            const initializedSteps =
-                negotiationSteps.length
-                    > 0
-                    ? negotiationSteps
-                    : [
-                        {
-                            id: 1,
-                            offerPrice: "",
-                            maxAcceptedCounterOffer: "",
-                            message: "",
-                        },
-                    ];
-
-
-            const initialForm:
-                CreateBotFormValues = {
-
-                    botName:
-                        bot.name,
-
-                    email:
-                        bot.email,
-
-                    /*
-                     * Backend celowo nie zwraca hasła.
-                     * Puste pole podczas PATCH oznacza:
-                     * zachowaj obecne hasło.
-                     */
-                    password:
-                        "",
-
-                    selectedCategoryId:
-                        String(
-                            matchingCategory.id,
-                        ),
-
-                    selectedBrandId:
-                        String(
-                            matchingBrand.id,
-                        ),
-
-                    targetMode,
-
-                    selectedModelId:
-                        "",
-
-                    searchQuery:
-                        bot.configuration
-                            .searchQuery
-                        ?? "",
-
-                    minPrice:
-                        String(
-                            bot.configuration
-                                .minPrice,
-                        ),
-
-                    maxPrice:
-                        String(
-                            bot.configuration
-                                .maxPrice,
-                        ),
-
-                    autoRaiseOfferToVintedMinimum:
-                        Boolean(
-                            bot.configuration
-                                .autoRaiseOfferToVintedMinimum,
-                        ),
-
-                    maxAutomaticOffer:
-                        bot.configuration
-                            .maxAutomaticOffer
-                        === null
-                            ? ""
-                            : String(
-                                bot.configuration
-                                    .maxAutomaticOffer,
-                            ),
-
-                    dailyNegotiationBudget:
-                        String(
-                            bot.configuration
-                                .dailyNegotiationBudget,
-                        ),
-
-                    negotiationSteps:
-                        initializedSteps,
-                };
-
-
-            replaceForm(
-                initialForm,
+        if (matchingCategory === undefined) {
+            setInitializationError(
+                "Nie udało się odnaleźć zapisanej kategorii bota w aktualnym słowniku.",
             );
+            setIsBaseInitialized(true);
+            setIsModelResolved(true);
+            return;
+        }
 
+        const matchingBrand = brands.find((brand) =>
+            normalizedText(brand.name)
+            === normalizedText(bot.configuration.brand),
+        );
 
-            setIsBaseFormInitialized(
-                true,
+        if (matchingBrand === undefined) {
+            setInitializationError(
+                "Nie udało się odnaleźć zapisanej marki bota w aktualnym słowniku.",
             );
+            setIsBaseInitialized(true);
+            setIsModelResolved(true);
+            return;
+        }
 
+        const targetMode = resolveTargetMode(bot);
+        const steps = bot.configuration.negotiationSteps
+            .slice()
+            .sort((left, right) => left.stepNumber - right.stepNumber)
+            .map((step, index) => ({
+                id: index + 1,
+                offerPrice: String(step.offerPrice),
+                maxAcceptedCounterOffer:
+                    step.maxAcceptedCounterOffer === null
+                        ? ""
+                        : String(step.maxAcceptedCounterOffer),
+                message: step.message,
+            }));
 
-            if (
-                targetMode
-                !== "VINTED_MODEL"
-            ) {
+        const initialForm: CreateBotFormValues = {
+            botName: bot.name,
+            email: bot.email,
+            password: "",
+            selectedCategoryId: String(matchingCategory.id),
+            selectedBrandId: String(matchingBrand.id),
+            targetMode,
+            selectedModelId: "",
+            searchQuery: bot.configuration.searchQuery ?? "",
+            minPrice: String(bot.configuration.minPrice),
+            maxPrice: String(bot.configuration.maxPrice),
+            autoRaiseOfferToVintedMinimum: Boolean(
+                bot.configuration.autoRaiseOfferToVintedMinimum,
+            ),
+            maxAutomaticOffer:
+                bot.configuration.maxAutomaticOffer === null
+                    ? ""
+                    : String(bot.configuration.maxAutomaticOffer),
+            dailyNegotiationBudget: String(
+                bot.configuration.dailyNegotiationBudget,
+            ),
+            negotiationSteps: steps.length > 0
+                ? steps
+                : [{
+                    id: 1,
+                    offerPrice: "",
+                    maxAcceptedCounterOffer: "",
+                    message: "",
+                }],
+        };
 
-                setIsInitialModelResolved(
-                    true,
-                );
-            }
+        replaceForm(initialForm);
+        setIsBaseInitialized(true);
+    }, [
+        bot,
+        brands,
+        categories,
+        initializationError,
+        isBaseInitialized,
+        isLoadingDictionaries,
+        replaceForm,
+    ]);
 
-        },
-        [
-            bot,
-            brands,
-            categories,
-            initializationError,
-            isBaseFormInitialized,
-            isLoadingDictionaries,
-            replaceForm,
-        ],
-    );
+    useEffect(() => {
+        if (
+            bot === null
+            || !isBaseInitialized
+            || isModelResolved
+            || form.selectedBrandId.length === 0
+            || modelsBrandId !== form.selectedBrandId
+            || areModelsLoading
+        ) {
+            return;
+        }
 
+        const targetMode = resolveTargetMode(bot);
+        const configuredTargetName = targetMode === "SEARCH_QUERY"
+            ? bot.configuration.searchQuery
+            : bot.configuration.model;
 
-    useEffect(
-        () => {
-
-            if (
-                bot === null
-                || !isBaseFormInitialized
-                || isInitialModelResolved
-                || form.targetMode
-                    !== "VINTED_MODEL"
-                || form.selectedBrandId
-                    .length === 0
-                || modelsBrandId
-                    !== form.selectedBrandId
-            ) {
-
-                return;
-            }
-
-
-            const configuredModelName =
-                bot.configuration
-                    .model;
-
-
-            if (
-                configuredModelName === null
-                || configuredModelName
-                    .trim()
-                    .length === 0
-            ) {
-
-                setInitializationError(
-                    "Bot nie ma zapisanego modelu, mimo że korzysta z trybu VINTED_MODEL.",
-                );
-
-                setIsInitialModelResolved(
-                    true,
-                );
-
-                return;
-            }
-
-
-            const matchingModel =
-                models.find(
-                    (model) =>
-                        normalizedText(
-                            model.name,
-                        )
-                        === normalizedText(
-                            configuredModelName,
-                        ),
-                );
-
-
-            if (
-                matchingModel === undefined
-            ) {
-
-                setInitializationError(
-                    "Nie udało się odnaleźć zapisanego modelu bota w aktualnym słowniku.",
-                );
-
-                setIsInitialModelResolved(
-                    true,
-                );
-
-                return;
-            }
-
-
-            setModel(
-                String(
-                    matchingModel.id,
-                ),
+        if (configuredTargetName === null || configuredTargetName.trim().length === 0) {
+            setInitializationError(
+                "Bot nie ma poprawnie zapisanego modelu / frazy wyszukiwania.",
             );
+            setIsModelResolved(true);
+            return;
+        }
 
+        const matchingModel = models.find((model) =>
+            normalizedText(model.name) === normalizedText(configuredTargetName)
+            && model.targetMode === targetMode,
+        );
 
-            setIsInitialModelResolved(
-                true,
+        if (matchingModel === undefined) {
+            setInitializationError(
+                `Nie znaleziono w słowniku modelu „${configuredTargetName}” z trybem ${
+                    targetMode === "SEARCH_QUERY"
+                        ? "wyszukiwanie tekstowe"
+                        : "filtr Vinted"
+                }. Dodaj lub popraw ten model w Słownikach przed edycją bota.`,
             );
+            setIsModelResolved(true);
+            return;
+        }
 
-        },
-        [
-            bot,
-            form.selectedBrandId,
-            form.targetMode,
-            isBaseFormInitialized,
-            isInitialModelResolved,
-            models,
-            modelsBrandId,
-            setModel,
-        ],
-    );
-
+        setModel(String(matchingModel.id));
+        setIsModelResolved(true);
+    }, [
+        areModelsLoading,
+        bot,
+        form.selectedBrandId,
+        isBaseInitialized,
+        isModelResolved,
+        models,
+        modelsBrandId,
+        setModel,
+    ]);
 
     function clearMessages() {
-
-        setErrorMessage(
-            null,
-        );
+        setErrorMessage(null);
     }
 
+    async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
 
-    function changeBotName(
-        value: string,
-    ) {
-
-        setBotName(
-            value,
-        );
+        if (!isStopped || !isFormInitialized || isSubmitting) {
+            return;
+        }
 
         clearMessages();
+
+        const validationResult = validateCreateBotForm({
+            form,
+            selectedCategory,
+            selectedBrand,
+            selectedModel,
+            requirePassword: false,
+        });
+
+        if (!validationResult.valid) {
+            setErrorMessage(validationResult.errorMessage);
+            return;
+        }
+
+        const request = buildCreateBotRequest(validationResult.data);
+        setIsSubmitting(true);
+
+        try {
+            await updateBot(botId, request);
+            navigate("/bots");
+        } catch (error) {
+            setErrorMessage(
+                getErrorMessage(error, "Nie udało się zapisać zmian bota."),
+            );
+        } finally {
+            setIsSubmitting(false);
+        }
     }
-
-
-    function changeEmail(
-        value: string,
-    ) {
-
-        setEmail(
-            value,
-        );
-
-        clearMessages();
-    }
-
-
-    function changePassword(
-        value: string,
-    ) {
-
-        setPassword(
-            value,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeCategory(
-        categoryId: string,
-    ) {
-
-        setCategory(
-            categoryId,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeBrand(
-        brandId: string,
-    ) {
-
-        setBrand(
-            brandId,
-        );
-
-        clearMessages();
-        clearDictionaryError();
-    }
-
-
-    function changeTargetMode(
-        targetMode: TargetMode,
-    ) {
-
-        setTargetMode(
-            targetMode,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeModel(
-        modelId: string,
-    ) {
-
-        setModel(
-            modelId,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeSearchQuery(
-        value: string,
-    ) {
-
-        setSearchQuery(
-            value,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeMinPrice(
-        value: string,
-    ) {
-
-        setMinPrice(
-            value,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeMaxPrice(
-        value: string,
-    ) {
-
-        setMaxPrice(
-            value,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeAutoRaiseOffer(
-        value: boolean,
-    ) {
-
-        setAutoRaiseOfferToVintedMinimum(
-            value,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeMaxAutomaticOffer(
-        value: string,
-    ) {
-
-        setMaxAutomaticOffer(
-            value,
-        );
-
-        clearMessages();
-    }
-
-
-    function changeNegotiationBudget(
-        value: string,
-    ) {
-
-        setDailyNegotiationBudget(
-            value,
-        );
-
-        clearMessages();
-    }
-
 
     function handleAddNegotiationStep() {
-
-        const added =
-            addNegotiationStep();
-
-
-        if (
-            !added
-        ) {
-
-            setErrorMessage(
-                "Nie możesz dodać więcej niż 25 kroków negocjacji.",
-            );
-
-            return;
+        if (!addNegotiationStep()) {
+            setErrorMessage("Nie możesz dodać więcej niż 25 kroków negocjacji.");
+        } else {
+            clearMessages();
         }
-
-
-        clearMessages();
     }
 
-
-    function handleRemoveNegotiationStep(
-        stepId: number,
-    ) {
-
-        const removed =
-            removeNegotiationStep(
-                stepId,
-            );
-
-
-        if (
-            !removed
-        ) {
-
-            setErrorMessage(
-                "Bot musi mieć przynajmniej jeden krok negocjacji.",
-            );
-
-            return;
+    function handleRemoveNegotiationStep(stepId: number) {
+        if (!removeNegotiationStep(stepId)) {
+            setErrorMessage("Bot musi mieć przynajmniej jeden krok negocjacji.");
+        } else {
+            clearMessages();
         }
-
-
-        clearMessages();
     }
-
 
     function handleUpdateNegotiationStep(
         stepId: number,
         field: NegotiationStepField,
         value: string,
     ) {
-
-        updateNegotiationStep(
-            stepId,
-            field,
-            value,
-        );
-
+        updateNegotiationStep(stepId, field, value);
         clearMessages();
     }
 
-
-    async function handleSubmit(
-        event:
-            FormEvent<HTMLFormElement>,
-    ) {
-
-        event.preventDefault();
-
-
-        if (
-            isSubmitting
-            || !isBotIdValid
-            || bot === null
-            || !isFormInitialized
-        ) {
-
-            return;
-        }
-
-
-        clearMessages();
-
-
-        if (
-            !isStopped
-        ) {
-
-            setErrorMessage(
-                "Najpierw zatrzymaj bota. Konfigurację można edytować tylko dla zatrzymanego bota.",
-            );
-
-            return;
-        }
-
-
-        const validationResult =
-            validateCreateBotForm({
-                form,
-
-                selectedCategory,
-                selectedBrand,
-                selectedModel,
-
-                requirePassword:
-                    false,
-            });
-
-
-        if (
-            !validationResult.valid
-        ) {
-
-            setErrorMessage(
-                validationResult
-                    .errorMessage,
-            );
-
-            return;
-        }
-
-
-        const request =
-            buildCreateBotRequest(
-                validationResult.data,
-            );
-
-
-        setIsSubmitting(
-            true,
-        );
-
-
-        try {
-
-            await updateBot(
-                botId,
-                request,
-            );
-
-
-            navigate(
-                "/bots",
-            );
-
-        } catch (error) {
-
-            setErrorMessage(
-                getErrorMessage(
-                    error,
-                    "Nie udało się zapisać zmian bota.",
-                ),
-            );
-
-        } finally {
-
-            setIsSubmitting(
-                false,
-            );
-        }
-    }
-
-
-    if (
-        isLoadingBot
-        || (
-            bot !== null
-            && !isFormInitialized
-            && initializationError === null
-        )
-    ) {
-
+    if (isLoadingBot || isLoadingDictionaries) {
         return (
             <section className="page">
-
-                <header className="page-header">
-
-                    <div>
-
-                        <p className="page-eyebrow">
-                            Konfiguracja
-                        </p>
-
-
-                        <h1 className="page-title">
-                            Edytuj bota
-                        </h1>
-
-                    </div>
-
-                </header>
-
-
                 <article className="content-card">
-
-                    <div className="dictionary-list-state">
-                        Pobieranie konfiguracji bota...
-                    </div>
-
+                    <div className="dictionary-list-state">Pobieranie konfiguracji bota...</div>
                 </article>
-
             </section>
         );
     }
 
-
-    if (
-        bot === null
-        || initializationError !== null
-    ) {
-
+    if (initializationError !== null) {
         return (
             <section className="page">
-
-                <header className="page-header">
-
-                    <div>
-
-                        <p className="page-eyebrow">
-                            Konfiguracja
-                        </p>
-
-
-                        <h1 className="page-title">
-                            Edytuj bota
-                        </h1>
-
-                    </div>
-
-                </header>
-
-
-                <div
-                    className="form-message form-message-error"
-                    role="alert"
-                >
-                    {
-                        initializationError
-                        ?? "Nie udało się pobrać bota."
-                    }
+                <div className="form-message form-message-error" role="alert">
+                    {initializationError}
                 </div>
-
-
-                <div className="bot-form-actions">
-
-                    <Link
-                        className="secondary-button"
-                        to="/bots"
-                    >
-                        Wróć do botów
-                    </Link>
-
-                </div>
-
+                <Link className="secondary-button" to="/bots">Wróć do botów</Link>
             </section>
         );
     }
 
+    if (bot === null) {
+        return null;
+    }
 
     return (
         <section className="page">
-
             <header className="page-header">
-
                 <div>
-
-                    <p className="page-eyebrow">
-                        Konfiguracja
-                    </p>
-
-
-                    <h1 className="page-title">
-                        Edytuj bota #{bot.id}
-                    </h1>
-
-
+                    <p className="page-eyebrow">Konfiguracja</p>
+                    <h1 className="page-title">Edytuj bota</h1>
                     <p className="page-description">
-                        Zmień konto Vinted, filtry,
-                        strategię negocjacji lub limity.
-                        Zapis jest możliwy wyłącznie
-                        dla zatrzymanego bota bez
-                        aktywnych negocjacji.
+                        Model jest teraz rozwiązywany przez słownik. Puste hasło oznacza zachowanie
+                        obecnego hasła konta Vinted.
                     </p>
-
                 </div>
-
             </header>
 
+            {!isStopped && (
+                <div className="form-message form-message-error" role="alert">
+                    Zatrzymaj bota przed edycją konfiguracji.
+                </div>
+            )}
 
-            {
-                !isStopped
-                && (
-                    <div
-                        className="form-message form-message-error"
-                        role="alert"
-                    >
-                        Ten bot jest obecnie uruchomiony.
-                        Najpierw zatrzymaj go na stronie
-                        botów, aby odblokować edycję.
-                    </div>
-                )
-            }
+            {dictionaryErrorMessage !== null && (
+                <div className="form-message form-message-error" role="alert">
+                    {dictionaryErrorMessage}
+                </div>
+            )}
 
+            {errorMessage !== null && (
+                <div className="form-message form-message-error" role="alert">
+                    {errorMessage}
+                </div>
+            )}
 
-            <form
-                className="bot-form"
-                onSubmit={
-                    handleSubmit
-                }
-            >
-
+            <form className="bot-form" onSubmit={handleSubmit}>
                 <fieldset
                     className="bot-form-fieldset"
-                    disabled={
-                        isSubmitting
-                        || !isStopped
-                    }
+                    disabled={!isStopped || !isFormInitialized || isSubmitting}
                 >
-
                     <BasicInfoSection
-                        botName={
-                            form.botName
-                        }
-                        onBotNameChange={
-                            changeBotName
-                        }
+                        botName={form.botName}
+                        onBotNameChange={(value) => {
+                            setBotName(value);
+                            clearMessages();
+                        }}
                     />
-
 
                     <VintedAccountSection
-                        email={
-                            form.email
-                        }
-                        password={
-                            form.password
-                        }
-                        passwordOptional
-                        onEmailChange={
-                            changeEmail
-                        }
-                        onPasswordChange={
-                            changePassword
-                        }
+                        email={form.email}
+                        password={form.password}
+                        onEmailChange={(value) => {
+                            setEmail(value);
+                            clearMessages();
+                        }}
+                        onPasswordChange={(value) => {
+                            setPassword(value);
+                            clearMessages();
+                        }}
                     />
-
 
                     <BotFiltersSection
-                        categories={
-                            categories
-                        }
-                        brands={
-                            brands
-                        }
-                        models={
-                            models
-                        }
-                        selectedCategoryId={
-                            form.selectedCategoryId
-                        }
-                        selectedBrandId={
-                            form.selectedBrandId
-                        }
-                        targetMode={
-                            form.targetMode
-                        }
-                        selectedModelId={
-                            form.selectedModelId
-                        }
-                        searchQuery={
-                            form.searchQuery
-                        }
-                        minPrice={
-                            form.minPrice
-                        }
-                        maxPrice={
-                            form.maxPrice
-                        }
-                        isLoadingDictionaries={
-                            isLoadingDictionaries
-                        }
-                        areModelsLoading={
-                            areModelsLoading
-                        }
-                        onCategoryChange={
-                            changeCategory
-                        }
-                        onBrandChange={
-                            changeBrand
-                        }
-                        onTargetModeChange={
-                            changeTargetMode
-                        }
-                        onModelChange={
-                            changeModel
-                        }
-                        onSearchQueryChange={
-                            changeSearchQuery
-                        }
-                        onMinPriceChange={
-                            changeMinPrice
-                        }
-                        onMaxPriceChange={
-                            changeMaxPrice
-                        }
+                        categories={categories}
+                        brands={brands}
+                        models={models}
+                        selectedCategoryId={form.selectedCategoryId}
+                        selectedBrandId={form.selectedBrandId}
+                        targetMode={form.targetMode}
+                        selectedModelId={form.selectedModelId}
+                        searchQuery={form.searchQuery}
+                        minPrice={form.minPrice}
+                        maxPrice={form.maxPrice}
+                        isLoadingDictionaries={isLoadingDictionaries}
+                        areModelsLoading={areModelsLoading}
+                        onCategoryChange={(value) => {
+                            setCategory(value);
+                            clearMessages();
+                        }}
+                        onBrandChange={(value) => {
+                            setBrand(value);
+                            clearMessages();
+                            clearDictionaryError();
+                        }}
+                        onTargetModeChange={() => undefined}
+                        onModelChange={(value) => {
+                            setModel(value);
+                            clearMessages();
+                        }}
+                        onSearchQueryChange={() => undefined}
+                        onMinPriceChange={(value) => {
+                            setMinPrice(value);
+                            clearMessages();
+                        }}
+                        onMaxPriceChange={(value) => {
+                            setMaxPrice(value);
+                            clearMessages();
+                        }}
                     />
-
 
                     <NegotiationBudgetSection
-                        dailyNegotiationBudget={
-                            form.dailyNegotiationBudget
-                        }
-                        onBudgetChange={
-                            changeNegotiationBudget
-                        }
+                        dailyNegotiationBudget={form.dailyNegotiationBudget}
+                        onBudgetChange={(value) => {
+                            setDailyNegotiationBudget(value);
+                            clearMessages();
+                        }}
                     />
-
 
                     <OfferStrategySection
-                        autoRaiseOfferToVintedMinimum={
-                            form.autoRaiseOfferToVintedMinimum
-                        }
-                        maxAutomaticOffer={
-                            form.maxAutomaticOffer
-                        }
-                        firstConfiguredOffer={
-                            form.negotiationSteps[0]
-                                ?.offerPrice
-                            ?? ""
-                        }
-                        onAutoRaiseChange={
-                            changeAutoRaiseOffer
-                        }
-                        onMaxAutomaticOfferChange={
-                            changeMaxAutomaticOffer
-                        }
+                        autoRaiseOfferToVintedMinimum={form.autoRaiseOfferToVintedMinimum}
+                        maxAutomaticOffer={form.maxAutomaticOffer}
+                        firstConfiguredOffer={form.negotiationSteps[0]?.offerPrice ?? ""}
+                        onAutoRaiseChange={(value) => {
+                            setAutoRaiseOfferToVintedMinimum(value);
+                            clearMessages();
+                        }}
+                        onMaxAutomaticOfferChange={(value) => {
+                            setMaxAutomaticOffer(value);
+                            clearMessages();
+                        }}
                     />
-
 
                     <NegotiationStepsSection
-                        negotiationSteps={
-                            form.negotiationSteps
-                        }
-                        dailyNegotiationBudget={
-                            form.dailyNegotiationBudget
-                        }
-                        onAddStep={
-                            handleAddNegotiationStep
-                        }
-                        onRemoveStep={
-                            handleRemoveNegotiationStep
-                        }
-                        onUpdateStep={
-                            handleUpdateNegotiationStep
-                        }
+                        negotiationSteps={form.negotiationSteps}
+                        dailyNegotiationBudget={form.dailyNegotiationBudget}
+                        onAddStep={handleAddNegotiationStep}
+                        onRemoveStep={handleRemoveNegotiationStep}
+                        onUpdateStep={handleUpdateNegotiationStep}
                     />
-
                 </fieldset>
 
-
-                {
-                    dictionaryErrorMessage !== null
-                    && (
-                        <div
-                            className="form-message form-message-error"
-                            role="alert"
-                        >
-                            {dictionaryErrorMessage}
-                        </div>
-                    )
-                }
-
-
-                {
-                    errorMessage !== null
-                    && (
-                        <div
-                            className="form-message form-message-error"
-                            role="alert"
-                        >
-                            {errorMessage}
-                        </div>
-                    )
-                }
-
-
                 <div className="bot-form-actions">
-
-                    <Link
-                        className="secondary-button"
-                        to="/bots"
-                    >
-                        Anuluj
-                    </Link>
-
-
+                    <Link className="secondary-button" to="/bots">Anuluj</Link>
                     <button
                         className="primary-button"
                         type="submit"
-                        disabled={
-                            isSubmitting
-                            || isLoadingDictionaries
-                            || areModelsLoading
-                            || !isStopped
-                        }
+                        disabled={!isStopped || !isFormInitialized || isSubmitting}
                     >
-                        {
-                            isSubmitting
-                                ? "Zapisywanie..."
-                                : "Zapisz zmiany"
-                        }
+                        {isSubmitting ? "Zapisywanie..." : "Zapisz zmiany"}
                     </button>
-
                 </div>
-
             </form>
-
         </section>
     );
 }
 
-
-function resolveTargetMode(
-    bot: BotDetails,
-): TargetMode {
-
-    if (
-        bot.configuration
-            .targetMode !== null
-    ) {
-
-        return bot.configuration
-            .targetMode;
+function resolveTargetMode(bot: BotDetails): TargetMode {
+    if (bot.configuration.targetMode !== null) {
+        return bot.configuration.targetMode;
     }
 
-
-    if (
-        bot.configuration
-            .searchQuery !== null
-        && bot.configuration
-            .searchQuery
-            .trim()
-            .length > 0
-    ) {
-
-        return "SEARCH_QUERY";
-    }
-
-
-    return "VINTED_MODEL";
+    return bot.configuration.searchQuery !== null
+        && bot.configuration.searchQuery.trim().length > 0
+            ? "SEARCH_QUERY"
+            : "VINTED_MODEL";
 }
 
-
-function categoryPathsEqual(
-    left: string[],
-    right: string[],
-): boolean {
-
-    if (
-        left.length
-        !== right.length
-    ) {
-
-        return false;
-    }
-
-
-    return left.every(
-        (
-            value,
-            index,
-        ) =>
-            normalizedText(
-                value,
-            )
-            === normalizedText(
-                right[index],
-            ),
-    );
+function categoryPathsEqual(left: string[], right: string[]): boolean {
+    return left.length === right.length
+        && left.every((element, index) =>
+            normalizedText(element) === normalizedText(right[index] ?? ""),
+        );
 }
 
-
-function normalizedText(
-    value: string,
-): string {
-
-    return value
-        .trim()
-        .replace(
-            /\s+/g,
-            " ",
-        )
-        .toLocaleLowerCase();
+function normalizedText(value: string): string {
+    return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-
-function getErrorMessage(
-    error: unknown,
-    fallbackMessage: string,
-): string {
-
-    if (
-        error instanceof Error
-    ) {
-
-        return error.message;
-    }
-
-
-    return fallbackMessage;
+function getErrorMessage(error: unknown, fallbackMessage: string): string {
+    return error instanceof Error
+        ? error.message
+        : fallbackMessage;
 }
-
 
 export default EditBotPage;
