@@ -48,6 +48,14 @@ public class DictionaryModel {
     )
     private DictionaryBrand brand;
 
+    @ManyToOne(
+            fetch = FetchType.LAZY
+    )
+    @JoinColumn(
+            name = "category_id"
+    )
+    private DictionaryCategory category;
+
     @Enumerated(EnumType.STRING)
     @Column(
             name = "target_mode",
