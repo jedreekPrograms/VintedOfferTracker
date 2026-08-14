@@ -26,6 +26,8 @@ import type {
 
 import "../styles/price-matrix.css";
 
+const PLANNING_REFRESH_INTERVAL_MS = 15_000;
+
 interface PriceDraft {
     proposedOfferPrice: string;
     expectedResalePrice: string;
@@ -107,9 +109,40 @@ function PriceMatrixPage() {
         }
     }, []);
 
+    const refreshPlanning = useCallback(async () => {
+        try {
+            const planning = await getModelPlanning();
+            const nextPlanningByModel: Record<number, ModelPlanning> = {};
+
+            for (const item of planning) {
+                nextPlanningByModel[item.modelId] = item;
+            }
+
+            setPlanningByModel(nextPlanningByModel);
+        } catch (error) {
+            console.error(
+                "Nie udało się automatycznie odświeżyć statystyk rynku.",
+                error,
+            );
+        }
+    }, []);
+
     useEffect(() => {
         void loadData();
     }, [loadData]);
+
+    useEffect(() => {
+        const intervalId = window.setInterval(
+            () => {
+                void refreshPlanning();
+            },
+            PLANNING_REFRESH_INTERVAL_MS,
+        );
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [refreshPlanning]);
 
     const modelCount = useMemo(
         () => Object.values(modelsByBrand)
