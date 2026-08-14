@@ -1,6 +1,7 @@
 CREATE TABLE market_model_scan_state (
     model_id BIGINT PRIMARY KEY,
     initialized_at TIMESTAMP NOT NULL,
+    baseline_complete_at TIMESTAMP,
     last_scan_at TIMESTAMP NOT NULL,
     last_successful_scan_at TIMESTAMP,
     last_scan_complete BOOLEAN NOT NULL DEFAULT FALSE,
