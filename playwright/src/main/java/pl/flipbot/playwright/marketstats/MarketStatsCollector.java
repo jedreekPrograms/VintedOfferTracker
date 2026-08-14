@@ -8,6 +8,7 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.filters.FilterService;
 import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
+import pl.flipbot.playwright.marketstats.dto.KnownMarketListingIdsDto;
 import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchResponseDto;
 import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
@@ -18,7 +19,11 @@ import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
 
 import java.text.Normalizer;
-import java.util.*;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -140,9 +145,15 @@ public class MarketStatsCollector {
                 target
         );
 
-        Set<String> knownListingIds = apiClient.getKnownListingIds(
-                target.modelId()
-        );
+        KnownMarketListingIdsDto knownState =
+                apiClient.getKnownListingIds(
+                        target.modelId()
+                );
+
+        Set<String> knownListingIds =
+                knownState.listingIds() == null
+                        ? Set.of()
+                        : Set.copyOf(knownState.listingIds());
 
         if (!target.categoryResolved()) {
             log.warn(
@@ -163,7 +174,8 @@ public class MarketStatsCollector {
                 context,
                 scanBot.getConfiguration(),
                 target.categoryResolved(),
-                knownListingIds
+                knownListingIds,
+                knownState.baselineComplete()
         );
 
         MarketObservationBatchResponseDto recorded =
@@ -174,7 +186,7 @@ public class MarketStatsCollector {
                 );
 
         log.info(
-                "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', matched={}, knownBefore={}, newObserved={}, complete={}, baseline={}.",
+                "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', matched={}, knownBefore={}, newObserved={}, complete={}, baselineMode={}.",
                 target.modelId(),
                 target.brandName(),
                 target.modelName(),
@@ -182,7 +194,7 @@ public class MarketStatsCollector {
                 knownListingIds.size(),
                 recorded.newListings(),
                 scanResult.complete(),
-                recorded.baselineCreated()
+                !knownState.baselineComplete()
         );
     }
 
@@ -190,7 +202,8 @@ public class MarketStatsCollector {
             BotContext context,
             BotConfigurationDto targetConfiguration,
             boolean categoryResolved,
-            Set<String> knownListingIds
+            Set<String> knownListingIds,
+            boolean baselineComplete
     ) {
         ListingScanner scanner = new ListingScanner(context);
         ListingTargetMatcher matcher = new ListingTargetMatcher();
@@ -263,10 +276,39 @@ public class MarketStatsCollector {
                 .limit(config.maxListingsPerModel())
                 .toList();
 
-        if (ids.size() >= config.maxListingsPerModel()
-                && !knownListingIds.isEmpty()
-                && !containsKnownBoundary(ids, knownListingIds)) {
-            complete = false;
+        boolean hitLimit =
+                ids.size() >= config.maxListingsPerModel();
+
+        if (hitLimit) {
+            if (!baselineComplete) {
+                /*
+                 * The initial baseline only needs a sufficiently deep seed of
+                 * newest known IDs. We deliberately do not crawl the entire
+                 * historical catalog. Future daily scans stop after reaching
+                 * the known boundary created by this seed.
+                 */
+                complete = true;
+
+                log.info(
+                        "[MARKET STATS] Baseline seed reached configured limit {}. Treating the bounded newest-first seed as a complete baseline.",
+                        config.maxListingsPerModel()
+                );
+
+            } else if (!containsKnownBoundary(ids, knownListingIds)) {
+                /*
+                 * Once tracking is active, reaching the safety limit before
+                 * finding old known listings means there may be additional new
+                 * offers below the current window. Persist what we saw, but
+                 * flag this daily scan as incomplete instead of pretending the
+                 * weekly count is exact.
+                 */
+                complete = false;
+
+                log.warn(
+                        "[MARKET STATS] Daily scan reached configured limit {} before the known-listing boundary. This scan is incomplete.",
+                        config.maxListingsPerModel()
+                );
+            }
         }
 
         return new ScanResult(
