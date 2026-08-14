@@ -1,11 +1,11 @@
 package pl.flipbot.marketstats.dto;
 
-import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
 
 public record MarketObservationBatchRequest(
-        @NotEmpty List<String> listingIds,
+        @NotNull List<String> listingIds,
         boolean complete
 ) {
 }
