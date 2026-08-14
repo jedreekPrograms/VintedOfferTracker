@@ -4,6 +4,7 @@ import java.util.List;
 
 public record KnownMarketListingIdsResponse(
         Long modelId,
-        List<String> listingIds
+        List<String> listingIds,
+        boolean baselineComplete
 ) {
 }
