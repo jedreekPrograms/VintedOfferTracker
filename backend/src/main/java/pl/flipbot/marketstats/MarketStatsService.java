@@ -369,6 +369,10 @@ public class MarketStatsService {
             BotConfiguration configuration
     ) {
         if (configuration == null
+                || configuration.getBot() == null
+                || Boolean.TRUE.equals(
+                configuration.getBot().getMarketStatsObserver()
+        )
                 || !sameText(
                 model.getBrand().getName(),
                 configuration.getBrand()
