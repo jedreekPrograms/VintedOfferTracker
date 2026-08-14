@@ -336,7 +336,7 @@ public class MarketStatsService {
                 .map(BotConfiguration::getCategoryPath)
                 .filter(Objects::nonNull)
                 .filter(path -> !path.isEmpty())
-                .map(ArrayList::new)
+                .map(path -> List.copyOf(path))
                 .toList();
 
         if (paths.isEmpty()) {
