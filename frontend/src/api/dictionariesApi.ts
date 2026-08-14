@@ -5,6 +5,7 @@ import type {
     DictionaryBrand,
     DictionaryCategory,
     DictionaryModel,
+    UpdateDictionaryModelPricingRequest,
 } from "../types/dictionaries";
 
 const DICTIONARIES_BASE_URL =
@@ -247,7 +248,7 @@ export async function createModel(
 
     if (response.status === 400) {
         throw new Error(
-            "Nazwa modelu jest nieprawidłowa.",
+            "Nazwa lub sposób wyszukiwania modelu jest nieprawidłowy.",
         );
     }
 
@@ -280,6 +281,31 @@ export async function updateModel(
     await assertMutationResponse(
         response,
         "Nie udało się zmienić modelu.",
+    );
+
+    return response.json() as Promise<DictionaryModel>;
+}
+
+
+export async function updateModelPricing(
+    brandId: number,
+    modelId: number,
+    request: UpdateDictionaryModelPricingRequest,
+): Promise<DictionaryModel> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}/models/${modelId}/pricing`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się zapisać cen referencyjnych modelu.",
     );
 
     return response.json() as Promise<DictionaryModel>;

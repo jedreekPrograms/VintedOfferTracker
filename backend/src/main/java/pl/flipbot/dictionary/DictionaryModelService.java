@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.dictionary.dto.CreateDictionaryModelRequest;
 import pl.flipbot.dictionary.dto.DictionaryModelResponse;
 
@@ -55,7 +56,7 @@ public class DictionaryModelService {
                         .orElseThrow(
                                 () -> new DictionaryEntryNotFoundException(
                                         "Brand was not found: "
-                                        + brandId
+                                                + brandId
                                 )
                         );
 
@@ -75,9 +76,9 @@ public class DictionaryModelService {
 
             throw new DictionaryEntryAlreadyExistsException(
                     "Model already exists for brand "
-                    + brand.getName()
-                    + ": "
-                    + normalizedName
+                            + brand.getName()
+                            + ": "
+                            + normalizedName
             );
 
         }
@@ -89,6 +90,11 @@ public class DictionaryModelService {
                         )
                         .brand(
                                 brand
+                        )
+                        .targetMode(
+                                request.getTargetMode() == null
+                                        ? TargetMode.VINTED_MODEL
+                                        : request.getTargetMode()
                         )
                         .build();
 
@@ -108,9 +114,9 @@ public class DictionaryModelService {
 
             throw new DictionaryEntryAlreadyExistsException(
                     "Model already exists for brand "
-                    + brand.getName()
-                    + ": "
-                    + normalizedName
+                            + brand.getName()
+                            + ": "
+                            + normalizedName
             );
 
         }
@@ -127,7 +133,7 @@ public class DictionaryModelService {
 
             throw new DictionaryEntryNotFoundException(
                     "Brand was not found: "
-                    + brandId
+                            + brandId
             );
 
         }
@@ -166,7 +172,7 @@ public class DictionaryModelService {
 
     }
 
-    private DictionaryModelResponse map(
+    DictionaryModelResponse map(
             DictionaryModel model
     ) {
 
@@ -174,7 +180,12 @@ public class DictionaryModelService {
                 model.getId(),
                 model.getName(),
                 model.getBrand().getId(),
-                model.getBrand().getName()
+                model.getBrand().getName(),
+                model.getTargetMode() == null
+                        ? TargetMode.VINTED_MODEL
+                        : model.getTargetMode(),
+                model.getProposedOfferPrice(),
+                model.getExpectedResalePrice()
         );
 
     }

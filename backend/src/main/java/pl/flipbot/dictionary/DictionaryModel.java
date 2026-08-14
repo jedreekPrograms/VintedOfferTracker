@@ -2,6 +2,9 @@ package pl.flipbot.dictionary;
 
 import jakarta.persistence.*;
 import lombok.*;
+import pl.flipbot.bot.configuration.TargetMode;
+
+import java.math.BigDecimal;
 
 @Entity
 @Table(
@@ -44,4 +47,28 @@ public class DictionaryModel {
             nullable = false
     )
     private DictionaryBrand brand;
+
+    @Enumerated(EnumType.STRING)
+    @Column(
+            name = "target_mode",
+            nullable = false,
+            length = 32
+    )
+    @Builder.Default
+    private TargetMode targetMode =
+            TargetMode.VINTED_MODEL;
+
+    @Column(
+            name = "proposed_offer_price",
+            precision = 38,
+            scale = 2
+    )
+    private BigDecimal proposedOfferPrice;
+
+    @Column(
+            name = "expected_resale_price",
+            precision = 38,
+            scale = 2
+    )
+    private BigDecimal expectedResalePrice;
 }

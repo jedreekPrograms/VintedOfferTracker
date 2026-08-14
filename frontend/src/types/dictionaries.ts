@@ -1,3 +1,7 @@
+import type {
+    TargetMode,
+} from "./bots";
+
 export interface DictionaryBrand {
     id: number;
     name: string;
@@ -23,8 +27,17 @@ export interface DictionaryModel {
     name: string;
     brandId: number;
     brandName: string;
+    targetMode: TargetMode;
+    proposedOfferPrice: number | null;
+    expectedResalePrice: number | null;
 }
 
 export interface CreateDictionaryModelRequest {
     name: string;
+    targetMode?: TargetMode;
+}
+
+export interface UpdateDictionaryModelPricingRequest {
+    proposedOfferPrice: number | null;
+    expectedResalePrice: number | null;
 }

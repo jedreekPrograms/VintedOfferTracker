@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
+import pl.flipbot.bot.configuration.TargetMode;
 
 @Getter
 @Setter
@@ -18,4 +19,5 @@ public class CreateDictionaryModelRequest {
     )
     private String name;
 
+    private TargetMode targetMode;
 }
