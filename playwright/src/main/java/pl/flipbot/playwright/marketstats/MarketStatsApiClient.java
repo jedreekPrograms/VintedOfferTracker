@@ -15,11 +15,18 @@ import java.util.List;
 public class MarketStatsApiClient extends ApiClient {
 
     public BotDetailsDto getObserverBot(
-            Long botId
+            Long ignoredObserverBotId
     ) {
         HttpResponse<String> response = get(
-                "/api/market-stats/observer-bots/" + botId
+                "/api/market-stats/observer/playwright"
         );
+
+        if (response.statusCode() == 204) {
+            throw new ApiException(
+                    "Market statistics observer is not configured yet."
+            );
+        }
+
         requireSuccess(response, "load market-stats observer bot");
         return readBody(response, BotDetailsDto.class);
     }
