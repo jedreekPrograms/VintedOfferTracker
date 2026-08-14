@@ -91,6 +91,41 @@ public class RealActionAuditService {
         );
     }
 
+    @Transactional
+    public void backfillConfirmedFromStaleGuard(
+            Listing listing,
+            RealActionGuard guard
+    ) {
+        Objects.requireNonNull(listing, "Listing cannot be null");
+        Objects.requireNonNull(guard, "Real action guard cannot be null");
+
+        UpsertRealActionAuditRequest request =
+                new UpsertRealActionAuditRequest(
+                        guard.getRequestId(),
+                        guard.getActionType(),
+                        guard.getStepNumber(),
+                        null,
+                        RealActionAuditOutcome.CONFIRMED,
+                        RealActionMessageStatus.UNKNOWN,
+                        null
+                );
+
+        recordWithLockedListing(
+                listing.getBot().getId(),
+                listing,
+                request
+        );
+
+        log.warn(
+                "[REAL ACTION AUDIT] Backfilled CONFIRMED audit from stale guard before cleanup. requestId={}, bot={}, listing={}, action={}, step={}",
+                guard.getRequestId(),
+                listing.getBot().getId(),
+                listing.getId(),
+                guard.getActionType(),
+                guard.getStepNumber()
+        );
+    }
+
     @Transactional(readOnly = true)
     public List<RealActionAuditResponse> getForBot(
             Long botId
