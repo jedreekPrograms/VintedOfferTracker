@@ -5,6 +5,7 @@ import type {
     DictionaryBrand,
     DictionaryCategory,
     DictionaryModel,
+    UpdateDictionaryModelCategoryRequest,
     UpdateDictionaryModelPricingRequest,
 } from "../types/dictionaries";
 
@@ -236,7 +237,7 @@ export async function createModel(
 
     if (response.status === 404) {
         throw new Error(
-            "Wybrana marka nie istnieje.",
+            "Wybrana marka lub kategoria nie istnieje.",
         );
     }
 
@@ -248,7 +249,7 @@ export async function createModel(
 
     if (response.status === 400) {
         throw new Error(
-            "Nazwa lub sposób wyszukiwania modelu jest nieprawidłowy.",
+            "Nazwa, kategoria lub sposób wyszukiwania modelu jest nieprawidłowy.",
         );
     }
 
@@ -281,6 +282,31 @@ export async function updateModel(
     await assertMutationResponse(
         response,
         "Nie udało się zmienić modelu.",
+    );
+
+    return response.json() as Promise<DictionaryModel>;
+}
+
+
+export async function updateModelCategory(
+    brandId: number,
+    modelId: number,
+    request: UpdateDictionaryModelCategoryRequest,
+): Promise<DictionaryModel> {
+    const response = await fetch(
+        `${DICTIONARIES_BASE_URL}/brands/${brandId}/models/${modelId}/category`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request),
+        },
+    );
+
+    await assertMutationResponse(
+        response,
+        "Nie udało się zmienić kategorii modelu.",
     );
 
     return response.json() as Promise<DictionaryModel>;

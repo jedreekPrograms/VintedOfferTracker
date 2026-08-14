@@ -14,6 +14,7 @@ import {
     updateBrand,
     updateCategory,
     updateModel,
+    updateModelCategory,
 } from "../api/dictionariesApi";
 
 import type {
@@ -67,7 +68,11 @@ function ManageDictionariesPage() {
                         ]);
 
                     setBrands(loadedBrands);
-                    setCategories(loadedCategories);
+                    setCategories(
+                        [...loadedCategories].sort((left, right) =>
+                            left.path.localeCompare(right.path, "pl"),
+                        ),
+                    );
 
                     setSelectedBrandId((current) => {
                         const stillExists =
@@ -281,7 +286,7 @@ function ManageDictionariesPage() {
         category: DictionaryCategory,
     ) {
         if (!window.confirm(
-            `Usunąć kategorię „${category.path}”? Nie może być używana przez żadnego bota.`,
+            `Usunąć kategorię „${category.path}”? Nie może być używana przez żadnego bota ani model słownikowy.`,
         )) {
             return;
         }
@@ -331,6 +336,40 @@ function ManageDictionariesPage() {
     }
 
 
+    function handleModelCategoryChange(
+        model: DictionaryModel,
+        rawCategoryId: string,
+    ) {
+        const categoryId = Number(rawCategoryId);
+
+        if (!Number.isInteger(categoryId)
+            || categoryId <= 0
+            || categoryId === model.categoryId) {
+            return;
+        }
+
+        const category = categories.find(
+            (item) => item.id === categoryId,
+        );
+
+        if (category === undefined) {
+            return;
+        }
+
+        void runAction(
+            `model-category-${model.id}`,
+            async () => {
+                await updateModelCategory(
+                    model.brandId,
+                    model.id,
+                    { categoryId },
+                );
+            },
+            `Przypisano model „${model.name}” do kategorii „${category.path}”.`,
+        );
+    }
+
+
     function handleDeleteModel(
         model: DictionaryModel,
     ) {
@@ -370,10 +409,9 @@ function ManageDictionariesPage() {
                     </h1>
 
                     <p className="page-description">
-                        Poprawiaj literówki i usuwaj niepotrzebne
-                        marki, modele oraz kategorie. Backend blokuje
-                        operacje, które mogłyby uszkodzić konfigurację
-                        istniejącego bota.
+                        Poprawiaj literówki, przypisuj kategorie do modeli i usuwaj
+                        niepotrzebne wpisy. Kategoria modelu jest używana również przez
+                        observera statystyk podczas ustawiania filtrów Vinted.
                     </p>
                 </div>
             </header>
@@ -432,7 +470,7 @@ function ManageDictionariesPage() {
                                 </h2>
 
                                 <p className="content-card-text">
-                                    Wybierz markę, aby zarządzać jej modelami.
+                                    Wybierz markę, a następnie przypisz każdemu modelowi kategorię Vinted.
                                 </p>
                             </div>
                         </div>
@@ -478,12 +516,46 @@ function ManageDictionariesPage() {
                                                 <div className="dictionary-item-name">
                                                     {model.name}
                                                 </div>
+                                                <div className="dictionary-item-path">
+                                                    {model.categoryPath ?? "Brak przypisanej kategorii"}
+                                                </div>
                                                 <div className="dictionary-item-id">
-                                                    ID: {model.id} · {model.brandName}
+                                                    ID: {model.id} · {model.brandName} · {model.targetMode === "SEARCH_QUERY" ? "Wyszukiwarka" : "Filtr Vinted"}
                                                 </div>
                                             </div>
 
-                                            <div style={{ display: "flex", gap: 8 }}>
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    gap: 8,
+                                                    alignItems: "center",
+                                                    flexWrap: "wrap",
+                                                    justifyContent: "flex-end",
+                                                }}
+                                            >
+                                                <select
+                                                    className="form-select"
+                                                    aria-label={`Kategoria dla ${model.name}`}
+                                                    value={model.categoryId ?? ""}
+                                                    disabled={isBusy || categories.length === 0}
+                                                    style={{ minWidth: 260, maxWidth: 420 }}
+                                                    onChange={(event) =>
+                                                        handleModelCategoryChange(
+                                                            model,
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                >
+                                                    <option value="" disabled>
+                                                        Przypisz kategorię
+                                                    </option>
+                                                    {categories.map((category) => (
+                                                        <option key={category.id} value={category.id}>
+                                                            {category.path}
+                                                        </option>
+                                                    ))}
+                                                </select>
+
                                                 <button
                                                     className="secondary-button"
                                                     type="button"

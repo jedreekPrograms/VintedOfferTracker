@@ -20,4 +20,6 @@ public class CreateDictionaryModelRequest {
     private String name;
 
     private TargetMode targetMode;
+
+    private Long categoryId;
 }

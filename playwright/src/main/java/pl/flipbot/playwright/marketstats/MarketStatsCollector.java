@@ -18,47 +18,19 @@ import pl.flipbot.playwright.scanner.model.Listing;
 import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
 
-import java.text.Normalizer;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 @Slf4j
 @RequiredArgsConstructor
 public class MarketStatsCollector {
 
+    private static final String VINTED_MODEL = "VINTED_MODEL";
+    private static final String SEARCH_QUERY = "SEARCH_QUERY";
     private static final double SCROLL_WAIT_MS = 1_200;
     private static final int MAX_NO_GROWTH_ROUNDS = 2;
-
-    private static final Set<String> ACCESSORY_WORDS = Set.of(
-            "etui",
-            "case",
-            "cover",
-            "pokrowiec",
-            "obudowa",
-            "szklo",
-            "folia",
-            "protector",
-            "ladowarka",
-            "charger",
-            "kabel",
-            "cable",
-            "uchwyt",
-            "holder",
-            "bateria",
-            "battery",
-            "wyswietlacz",
-            "display",
-            "lcd",
-            "digitizer",
-            "czesci",
-            "parts",
-            "pudelko",
-            "dummy",
-            "atrapa"
-    );
 
     private final MarketStatsRuntimeConfig config;
     private final MarketStatsApiClient apiClient;
@@ -140,6 +112,19 @@ public class MarketStatsCollector {
             return;
         }
 
+        if (!target.categoryResolved()
+                || target.categoryPath() == null
+                || target.categoryPath().isEmpty()) {
+            log.warn(
+                    "[MARKET STATS] Skipping modelId={} {} / {} because no category is assigned. "
+                            + "Assign a category to the dictionary model before collecting market statistics.",
+                    target.modelId(),
+                    target.brandName(),
+                    target.modelName()
+            );
+            return;
+        }
+
         BotDetailsDto scanBot = buildScanBot(
                 observerBot,
                 target
@@ -155,17 +140,18 @@ public class MarketStatsCollector {
                         ? Set.of()
                         : Set.copyOf(knownState.listingIds());
 
-        if (!target.categoryResolved()) {
-            log.warn(
-                    "[MARKET STATS] Model {} / {} has no uniquely resolved category from existing bot configurations. "
-                            + "Collector will use global brand + text search and conservative accessory filtering.",
-                    target.brandName(),
-                    target.modelName()
-            );
-        }
-
         MarketplaceNavigator navigator = new MarketplaceNavigator(context);
         FilterService filterService = new FilterService(context);
+
+        log.info(
+                "[MARKET STATS] Applying dictionary target. modelId={}, categoryPath={}, brand='{}', targetMode={}, model='{}', searchQuery='{}'.",
+                target.modelId(),
+                scanBot.getConfiguration().getCategoryPath(),
+                scanBot.getConfiguration().getBrand(),
+                scanBot.getConfiguration().getTargetMode(),
+                scanBot.getConfiguration().getModel(),
+                scanBot.getConfiguration().getSearchQuery()
+        );
 
         navigator.goToCatalog();
         filterService.applyFilters(scanBot);
@@ -173,7 +159,6 @@ public class MarketStatsCollector {
         ScanResult scanResult = scanCatalog(
                 context,
                 scanBot.getConfiguration(),
-                target.categoryResolved(),
                 knownListingIds,
                 knownState.baselineComplete()
         );
@@ -201,7 +186,6 @@ public class MarketStatsCollector {
     private ScanResult scanCatalog(
             BotContext context,
             BotConfigurationDto targetConfiguration,
-            boolean categoryResolved,
             Set<String> knownListingIds,
             boolean baselineComplete
     ) {
@@ -229,7 +213,6 @@ public class MarketStatsCollector {
                 if (matchesTarget(
                         listing,
                         targetConfiguration,
-                        categoryResolved,
                         matcher
                 )) {
                     matched.putIfAbsent(
@@ -281,12 +264,6 @@ public class MarketStatsCollector {
 
         if (hitLimit) {
             if (!baselineComplete) {
-                /*
-                 * The initial baseline only needs a sufficiently deep seed of
-                 * newest known IDs. We deliberately do not crawl the entire
-                 * historical catalog. Future daily scans stop after reaching
-                 * the known boundary created by this seed.
-                 */
                 complete = true;
 
                 log.info(
@@ -295,13 +272,6 @@ public class MarketStatsCollector {
                 );
 
             } else if (!containsKnownBoundary(ids, knownListingIds)) {
-                /*
-                 * Once tracking is active, reaching the safety limit before
-                 * finding old known listings means there may be additional new
-                 * offers below the current window. Persist what we saw, but
-                 * flag this daily scan as incomplete instead of pretending the
-                 * weekly count is exact.
-                 */
                 complete = false;
 
                 log.warn(
@@ -341,13 +311,8 @@ public class MarketStatsCollector {
     private boolean matchesTarget(
             Listing listing,
             BotConfigurationDto configuration,
-            boolean categoryResolved,
             ListingTargetMatcher matcher
     ) {
-        if (!categoryResolved && looksLikeAccessory(listing)) {
-            return false;
-        }
-
         ListingResponseDto candidate = new ListingResponseDto(
                 null,
                 listing.getId(),
@@ -383,24 +348,6 @@ public class MarketStatsCollector {
         ) == ListingTargetAssessment.MATCH;
     }
 
-    private boolean looksLikeAccessory(
-            Listing listing
-    ) {
-        String text = normalize(
-                String.valueOf(listing.getTitle())
-                        + " "
-                        + String.valueOf(listing.getUrl())
-        );
-
-        for (String accessoryWord : ACCESSORY_WORDS) {
-            if (text.contains(accessoryWord)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private BotDetailsDto buildScanBot(
             BotDetailsDto observerBot,
             MarketStatsTargetDto target
@@ -408,23 +355,21 @@ public class MarketStatsCollector {
         BotConfigurationDto configuration = new BotConfigurationDto();
         configuration.setMarketplace("VINTED");
         configuration.setCategoryPath(
-                target.categoryResolved()
-                        && target.categoryPath() != null
-                        ? List.copyOf(target.categoryPath())
-                        : List.of()
+                List.copyOf(target.categoryPath())
         );
         configuration.setBrand(target.brandName());
 
-        /*
-         * Market statistics intentionally use text search even when the
-         * production bot uses a strict Vinted model filter. This keeps the
-         * collector independent from whether Vinted currently exposes the
-         * model in its filter UI. The existing strict title/URL matcher is
-         * still applied before an ID is counted.
-         */
-        configuration.setTargetMode("SEARCH_QUERY");
-        configuration.setModel(null);
-        configuration.setSearchQuery(target.modelName());
+        String targetMode = resolveTargetMode(target.targetMode());
+        configuration.setTargetMode(targetMode);
+
+        if (SEARCH_QUERY.equals(targetMode)) {
+            configuration.setModel(null);
+            configuration.setSearchQuery(target.modelName());
+        } else {
+            configuration.setModel(target.modelName());
+            configuration.setSearchQuery(null);
+        }
+
         configuration.setMinPrice(null);
         configuration.setMaxPrice(null);
 
@@ -438,23 +383,20 @@ public class MarketStatsCollector {
         return scanBot;
     }
 
+    private String resolveTargetMode(
+            String rawTargetMode
+    ) {
+        if (SEARCH_QUERY.equals(rawTargetMode)) {
+            return SEARCH_QUERY;
+        }
+
+        return VINTED_MODEL;
+    }
+
     private boolean isBlank(
             String value
     ) {
         return value == null || value.isBlank();
-    }
-
-    private String normalize(
-            String value
-    ) {
-        String normalized = Normalizer.normalize(
-                value == null ? "" : value,
-                Normalizer.Form.NFD
-        );
-
-        return normalized
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT);
     }
 
     private record ScanResult(

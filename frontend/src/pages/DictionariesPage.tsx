@@ -32,6 +32,7 @@ function DictionariesPage() {
     const [brandName, setBrandName] = useState("");
     const [categoryPathInput, setCategoryPathInput] = useState("");
     const [selectedBrandId, setSelectedBrandId] = useState("");
+    const [selectedModelCategoryId, setSelectedModelCategoryId] = useState("");
     const [modelName, setModelName] = useState("");
     const [modelTargetMode, setModelTargetMode] =
         useState<TargetMode>("VINTED_MODEL");
@@ -55,13 +56,12 @@ function DictionariesPage() {
             const sortedBrands = [...loadedBrands].sort((left, right) =>
                 left.name.localeCompare(right.name, "pl"),
             );
+            const sortedCategories = [...loadedCategories].sort((left, right) =>
+                left.path.localeCompare(right.path, "pl"),
+            );
 
             setBrands(sortedBrands);
-            setCategories(
-                [...loadedCategories].sort((left, right) =>
-                    left.path.localeCompare(right.path, "pl"),
-                ),
-            );
+            setCategories(sortedCategories);
 
             setSelectedBrandId((current) => {
                 if (sortedBrands.some((brand) => String(brand.id) === current)) {
@@ -70,6 +70,16 @@ function DictionariesPage() {
 
                 return sortedBrands.length > 0
                     ? String(sortedBrands[0].id)
+                    : "";
+            });
+
+            setSelectedModelCategoryId((current) => {
+                if (sortedCategories.some((category) => String(category.id) === current)) {
+                    return current;
+                }
+
+                return sortedCategories.length > 0
+                    ? String(sortedCategories[0].id)
                     : "";
             });
         } catch (error) {
@@ -160,6 +170,7 @@ function DictionariesPage() {
             setCategoryPathInput("");
             setSuccessMessage(`Dodano kategorię ${created.path}.`);
             await loadBaseData();
+            setSelectedModelCategoryId(String(created.id));
         } catch (error) {
             setErrorMessage(getErrorMessage(error, "Nie udało się dodać kategorii."));
         } finally {
@@ -171,9 +182,15 @@ function DictionariesPage() {
         event.preventDefault();
         const name = normalizeText(modelName);
         const brandId = Number(selectedBrandId);
+        const categoryId = Number(selectedModelCategoryId);
 
         if (!Number.isInteger(brandId) || brandId <= 0) {
             setErrorMessage("Najpierw wybierz markę.");
+            return;
+        }
+
+        if (!Number.isInteger(categoryId) || categoryId <= 0) {
+            setErrorMessage("Najpierw wybierz kategorię modelu.");
             return;
         }
 
@@ -189,12 +206,13 @@ function DictionariesPage() {
             const created = await createModel(brandId, {
                 name,
                 targetMode: modelTargetMode,
+                categoryId,
             });
 
             setModelName("");
             setModelTargetMode("VINTED_MODEL");
             setSuccessMessage(
-                `Dodano ${created.brandName} ${created.name} (${targetModeLabel(created.targetMode)}).`,
+                `Dodano ${created.brandName} ${created.name} · ${created.categoryPath ?? "bez kategorii"} · ${targetModeLabel(created.targetMode)}.`,
             );
             await loadModels(brandId);
         } catch (error) {
@@ -215,9 +233,9 @@ function DictionariesPage() {
                     <p className="page-eyebrow">Dane konfiguracyjne</p>
                     <h1 className="page-title">Słowniki</h1>
                     <p className="page-description">
-                        Dodawaj marki, kategorie i modele. Sposób wyszukiwania jest
-                        zapisany bezpośrednio przy modelu, więc podczas tworzenia bota
-                        nie trzeba już ręcznie wybierać trybu Vinted / wyszukiwarka.
+                        Dodawaj marki, kategorie i modele. Kategoria oraz sposób wyszukiwania
+                        są zapisane bezpośrednio przy modelu, dzięki czemu observer i zwykłe
+                        boty używają tej samej definicji produktu.
                     </p>
                 </div>
             </header>
@@ -316,13 +334,34 @@ function DictionariesPage() {
                             <div>
                                 <h2 className="content-card-title">Dodaj model</h2>
                                 <p className="content-card-text">
-                                    Dla modelu bez filtra na Vinted wybierz wyszukiwanie tekstowe.
+                                    Wybierz kategorię Vinted i określ, czy model ma być wybierany z filtra czy wpisywany w wyszukiwarkę.
                                 </p>
                             </div>
                             <span className="dictionary-count">{models.length}</span>
                         </div>
 
                         <form className="dictionary-form" onSubmit={handleCreateModel}>
+                            <div className="form-field">
+                                <label className="form-label" htmlFor="model-category">Kategoria</label>
+                                <select
+                                    id="model-category"
+                                    className="form-select"
+                                    value={selectedModelCategoryId}
+                                    disabled={categories.length === 0 || submitting !== null}
+                                    onChange={(event) => {
+                                        setSelectedModelCategoryId(event.target.value);
+                                        clearMessages();
+                                    }}
+                                >
+                                    {categories.length === 0 && (
+                                        <option value="">Najpierw dodaj kategorię</option>
+                                    )}
+                                    {categories.map((category) => (
+                                        <option key={category.id} value={category.id}>{category.path}</option>
+                                    ))}
+                                </select>
+                            </div>
+
                             <div className="form-field">
                                 <label className="form-label" htmlFor="model-brand">Marka</label>
                                 <select
@@ -374,12 +413,14 @@ function DictionariesPage() {
                                     <option value="SEARCH_QUERY">Wyszukiwanie tekstowe</option>
                                 </select>
                                 <span className="form-help">
-                                    Przy wyszukiwaniu tekstowym nazwa modelu będzie automatycznie
-                                    wpisywana do wyszukiwarki Vinted.
+                                    Filtr Vinted: observer wybierze kategorię, markę i model. Wyszukiwarka: wpisze nazwę modelu, a następnie ustawi kategorię i markę.
                                 </span>
                             </div>
 
-                            <button className="primary-button" disabled={submitting !== null}>
+                            <button
+                                className="primary-button"
+                                disabled={submitting !== null || categories.length === 0 || brands.length === 0}
+                            >
                                 {submitting === "model" ? "Dodawanie..." : "Dodaj model"}
                             </button>
                         </form>
@@ -407,8 +448,12 @@ function DictionariesPage() {
                                     <li key={model.id} className="dictionary-list-item">
                                         <div className="dictionary-item-content">
                                             <div className="dictionary-item-name">{model.name}</div>
-                                            <div className="dictionary-item-path">{model.brandName}</div>
-                                            <div className="dictionary-item-id">ID: {model.id}</div>
+                                            <div className="dictionary-item-path">
+                                                {model.categoryPath ?? "Brak przypisanej kategorii"}
+                                            </div>
+                                            <div className="dictionary-item-id">
+                                                ID: {model.id} · {model.brandName}
+                                            </div>
                                         </div>
                                         <span className="dictionary-item-type">
                                             {model.targetMode === "SEARCH_QUERY" ? "Wyszukiwarka" : "Filtr Vinted"}
