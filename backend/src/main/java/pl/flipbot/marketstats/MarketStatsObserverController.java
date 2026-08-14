@@ -45,7 +45,11 @@ public class MarketStatsObserverController {
     }
 
     @GetMapping("/playwright")
-    public MarketStatsObserverPlaywrightResponse getObserverForPlaywright() {
-        return observerService.getObserverForPlaywright();
+    public ResponseEntity<MarketStatsObserverPlaywrightResponse> getObserverForPlaywright() {
+        return observerService.getObserverForPlaywright()
+                .map(ResponseEntity::ok)
+                .orElseGet(
+                        () -> ResponseEntity.noContent().build()
+                );
     }
 }
