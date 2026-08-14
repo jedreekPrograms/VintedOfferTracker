@@ -27,6 +27,9 @@ public class MarketModelScanState {
     @Column(name = "initialized_at", nullable = false)
     private LocalDateTime initializedAt;
 
+    @Column(name = "baseline_complete_at")
+    private LocalDateTime baselineCompleteAt;
+
     @Column(name = "last_scan_at", nullable = false)
     private LocalDateTime lastScanAt;
 
