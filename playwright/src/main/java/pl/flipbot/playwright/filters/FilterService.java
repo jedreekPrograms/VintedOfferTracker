@@ -588,39 +588,56 @@ public class FilterService {
 
     private void applySortBy() {
 
-        actions.openFilter(
-                FilterSelectors.SORT_BY
-        );
+        try {
 
-
-        actions.clickSelector(
-                FilterSelectors.SORT_BY_NEWEST
-        );
-
-
-        if (
-                waitForUrlParameterValue(
-                        "order",
-                        "newest_first",
-                        4_000
-                )
-        ) {
-
-            log.info(
-                    "[FILTER SORT] newest_first persisted through UI. "
-                            + "Current URL: {}",
-                    page.url()
+            actions.openFilter(
+                    FilterSelectors.SORT_BY
             );
 
 
-            return;
+            actions.clickSelector(
+                    FilterSelectors.SORT_BY_NEWEST
+            );
+
+
+            if (
+                    waitForUrlParameterValue(
+                            "order",
+                            "newest_first",
+                            4_000
+                    )
+            ) {
+
+                log.info(
+                        "[FILTER SORT] newest_first persisted through UI. "
+                                + "Current URL: {}",
+                        page.url()
+                );
+
+
+                return;
+            }
+
+        } catch (RuntimeException exception) {
+
+            if (page.isClosed()) {
+
+                throw exception;
+            }
+
+
+            log.warn(
+                    "[FILTER SORT] Could not apply newest_first through Vinted UI. "
+                            + "Falling back to the catalog URL. reason={}",
+                    exception.getMessage()
+            );
         }
 
 
         /*
-         * UI czasami kliknie sort, ale parametr znika / nie zapisuje się.
-         * Dla order nie potrzebujemy żadnego ID z Vinted,
-         * więc bezpiecznie poprawiamy wyłącznie ten parametr.
+         * Dla order nie potrzebujemy żadnego dynamicznego ID z Vinted.
+         * Jeśli kliknięcie UI nie zapisze parametru albo sama opcja sortowania
+         * nie pojawi się przed timeoutem, bezpiecznie ustawiamy tylko order.
          */
         String currentUrl =
                 page.url();
@@ -635,8 +652,7 @@ public class FilterService {
 
 
         log.warn(
-                "[FILTER SORT] Vinted did not persist newest_first through UI. "
-                        + "Applying URL fallback: {} -> {}",
+                "[FILTER SORT] Applying newest_first URL fallback: {} -> {}",
                 currentUrl,
                 correctedUrl
         );
