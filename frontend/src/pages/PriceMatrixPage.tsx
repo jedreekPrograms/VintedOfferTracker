@@ -103,7 +103,12 @@ function PriceMatrixPage() {
                 ),
             );
         } catch (error) {
-            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać cennika modeli."));
+            setErrorMessage(
+                getErrorMessage(
+                    error,
+                    "Nie udało się pobrać cennika modeli.",
+                ),
+            );
         } finally {
             setIsLoading(false);
         }
@@ -251,7 +256,12 @@ function PriceMatrixPage() {
 
             setSavedModelId(updated.id);
         } catch (error) {
-            setErrorMessage(getErrorMessage(error, "Nie udało się zapisać cen modelu."));
+            setErrorMessage(
+                getErrorMessage(
+                    error,
+                    "Nie udało się zapisać cen modelu.",
+                ),
+            );
         } finally {
             setSavingModelId(null);
         }
@@ -265,7 +275,7 @@ function PriceMatrixPage() {
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
                         Arkusz referencyjny generowany automatycznie ze słownika modeli.
-                        Statystyki rynku liczą nowe oferty z ostatnich 7 dni,
+                        Statystyki rynku pokazują nowe oferty z ostatnich 24 godzin i 7 dni,
                         a zapotrzebowanie przyjmuje maksymalnie 5 nowych rozmów dziennie na jednego bota.
                     </p>
                 </div>
@@ -355,7 +365,11 @@ function BrandPriceSheet({
                 onClick={onToggle}
             >
                 <span>{brand.name}</span>
-                <span className={`price-brand-chevron ${expanded ? "price-brand-chevron-open" : ""}`}>
+                <span
+                    className={`price-brand-chevron ${
+                        expanded ? "price-brand-chevron-open" : ""
+                    }`}
+                >
                     ▾
                 </span>
             </button>
@@ -366,6 +380,7 @@ function BrandPriceSheet({
                         <div>Model</div>
                         <div>Proponowana cena</div>
                         <div>Sprzedaż</div>
+                        <div>Nowe / 24h</div>
                         <div>Oferty / 7 dni</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
@@ -394,24 +409,42 @@ function BrandPriceSheet({
 
                                 <PriceInput
                                     value={draft.proposedOfferPrice}
-                                    disabled={savingModelId !== null && savingModelId !== model.id}
+                                    disabled={
+                                        savingModelId !== null
+                                        && savingModelId !== model.id
+                                    }
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
                                     onChange={(value) =>
-                                        onDraftChange(model.id, "proposedOfferPrice", value)
+                                        onDraftChange(
+                                            model.id,
+                                            "proposedOfferPrice",
+                                            value,
+                                        )
                                     }
                                     onBlur={() => void onSave(model)}
                                 />
 
                                 <PriceInput
                                     value={draft.expectedResalePrice}
-                                    disabled={savingModelId !== null && savingModelId !== model.id}
+                                    disabled={
+                                        savingModelId !== null
+                                        && savingModelId !== model.id
+                                    }
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
                                     onChange={(value) =>
-                                        onDraftChange(model.id, "expectedResalePrice", value)
+                                        onDraftChange(
+                                            model.id,
+                                            "expectedResalePrice",
+                                            value,
+                                        )
                                     }
                                     onBlur={() => void onSave(model)}
+                                />
+
+                                <Last24HoursMetricCell
+                                    planning={planning}
                                 />
 
                                 <MarketMetricCell
@@ -436,6 +469,50 @@ function BrandPriceSheet({
                 </div>
             )}
         </section>
+    );
+}
+
+interface Last24HoursMetricCellProps {
+    planning: ModelPlanning | undefined;
+}
+
+function Last24HoursMetricCell({
+    planning,
+}: Last24HoursMetricCellProps) {
+    if (planning === undefined) {
+        return (
+            <div className="price-metric-cell">
+                <strong>—</strong>
+                <span>Brak danych</span>
+            </div>
+        );
+    }
+
+    if (planning.offersLast24Hours === null) {
+        const status = planning.lastStatsUpdatedAt === null
+            ? "Czeka na pierwszy skan"
+            : "Czeka na pełny baseline";
+
+        return (
+            <div className="price-metric-cell">
+                <strong>—</strong>
+                <span>{status}</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="price-metric-cell">
+            <strong>{planning.offersLast24Hours}</strong>
+            <span>
+                {planning.trackedDays === 0
+                    ? "od startu pomiaru"
+                    : "ostatnie 24h"}
+            </span>
+            {!planning.lastScanComplete && (
+                <span>Ostatni skan niepełny</span>
+            )}
+        </div>
     );
 }
 
@@ -516,10 +593,16 @@ function PriceInput({
                         }
                     }}
                 />
-                {value.trim().length > 0 && <span className="price-currency">zł</span>}
+                {value.trim().length > 0 && (
+                    <span className="price-currency">zł</span>
+                )}
             </div>
-            {saving && <span className="price-save-state">Zapisywanie...</span>}
-            {!saving && saved && <span className="price-save-state">Zapisano</span>}
+            {saving && (
+                <span className="price-save-state">Zapisywanie...</span>
+            )}
+            {!saving && saved && (
+                <span className="price-save-state">Zapisano</span>
+            )}
         </div>
     );
 }

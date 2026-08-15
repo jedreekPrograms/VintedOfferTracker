@@ -95,10 +95,11 @@
         minmax(220px, 1.6fr)
         minmax(145px, 0.9fr)
         minmax(135px, 0.85fr)
+        minmax(125px, 0.75fr)
         minmax(135px, 0.8fr)
         minmax(135px, 0.8fr)
         minmax(135px, 0.8fr);
-    min-width: 980px;
+    min-width: 1110px;
     min-height: 58px;
     border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
