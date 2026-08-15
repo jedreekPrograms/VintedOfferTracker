@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 public record ModelPlanningResponse(
         Long modelId,
+        Integer offersLast24Hours,
         Integer offersLast7Days,
         Integer recommendedBots,
         Integer existingBots,
