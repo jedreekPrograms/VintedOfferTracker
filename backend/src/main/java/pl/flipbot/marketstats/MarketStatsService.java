@@ -266,6 +266,7 @@ public class MarketStatsService {
                     model.getId(),
                     null,
                     null,
+                    null,
                     existingBots,
                     false,
                     0,
@@ -289,6 +290,14 @@ public class MarketStatsService {
 
         boolean statsReady = trackedHours >= TRACKING_WINDOW_DAYS * 24L;
 
+        int offersLast24Hours = safeInt(
+                observationRepository
+                        .countByModel_IdAndBaselineFalseAndFirstSeenAtAfter(
+                                model.getId(),
+                                now.minusHours(24L)
+                        )
+        );
+
         Integer offersLast7Days = null;
         Integer recommendedBots = null;
 
@@ -305,6 +314,7 @@ public class MarketStatsService {
 
         return new ModelPlanningResponse(
                 model.getId(),
+                offersLast24Hours,
                 offersLast7Days,
                 recommendedBots,
                 existingBots,
