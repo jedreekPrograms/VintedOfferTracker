@@ -18,9 +18,11 @@ import pl.flipbot.playwright.scanner.model.Listing;
 import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
 
+import java.text.Normalizer;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 @Slf4j
@@ -31,6 +33,33 @@ public class MarketStatsCollector {
     private static final String SEARCH_QUERY = "SEARCH_QUERY";
     private static final double SCROLL_WAIT_MS = 1_200;
     private static final int MAX_NO_GROWTH_ROUNDS = 2;
+
+    /*
+     * Used only for the global fallback when a legacy dictionary model has
+     * no category metadata. Keep this list conservative: the strict target
+     * matcher still decides whether the model itself matches.
+     */
+    private static final Set<String> ACCESSORY_WORDS = Set.of(
+            "etui",
+            "case",
+            "cover",
+            "pokrowiec",
+            "obudowa",
+            "szklo",
+            "folia",
+            "protector",
+            "ladowarka",
+            "charger",
+            "kabel",
+            "cable",
+            "uchwyt",
+            "holder",
+            "digitizer",
+            "czesci",
+            "parts",
+            "dummy",
+            "atrapa"
+    );
 
     private final MarketStatsRuntimeConfig config;
     private final MarketStatsApiClient apiClient;
@@ -48,6 +77,10 @@ public class MarketStatsCollector {
                 targets.size()
         );
 
+        int recordedTargets = 0;
+        int fallbackTargets = 0;
+        int failedTargets = 0;
+
         try (BrowserManager browserManager = new BrowserManager(config.headless());
              BotContext context = new BotContext(observerBot, browserManager)) {
 
@@ -59,17 +92,26 @@ public class MarketStatsCollector {
                     MarketStatsTargetDto target = targets.get(index);
 
                     try {
-                        collectTarget(
+                        boolean fallbackUsed = collectTarget(
                                 context,
                                 observerBot,
                                 target
                         );
+
+                        recordedTargets++;
+
+                        if (fallbackUsed) {
+                            fallbackTargets++;
+                        }
                     } catch (Exception exception) {
+                        failedTargets++;
+
                         log.error(
-                                "[MARKET STATS] Model scan failed. modelId={}, brand='{}', model='{}'. Continuing with the next model.",
-                                target.modelId(),
-                                target.brandName(),
-                                target.modelName(),
+                                "[MARKET STATS] Model scan failed. modelId={}, brand='{}', model='{}'. "
+                                        + "Continuing with the next model; the whole collection will be retried sooner.",
+                                target == null ? null : target.modelId(),
+                                target == null ? null : target.brandName(),
+                                target == null ? null : target.modelName(),
                                 exception
                         );
                     }
@@ -93,36 +135,46 @@ public class MarketStatsCollector {
             }
         }
 
-        log.info("[MARKET STATS] Daily collection finished.");
+        log.info(
+                "[MARKET STATS] Daily collection pass finished. targets={}, recorded={}, "
+                        + "globalFallback={}, failed={}.",
+                targets.size(),
+                recordedTargets,
+                fallbackTargets,
+                failedTargets
+        );
+
+        if (failedTargets > 0) {
+            throw new IllegalStateException(
+                    "Market statistics collection was incomplete: "
+                            + failedTargets
+                            + " of "
+                            + targets.size()
+                            + " model scans failed."
+            );
+        }
+
+        log.info("[MARKET STATS] Daily collection finished successfully for all targets.");
     }
 
-    private void collectTarget(
+    private boolean collectTarget(
             BotContext context,
             BotDetailsDto observerBot,
             MarketStatsTargetDto target
     ) {
-        if (target.modelId() == null
-                || target.modelId() <= 0
-                || isBlank(target.brandName())
-                || isBlank(target.modelName())) {
-            log.warn(
-                    "[MARKET STATS] Skipping invalid target: {}.",
-                    target
-            );
-            return;
-        }
+        validateTarget(target);
 
-        if (!target.categoryResolved()
-                || target.categoryPath() == null
-                || target.categoryPath().isEmpty()) {
+        boolean fallbackUsed = !hasResolvedCategory(target);
+
+        if (fallbackUsed) {
             log.warn(
-                    "[MARKET STATS] Skipping modelId={} {} / {} because no category is assigned. "
-                            + "Assign a category to the dictionary model before collecting market statistics.",
+                    "[MARKET STATS] modelId={} {} / {} has no resolved category. "
+                            + "Collector will NOT skip it: using global brand + text search, "
+                            + "newest-first sorting, conservative accessory filtering and the strict target matcher.",
                     target.modelId(),
                     target.brandName(),
                     target.modelName()
             );
-            return;
         }
 
         BotDetailsDto scanBot = buildScanBot(
@@ -144,8 +196,10 @@ public class MarketStatsCollector {
         FilterService filterService = new FilterService(context);
 
         log.info(
-                "[MARKET STATS] Applying dictionary target. modelId={}, categoryPath={}, brand='{}', targetMode={}, model='{}', searchQuery='{}'.",
+                "[MARKET STATS] Applying target. modelId={}, strategy={}, categoryPath={}, brand='{}', "
+                        + "targetMode={}, model='{}', searchQuery='{}'.",
                 target.modelId(),
+                fallbackUsed ? "GLOBAL_TEXT_FALLBACK" : "DICTIONARY_FILTERS",
                 scanBot.getConfiguration().getCategoryPath(),
                 scanBot.getConfiguration().getBrand(),
                 scanBot.getConfiguration().getTargetMode(),
@@ -159,6 +213,7 @@ public class MarketStatsCollector {
         ScanResult scanResult = scanCatalog(
                 context,
                 scanBot.getConfiguration(),
+                fallbackUsed,
                 knownListingIds,
                 knownState.baselineComplete()
         );
@@ -171,21 +226,26 @@ public class MarketStatsCollector {
                 );
 
         log.info(
-                "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', matched={}, knownBefore={}, newObserved={}, complete={}, baselineMode={}.",
+                "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', "
+                        + "strategy={}, matched={}, knownBefore={}, newObserved={}, complete={}, baselineMode={}.",
                 target.modelId(),
                 target.brandName(),
                 target.modelName(),
+                fallbackUsed ? "GLOBAL_TEXT_FALLBACK" : "DICTIONARY_FILTERS",
                 scanResult.listingIds().size(),
                 knownListingIds.size(),
                 recorded.newListings(),
                 scanResult.complete(),
                 !knownState.baselineComplete()
         );
+
+        return fallbackUsed;
     }
 
     private ScanResult scanCatalog(
             BotContext context,
             BotConfigurationDto targetConfiguration,
+            boolean fallbackUsed,
             Set<String> knownListingIds,
             boolean baselineComplete
     ) {
@@ -213,6 +273,7 @@ public class MarketStatsCollector {
                 if (matchesTarget(
                         listing,
                         targetConfiguration,
+                        fallbackUsed,
                         matcher
                 )) {
                     matched.putIfAbsent(
@@ -267,7 +328,8 @@ public class MarketStatsCollector {
                 complete = true;
 
                 log.info(
-                        "[MARKET STATS] Baseline seed reached configured limit {}. Treating the bounded newest-first seed as a complete baseline.",
+                        "[MARKET STATS] Baseline seed reached configured limit {}. "
+                                + "Treating the bounded newest-first seed as a complete baseline.",
                         config.maxListingsPerModel()
                 );
 
@@ -275,7 +337,8 @@ public class MarketStatsCollector {
                 complete = false;
 
                 log.warn(
-                        "[MARKET STATS] Daily scan reached configured limit {} before the known-listing boundary. This scan is incomplete.",
+                        "[MARKET STATS] Daily scan reached configured limit {} before the known-listing boundary. "
+                                + "This scan is incomplete.",
                         config.maxListingsPerModel()
                 );
             }
@@ -311,8 +374,13 @@ public class MarketStatsCollector {
     private boolean matchesTarget(
             Listing listing,
             BotConfigurationDto configuration,
+            boolean fallbackUsed,
             ListingTargetMatcher matcher
     ) {
+        if (fallbackUsed && looksLikeAccessory(listing)) {
+            return false;
+        }
+
         ListingResponseDto candidate = new ListingResponseDto(
                 null,
                 listing.getId(),
@@ -348,26 +416,70 @@ public class MarketStatsCollector {
         ) == ListingTargetAssessment.MATCH;
     }
 
+    private boolean looksLikeAccessory(
+            Listing listing
+    ) {
+        String normalized = normalizeForAccessoryCheck(
+                String.valueOf(listing.getTitle())
+                        + " "
+                        + String.valueOf(listing.getUrl())
+        );
+
+        if (normalized.isBlank()) {
+            return false;
+        }
+
+        String padded = " " + normalized + " ";
+
+        for (String accessoryWord : ACCESSORY_WORDS) {
+            if (padded.contains(" " + accessoryWord + " ")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private BotDetailsDto buildScanBot(
             BotDetailsDto observerBot,
             MarketStatsTargetDto target
     ) {
         BotConfigurationDto configuration = new BotConfigurationDto();
         configuration.setMarketplace("VINTED");
+
+        boolean resolvedCategory = hasResolvedCategory(target);
+
         configuration.setCategoryPath(
-                List.copyOf(target.categoryPath())
+                resolvedCategory
+                        ? List.copyOf(target.categoryPath())
+                        : List.of()
         );
+
         configuration.setBrand(target.brandName());
 
-        String targetMode = resolveTargetMode(target.targetMode());
-        configuration.setTargetMode(targetMode);
-
-        if (SEARCH_QUERY.equals(targetMode)) {
+        if (!resolvedCategory) {
+            /*
+             * Legacy dictionary entries may not have category metadata yet.
+             * VINTED_MODEL cannot be applied safely without first entering the
+             * category tree, so the observer falls back to a global text search.
+             * The strict title/URL matcher remains the final authority before an
+             * ID is counted, so this broadens discovery without broadening what
+             * is accepted as the target model.
+             */
+            configuration.setTargetMode(SEARCH_QUERY);
             configuration.setModel(null);
             configuration.setSearchQuery(target.modelName());
         } else {
-            configuration.setModel(target.modelName());
-            configuration.setSearchQuery(null);
+            String targetMode = resolveTargetMode(target.targetMode());
+            configuration.setTargetMode(targetMode);
+
+            if (SEARCH_QUERY.equals(targetMode)) {
+                configuration.setModel(null);
+                configuration.setSearchQuery(target.modelName());
+            } else {
+                configuration.setModel(target.modelName());
+                configuration.setSearchQuery(null);
+            }
         }
 
         configuration.setMinPrice(null);
@@ -381,6 +493,28 @@ public class MarketStatsCollector {
         scanBot.setConfiguration(configuration);
 
         return scanBot;
+    }
+
+    private void validateTarget(
+            MarketStatsTargetDto target
+    ) {
+        if (target == null
+                || target.modelId() == null
+                || target.modelId() <= 0
+                || isBlank(target.brandName())
+                || isBlank(target.modelName())) {
+            throw new IllegalArgumentException(
+                    "Invalid market statistics target: " + target
+            );
+        }
+    }
+
+    private boolean hasResolvedCategory(
+            MarketStatsTargetDto target
+    ) {
+        return target.categoryResolved()
+                && target.categoryPath() != null
+                && !target.categoryPath().isEmpty();
     }
 
     private String resolveTargetMode(
@@ -397,6 +531,21 @@ public class MarketStatsCollector {
             String value
     ) {
         return value == null || value.isBlank();
+    }
+
+    private String normalizeForAccessoryCheck(
+            String value
+    ) {
+        String normalized = Normalizer.normalize(
+                value == null ? "" : value,
+                Normalizer.Form.NFD
+        );
+
+        return normalized
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", " ")
+                .trim();
     }
 
     private record ScanResult(
