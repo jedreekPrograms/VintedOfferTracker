@@ -1,5 +1,6 @@
 export interface ModelPlanning {
     modelId: number;
+    offersLast24Hours: number | null;
     offersLast7Days: number | null;
     recommendedBots: number | null;
     existingBots: number;
