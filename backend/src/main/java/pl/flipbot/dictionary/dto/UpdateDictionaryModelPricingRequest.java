@@ -21,4 +21,16 @@ public class UpdateDictionaryModelPricingRequest {
             message = "Expected resale price must be greater than 0"
     )
     private BigDecimal expectedResalePrice;
+
+    @DecimalMin(
+            value = "0.01",
+            message = "Market minimum price must be greater than 0"
+    )
+    private BigDecimal marketMinPrice;
+
+    @DecimalMin(
+            value = "0.01",
+            message = "Market maximum price must be greater than 0"
+    )
+    private BigDecimal marketMaxPrice;
 }
