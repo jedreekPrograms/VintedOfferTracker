@@ -15,6 +15,7 @@ import pl.flipbot.marketstats.dto.MarketObservationBatchResponse;
 import pl.flipbot.marketstats.dto.MarketStatsTargetResponse;
 import pl.flipbot.marketstats.dto.ModelPlanningResponse;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -156,6 +157,16 @@ public class MarketStatsService {
         );
 
         DictionaryModel model = requireModel(modelId);
+
+        if (!samePrice(model.getMarketMinPrice(), request.minPrice())
+                || !samePrice(model.getMarketMaxPrice(), request.maxPrice())) {
+            throw new IllegalStateException(
+                    "Market observer price range changed while model "
+                            + modelId
+                            + " was being scanned. The stale observation batch was rejected."
+            );
+        }
+
         List<String> listingIds = normalizeListingIds(request.listingIds());
 
         if (listingIds.isEmpty() && !request.complete()) {
@@ -517,6 +528,17 @@ public class MarketStatsService {
                 && normalizeText(left).equalsIgnoreCase(
                 normalizeText(right)
         );
+    }
+
+    private boolean samePrice(
+            BigDecimal left,
+            BigDecimal right
+    ) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+
+        return left.compareTo(right) == 0;
     }
 
     private boolean samePath(
