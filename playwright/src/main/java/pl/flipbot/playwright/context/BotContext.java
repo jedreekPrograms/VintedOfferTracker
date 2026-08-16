@@ -47,11 +47,71 @@ public class BotContext implements AutoCloseable {
             sessionFile = sessionManager.sessionFile(bot.getId());
         }
 
-        this.browserContext = browserManager.createContext(sessionFile);
+        BrowserContext createdContext;
+
+        try {
+            createdContext = browserManager.createContext(sessionFile);
+        } catch (RuntimeException exception) {
+            if (sessionFile == null || !isStoredSessionRestoreFailure(exception)) {
+                throw exception;
+            }
+
+            log.warn(
+                    "[SESSION] Stored session for bot {} could not be restored. "
+                            + "Discarding it and creating a clean browser context. reason={}",
+                    bot.getId(),
+                    safeMessage(exception)
+            );
+
+            sessionManager.invalidateSession(bot.getId());
+            createdContext = browserManager.createContext(null);
+        }
+
+        this.browserContext = createdContext;
         this.page = resolveMainPage();
 
         closeExistingExtraPages();
         registerPopupGuard();
+    }
+
+
+    private boolean isStoredSessionRestoreFailure(
+            Throwable throwable
+    ) {
+        Throwable current = throwable;
+
+        while (current != null) {
+            String message = current.getMessage();
+
+            if (message != null) {
+                String normalized = message.toLowerCase();
+
+                if (normalized.contains("unable to restore indexeddb")
+                        || normalized.contains("storagescript.restore")
+                        || normalized.contains("setstoragestate")) {
+                    return true;
+                }
+            }
+
+            current = current.getCause();
+        }
+
+        return false;
+    }
+
+
+    private String safeMessage(
+            Throwable throwable
+    ) {
+        if (throwable == null
+                || throwable.getMessage() == null
+                || throwable.getMessage().isBlank()) {
+            return throwable == null
+                    ? "unknown error"
+                    : throwable.getClass().getSimpleName();
+        }
+
+        return throwable.getMessage();
     }
 
 
