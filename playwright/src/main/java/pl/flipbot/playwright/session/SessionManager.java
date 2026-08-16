@@ -1,11 +1,13 @@
 package pl.flipbot.playwright.session;
 
 import com.microsoft.playwright.BrowserContext;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+@Slf4j
 public class SessionManager {
 
     private static final Path SESSION_DIRECTORY =
@@ -35,11 +37,34 @@ public class SessionManager {
 
     public void saveSession(Long botId, BrowserContext context) {
 
+        /*
+         * Cookies and localStorage are sufficient for the Vinted session.
+         * Persisting IndexedDB caused Playwright to save entries that could
+         * later fail BrowserContext creation with "Unable to restore IndexedDB".
+         */
         context.storageState(
                 new BrowserContext.StorageStateOptions()
-                        .setIndexedDB(true)
                         .setPath(sessionFile(botId))
         );
+    }
+
+    public void invalidateSession(Long botId) {
+        Path path = sessionFile(botId);
+
+        try {
+            if (Files.deleteIfExists(path)) {
+                log.warn(
+                        "[SESSION] Removed unusable stored session for bot {}: {}",
+                        botId,
+                        path
+                );
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not remove unusable session for bot " + botId,
+                    exception
+            );
+        }
     }
 
     public Path sessionFile(Long botId) {
