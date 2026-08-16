@@ -39,6 +39,7 @@ public class MarketStatsManager implements AutoCloseable {
             new AtomicBoolean(false);
 
     private volatile long nextAttemptAtMillis = 0L;
+    private volatile boolean failureBackoffActive = false;
 
     public void start() {
         if (!config.enabled()) {
@@ -75,7 +76,28 @@ public class MarketStatsManager implements AutoCloseable {
         long now = System.currentTimeMillis();
 
         if (now < nextAttemptAtMillis) {
-            return;
+            if (failureBackoffActive) {
+                return;
+            }
+
+            try {
+                if (!apiClient.isScanNeeded()) {
+                    return;
+                }
+
+                log.info(
+                        "[MARKET STATS] A model is waiting for a fresh baseline. "
+                                + "Starting collection before the normal {}h interval.",
+                        config.intervalHours()
+                );
+            } catch (Exception exception) {
+                log.warn(
+                        "[MARKET STATS] Could not check whether an early baseline scan is needed. "
+                                + "Keeping the normal schedule.",
+                        exception
+                );
+                return;
+            }
         }
 
         try {
@@ -84,6 +106,7 @@ public class MarketStatsManager implements AutoCloseable {
                     apiClient
             ).collectOnce();
 
+            failureBackoffActive = false;
             nextAttemptAtMillis =
                     System.currentTimeMillis()
                             + TimeUnit.HOURS.toMillis(
@@ -106,12 +129,14 @@ public class MarketStatsManager implements AutoCloseable {
                                 + "Create it on the Bots page; the collector will discover it automatically."
                 );
 
+                failureBackoffActive = false;
                 nextAttemptAtMillis =
                         System.currentTimeMillis()
                                 + TimeUnit.MINUTES.toMillis(1L);
                 return;
             }
 
+            failureBackoffActive = true;
             nextAttemptAtMillis =
                     System.currentTimeMillis()
                             + TimeUnit.MINUTES.toMillis(
