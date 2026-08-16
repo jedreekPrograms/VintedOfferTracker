@@ -79,4 +79,18 @@ public class DictionaryModel {
             scale = 2
     )
     private BigDecimal expectedResalePrice;
+
+    @Column(
+            name = "market_min_price",
+            precision = 38,
+            scale = 2
+    )
+    private BigDecimal marketMinPrice;
+
+    @Column(
+            name = "market_max_price",
+            precision = 38,
+            scale = 2
+    )
+    private BigDecimal marketMaxPrice;
 }

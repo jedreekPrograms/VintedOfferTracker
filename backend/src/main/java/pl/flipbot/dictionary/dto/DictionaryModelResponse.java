@@ -27,7 +27,11 @@ public record DictionaryModelResponse(
 
         BigDecimal proposedOfferPrice,
 
-        BigDecimal expectedResalePrice
+        BigDecimal expectedResalePrice,
+
+        BigDecimal marketMinPrice,
+
+        BigDecimal marketMaxPrice
 
 ) {
 }

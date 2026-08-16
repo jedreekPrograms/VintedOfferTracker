@@ -31,6 +31,17 @@ const PLANNING_REFRESH_INTERVAL_MS = 15_000;
 interface PriceDraft {
     proposedOfferPrice: string;
     expectedResalePrice: string;
+    marketMinPrice: string;
+    marketMaxPrice: string;
+}
+
+function emptyPriceDraft(): PriceDraft {
+    return {
+        proposedOfferPrice: "",
+        expectedResalePrice: "",
+        marketMinPrice: "",
+        marketMaxPrice: "",
+    };
 }
 
 function PriceMatrixPage() {
@@ -86,10 +97,7 @@ function PriceMatrixPage() {
                 nextModelsByBrand[group.brandId] = group.models;
 
                 for (const model of group.models) {
-                    nextDrafts[model.id] = {
-                        proposedOfferPrice: formatInputPrice(model.proposedOfferPrice),
-                        expectedResalePrice: formatInputPrice(model.expectedResalePrice),
-                    };
+                    nextDrafts[model.id] = draftFromModel(model);
                 }
             }
 
@@ -179,10 +187,7 @@ function PriceMatrixPage() {
         setDrafts((current) => ({
             ...current,
             [modelId]: {
-                ...(current[modelId] ?? {
-                    proposedOfferPrice: "",
-                    expectedResalePrice: "",
-                }),
+                ...(current[modelId] ?? emptyPriceDraft()),
                 [field]: value,
             },
         }));
@@ -216,9 +221,45 @@ function PriceMatrixPage() {
             return;
         }
 
+        const marketMinResult = parseOptionalPositivePrice(
+            draft.marketMinPrice,
+            "Minimalna cena obserwacji musi być większa od 0.",
+        );
+
+        if (!marketMinResult.valid) {
+            setErrorMessage(marketMinResult.errorMessage);
+            return;
+        }
+
+        const marketMaxResult = parseOptionalPositivePrice(
+            draft.marketMaxPrice,
+            "Maksymalna cena obserwacji musi być większa od 0.",
+        );
+
+        if (!marketMaxResult.valid) {
+            setErrorMessage(marketMaxResult.errorMessage);
+            return;
+        }
+
+        if (
+            marketMinResult.value !== null
+            && marketMaxResult.value !== null
+            && marketMinResult.value > marketMaxResult.value
+        ) {
+            setErrorMessage(
+                "Minimalna cena obserwacji nie może być większa od maksymalnej.",
+            );
+            return;
+        }
+
+        const marketRangeChanged =
+            !samePrice(model.marketMinPrice, marketMinResult.value)
+            || !samePrice(model.marketMaxPrice, marketMaxResult.value);
+
         if (
             samePrice(model.proposedOfferPrice, proposedResult.value)
             && samePrice(model.expectedResalePrice, resaleResult.value)
+            && !marketRangeChanged
         ) {
             return;
         }
@@ -234,6 +275,8 @@ function PriceMatrixPage() {
                 {
                     proposedOfferPrice: proposedResult.value,
                     expectedResalePrice: resaleResult.value,
+                    marketMinPrice: marketMinResult.value,
+                    marketMaxPrice: marketMaxResult.value,
                 },
             );
 
@@ -248,13 +291,14 @@ function PriceMatrixPage() {
 
             setDrafts((current) => ({
                 ...current,
-                [updated.id]: {
-                    proposedOfferPrice: formatInputPrice(updated.proposedOfferPrice),
-                    expectedResalePrice: formatInputPrice(updated.expectedResalePrice),
-                },
+                [updated.id]: draftFromModel(updated),
             }));
 
             setSavedModelId(updated.id);
+
+            if (marketRangeChanged) {
+                await refreshPlanning();
+            }
         } catch (error) {
             setErrorMessage(
                 getErrorMessage(
@@ -275,8 +319,11 @@ function PriceMatrixPage() {
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
                         Arkusz referencyjny generowany automatycznie ze słownika modeli.
-                        Statystyki rynku pokazują nowe oferty z ostatnich 24 godzin i 7 dni,
-                        a zapotrzebowanie przyjmuje maksymalnie 5 nowych rozmów dziennie na jednego bota.
+                        Min i max obserwacji ograniczają rynek liczony przez observera;
+                        puste pole oznacza brak ograniczenia. Zmiana zakresu rozpoczyna
+                        nowy baseline dla modelu. Statystyki pokazują nowe oferty z
+                        ostatnich 24 godzin i 7 dni, a zapotrzebowanie przyjmuje
+                        maksymalnie 5 nowych rozmów dziennie na jednego bota.
                     </p>
                 </div>
 
@@ -380,6 +427,8 @@ function BrandPriceSheet({
                         <div>Model</div>
                         <div>Proponowana cena</div>
                         <div>Sprzedaż</div>
+                        <div>Min obserwacji</div>
+                        <div>Max obserwacji</div>
                         <div>Nowe / 24h</div>
                         <div>Oferty / 7 dni</div>
                         <div>Potrzebne boty</div>
@@ -389,11 +438,7 @@ function BrandPriceSheet({
                     {models.length === 0 ? (
                         <div className="price-sheet-empty">Brak modeli</div>
                     ) : models.map((model) => {
-                        const draft = drafts[model.id] ?? {
-                            proposedOfferPrice: "",
-                            expectedResalePrice: "",
-                        };
-
+                        const draft = drafts[model.id] ?? emptyPriceDraft();
                         const planning = planningByModel[model.id];
 
                         return (
@@ -437,6 +482,42 @@ function BrandPriceSheet({
                                         onDraftChange(
                                             model.id,
                                             "expectedResalePrice",
+                                            value,
+                                        )
+                                    }
+                                    onBlur={() => void onSave(model)}
+                                />
+
+                                <PriceInput
+                                    value={draft.marketMinPrice}
+                                    disabled={
+                                        savingModelId !== null
+                                        && savingModelId !== model.id
+                                    }
+                                    saving={savingModelId === model.id}
+                                    saved={savedModelId === model.id}
+                                    onChange={(value) =>
+                                        onDraftChange(
+                                            model.id,
+                                            "marketMinPrice",
+                                            value,
+                                        )
+                                    }
+                                    onBlur={() => void onSave(model)}
+                                />
+
+                                <PriceInput
+                                    value={draft.marketMaxPrice}
+                                    disabled={
+                                        savingModelId !== null
+                                        && savingModelId !== model.id
+                                    }
+                                    saving={savingModelId === model.id}
+                                    saved={savedModelId === model.id}
+                                    onChange={(value) =>
+                                        onDraftChange(
+                                            model.id,
+                                            "marketMaxPrice",
                                             value,
                                         )
                                     }
@@ -634,6 +715,15 @@ function parseOptionalPositivePrice(
     }
 
     return { valid: true, value };
+}
+
+function draftFromModel(model: DictionaryModel): PriceDraft {
+    return {
+        proposedOfferPrice: formatInputPrice(model.proposedOfferPrice),
+        expectedResalePrice: formatInputPrice(model.expectedResalePrice),
+        marketMinPrice: formatInputPrice(model.marketMinPrice),
+        marketMaxPrice: formatInputPrice(model.marketMaxPrice),
+    };
 }
 
 function formatInputPrice(value: number | null): string {

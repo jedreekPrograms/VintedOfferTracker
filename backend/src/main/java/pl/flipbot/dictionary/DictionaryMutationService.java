@@ -16,7 +16,9 @@ import pl.flipbot.dictionary.dto.DictionaryModelResponse;
 import pl.flipbot.dictionary.dto.UpdateDictionaryModelPricingRequest;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
+import pl.flipbot.marketstats.MarketStatsService;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -33,6 +35,7 @@ public class DictionaryMutationService {
     private final BotConfigurationRepository configurationRepository;
     private final ListingRepository listingRepository;
     private final DictionaryModelService dictionaryModelService;
+    private final MarketStatsService marketStatsService;
 
 
     @Transactional
@@ -192,7 +195,7 @@ public class DictionaryMutationService {
             UpdateDictionaryModelPricingRequest request
     ) {
 
-        DictionaryModel model = modelRepository.findById(modelId)
+        DictionaryModel model = modelRepository.findByIdForUpdate(modelId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Model was not found: " + modelId
                 ));
@@ -202,6 +205,21 @@ public class DictionaryMutationService {
                 brandId
         );
 
+        BigDecimal marketMinPrice = request.getMarketMinPrice();
+        BigDecimal marketMaxPrice = request.getMarketMaxPrice();
+
+        if (marketMinPrice != null
+                && marketMaxPrice != null
+                && marketMinPrice.compareTo(marketMaxPrice) > 0) {
+            throw new IllegalArgumentException(
+                    "Market minimum price cannot be greater than market maximum price."
+            );
+        }
+
+        boolean marketRangeChanged =
+                !samePrice(model.getMarketMinPrice(), marketMinPrice)
+                        || !samePrice(model.getMarketMaxPrice(), marketMaxPrice);
+
         model.setProposedOfferPrice(
                 request.getProposedOfferPrice()
         );
@@ -209,6 +227,13 @@ public class DictionaryMutationService {
         model.setExpectedResalePrice(
                 request.getExpectedResalePrice()
         );
+
+        model.setMarketMinPrice(marketMinPrice);
+        model.setMarketMaxPrice(marketMaxPrice);
+
+        if (marketRangeChanged) {
+            marketStatsService.resetModelTracking(modelId);
+        }
 
         return dictionaryModelService.map(model);
     }
@@ -510,6 +535,18 @@ public class DictionaryMutationService {
                 && left.trim().equalsIgnoreCase(
                         right.trim()
                 );
+    }
+
+
+    private boolean samePrice(
+            BigDecimal left,
+            BigDecimal right
+    ) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+
+        return left.compareTo(right) == 0;
     }
 
 

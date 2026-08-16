@@ -34,6 +34,8 @@ export interface DictionaryModel {
     targetMode: TargetMode;
     proposedOfferPrice: number | null;
     expectedResalePrice: number | null;
+    marketMinPrice: number | null;
+    marketMaxPrice: number | null;
 }
 
 export interface CreateDictionaryModelRequest {
@@ -49,4 +51,6 @@ export interface UpdateDictionaryModelCategoryRequest {
 export interface UpdateDictionaryModelPricingRequest {
     proposedOfferPrice: number | null;
     expectedResalePrice: number | null;
+    marketMinPrice: number | null;
+    marketMaxPrice: number | null;
 }

@@ -20,4 +20,6 @@ public interface MarketModelScanStateRepository
     Optional<MarketModelScanState> findByModelIdForUpdate(
             @Param("modelId") Long modelId
     );
+
+    long countByBaselineCompleteAtIsNotNull();
 }

@@ -22,6 +22,10 @@ public interface MarketListingObservationRepository
             LocalDateTime firstSeenAfter
     );
 
+    long deleteByModel_Id(
+            Long modelId
+    );
+
     long deleteByLastSeenAtBefore(
             LocalDateTime cutoff
     );

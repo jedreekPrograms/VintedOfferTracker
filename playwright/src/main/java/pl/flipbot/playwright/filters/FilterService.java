@@ -9,6 +9,7 @@ import pl.flipbot.playwright.filters.category.CategoryNavigator;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
+import java.math.BigDecimal;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -144,11 +145,6 @@ public class FilterService {
             );
 
 
-            /*
-             * Nie zmieniamy sposobu KLIKANIA kategorii.
-             * Jedynie po sukcesie sprawdzamy, czy Vinted faktycznie
-             * zapisało kategorię do URL.
-             */
             requireUrlParameter(
                     "catalog[]",
                     "Category",
@@ -236,12 +232,6 @@ public class FilterService {
         }
 
 
-        /*
-         * Cena PRZED sortowaniem.
-         *
-         * W logach Vinted czasami usuwało order=newest_first
-         * przy późniejszym zatwierdzeniu ceny.
-         */
         if (hasPrice(bot)) {
 
             log.info(
@@ -259,10 +249,6 @@ public class FilterService {
         }
 
 
-        /*
-         * Sortowanie jako ostatni filtr.
-         * Po nim nic już nie powinno przebudować URL katalogu.
-         */
         log.info(
                 "[FILTER] Applying sort: newest first."
         );
@@ -301,12 +287,6 @@ public class FilterService {
             BotDetailsDto bot
     ) {
 
-        /*
-         * To jest stary, działający sposób:
-         * open -> wait -> select -> confirm.
-         *
-         * Nie dokładamy Escape ani exact-name.
-         */
         actions.openFilter(
                 FilterSelectors.BRAND_FILTER
         );
@@ -388,10 +368,6 @@ public class FilterService {
         );
 
 
-        /*
-         * Vinted potrafi renderować dwa inputy search_text.
-         * Ta poprawka zostaje, bo została już potwierdzona testem.
-         */
         Locator searchInput =
                 resolveVisibleSearchInput();
 
@@ -634,11 +610,6 @@ public class FilterService {
         }
 
 
-        /*
-         * Dla order nie potrzebujemy żadnego dynamicznego ID z Vinted.
-         * Jeśli kliknięcie UI nie zapisze parametru albo sama opcja sortowania
-         * nie pojawi się przed timeoutem, bezpiecznie ustawiamy tylko order.
-         */
         String currentUrl =
                 page.url();
 
@@ -692,128 +663,137 @@ public class FilterService {
                 bot.getConfiguration();
 
 
-        actions.openFilter(
-                FilterSelectors.PRICE_FILTER
-        );
+        try {
+            actions.openFilter(
+                    FilterSelectors.PRICE_FILTER
+            );
 
 
-        Locator inputToCommit =
-                null;
+            Locator inputToCommit =
+                    null;
 
 
-        if (
-                configuration.getMinPrice()
-                        != null
-        ) {
-
-            actions.fillInputBySelector(
-                    FilterSelectors.MIN_PRICE,
+            if (
                     configuration.getMinPrice()
-            );
+                            != null
+            ) {
+
+                actions.fillInputBySelector(
+                        FilterSelectors.MIN_PRICE,
+                        configuration.getMinPrice()
+                );
 
 
-            inputToCommit =
-                    page.locator(
-                            FilterSelectors.MIN_PRICE
-                    );
-        }
+                inputToCommit =
+                        page.locator(
+                                FilterSelectors.MIN_PRICE
+                        );
+            }
 
 
-        if (
-                configuration.getMaxPrice()
-                        != null
-        ) {
-
-            actions.fillInputBySelector(
-                    FilterSelectors.MAX_PRICE,
+            if (
                     configuration.getMaxPrice()
-            );
+                            != null
+            ) {
+
+                actions.fillInputBySelector(
+                        FilterSelectors.MAX_PRICE,
+                        configuration.getMaxPrice()
+                );
 
 
-            inputToCommit =
-                    page.locator(
-                            FilterSelectors.MAX_PRICE
-                    );
-        }
+                inputToCommit =
+                        page.locator(
+                                FilterSelectors.MAX_PRICE
+                        );
+            }
 
 
-        if (inputToCommit != null) {
+            if (inputToCommit != null) {
 
-            inputToCommit.press(
-                    "Enter"
-            );
+                inputToCommit.press(
+                        "Enter"
+                );
+
+
+                actions.waitForTimeout(
+                        1_000
+                );
+            }
+
+
+            actions.clickOutsideSafely();
 
 
             actions.waitForTimeout(
                     1_000
             );
+
+        } catch (RuntimeException exception) {
+            if (page.isClosed()) {
+                throw exception;
+            }
+
+            log.warn(
+                    "[FILTER PRICE] Could not fully apply the configured price range through Vinted UI. "
+                            + "Falling back to exact catalog URL parameters. reason={}",
+                    exception.getMessage()
+            );
         }
 
 
-        actions.clickOutsideSafely();
+        String currentUrl = page.url();
+        String correctedUrl = currentUrl;
 
 
-        actions.waitForTimeout(
-                1_000
-        );
+        if (configuration.getMinPrice() != null
+                && !urlPriceMatches(
+                "price_from",
+                configuration.getMinPrice()
+        )) {
+            correctedUrl = withOrReplacedUrlParameter(
+                    correctedUrl,
+                    "price_from",
+                    configuration.getMinPrice().toPlainString()
+            );
+        }
 
 
-        /*
-         * Zachowujemy potwierdzoną poprawkę price_to.
-         */
-        if (
+        if (configuration.getMaxPrice() != null
+                && !urlPriceMatches(
+                "price_to",
                 configuration.getMaxPrice()
-                        != null
-                        && !hasUrlParameter(
-                        "price_to"
-                )
-        ) {
-
-            String currentUrl =
-                    page.url();
-
-
-            String correctedUrl =
-                    withOrReplacedUrlParameter(
-                            currentUrl,
-                            "price_to",
-                            configuration
-                                    .getMaxPrice()
-                                    .toPlainString()
-                    );
+        )) {
+            correctedUrl = withOrReplacedUrlParameter(
+                    correctedUrl,
+                    "price_to",
+                    configuration.getMaxPrice().toPlainString()
+            );
+        }
 
 
+        if (!correctedUrl.equals(currentUrl)) {
             log.warn(
-                    "[FILTER PRICE] Vinted did not persist maxPrice through "
-                            + "the UI. Applying safe URL fallback: {} -> {}",
+                    "[FILTER PRICE] Applying exact price URL fallback: {} -> {}",
                     currentUrl,
                     correctedUrl
             );
 
-
-            page.navigate(
-                    correctedUrl
-            );
-
-
-            actions.waitForTimeout(
-                    1_000
-            );
+            page.navigate(correctedUrl);
+            actions.waitForTimeout(1_000);
         }
 
 
-        if (
-                configuration.getMaxPrice()
-                        != null
-                        && !hasUrlParameter(
-                        "price_to"
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Could not apply configured maxPrice to Vinted catalog URL"
-            );
-        }
+        requireUrlPrice(
+                "price_from",
+                configuration.getMinPrice(),
+                "minPrice"
+        );
+        requireUrlPrice(
+                "price_to",
+                configuration.getMaxPrice(),
+                "maxPrice"
+        );
 
 
         log.info(
@@ -920,58 +900,16 @@ public class FilterService {
         }
 
 
-        if (
-                configuration.getMinPrice()
-                        != null
-        ) {
-
-            String actualMinPrice =
-                    getUrlParameter(
-                            "price_from"
-                    );
-
-
-            if (
-                    actualMinPrice == null
-                            || actualMinPrice.isBlank()
-            ) {
-
-                throw new IllegalStateException(
-                        "Final Vinted catalog URL does not contain price_from. "
-                                + "Configured minPrice="
-                                + configuration.getMinPrice()
-                                + ". URL: "
-                                + page.url()
-                );
-            }
-        }
-
-
-        if (
-                configuration.getMaxPrice()
-                        != null
-        ) {
-
-            String actualMaxPrice =
-                    getUrlParameter(
-                            "price_to"
-                    );
-
-
-            if (
-                    actualMaxPrice == null
-                            || actualMaxPrice.isBlank()
-            ) {
-
-                throw new IllegalStateException(
-                        "Final Vinted catalog URL does not contain price_to. "
-                                + "Configured maxPrice="
-                                + configuration.getMaxPrice()
-                                + ". URL: "
-                                + page.url()
-                );
-            }
-        }
+        requireUrlPrice(
+                "price_from",
+                configuration.getMinPrice(),
+                "minPrice"
+        );
+        requireUrlPrice(
+                "price_to",
+                configuration.getMaxPrice(),
+                "maxPrice"
+        );
 
 
         String order =
@@ -1010,6 +948,81 @@ public class FilterService {
                 configuration.getMaxPrice(),
                 order
         );
+    }
+
+
+    private void requireUrlPrice(
+            String parameterName,
+            BigDecimal expectedPrice,
+            String label
+    ) {
+        if (expectedPrice == null) {
+            return;
+        }
+
+        String actual = getUrlParameter(parameterName);
+
+        if (actual == null || actual.isBlank()) {
+            throw new IllegalStateException(
+                    "Final Vinted catalog URL does not contain "
+                            + parameterName
+                            + ". Configured "
+                            + label
+                            + "="
+                            + expectedPrice
+                            + ". URL: "
+                            + page.url()
+            );
+        }
+
+        try {
+            BigDecimal actualPrice = new BigDecimal(actual);
+
+            if (actualPrice.compareTo(expectedPrice) != 0) {
+                throw new IllegalStateException(
+                        "Final Vinted catalog URL contains unexpected "
+                                + parameterName
+                                + ". Expected "
+                                + expectedPrice
+                                + ", actual "
+                                + actual
+                                + ". URL: "
+                                + page.url()
+                );
+            }
+        } catch (NumberFormatException exception) {
+            throw new IllegalStateException(
+                    "Final Vinted catalog URL contains invalid "
+                            + parameterName
+                            + "='"
+                            + actual
+                            + "'. URL: "
+                            + page.url(),
+                    exception
+            );
+        }
+    }
+
+
+    private boolean urlPriceMatches(
+            String parameterName,
+            BigDecimal expectedPrice
+    ) {
+        if (expectedPrice == null) {
+            return true;
+        }
+
+        String actual = getUrlParameter(parameterName);
+
+        if (actual == null || actual.isBlank()) {
+            return false;
+        }
+
+        try {
+            return new BigDecimal(actual).compareTo(expectedPrice) == 0;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
     }
 
 
