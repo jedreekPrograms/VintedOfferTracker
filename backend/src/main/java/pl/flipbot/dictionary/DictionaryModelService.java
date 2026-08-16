@@ -221,7 +221,9 @@ public class DictionaryModelService {
                         ? TargetMode.VINTED_MODEL
                         : model.getTargetMode(),
                 model.getProposedOfferPrice(),
-                model.getExpectedResalePrice()
+                model.getExpectedResalePrice(),
+                model.getMarketMinPrice(),
+                model.getMarketMaxPrice()
         );
 
     }
