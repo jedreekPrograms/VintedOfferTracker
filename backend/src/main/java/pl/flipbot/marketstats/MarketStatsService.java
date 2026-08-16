@@ -94,7 +94,9 @@ public class MarketStatsService {
                             model.getName(),
                             resolveTargetMode(model),
                             category.path(),
-                            category.resolved()
+                            category.resolved(),
+                            model.getMarketMinPrice(),
+                            model.getMarketMaxPrice()
                     );
                 })
                 .toList();
@@ -124,6 +126,23 @@ public class MarketStatsService {
                 listingIds,
                 baselineComplete
         );
+    }
+
+    @Transactional
+    public void resetModelTracking(
+            Long modelId
+    ) {
+        requireModel(modelId);
+
+        MarketModelScanState state = scanStateRepository
+                .findByModelIdForUpdate(modelId)
+                .orElse(null);
+
+        observationRepository.deleteByModel_Id(modelId);
+
+        if (state != null) {
+            scanStateRepository.delete(state);
+        }
     }
 
     @Transactional
