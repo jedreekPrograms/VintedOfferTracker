@@ -10,9 +10,14 @@ import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
 import java.net.http.HttpResponse;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MarketStatsApiClient extends ApiClient {
+
+    private final Map<Long, MarketStatsTargetDto> loadedTargets =
+            new HashMap<>();
 
     public BotDetailsDto getObserverBot(
             Long ignoredObserverBotId
@@ -36,11 +41,22 @@ public class MarketStatsApiClient extends ApiClient {
                 "/api/market-stats/targets"
         );
         requireSuccess(response, "load market-stats targets");
-        return readBody(
+
+        List<MarketStatsTargetDto> targets = readBody(
                 response,
                 new TypeReference<List<MarketStatsTargetDto>>() {
                 }
         );
+
+        loadedTargets.clear();
+
+        for (MarketStatsTargetDto target : targets) {
+            if (target != null && target.modelId() != null) {
+                loadedTargets.put(target.modelId(), target);
+            }
+        }
+
+        return targets;
     }
 
     public KnownMarketListingIdsDto getKnownListingIds(
@@ -64,13 +80,17 @@ public class MarketStatsApiClient extends ApiClient {
             List<String> listingIds,
             boolean complete
     ) {
+        MarketStatsTargetDto target = loadedTargets.get(modelId);
+
         HttpResponse<String> response = post(
                 "/api/market-stats/models/"
                         + modelId
                         + "/observations",
                 new MarketObservationBatchRequestDto(
                         listingIds,
-                        complete
+                        complete,
+                        target == null ? null : target.minPrice(),
+                        target == null ? null : target.maxPrice()
                 )
         );
 
