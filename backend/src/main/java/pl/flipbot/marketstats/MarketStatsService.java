@@ -156,7 +156,12 @@ public class MarketStatsService {
                 "Market observation request cannot be null"
         );
 
-        DictionaryModel model = requireModel(modelId);
+        DictionaryModel model = modelRepository.findByIdForUpdate(modelId)
+                .orElseThrow(
+                        () -> new NoSuchElementException(
+                                "Dictionary model was not found: " + modelId
+                        )
+                );
 
         if (!samePrice(model.getMarketMinPrice(), request.minPrice())
                 || !samePrice(model.getMarketMaxPrice(), request.maxPrice())) {
