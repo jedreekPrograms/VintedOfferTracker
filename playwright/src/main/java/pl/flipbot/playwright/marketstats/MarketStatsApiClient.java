@@ -59,6 +59,16 @@ public class MarketStatsApiClient extends ApiClient {
         return targets;
     }
 
+    public boolean isScanNeeded() {
+        HttpResponse<String> response = get(
+                "/api/market-stats/scan-needed"
+        );
+        requireSuccess(response, "check pending market-stat baseline work");
+
+        Boolean result = readBody(response, Boolean.class);
+        return Boolean.TRUE.equals(result);
+    }
+
     public KnownMarketListingIdsDto getKnownListingIds(
             Long modelId
     ) {
