@@ -13,6 +13,7 @@ import java.util.List;
 public class MarketStatsController {
 
     private final MarketStatsService marketStatsService;
+    private final MarketStatsScanTriggerService scanTriggerService;
 
     @GetMapping("/planning")
     public List<ModelPlanningResponse> getPlanning() {
@@ -22,6 +23,11 @@ public class MarketStatsController {
     @GetMapping("/targets")
     public List<MarketStatsTargetResponse> getTargets() {
         return marketStatsService.getTargets();
+    }
+
+    @GetMapping("/scan-needed")
+    public boolean isScanNeeded() {
+        return scanTriggerService.isScanNeeded();
     }
 
     @GetMapping("/models/{modelId}/known-listing-ids")
