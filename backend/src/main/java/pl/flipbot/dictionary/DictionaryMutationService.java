@@ -195,7 +195,7 @@ public class DictionaryMutationService {
             UpdateDictionaryModelPricingRequest request
     ) {
 
-        DictionaryModel model = modelRepository.findById(modelId)
+        DictionaryModel model = modelRepository.findByIdForUpdate(modelId)
                 .orElseThrow(() -> new DictionaryEntryNotFoundException(
                         "Model was not found: " + modelId
                 ));
