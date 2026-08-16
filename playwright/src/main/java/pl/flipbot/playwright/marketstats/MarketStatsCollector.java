@@ -206,11 +206,14 @@ public class MarketStatsCollector {
 
         log.info(
                 "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', "
-                        + "strategy={}, matched={}, knownBefore={}, newObserved={}, complete={}, baselineMode={}.",
+                        + "strategy={}, minPrice={}, maxPrice={}, matched={}, knownBefore={}, "
+                        + "newObserved={}, complete={}, baselineMode={}.",
                 target.modelId(),
                 target.brandName(),
                 target.modelName(),
                 preparedScan.strategy(),
+                target.minPrice(),
+                target.maxPrice(),
                 scanResult.listingIds().size(),
                 knownListingIds.size(),
                 recorded.newListings(),
@@ -344,14 +347,16 @@ public class MarketStatsCollector {
 
         log.info(
                 "[MARKET STATS] Applying target. modelId={}, strategy={}, categoryPath={}, brand='{}', "
-                        + "targetMode={}, model='{}', searchQuery='{}'.",
+                        + "targetMode={}, model='{}', searchQuery='{}', minPrice={}, maxPrice={}.",
                 target.modelId(),
                 strategy,
                 scanBot.getConfiguration().getCategoryPath(),
                 scanBot.getConfiguration().getBrand(),
                 scanBot.getConfiguration().getTargetMode(),
                 scanBot.getConfiguration().getModel(),
-                scanBot.getConfiguration().getSearchQuery()
+                scanBot.getConfiguration().getSearchQuery(),
+                scanBot.getConfiguration().getMinPrice(),
+                scanBot.getConfiguration().getMaxPrice()
         );
 
         navigator.goToCatalog();
@@ -590,8 +595,7 @@ public class MarketStatsCollector {
             }
         }
 
-        configuration.setMinPrice(null);
-        configuration.setMaxPrice(null);
+        applyObserverPriceRange(configuration, target);
 
         return buildBotWithConfiguration(
                 observerBot,
@@ -612,8 +616,7 @@ public class MarketStatsCollector {
         configuration.setTargetMode(SEARCH_QUERY);
         configuration.setModel(null);
         configuration.setSearchQuery(target.modelName());
-        configuration.setMinPrice(null);
-        configuration.setMaxPrice(null);
+        applyObserverPriceRange(configuration, target);
 
         return buildBotWithConfiguration(
                 observerBot,
@@ -636,13 +639,20 @@ public class MarketStatsCollector {
                         + " "
                         + target.modelName().trim()
         );
-        configuration.setMinPrice(null);
-        configuration.setMaxPrice(null);
+        applyObserverPriceRange(configuration, target);
 
         return buildBotWithConfiguration(
                 observerBot,
                 configuration
         );
+    }
+
+    private void applyObserverPriceRange(
+            BotConfigurationDto configuration,
+            MarketStatsTargetDto target
+    ) {
+        configuration.setMinPrice(target.minPrice());
+        configuration.setMaxPrice(target.maxPrice());
     }
 
     private BotDetailsDto buildBotWithConfiguration(
@@ -669,6 +679,28 @@ public class MarketStatsCollector {
                 || isBlank(target.modelName())) {
             throw new IllegalArgumentException(
                     "Invalid market statistics target: " + target
+            );
+        }
+
+        if (target.minPrice() != null
+                && target.minPrice().signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "Market statistics minimum price must be positive: " + target
+            );
+        }
+
+        if (target.maxPrice() != null
+                && target.maxPrice().signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "Market statistics maximum price must be positive: " + target
+            );
+        }
+
+        if (target.minPrice() != null
+                && target.maxPrice() != null
+                && target.minPrice().compareTo(target.maxPrice()) > 0) {
+            throw new IllegalArgumentException(
+                    "Market statistics minimum price cannot exceed maximum price: " + target
             );
         }
     }
