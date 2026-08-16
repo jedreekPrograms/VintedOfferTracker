@@ -60,8 +60,14 @@ public class SessionManager {
                 );
             }
         } catch (IOException exception) {
-            throw new IllegalStateException(
-                    "Could not remove unusable session for bot " + botId,
+            /*
+             * Recovery may still proceed with a clean BrowserContext. If login
+             * succeeds, the next saveSession() overwrites the old state file.
+             */
+            log.warn(
+                    "[SESSION] Could not delete unusable stored session for bot {}. "
+                            + "Continuing with a clean context; a successful session save will replace it.",
+                    botId,
                     exception
             );
         }
