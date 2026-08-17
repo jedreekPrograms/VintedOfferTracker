@@ -163,9 +163,7 @@ function PriceMatrixPage() {
         [modelsByBrand],
     );
 
-    function toggleBrand(
-        brandId: number,
-    ) {
+    function toggleBrand(brandId: number) {
         setExpandedBrandIds((current) => {
             const next = new Set(current);
 
@@ -318,12 +316,12 @@ function PriceMatrixPage() {
                     <p className="page-eyebrow">Planowanie zakupów</p>
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
-                        Arkusz referencyjny generowany automatycznie ze słownika modeli.
-                        Min i max obserwacji ograniczają rynek liczony przez observera;
-                        puste pole oznacza brak ograniczenia. Zmiana zakresu rozpoczyna
-                        nowy baseline dla modelu. Statystyki pokazują nowe oferty z
-                        ostatnich 24 godzin i 7 dni, a zapotrzebowanie przyjmuje
-                        maksymalnie 5 nowych rozmów dziennie na jednego bota.
+                        Min i max obserwacji ograniczają rynek liczony przez observera.
+                        Puste pole oznacza brak ograniczenia, czyli observer bierze pod uwagę
+                        wszystkie ceny. Pierwszy pełny skan tworzy punkt startowy i nie jest
+                        liczony jako nowe oferty; dopiero kolejne nieznane ID zasilają statystyki
+                        24h i 7 dni. Zapotrzebowanie zakłada maksymalnie 5 nowych rozmów dziennie
+                        na jednego bota.
                     </p>
                 </div>
 
@@ -411,11 +409,17 @@ function BrandPriceSheet({
                 aria-expanded={expanded}
                 onClick={onToggle}
             >
-                <span>{brand.name}</span>
+                <span className="price-brand-heading">
+                    <span className="price-brand-name">{brand.name}</span>
+                    <span className="price-brand-count">
+                        {formatModelCount(models.length)}
+                    </span>
+                </span>
                 <span
                     className={`price-brand-chevron ${
                         expanded ? "price-brand-chevron-open" : ""
                     }`}
+                    aria-hidden="true"
                 >
                     ▾
                 </span>
@@ -453,6 +457,8 @@ function BrandPriceSheet({
                                 </div>
 
                                 <PriceInput
+                                    label="Proponowana cena"
+                                    placeholder="—"
                                     value={draft.proposedOfferPrice}
                                     disabled={
                                         savingModelId !== null
@@ -471,6 +477,8 @@ function BrandPriceSheet({
                                 />
 
                                 <PriceInput
+                                    label="Sprzedaż"
+                                    placeholder="—"
                                     value={draft.expectedResalePrice}
                                     disabled={
                                         savingModelId !== null
@@ -489,6 +497,8 @@ function BrandPriceSheet({
                                 />
 
                                 <PriceInput
+                                    label="Min obserwacji"
+                                    placeholder="bez min"
                                     value={draft.marketMinPrice}
                                     disabled={
                                         savingModelId !== null
@@ -507,6 +517,8 @@ function BrandPriceSheet({
                                 />
 
                                 <PriceInput
+                                    label="Max obserwacji"
+                                    placeholder="bez max"
                                     value={draft.marketMaxPrice}
                                     disabled={
                                         savingModelId !== null
@@ -524,24 +536,25 @@ function BrandPriceSheet({
                                     onBlur={() => void onSave(model)}
                                 />
 
-                                <Last24HoursMetricCell
-                                    planning={planning}
-                                />
+                                <Last24HoursMetricCell planning={planning} />
 
                                 <MarketMetricCell
+                                    label="Oferty / 7 dni"
                                     value={planning?.offersLast7Days ?? null}
                                     planning={planning}
                                 />
 
                                 <MarketMetricCell
+                                    label="Potrzebne boty"
                                     value={planning?.recommendedBots ?? null}
                                     planning={planning}
                                 />
 
-                                <div className="price-metric-cell">
-                                    <strong>
-                                        {planning?.existingBots ?? 0}
-                                    </strong>
+                                <div
+                                    className="price-metric-cell"
+                                    data-label="Posiadane boty"
+                                >
+                                    <strong>{planning?.existingBots ?? 0}</strong>
                                     <span>utworzonych</span>
                                 </div>
                             </div>
@@ -562,7 +575,7 @@ function Last24HoursMetricCell({
 }: Last24HoursMetricCellProps) {
     if (planning === undefined) {
         return (
-            <div className="price-metric-cell">
+            <div className="price-metric-cell" data-label="Nowe / 24h">
                 <strong>—</strong>
                 <span>Brak danych</span>
             </div>
@@ -572,24 +585,31 @@ function Last24HoursMetricCell({
     if (planning.offersLast24Hours === null) {
         const status = planning.lastStatsUpdatedAt === null
             ? "Czeka na pierwszy skan"
-            : "Czeka na pełny baseline";
+            : "Czeka na pełny punkt startowy";
 
         return (
-            <div className="price-metric-cell">
+            <div className="price-metric-cell" data-label="Nowe / 24h">
                 <strong>—</strong>
                 <span>{status}</span>
             </div>
         );
     }
 
+    const measurementJustStarted = planning.trackedDays === 0;
+
     return (
-        <div className="price-metric-cell">
+        <div className="price-metric-cell" data-label="Nowe / 24h">
             <strong>{planning.offersLast24Hours}</strong>
             <span>
-                {planning.trackedDays === 0
-                    ? "od startu pomiaru"
+                {measurementJustStarted
+                    ? "nowych od startu"
                     : "ostatnie 24h"}
             </span>
+            {measurementJustStarted && (
+                <span className="price-metric-note">
+                    pierwszy skan = punkt startowy
+                </span>
+            )}
             {!planning.lastScanComplete && (
                 <span>Ostatni skan niepełny</span>
             )}
@@ -598,17 +618,19 @@ function Last24HoursMetricCell({
 }
 
 interface MarketMetricCellProps {
+    label: string;
     value: number | null;
     planning: ModelPlanning | undefined;
 }
 
 function MarketMetricCell({
+    label,
     value,
     planning,
 }: MarketMetricCellProps) {
     if (planning === undefined) {
         return (
-            <div className="price-metric-cell">
+            <div className="price-metric-cell" data-label={label}>
                 <strong>—</strong>
                 <span>Brak danych</span>
             </div>
@@ -621,7 +643,7 @@ function MarketMetricCell({
             : `Zbieranie danych ${planning.trackedDays}/7 dni`;
 
         return (
-            <div className="price-metric-cell">
+            <div className="price-metric-cell" data-label={label}>
                 <strong>—</strong>
                 <span>{status}</span>
             </div>
@@ -629,7 +651,7 @@ function MarketMetricCell({
     }
 
     return (
-        <div className="price-metric-cell">
+        <div className="price-metric-cell" data-label={label}>
             <strong>{value ?? 0}</strong>
             {!planning.lastScanComplete && (
                 <span>Ostatni skan niepełny</span>
@@ -639,6 +661,8 @@ function MarketMetricCell({
 }
 
 interface PriceInputProps {
+    label: string;
+    placeholder: string;
     value: string;
     disabled: boolean;
     saving: boolean;
@@ -648,6 +672,8 @@ interface PriceInputProps {
 }
 
 function PriceInput({
+    label,
+    placeholder,
     value,
     disabled,
     saving,
@@ -656,7 +682,7 @@ function PriceInput({
     onBlur,
 }: PriceInputProps) {
     return (
-        <div className="price-input-cell">
+        <div className="price-input-cell" data-label={label}>
             <div className="price-input-wrapper">
                 <input
                     className="price-matrix-input"
@@ -665,7 +691,8 @@ function PriceInput({
                     step="0.01"
                     value={value}
                     disabled={disabled || saving}
-                    placeholder="—"
+                    placeholder={placeholder}
+                    aria-label={label}
                     onChange={(event) => onChange(event.target.value)}
                     onBlur={onBlur}
                     onKeyDown={(event) => {
@@ -738,6 +765,18 @@ function samePrice(left: number | null, right: number | null): boolean {
     }
 
     return Math.abs(left - right) < 0.0001;
+}
+
+function formatModelCount(count: number): string {
+    if (count === 1) {
+        return "1 model";
+    }
+
+    if (count >= 2 && count <= 4) {
+        return `${count} modele`;
+    }
+
+    return `${count} modeli`;
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
