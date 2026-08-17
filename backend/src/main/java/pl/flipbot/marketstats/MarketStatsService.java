@@ -302,6 +302,7 @@ public class MarketStatsService {
                     null,
                     null,
                     null,
+                    null,
                     existingBots,
                     false,
                     0,
@@ -309,6 +310,12 @@ public class MarketStatsService {
                     state != null && Boolean.TRUE.equals(state.getLastScanComplete())
             );
         }
+
+        int baselineOffers = safeInt(
+                observationRepository.countByModel_IdAndBaselineTrue(
+                        model.getId()
+                )
+        );
 
         long trackedHours = Math.max(
                 0L,
@@ -349,6 +356,7 @@ public class MarketStatsService {
 
         return new ModelPlanningResponse(
                 model.getId(),
+                baselineOffers,
                 offersLast24Hours,
                 offersLast7Days,
                 recommendedBots,
