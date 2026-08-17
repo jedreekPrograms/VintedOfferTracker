@@ -605,9 +605,9 @@ function Last24HoursMetricCell({
                     ? "nowych od startu"
                     : "ostatnie 24h"}
             </span>
-            {measurementJustStarted && (
+            {planning.baselineOffers !== null && (
                 <span className="price-metric-note">
-                    pierwszy skan = punkt startowy
+                    punkt startowy: {planning.baselineOffers} ofert
                 </span>
             )}
             {!planning.lastScanComplete && (
