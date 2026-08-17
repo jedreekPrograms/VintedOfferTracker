@@ -30,6 +30,9 @@ public class MarketModelScanState {
     @Column(name = "baseline_complete_at")
     private LocalDateTime baselineCompleteAt;
 
+    @Column(name = "baseline_offer_count")
+    private Integer baselineOfferCount;
+
     @Column(name = "last_scan_at", nullable = false)
     private LocalDateTime lastScanAt;
 
