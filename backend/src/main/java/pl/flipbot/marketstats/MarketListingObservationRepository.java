@@ -22,6 +22,10 @@ public interface MarketListingObservationRepository
             LocalDateTime firstSeenAfter
     );
 
+    long countByModel_IdAndBaselineTrue(
+            Long modelId
+    );
+
     long deleteByModel_Id(
             Long modelId
     );
