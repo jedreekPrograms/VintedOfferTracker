@@ -193,6 +193,7 @@ public class MarketStatsService {
                     .model(model)
                     .initializedAt(now)
                     .baselineCompleteAt(null)
+                    .baselineOfferCount(null)
                     .lastScanAt(now)
                     .lastSuccessfulScanAt(null)
                     .lastScanComplete(false)
@@ -258,7 +259,15 @@ public class MarketStatsService {
             state.setLastSuccessfulScanAt(now);
 
             if (state.getBaselineCompleteAt() == null) {
+                observationRepository.flush();
                 state.setBaselineCompleteAt(now);
+                state.setBaselineOfferCount(
+                        safeInt(
+                                observationRepository.countByModel_IdAndBaselineTrue(
+                                        modelId
+                                )
+                        )
+                );
             }
         }
 
@@ -311,12 +320,6 @@ public class MarketStatsService {
             );
         }
 
-        int baselineOffers = safeInt(
-                observationRepository.countByModel_IdAndBaselineTrue(
-                        model.getId()
-                )
-        );
-
         long trackedHours = Math.max(
                 0L,
                 Duration.between(
@@ -356,7 +359,7 @@ public class MarketStatsService {
 
         return new ModelPlanningResponse(
                 model.getId(),
-                baselineOffers,
+                state.getBaselineOfferCount(),
                 offersLast24Hours,
                 offersLast7Days,
                 recommendedBots,
