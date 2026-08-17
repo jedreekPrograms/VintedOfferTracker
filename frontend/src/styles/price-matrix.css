@@ -3,6 +3,10 @@
     gap: 24px;
 }
 
+.price-matrix-page-header > div:first-child {
+    min-width: 0;
+}
+
 .price-matrix-summary {
     min-width: 112px;
     padding: 14px 18px;
@@ -27,18 +31,21 @@
 }
 
 .price-matrix-card {
+    min-width: 0;
     padding: 18px;
     overflow: hidden;
 }
 
 .price-matrix-board {
+    min-width: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    width: 100%;
 }
 
 .price-brand-sheet {
+    min-width: 0;
     width: 100%;
     overflow: hidden;
     border: 1px solid var(--border-color, #dce3ea);
@@ -48,13 +55,11 @@
 
 .price-brand-title {
     width: 100%;
-    padding: 16px 18px;
+    padding: 15px 18px;
     border: 0;
     background: rgba(15, 23, 42, 0.035);
     color: inherit;
     font: inherit;
-    font-size: 18px;
-    font-weight: 700;
     text-align: left;
     display: flex;
     align-items: center;
@@ -73,11 +78,46 @@
     outline: none;
 }
 
-.price-brand-chevron {
-    color: var(--muted-text-color, #64748b);
+.price-brand-heading {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.price-brand-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 18px;
+    font-weight: 700;
+}
+
+.price-brand-count {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    border: 1px solid var(--border-color, #dce3ea);
+    border-radius: 999px;
+    background: var(--card-background, #ffffff);
+    color: var(--muted-text-color, #64748b);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.price-brand-chevron {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border-color, #dce3ea);
+    border-radius: 8px;
+    background: var(--card-background, #ffffff);
+    color: var(--muted-text-color, #64748b);
+    font-size: 16px;
     line-height: 1;
-    transition: transform 140ms ease;
+    display: grid;
+    place-items: center;
 }
 
 .price-brand-chevron-open {
@@ -86,22 +126,24 @@
 
 .price-brand-content {
     width: 100%;
+    min-width: 0;
     overflow-x: auto;
+    scrollbar-gutter: stable;
 }
 
 .price-sheet-row {
     display: grid;
     grid-template-columns:
-        minmax(220px, 1.6fr)
-        minmax(145px, 0.9fr)
-        minmax(135px, 0.85fr)
-        minmax(125px, 0.75fr)
-        minmax(125px, 0.75fr)
-        minmax(125px, 0.75fr)
-        minmax(135px, 0.8fr)
-        minmax(135px, 0.8fr)
-        minmax(135px, 0.8fr);
-    min-width: 1390px;
+        minmax(205px, 1.5fr)
+        minmax(135px, 0.9fr)
+        minmax(125px, 0.85fr)
+        minmax(115px, 0.75fr)
+        minmax(115px, 0.75fr)
+        minmax(120px, 0.78fr)
+        minmax(125px, 0.8fr)
+        minmax(125px, 0.8fr)
+        minmax(125px, 0.8fr);
+    min-width: 1300px;
     min-height: 58px;
     border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
@@ -177,6 +219,13 @@
     transition: border-color 120ms ease, background 120ms ease;
 }
 
+.price-matrix-input::placeholder {
+    color: var(--muted-text-color, #94a3b8);
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 1;
+}
+
 .price-matrix-input:hover,
 .price-matrix-input:focus {
     outline: none;
@@ -226,10 +275,95 @@
     line-height: 1.25;
 }
 
+.price-metric-cell .price-metric-note {
+    color: var(--muted-text-color, #64748b);
+    font-size: 9px;
+}
+
 .price-sheet-empty {
     padding: 22px 18px;
     color: var(--muted-text-color, #64748b);
     font-size: 13px;
+}
+
+@media (max-width: 1320px) {
+    .price-matrix-card {
+        padding: 12px;
+    }
+
+    .price-brand-content {
+        overflow: visible;
+    }
+
+    .price-sheet-header {
+        display: none;
+    }
+
+    .price-sheet-row:not(.price-sheet-header) {
+        min-width: 0;
+        min-height: 0;
+        padding: 12px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        background: rgba(15, 23, 42, 0.012);
+    }
+
+    .price-sheet-row:not(.price-sheet-header) + .price-sheet-row:not(.price-sheet-header) {
+        border-top: 1px solid var(--border-color, #e5e7eb);
+    }
+
+    .price-sheet-row:not(.price-sheet-header) > div {
+        min-height: 70px;
+        padding: 10px;
+        border: 1px solid var(--border-color, #e5e7eb);
+        border-radius: 10px;
+        background: var(--card-background, #ffffff);
+    }
+
+    .price-sheet-row:not(.price-sheet-header) > div[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 6px;
+        color: var(--muted-text-color, #64748b);
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1.2;
+        text-transform: uppercase;
+        letter-spacing: 0.055em;
+    }
+
+    .price-model-cell {
+        grid-column: 1 / -1;
+        min-height: 0 !important;
+        padding: 2px 2px 8px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+    }
+
+    .price-model-cell strong {
+        white-space: normal;
+        font-size: 16px;
+    }
+
+    .price-input-cell,
+    .price-metric-cell {
+        align-items: stretch !important;
+    }
+
+    .price-metric-cell strong {
+        font-size: 18px;
+    }
+
+    .price-metric-cell span {
+        font-size: 11px;
+    }
+
+    .price-matrix-input {
+        border-color: var(--border-color, #e2e8f0);
+        background: rgba(15, 23, 42, 0.018);
+    }
 }
 
 @media (max-width: 900px) {
@@ -237,7 +371,47 @@
         display: none;
     }
 
+    .price-matrix-page-header {
+        gap: 14px;
+    }
+
+    .price-brand-title {
+        padding: 14px 15px;
+    }
+}
+
+@media (max-width: 640px) {
     .price-matrix-card {
-        padding: 12px;
+        padding: 8px;
+    }
+
+    .price-matrix-board {
+        gap: 10px;
+    }
+
+    .price-brand-sheet {
+        border-radius: 12px;
+    }
+
+    .price-brand-title {
+        padding: 13px 14px;
+    }
+
+    .price-brand-name {
+        font-size: 16px;
+    }
+
+    .price-brand-count {
+        display: none;
+    }
+
+    .price-sheet-row:not(.price-sheet-header) {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 10px;
+        gap: 8px;
+    }
+
+    .price-model-cell {
+        grid-column: auto;
     }
 }
