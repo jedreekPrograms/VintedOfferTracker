@@ -2,7 +2,6 @@ import {
     type CSSProperties,
     useCallback,
     useEffect,
-    useLayoutEffect,
     useRef,
     useState,
 } from "react";
@@ -100,12 +99,10 @@ function AppSelect({
         });
     }, []);
 
-    useLayoutEffect(() => {
+    useEffect(() => {
         if (!isExpanded) {
             return;
         }
-
-        updateMenuPosition();
 
         const handleViewportChange = () => {
             updateMenuPosition();
@@ -182,7 +179,13 @@ function AppSelect({
                 aria-haspopup="listbox"
                 aria-expanded={isExpanded}
                 disabled={disabled}
-                onClick={() => setIsOpen(current => !current)}
+                onClick={() => {
+                    if (!isExpanded) {
+                        updateMenuPosition();
+                    }
+
+                    setIsOpen(current => !current);
+                }}
             >
                 <span
                     className={selectedOption === null
