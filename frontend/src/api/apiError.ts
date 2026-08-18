@@ -7,22 +7,29 @@ export async function getApiErrorMessage(
     fallbackMessage: string,
 ): Promise<string> {
     const responseText = await response.text();
+    const trimmedResponse = responseText.trim();
 
-    if (responseText.trim().length === 0) {
+    if (trimmedResponse.length === 0) {
         return fallbackMessage;
     }
 
     try {
-        const errorResponse = JSON.parse(responseText) as ApiErrorResponse;
+        const errorResponse = JSON.parse(trimmedResponse) as ApiErrorResponse;
 
         if (
             typeof errorResponse.message === "string"
             && errorResponse.message.trim().length > 0
         ) {
-            return errorResponse.message;
+            return errorResponse.message.trim();
         }
     } catch {
-        // The backend response does not have to be JSON.
+        const contentType = response.headers
+            .get("content-type")
+            ?.toLowerCase() ?? "";
+
+        if (contentType.includes("text/plain")) {
+            return trimmedResponse;
+        }
     }
 
     return fallbackMessage;
