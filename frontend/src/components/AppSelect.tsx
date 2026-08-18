@@ -1,5 +1,6 @@
 import {
     type CSSProperties,
+    useCallback,
     useEffect,
     useLayoutEffect,
     useRef,
@@ -52,7 +53,7 @@ function AppSelect({
         option => option.value === value,
     ) ?? null;
 
-    function updateMenuPosition() {
+    const updateMenuPosition = useCallback(() => {
         const trigger = triggerRef.current;
 
         if (trigger === null) {
@@ -95,11 +96,10 @@ function AppSelect({
                     top: rect.bottom + gap,
                 }),
         });
-    }
+    }, []);
 
     useLayoutEffect(() => {
         if (!isOpen) {
-            setMenuPosition(null);
             return;
         }
 
@@ -116,10 +116,11 @@ function AppSelect({
             window.removeEventListener("resize", handleViewportChange);
             window.removeEventListener("scroll", handleViewportChange, true);
         };
-    }, [isOpen]);
+    }, [isOpen, updateMenuPosition]);
 
     useEffect(() => {
         if (!isOpen) {
+            setMenuPosition(null);
             return;
         }
 
