@@ -54,6 +54,9 @@ function AppSelect({
         option => option.value === value,
     ) ?? null;
 
+    const isPlaceholderValue = selectedOption === null
+        || selectedOption.value.length === 0;
+
     const updateMenuPosition = useCallback(() => {
         const trigger = triggerRef.current;
 
@@ -188,7 +191,7 @@ function AppSelect({
                 }}
             >
                 <span
-                    className={selectedOption === null
+                    className={isPlaceholderValue
                         ? "app-select-value app-select-placeholder"
                         : "app-select-value"}
                 >
