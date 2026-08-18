@@ -55,7 +55,12 @@ public class WorkerManager implements AutoCloseable {
     private final AtomicBoolean stopping =
             new AtomicBoolean(false);
 
-    private int startedSlotCount = 0;
+    /*
+     * Slot labels are monotonic for the lifetime of the manager. If a worker
+     * thread dies and is replaced, the replacement receives a new number so
+     * logs never make two different worker lifetimes look like the same slot.
+     */
+    private int nextSlotNumber = 1;
 
     public void start() {
         if (!started.compareAndSet(false, true)) {
@@ -79,8 +84,12 @@ public class WorkerManager implements AutoCloseable {
          * Worker slots are deliberately NOT started here.
          * The first scheduler sync knows how many bots are actually RUNNING,
          * and starts only min(RUNNING, configured max) consumers. This avoids
-         * waking ten independent Chrome runtimes for two bots and prevents the
-         * same tiny bot fleet from gradually migrating through unused slots.
+         * waking ten independent Chrome runtimes for two bots.
+         *
+         * Once started, healthy slots are kept alive until shutdown even if
+         * RUNNING temporarily decreases. Interrupting a slot merely to shrink
+         * the pool could abort a bot job that is currently finishing. Dead
+         * slots, however, are detected and replaced on the next sync.
          */
         syncExecutor.scheduleWithFixedDelay(
                 this::syncRunningBots,
@@ -153,8 +162,24 @@ public class WorkerManager implements AutoCloseable {
                 )
         );
 
-        while (startedSlotCount < targetSlotCount) {
-            int slotNumber = ++startedSlotCount;
+        int beforeCleanup = slotFutures.size();
+
+        slotFutures.removeIf(
+                future -> future.isDone() || future.isCancelled()
+        );
+
+        int removed = beforeCleanup - slotFutures.size();
+
+        if (removed > 0) {
+            log.warn(
+                    "[SCHEDULER] Detected {} stopped worker slot(s). "
+                            + "Missing capacity will be recreated if RUNNING bots require it.",
+                    removed
+            );
+        }
+
+        while (slotFutures.size() < targetSlotCount) {
+            int slotNumber = nextSlotNumber++;
 
             BotWorkerSlot slot =
                     new BotWorkerSlot(
@@ -167,15 +192,19 @@ public class WorkerManager implements AutoCloseable {
             slotFutures.add(slotExecutor.submit(slot));
 
             log.info(
-                    "[SCHEDULER] Started worker slot {}/{} because current RUNNING bot count requires it.",
+                    "[SCHEDULER] Started worker slot {}. activeSlots={}/{}, requiredByRunningBots={}.",
                     slotNumber,
-                    config.workerCount()
+                    slotFutures.size(),
+                    config.workerCount(),
+                    targetSlotCount
             );
         }
     }
 
     private synchronized int currentStartedSlotCount() {
-        return startedSlotCount;
+        return (int) slotFutures.stream()
+                .filter(future -> !future.isDone() && !future.isCancelled())
+                .count();
     }
 
     public void stop() {
