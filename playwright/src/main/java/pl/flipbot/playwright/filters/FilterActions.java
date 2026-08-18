@@ -52,12 +52,6 @@ public class FilterActions {
         locator.click();
 
         if (FilterSelectors.BRAND_FILTER.equals(activeFilterTestId)) {
-            /*
-             * Brand confirmation owns its own three-attempt recovery loop.
-             * Preserve the selected option even if an ad redirect happened
-             * immediately after this click; waitForBrandFilterPersisted()
-             * will detect it and the retry loop will restore baseUrl.
-             */
             selectedBrandOption = option;
             return;
         }
@@ -70,8 +64,7 @@ public class FilterActions {
     }
 
     public void waitForOption(String option, double timeoutMilliseconds) {
-        Locator locator = getOptionLocator(option);
-        waitUntilVisible(locator, timeoutMilliseconds);
+        waitUntilVisible(getOptionLocator(option), timeoutMilliseconds);
     }
 
     public void fillInput(String testId, String value) {
@@ -159,17 +152,14 @@ public class FilterActions {
                 }
 
                 log.warn(
-                        "[FILTER BRAND] Attempt {}/{} for '{}' finished, but Vinted did not persist a brand filter "
-                                + "in either brand_ids[] or canonical /brand/... form. Current URL: {}",
+                        "[FILTER BRAND] Attempt {}/{} for '{}' finished, but Vinted did not persist a brand filter. Current URL: {}",
                         attempt,
                         BRAND_MAX_ATTEMPTS,
                         brand,
                         page.url()
                 );
-
             } catch (RuntimeException exception) {
                 lastException = exception;
-
                 log.warn(
                         "[FILTER BRAND] Attempt {}/{} for '{}' failed: {}",
                         attempt,
@@ -177,7 +167,6 @@ public class FilterActions {
                         brand,
                         getFriendlyErrorMessage(exception)
                 );
-
                 log.trace(
                         "[FILTER BRAND] Full brand filter error. Attempt {}/{}.",
                         attempt,
@@ -222,7 +211,6 @@ public class FilterActions {
         waitUntilVisible(brandFilter, FILTER_TIMEOUT_MS);
         brandFilter.click();
         assertStillOnVinted("reopening brand filter for retry");
-
         page.waitForTimeout(BRAND_PANEL_SETTLE_MS);
 
         Locator brandOption = getOptionLocator(brand);
@@ -247,13 +235,11 @@ public class FilterActions {
 
         if (!isCatalogPage()) {
             throw new IllegalStateException(
-                    "Brand retry reset did not return to a Vinted catalog page. URL: "
-                            + page.url()
+                    "Brand retry reset did not return to a Vinted catalog page. URL: " + page.url()
             );
         }
 
         rememberCurrentVintedUrl();
-
         log.info(
                 "[FILTER BRAND] Pre-brand catalog state restored. Current URL: {}",
                 page.url()
@@ -263,11 +249,9 @@ public class FilterActions {
     private void navigateToBrandBaseUrl(String baseUrl) {
         if (!MarketplaceUrls.isCatalogUrl(baseUrl)) {
             throw new IllegalStateException(
-                    "Refusing to use a non-Vinted catalog URL as brand retry base: "
-                            + baseUrl
+                    "Refusing to use a non-Vinted catalog URL as brand retry base: " + baseUrl
             );
         }
-
         navigateToSafeVintedUrl(baseUrl);
     }
 
@@ -280,15 +264,10 @@ public class FilterActions {
 
     public void clickModel(String model) {
         ensureVintedBeforeFilterAction("selecting model '" + model + "'");
-
         Locator modelLocator =
                 page.locator("[data-testid^='selectable-item-brand_collection-']")
-                        .filter(
-                                new Locator.FilterOptions()
-                                        .setHasText(model)
-                        )
+                        .filter(new Locator.FilterOptions().setHasText(model))
                         .first();
-
         waitUntilVisible(modelLocator, OPTION_TIMEOUT_MS);
         modelLocator.click();
         assertStillOnVinted("selecting model '" + model + "'");
@@ -304,32 +283,17 @@ public class FilterActions {
 
     public void clickOutsideSafely() {
         ensureVintedBeforeFilterAction("closing filter panel");
-
         page.evaluate(
                 """
                 () => {
                     const target = document.body;
-                    const e = {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window
-                    };
-
-                    target.dispatchEvent(
-                            new MouseEvent("mousedown", e)
-                    );
-
-                    target.dispatchEvent(
-                            new MouseEvent("mouseup", e)
-                    );
-
-                    target.dispatchEvent(
-                            new MouseEvent("click", e)
-                    );
+                    const e = { bubbles: true, cancelable: true, view: window };
+                    target.dispatchEvent(new MouseEvent("mousedown", e));
+                    target.dispatchEvent(new MouseEvent("mouseup", e));
+                    target.dispatchEvent(new MouseEvent("click", e));
                 }
                 """
         );
-
         page.waitForTimeout(1_000);
         assertStillOnVinted("closing filter panel");
     }
@@ -339,14 +303,11 @@ public class FilterActions {
 
         if (!MarketplaceUrls.isVintedUrl(currentUrl)) {
             String recoveryUrl = safeRecoveryUrl();
-
             log.warn(
-                    "[PAGE SAFETY] Refusing to reload external main-page URL '{}'. "
-                            + "Recovering to last known Vinted URL '{}'.",
+                    "[PAGE SAFETY] Refusing to reload external main-page URL '{}'. Recovering to '{}'.",
                     currentUrl,
                     recoveryUrl
             );
-
             navigateToSafeVintedUrl(recoveryUrl);
             return;
         }
@@ -377,9 +338,7 @@ public class FilterActions {
     }
 
     public boolean waitForBrandFilterPersisted(double timeoutMilliseconds) {
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) timeoutMilliseconds;
+        long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
 
         while (System.currentTimeMillis() <= deadline) {
             assertStillOnVinted("waiting for brand filter persistence");
@@ -406,12 +365,11 @@ public class FilterActions {
 
         String currentUrl = page.url();
         int queryIndex = currentUrl.indexOf('?');
-        String withoutQuery =
-                queryIndex >= 0
-                        ? currentUrl.substring(0, queryIndex)
-                        : currentUrl;
-
+        String withoutQuery = queryIndex >= 0
+                ? currentUrl.substring(0, queryIndex)
+                : currentUrl;
         int fragmentIndex = withoutQuery.indexOf('#');
+
         if (fragmentIndex >= 0) {
             withoutQuery = withoutQuery.substring(0, fragmentIndex);
         }
@@ -427,40 +385,28 @@ public class FilterActions {
         String currentUrl = page.url();
         int questionMarkIndex = currentUrl.indexOf('?');
 
-        if (questionMarkIndex < 0
-                || questionMarkIndex == currentUrl.length() - 1) {
+        if (questionMarkIndex < 0 || questionMarkIndex == currentUrl.length() - 1) {
             return null;
         }
 
         String query = currentUrl.substring(questionMarkIndex + 1);
         int fragmentIndex = query.indexOf('#');
-
         if (fragmentIndex >= 0) {
             query = query.substring(0, fragmentIndex);
         }
 
         for (String parameter : query.split("&")) {
             int equalsIndex = parameter.indexOf('=');
-            String rawName =
-                    equalsIndex >= 0
-                            ? parameter.substring(0, equalsIndex)
-                            : parameter;
-            String rawValue =
-                    equalsIndex >= 0
-                            ? parameter.substring(equalsIndex + 1)
-                            : "";
-
-            String decodedName =
-                    URLDecoder.decode(
-                            rawName,
-                            StandardCharsets.UTF_8
-                    );
+            String rawName = equalsIndex >= 0
+                    ? parameter.substring(0, equalsIndex)
+                    : parameter;
+            String rawValue = equalsIndex >= 0
+                    ? parameter.substring(equalsIndex + 1)
+                    : "";
+            String decodedName = URLDecoder.decode(rawName, StandardCharsets.UTF_8);
 
             if (parameterName.equals(decodedName)) {
-                return URLDecoder.decode(
-                        rawValue,
-                        StandardCharsets.UTF_8
-                );
+                return URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
             }
         }
 
@@ -474,10 +420,7 @@ public class FilterActions {
         );
     }
 
-    private void waitUntilVisible(
-            Locator locator,
-            double timeoutMilliseconds
-    ) {
+    private void waitUntilVisible(Locator locator, double timeoutMilliseconds) {
         locator.waitFor(
                 new Locator.WaitForOptions()
                         .setState(WaitForSelectorState.VISIBLE)
@@ -493,49 +436,73 @@ public class FilterActions {
 
         String externalUrl = page.url();
         String recoveryUrl = safeRecoveryUrl();
-
         log.warn(
                 "[PAGE SAFETY] Main page is outside Vinted before {}. URL='{}'. Recovering to '{}'.",
                 action,
                 externalUrl,
                 recoveryUrl
         );
-
         navigateToSafeVintedUrl(recoveryUrl);
     }
 
+    /**
+     * Detect an ad/external takeover immediately. Recover the main page before
+     * propagating an exception so callers that implement a URL fallback never
+     * accidentally append Vinted query parameters to the external URL.
+     */
     private void assertStillOnVinted(String action) {
         String currentUrl = page.url();
 
-        if (!MarketplaceUrls.isVintedUrl(currentUrl)) {
+        if (MarketplaceUrls.isVintedUrl(currentUrl)) {
+            rememberCurrentVintedUrl();
+            return;
+        }
+
+        String recoveryUrl = safeRecoveryUrl();
+        log.warn(
+                "[PAGE SAFETY] Main page left Vinted while {}. External URL='{}'. Recovering to '{}'.",
+                action,
+                currentUrl,
+                recoveryUrl
+        );
+
+        try {
+            navigateToSafeVintedUrl(recoveryUrl);
+        } catch (RuntimeException recoveryFailure) {
             throw new IllegalStateException(
                     "[PAGE SAFETY] Main page left Vinted while "
                             + action
                             + ". External URL: "
                             + currentUrl
+                            + ". Recovery also failed.",
+                    recoveryFailure
             );
         }
 
-        rememberCurrentVintedUrl();
+        throw new IllegalStateException(
+                "[PAGE SAFETY] Main page left Vinted while "
+                        + action
+                        + ". External URL: "
+                        + currentUrl
+                        + ". Recovered to: "
+                        + page.url()
+        );
     }
 
     private String safeRecoveryUrl() {
         if (MarketplaceUrls.isVintedUrl(lastKnownSafeVintedUrl)) {
             return lastKnownSafeVintedUrl;
         }
-
         if (MarketplaceUrls.isVintedUrl(activeFilterBaseUrl)) {
             return activeFilterBaseUrl;
         }
-
         return MarketplaceUrls.CATALOG;
     }
 
     private void navigateToSafeVintedUrl(String url) {
         if (!MarketplaceUrls.isVintedUrl(url)) {
             throw new IllegalArgumentException(
-                    "Refusing to navigate filter recovery to non-Vinted URL: "
-                            + url
+                    "Refusing to navigate filter recovery to non-Vinted URL: " + url
             );
         }
 
@@ -546,12 +513,17 @@ public class FilterActions {
                         .setTimeout(RELOAD_TIMEOUT_MS)
         );
 
-        assertStillOnVinted("recovering filter page");
+        if (!MarketplaceUrls.isVintedUrl(page.url())) {
+            throw new IllegalStateException(
+                    "Vinted recovery navigation ended on an external URL: " + page.url()
+            );
+        }
+
+        rememberCurrentVintedUrl();
     }
 
     private void rememberCurrentVintedUrl() {
         String currentUrl = page.url();
-
         if (MarketplaceUrls.isVintedUrl(currentUrl)) {
             lastKnownSafeVintedUrl = currentUrl;
         }
@@ -567,15 +539,11 @@ public class FilterActions {
         if (exception == null) {
             return "Unknown error";
         }
-
         String message = exception.getMessage();
-
         if (message == null || message.isBlank()) {
             return exception.getClass().getSimpleName();
         }
-
         int firstLineEnd = message.indexOf('\n');
-
         return firstLineEnd > 0
                 ? message.substring(0, firstLineEnd).trim()
                 : message.trim();
