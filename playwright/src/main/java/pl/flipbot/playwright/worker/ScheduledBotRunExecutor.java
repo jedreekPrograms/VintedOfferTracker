@@ -17,7 +17,6 @@ public class ScheduledBotRunExecutor {
     private static final ScheduledRealActionConfig REAL_ACTION_CONFIG =
             ScheduledRealActionConfig.fromEnvironment();
 
-    private static final boolean REAL_OFFER_ONE_SHOT_TEST_MODE = true;
     private static final int MAX_REAL_OFFERS_PER_RUN = 1;
     private static final int MAX_REAL_NEXT_STEPS_PER_RUN = 1;
 
@@ -157,7 +156,7 @@ public class ScheduledBotRunExecutor {
                             existingNegotiationProcessor,
                             catalogWorkProcessor,
                             realOffersEnabled,
-                            REAL_OFFER_ONE_SHOT_TEST_MODE
+                            REAL_ACTION_CONFIG.firstOfferOneShotTestModeEnabled()
                     );
 
             logExecutionMode(
@@ -244,14 +243,21 @@ public class ScheduledBotRunExecutor {
             return;
         }
 
+        String modeLabel =
+                REAL_ACTION_CONFIG.productionModeEnabled()
+                        ? "PRODUCTION REAL ACTION MODE"
+                        : "CONTROLLED REAL ACTION MODE";
+
         log.warn(
-                "[SCHEDULED JOB] CONTROLLED REAL ACTION MODE for {} / bot {}. "
-                        + "realOffers={}, realNextSteps={}, maxRealOffersPerRun={}, "
-                        + "maxRealNextStepsPerRun={}.",
+                "[SCHEDULED JOB] {} for {} / bot {}. "
+                        + "realOffers={}, realNextSteps={}, firstOfferOneShotTestMode={}, "
+                        + "maxRealOffersPerRun={}, maxRealNextStepsPerRun={}.",
+                modeLabel,
                 jobLabel,
                 botId,
                 realOffersEnabled,
                 realNextStepsEnabled,
+                REAL_ACTION_CONFIG.firstOfferOneShotTestModeEnabled(),
                 MAX_REAL_OFFERS_PER_RUN,
                 MAX_REAL_NEXT_STEPS_PER_RUN
         );
