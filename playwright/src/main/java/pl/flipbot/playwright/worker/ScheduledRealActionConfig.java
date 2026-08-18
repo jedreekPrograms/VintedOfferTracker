@@ -12,7 +12,10 @@ public record ScheduledRealActionConfig(
         boolean realNextStepsRequested,
         Set<Long> allowedBotIds,
         boolean confirmationValid,
-        boolean preflightOnly
+        boolean preflightOnly,
+        boolean productionModeRequested,
+        boolean productionConfirmationValid,
+        boolean allowAllRunningBotsRequested
 ) {
 
     private static final String REAL_OFFERS_ENV =
@@ -33,8 +36,20 @@ public record ScheduledRealActionConfig(
     private static final String PREFLIGHT_ONLY_ENV =
             "FLIPBOT_REAL_ACTION_PREFLIGHT_ONLY";
 
+    private static final String PRODUCTION_MODE_ENV =
+            "FLIPBOT_REAL_ACTION_PRODUCTION_MODE";
+
+    private static final String PRODUCTION_CONFIRM_ENV =
+            "FLIPBOT_REAL_ACTION_PRODUCTION_CONFIRM";
+
+    private static final String ALLOW_ALL_RUNNING_BOTS_ENV =
+            "FLIPBOT_REAL_ACTION_ALLOW_ALL_RUNNING_BOTS";
+
     private static final String EXPECTED_CONFIRMATION =
             "I_UNDERSTAND_REAL_ACTIONS";
+
+    private static final String EXPECTED_PRODUCTION_CONFIRMATION =
+            "I_UNDERSTAND_CONTINUOUS_REAL_ACTIONS";
 
     public static ScheduledRealActionConfig fromEnvironment() {
         boolean realOffersRequested =
@@ -46,14 +61,24 @@ public record ScheduledRealActionConfig(
         Set<Long> allowedBotIds =
                 readAllowedBotIds();
 
-        String confirmation =
-                System.getenv(CONFIRM_ENV);
-
         boolean confirmationValid =
-                EXPECTED_CONFIRMATION.equals(confirmation);
+                EXPECTED_CONFIRMATION.equals(
+                        System.getenv(CONFIRM_ENV)
+                );
 
         boolean preflightOnly =
                 readBoolean(PREFLIGHT_ONLY_ENV, false);
+
+        boolean productionModeRequested =
+                readBoolean(PRODUCTION_MODE_ENV, false);
+
+        boolean productionConfirmationValid =
+                EXPECTED_PRODUCTION_CONFIRMATION.equals(
+                        System.getenv(PRODUCTION_CONFIRM_ENV)
+                );
+
+        boolean allowAllRunningBotsRequested =
+                readBoolean(ALLOW_ALL_RUNNING_BOTS_ENV, false);
 
         ScheduledRealActionConfig config =
                 new ScheduledRealActionConfig(
@@ -61,7 +86,10 @@ public record ScheduledRealActionConfig(
                         realNextStepsRequested,
                         allowedBotIds,
                         confirmationValid,
-                        preflightOnly
+                        preflightOnly,
+                        productionModeRequested,
+                        productionConfirmationValid,
+                        allowAllRunningBotsRequested
                 );
 
         if (!realOffersRequested && !realNextStepsRequested) {
@@ -69,41 +97,87 @@ public record ScheduledRealActionConfig(
                     "[REAL ACTION CONFIG] Scheduled real actions are disabled. "
                             + "All scheduler jobs remain DRY RUN."
             );
-
             return config;
         }
 
-        if (allowedBotIds.isEmpty() || !confirmationValid) {
+        if (!confirmationValid) {
             log.error(
-                    "[REAL ACTION CONFIG] Real actions were requested but the safety gate is incomplete. "
-                            + "Required: at least one positive bot id in {} (or legacy {}) and exact {} token. "
+                    "[REAL ACTION CONFIG] Real actions were requested but {} is missing or invalid. "
+                            + "Effective mode remains DRY RUN.",
+                    CONFIRM_ENV
+            );
+            return config;
+        }
+
+        if (productionModeRequested && !productionConfirmationValid) {
+            log.error(
+                    "[REAL ACTION CONFIG] Production mode was requested but {} is missing or invalid. "
+                            + "Effective mode remains DRY RUN.",
+                    PRODUCTION_CONFIRM_ENV
+            );
+            return config;
+        }
+
+        if (allowAllRunningBotsRequested && !productionModeRequested) {
+            log.error(
+                    "[REAL ACTION CONFIG] {}=true is allowed only together with {}=true. "
+                            + "Effective mode remains DRY RUN.",
+                    ALLOW_ALL_RUNNING_BOTS_ENV,
+                    PRODUCTION_MODE_ENV
+            );
+            return config;
+        }
+
+        if (!config.hasConfiguredActionScope()) {
+            log.error(
+                    "[REAL ACTION CONFIG] Real actions were requested but no valid bot scope is configured. "
+                            + "Use at least one positive bot id in {} (or legacy {}) or, in production mode only, {}=true. "
                             + "Effective mode remains DRY RUN.",
                     BOT_IDS_ENV,
                     LEGACY_BOT_ID_ENV,
-                    CONFIRM_ENV
+                    ALLOW_ALL_RUNNING_BOTS_ENV
             );
-
             return config;
+        }
+
+        if (allowAllRunningBotsRequested && !allowedBotIds.isEmpty()) {
+            log.info(
+                    "[REAL ACTION CONFIG] {}=true is active, so explicit bot allowlist {} is not restrictive in production mode.",
+                    ALLOW_ALL_RUNNING_BOTS_ENV,
+                    allowedBotIds
+            );
         }
 
         if (preflightOnly) {
             log.warn(
-                    "[REAL ACTION CONFIG] PREFLIGHT ONLY mode is armed for bot allowlist {}. "
+                    "[REAL ACTION CONFIG] PREFLIGHT ONLY mode is armed for scope {}. "
                             + "Requested first offers={}, next steps={}. "
                             + "No real submit can be executed while {}=true.",
-                    allowedBotIds,
+                    config.scopeLabel(),
                     realOffersRequested,
                     realNextStepsRequested,
                     PREFLIGHT_ONLY_ENV
             );
+            return config;
+        }
 
+        if (config.productionModeEnabled()) {
+            log.warn(
+                    "[REAL ACTION CONFIG] PRODUCTION REAL ACTION MODE is armed for scope {}. "
+                            + "First offers requested={}, next steps requested={}. "
+                            + "The process-wide first-offer one-shot test lock is disabled. "
+                            + "Backend quota/idempotency and per-run action limits remain enforced.",
+                    config.scopeLabel(),
+                    realOffersRequested,
+                    realNextStepsRequested
+            );
             return config;
         }
 
         log.warn(
                 "[REAL ACTION CONFIG] CONTROLLED REAL ACTION MODE is armed for bot allowlist {}. "
                         + "First offers requested={}, next steps requested={}. "
-                        + "Per-run and one-shot limits remain enforced per bot.",
+                        + "Per-run limits and the process-wide first-offer one-shot test lock remain enforced per bot.",
                 allowedBotIds,
                 realOffersRequested,
                 realNextStepsRequested
@@ -132,10 +206,54 @@ public record ScheduledRealActionConfig(
                 && !preflightOnly;
     }
 
+    public boolean productionModeEnabled() {
+        return productionModeRequested
+                && productionConfirmationValid
+                && confirmationValid
+                && !preflightOnly
+                && hasConfiguredActionScope()
+                && (realOffersRequested || realNextStepsRequested);
+    }
+
+    public boolean firstOfferOneShotTestModeEnabled() {
+        return !productionModeEnabled();
+    }
+
     public boolean isArmedFor(Long botId) {
-        return confirmationValid
-                && botId != null
-                && allowedBotIds.contains(botId);
+        if (!confirmationValid
+                || botId == null
+                || botId <= 0L) {
+            return false;
+        }
+
+        if (productionModeRequested
+                && !productionConfirmationValid) {
+            return false;
+        }
+
+        if (allowAllRunningBotsRequested) {
+            return productionModeRequested
+                    && productionConfirmationValid;
+        }
+
+        return allowedBotIds.contains(botId);
+    }
+
+    private boolean hasConfiguredActionScope() {
+        if (allowAllRunningBotsRequested) {
+            return productionModeRequested
+                    && productionConfirmationValid;
+        }
+
+        return !allowedBotIds.isEmpty();
+    }
+
+    private String scopeLabel() {
+        if (allowAllRunningBotsRequested) {
+            return "ALL RUNNING BOTS";
+        }
+
+        return allowedBotIds.toString();
     }
 
     private static Set<Long> readAllowedBotIds() {
@@ -212,7 +330,7 @@ public record ScheduledRealActionConfig(
         } catch (RuntimeException exception) {
             log.warn(
                     "[REAL ACTION CONFIG] Invalid {} value '{}'. "
-                            + "The entire real-action bot allowlist is disabled.",
+                            + "The entire explicit bot allowlist is disabled.",
                     environmentName,
                     rawValue
             );
