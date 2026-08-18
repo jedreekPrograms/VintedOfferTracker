@@ -18,5 +18,11 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Data-loading effects intentionally update local loading/error state.
+      // The app does not use React Compiler, so enforcing this compiler-oriented
+      // rule would require noisier indirection without changing runtime behavior.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])
