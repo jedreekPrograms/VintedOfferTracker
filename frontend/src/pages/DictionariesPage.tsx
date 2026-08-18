@@ -14,6 +14,10 @@ import {
     getModelsByBrand,
 } from "../api/dictionariesApi";
 
+import AppSelect, {
+    type AppSelectOption,
+} from "../components/AppSelect";
+
 import type {
     DictionaryBrand,
     DictionaryCategory,
@@ -34,8 +38,7 @@ function DictionariesPage() {
     const [selectedBrandId, setSelectedBrandId] = useState("");
     const [selectedModelCategoryId, setSelectedModelCategoryId] = useState("");
     const [modelName, setModelName] = useState("");
-    const [modelTargetMode, setModelTargetMode] =
-        useState<TargetMode>("VINTED_MODEL");
+    const [modelTargetMode, setModelTargetMode] = useState<TargetMode>("VINTED_MODEL");
 
     const [isLoading, setIsLoading] = useState(true);
     const [areModelsLoading, setAreModelsLoading] = useState(false);
@@ -63,8 +66,8 @@ function DictionariesPage() {
             setBrands(sortedBrands);
             setCategories(sortedCategories);
 
-            setSelectedBrandId((current) => {
-                if (sortedBrands.some((brand) => String(brand.id) === current)) {
+            setSelectedBrandId(current => {
+                if (sortedBrands.some(brand => String(brand.id) === current)) {
                     return current;
                 }
 
@@ -73,8 +76,8 @@ function DictionariesPage() {
                     : "";
             });
 
-            setSelectedModelCategoryId((current) => {
-                if (sortedCategories.some((category) => String(category.id) === current)) {
+            setSelectedModelCategoryId(current => {
+                if (sortedCategories.some(category => String(category.id) === current)) {
                     return current;
                 }
 
@@ -155,7 +158,7 @@ function DictionariesPage() {
         const categoryPath = categoryPathInput
             .split(">")
             .map(normalizeText)
-            .filter((element) => element.length > 0);
+            .filter(element => element.length > 0);
 
         if (categoryPath.length === 0) {
             setErrorMessage("Wpisz pełną ścieżkę kategorii.");
@@ -223,8 +226,33 @@ function DictionariesPage() {
     }
 
     const selectedBrand = brands.find(
-        (brand) => String(brand.id) === selectedBrandId,
+        brand => String(brand.id) === selectedBrandId,
     ) ?? null;
+
+    const categoryOptions: AppSelectOption[] = categories.length === 0
+        ? [{ value: "", label: "Najpierw dodaj kategorię", disabled: true }]
+        : categories.map(category => ({
+            value: String(category.id),
+            label: category.path,
+        }));
+
+    const brandOptions: AppSelectOption[] = brands.length === 0
+        ? [{ value: "", label: "Najpierw dodaj markę", disabled: true }]
+        : brands.map(brand => ({
+            value: String(brand.id),
+            label: brand.name,
+        }));
+
+    const targetModeOptions: AppSelectOption[] = [
+        {
+            value: "VINTED_MODEL",
+            label: "Model z listy Vinted",
+        },
+        {
+            value: "SEARCH_QUERY",
+            label: "Wyszukiwanie tekstowe",
+        },
+    ];
 
     return (
         <section className="page">
@@ -276,7 +304,7 @@ function DictionariesPage() {
                                     value={brandName}
                                     maxLength={255}
                                     placeholder="np. Apple"
-                                    onChange={(event) => {
+                                    onChange={event => {
                                         setBrandName(event.target.value);
                                         clearMessages();
                                     }}
@@ -290,7 +318,7 @@ function DictionariesPage() {
 
                     <DictionaryListCard
                         title="Zapisane marki"
-                        items={brands.map((brand) => brand.name)}
+                        items={brands.map(brand => brand.name)}
                         emptyMessage="Brak marek."
                     />
 
@@ -311,7 +339,7 @@ function DictionariesPage() {
                                     className="form-input"
                                     value={categoryPathInput}
                                     placeholder="Elektronika > Telefony komórkowe > Smartfony"
-                                    onChange={(event) => {
+                                    onChange={event => {
                                         setCategoryPathInput(event.target.value);
                                         clearMessages();
                                     }}
@@ -325,60 +353,56 @@ function DictionariesPage() {
 
                     <DictionaryListCard
                         title="Zapisane kategorie"
-                        items={categories.map((category) => category.path)}
+                        items={categories.map(category => category.path)}
                         emptyMessage="Brak kategorii."
                     />
 
-                    <article className="content-card">
+                    <article className="content-card dictionary-model-create-card">
                         <div className="dictionary-section-header">
                             <div>
                                 <h2 className="content-card-title">Dodaj model</h2>
                                 <p className="content-card-text">
-                                    Wybierz kategorię Vinted i określ, czy model ma być wybierany z filtra czy wpisywany w wyszukiwarkę.
+                                    Wybierz kategorię i markę, wpisz nazwę modelu, a na końcu określ
+                                    sposób wyszukiwania. Formularz zachowuje tę samą kolejność również
+                                    na mniejszych ekranach.
                                 </p>
                             </div>
                             <span className="dictionary-count">{models.length}</span>
                         </div>
 
-                        <form className="dictionary-form" onSubmit={handleCreateModel}>
+                        <form
+                            className="dictionary-model-create-form"
+                            onSubmit={handleCreateModel}
+                        >
                             <div className="form-field">
                                 <label className="form-label" htmlFor="model-category">Kategoria</label>
-                                <select
+                                <AppSelect
                                     id="model-category"
-                                    className="form-select"
                                     value={selectedModelCategoryId}
+                                    options={categoryOptions}
+                                    ariaLabel="Kategoria modelu"
                                     disabled={categories.length === 0 || submitting !== null}
-                                    onChange={(event) => {
-                                        setSelectedModelCategoryId(event.target.value);
+                                    onChange={value => {
+                                        setSelectedModelCategoryId(value);
                                         clearMessages();
                                     }}
-                                >
-                                    {categories.length === 0 && (
-                                        <option value="">Najpierw dodaj kategorię</option>
-                                    )}
-                                    {categories.map((category) => (
-                                        <option key={category.id} value={category.id}>{category.path}</option>
-                                    ))}
-                                </select>
+                                />
                             </div>
 
                             <div className="form-field">
                                 <label className="form-label" htmlFor="model-brand">Marka</label>
-                                <select
+                                <AppSelect
                                     id="model-brand"
-                                    className="form-select"
                                     value={selectedBrandId}
+                                    options={brandOptions}
+                                    ariaLabel="Marka modelu"
                                     disabled={brands.length === 0 || submitting !== null}
-                                    onChange={(event) => {
-                                        setSelectedBrandId(event.target.value);
+                                    onChange={value => {
+                                        setSelectedBrandId(value);
                                         setModelName("");
                                         clearMessages();
                                     }}
-                                >
-                                    {brands.map((brand) => (
-                                        <option key={brand.id} value={brand.id}>{brand.name}</option>
-                                    ))}
-                                </select>
+                                />
                             </div>
 
                             <div className="form-field">
@@ -389,40 +413,42 @@ function DictionariesPage() {
                                     value={modelName}
                                     maxLength={255}
                                     placeholder="np. Galaxy Tab S11 Ultra"
-                                    onChange={(event) => {
+                                    onChange={event => {
                                         setModelName(event.target.value);
                                         clearMessages();
                                     }}
                                 />
                             </div>
 
-                            <div className="form-field">
+                            <div className="form-field dictionary-model-mode-field">
                                 <label className="form-label" htmlFor="model-target-mode">
                                     Sposób wyszukiwania
                                 </label>
-                                <select
+                                <AppSelect
                                     id="model-target-mode"
-                                    className="form-select"
                                     value={modelTargetMode}
-                                    onChange={(event) => {
-                                        setModelTargetMode(event.target.value as TargetMode);
+                                    options={targetModeOptions}
+                                    ariaLabel="Sposób wyszukiwania modelu"
+                                    disabled={submitting !== null}
+                                    onChange={value => {
+                                        setModelTargetMode(value as TargetMode);
                                         clearMessages();
                                     }}
-                                >
-                                    <option value="VINTED_MODEL">Model z listy Vinted</option>
-                                    <option value="SEARCH_QUERY">Wyszukiwanie tekstowe</option>
-                                </select>
+                                />
                                 <span className="form-help">
-                                    Filtr Vinted: observer wybierze kategorię, markę i model. Wyszukiwarka: wpisze nazwę modelu, a następnie ustawi kategorię i markę.
+                                    Filtr Vinted wybiera kategorię, markę i model. Wyszukiwarka wpisuje
+                                    nazwę modelu, a następnie ustawia kategorię i markę.
                                 </span>
                             </div>
 
-                            <button
-                                className="primary-button"
-                                disabled={submitting !== null || categories.length === 0 || brands.length === 0}
-                            >
-                                {submitting === "model" ? "Dodawanie..." : "Dodaj model"}
-                            </button>
+                            <div className="dictionary-model-create-actions">
+                                <button
+                                    className="primary-button"
+                                    disabled={submitting !== null || categories.length === 0 || brands.length === 0}
+                                >
+                                    {submitting === "model" ? "Dodawanie..." : "Dodaj model"}
+                                </button>
+                            </div>
                         </form>
                     </article>
 
@@ -444,7 +470,7 @@ function DictionariesPage() {
                             <div className="dictionary-list-state">Brak modeli dla tej marki.</div>
                         ) : (
                             <ul className="dictionary-list">
-                                {models.map((model) => (
+                                {models.map(model => (
                                     <li key={model.id} className="dictionary-list-item">
                                         <div className="dictionary-item-content">
                                             <div className="dictionary-item-name">{model.name}</div>
@@ -487,7 +513,7 @@ function DictionaryListCard({ title, items, emptyMessage }: DictionaryListCardPr
                 <div className="dictionary-list-state">{emptyMessage}</div>
             ) : (
                 <ul className="dictionary-list">
-                    {items.map((item) => (
+                    {items.map(item => (
                         <li key={item} className="dictionary-list-item">
                             <div className="dictionary-item-name">{item}</div>
                         </li>
