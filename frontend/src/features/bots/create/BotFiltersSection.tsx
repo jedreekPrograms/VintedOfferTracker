@@ -1,3 +1,7 @@
+import AppSelect, {
+    type AppSelectOption,
+} from "../../../components/AppSelect";
+
 import type {
     DictionaryBrand,
     DictionaryCategory,
@@ -53,15 +57,15 @@ function BotFiltersSection({
     onMaxPriceChange,
 }: BotFiltersSectionProps) {
     const selectedCategory = categories.find(
-        (category) => String(category.id) === selectedCategoryId,
+        category => String(category.id) === selectedCategoryId,
     ) ?? null;
 
     const selectedBrand = brands.find(
-        (brand) => String(brand.id) === selectedBrandId,
+        brand => String(brand.id) === selectedBrandId,
     ) ?? null;
 
     const selectedModel = models.find(
-        (model) => String(model.id) === selectedModelId,
+        model => String(model.id) === selectedModelId,
     ) ?? null;
 
     const referenceDifference =
@@ -71,6 +75,41 @@ function BotFiltersSection({
         && selectedModel?.expectedResalePrice !== undefined
             ? selectedModel.expectedResalePrice - selectedModel.proposedOfferPrice
             : null;
+
+    const categoryOptions: AppSelectOption[] = [
+        {
+            value: "",
+            label: "Wybierz kategorię",
+        },
+        ...categories.map(category => ({
+            value: String(category.id),
+            label: category.path,
+        })),
+    ];
+
+    const brandOptions: AppSelectOption[] = [
+        {
+            value: "",
+            label: "Wybierz markę",
+        },
+        ...brands.map(brand => ({
+            value: String(brand.id),
+            label: brand.name,
+        })),
+    ];
+
+    const modelOptions: AppSelectOption[] = [
+        {
+            value: "",
+            label: areModelsLoading
+                ? "Pobieranie modeli..."
+                : "Wybierz model",
+        },
+        ...models.map(model => ({
+            value: String(model.id),
+            label: `${model.name}${model.targetMode === "SEARCH_QUERY" ? " · wyszukiwarka" : ""}`,
+        })),
+    ];
 
     return (
         <article className="content-card">
@@ -87,11 +126,11 @@ function BotFiltersSection({
             </div>
 
             {selectedModel !== null && (
-                <div className="information-box" style={{ marginBottom: 18 }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 24px" }}>
-                        <div>
+                <div className="information-box">
+                    <div className="bot-filter-reference-grid">
+                        <div className="bot-filter-reference-primary">
                             <strong>{selectedModel.brandName} → {selectedModel.name}</strong>
-                            <div className="form-help" style={{ marginTop: 4 }}>
+                            <div className="form-help">
                                 Tryb: {selectedModel.targetMode === "SEARCH_QUERY"
                                     ? "wyszukiwanie tekstowe"
                                     : "model z listy Vinted"}
@@ -125,61 +164,40 @@ function BotFiltersSection({
                             <label className="form-label" htmlFor="bot-category">
                                 Kategoria
                             </label>
-                            <select
+                            <AppSelect
                                 id="bot-category"
-                                className="form-select"
                                 value={selectedCategoryId}
-                                onChange={(event) => onCategoryChange(event.target.value)}
-                            >
-                                <option value="">Wybierz kategorię</option>
-                                {categories.map((category) => (
-                                    <option key={category.id} value={category.id}>
-                                        {category.path}
-                                    </option>
-                                ))}
-                            </select>
+                                options={categoryOptions}
+                                ariaLabel="Kategoria bota"
+                                onChange={onCategoryChange}
+                            />
                         </div>
 
                         <div className="form-field">
                             <label className="form-label" htmlFor="bot-brand">
                                 Marka
                             </label>
-                            <select
+                            <AppSelect
                                 id="bot-brand"
-                                className="form-select"
                                 value={selectedBrandId}
-                                onChange={(event) => onBrandChange(event.target.value)}
-                            >
-                                <option value="">Wybierz markę</option>
-                                {brands.map((brand) => (
-                                    <option key={brand.id} value={brand.id}>
-                                        {brand.name}
-                                    </option>
-                                ))}
-                            </select>
+                                options={brandOptions}
+                                ariaLabel="Marka bota"
+                                onChange={onBrandChange}
+                            />
                         </div>
 
                         <div className="form-field">
                             <label className="form-label" htmlFor="bot-model">
                                 Model
                             </label>
-                            <select
+                            <AppSelect
                                 id="bot-model"
-                                className="form-select"
                                 value={selectedModelId}
+                                options={modelOptions}
+                                ariaLabel="Model bota"
                                 disabled={selectedBrandId.length === 0 || areModelsLoading}
-                                onChange={(event) => onModelChange(event.target.value)}
-                            >
-                                <option value="">
-                                    {areModelsLoading ? "Pobieranie modeli..." : "Wybierz model"}
-                                </option>
-                                {models.map((model) => (
-                                    <option key={model.id} value={model.id}>
-                                        {model.name}
-                                        {model.targetMode === "SEARCH_QUERY" ? " · wyszukiwarka" : ""}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={onModelChange}
+                            />
                             {selectedModel !== null && (
                                 <span className="form-help">
                                     {selectedModel.targetMode === "SEARCH_QUERY"
@@ -190,7 +208,7 @@ function BotFiltersSection({
                         </div>
                     </div>
 
-                    <div className="bot-form-grid bot-form-grid-three">
+                    <div className="bot-form-grid bot-form-grid-three bot-form-price-grid">
                         <div className="form-field">
                             <label className="form-label" htmlFor="min-price">
                                 Cena minimalna
@@ -203,7 +221,7 @@ function BotFiltersSection({
                                 step="0.01"
                                 value={minPrice}
                                 placeholder="np. 1000"
-                                onChange={(event) => onMinPriceChange(event.target.value)}
+                                onChange={event => onMinPriceChange(event.target.value)}
                             />
                         </div>
 
@@ -219,13 +237,13 @@ function BotFiltersSection({
                                 step="0.01"
                                 value={maxPrice}
                                 placeholder="np. 2500"
-                                onChange={(event) => onMaxPriceChange(event.target.value)}
+                                onChange={event => onMaxPriceChange(event.target.value)}
                             />
                         </div>
 
                         <div className="form-field">
-                            <label className="form-label">Sposób wyszukiwania</label>
-                            <div className="bot-selection-preview" style={{ marginTop: 0 }}>
+                            <span className="form-label">Sposób wyszukiwania</span>
+                            <div className="bot-selection-preview">
                                 <strong>
                                     {selectedModel === null
                                         ? "Wybierz model"

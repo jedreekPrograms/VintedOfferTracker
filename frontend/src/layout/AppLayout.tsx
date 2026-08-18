@@ -1,9 +1,14 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useState } from "react";
+
+import {
+    NavLink,
+    Outlet,
+} from "react-router-dom";
 
 interface NavigationItem {
     label: string;
     path: string;
-    end?: boolean
+    end?: boolean;
 }
 
 const navigationItems: NavigationItem[] = [
@@ -18,7 +23,7 @@ const navigationItems: NavigationItem[] = [
     },
     {
         label: "Boty",
-        path:"/bots",
+        path: "/bots",
     },
     {
         label: "Utwórz bota",
@@ -48,27 +53,51 @@ const navigationItems: NavigationItem[] = [
 ];
 
 function AppLayout() {
+    const [isNavigationOpen, setIsNavigationOpen] = useState(false);
+
     return (
         <div className="app-layout">
-            <aside className="sidebar">
-                <div className="sidebar-header">
-                    <div className="sidebar-logo">
-                        F
-                    </div>
-
-                    <div>
-                        <div className="sidebar-title">
-                            FlipBot
+            <aside
+                className={`sidebar ${isNavigationOpen ? "sidebar-open" : ""}`.trim()}
+            >
+                <div className="sidebar-topbar">
+                    <div className="sidebar-header">
+                        <div className="sidebar-logo">
+                            F
                         </div>
 
-                        <div className="sidebar-subtitle">
-                            Panel zarządzania
+                        <div>
+                            <div className="sidebar-title">
+                                FlipBot
+                            </div>
+
+                            <div className="sidebar-subtitle">
+                                Panel zarządzania
+                            </div>
                         </div>
                     </div>
+
+                    <button
+                        className="mobile-navigation-toggle"
+                        type="button"
+                        aria-label={isNavigationOpen
+                            ? "Zamknij nawigację"
+                            : "Otwórz nawigację"}
+                        aria-expanded={isNavigationOpen}
+                        onClick={() => setIsNavigationOpen(current => !current)}
+                    >
+                        <span
+                            className="mobile-navigation-icon"
+                            aria-hidden="true"
+                        />
+                    </button>
                 </div>
 
-                <nav className="sidebar-navigation">
-                    {navigationItems.map((item) => (
+                <nav
+                    className="sidebar-navigation"
+                    aria-label="Główna nawigacja"
+                >
+                    {navigationItems.map(item => (
                         <NavLink
                             key={item.path}
                             to={item.path}
@@ -78,6 +107,7 @@ function AppLayout() {
                                     ? "navigation-link navigation-link-active"
                                     : "navigation-link"
                             }
+                            onClick={() => setIsNavigationOpen(false)}
                         >
                             {item.label}
                         </NavLink>

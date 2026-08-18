@@ -1,0 +1,232 @@
+.app-select-menu-portal {
+    position: fixed;
+    right: auto;
+    left: auto;
+    z-index: 1000;
+}
+
+.dictionary-model-list-section {
+    margin-top: 20px;
+}
+
+.dictionary-model-list {
+    max-height: min(620px, 68vh);
+}
+
+.dictionary-card-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.dictionary-card-actions .secondary-button,
+.dictionary-card-actions .bot-stop-button {
+    min-width: 86px;
+}
+
+/* Keep information boxes visually attached to the section they describe. */
+.bot-form-section-header + .information-box {
+    margin-top: 0;
+    margin-bottom: 20px;
+}
+
+/* The read-only search-mode preview should align with neighboring controls. */
+.bot-form-price-grid .bot-selection-preview {
+    min-height: 48px;
+    justify-content: center;
+    margin-top: 0;
+    padding-block: 11px;
+}
+
+.bot-form-actions {
+    align-items: center;
+    gap: 10px;
+}
+
+/* Consistent long-value handling across the app. */
+.content-card strong,
+.dictionary-item-name,
+.dictionary-item-path,
+.bot-selection-preview,
+.form-message {
+    overflow-wrap: anywhere;
+}
+
+/* Improve long desktop tables without letting the whole page escape the viewport. */
+.bots-table-wrapper,
+.runtime-table-wrapper {
+    overscroll-behavior-inline: contain;
+}
+
+.bots-email-cell {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bots-table-wrapper::-webkit-scrollbar,
+.runtime-table-wrapper::-webkit-scrollbar,
+.dictionary-list::-webkit-scrollbar,
+.app-select-menu::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.bots-table-wrapper::-webkit-scrollbar-thumb,
+.runtime-table-wrapper::-webkit-scrollbar-thumb,
+.dictionary-list::-webkit-scrollbar-thumb,
+.app-select-menu::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #c3cad6;
+}
+
+.bots-table-wrapper::-webkit-scrollbar-track,
+.runtime-table-wrapper::-webkit-scrollbar-track,
+.dictionary-list::-webkit-scrollbar-track,
+.app-select-menu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* Price matrix already has its own card conversion; make its outer shell fit the new system. */
+.price-matrix-page,
+.price-sheet,
+.price-sheet-brand,
+.price-sheet-row {
+    max-width: 100%;
+}
+
+@media (max-width: 980px) {
+    .dictionary-card-actions {
+        flex-wrap: wrap;
+    }
+
+    .bots-table {
+        min-width: 0;
+    }
+
+    .bots-table thead {
+        display: none;
+    }
+
+    .bots-table,
+    .bots-table tbody,
+    .bots-table tr,
+    .bots-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .bots-table tbody {
+        display: grid;
+        gap: 12px;
+    }
+
+    .bots-table tr {
+        overflow: hidden;
+        border: 1px solid #e1e6ef;
+        border-radius: 14px;
+        background: #ffffff;
+        box-shadow: 0 2px 8px rgb(15 23 42 / 3%);
+    }
+
+    .bots-table td {
+        display: grid;
+        grid-template-columns: minmax(120px, 0.42fr) minmax(0, 1fr);
+        gap: 14px;
+        align-items: center;
+        border-bottom: 1px solid #edf0f5;
+        padding: 12px 14px;
+    }
+
+    .bots-table td:last-child {
+        border-bottom: 0;
+    }
+
+    .bots-table td::before {
+        color: #8994a8;
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        content: attr(data-label);
+    }
+
+    .bots-email-cell {
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .bots-actions-cell .bot-row-actions {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: 8px;
+    }
+}
+
+@media (max-width: 740px) {
+    .dictionary-card-actions {
+        width: 100%;
+    }
+
+    .dictionary-card-actions .secondary-button,
+    .dictionary-card-actions .bot-stop-button {
+        flex: 1 1 120px;
+    }
+
+    .dictionary-model-list {
+        max-height: none;
+    }
+
+    .bots-table td {
+        grid-template-columns: 105px minmax(0, 1fr);
+    }
+
+    .bot-row-actions > * {
+        flex: 1 1 120px;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 520px) {
+    .dictionary-card-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .dictionary-card-actions .secondary-button,
+    .dictionary-card-actions .bot-stop-button {
+        width: 100%;
+    }
+
+    .bots-table td {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        align-items: stretch;
+    }
+
+    .bot-row-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
+    .bot-row-actions > * {
+        width: 100%;
+    }
+
+    .bot-form-actions {
+        align-items: stretch;
+        flex-direction: column-reverse;
+    }
+
+    .bot-form-actions > * {
+        width: 100%;
+        justify-content: center;
+    }
+}

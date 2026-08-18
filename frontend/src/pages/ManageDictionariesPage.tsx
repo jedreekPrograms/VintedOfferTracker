@@ -17,147 +17,93 @@ import {
     updateModelCategory,
 } from "../api/dictionariesApi";
 
+import AppSelect, {
+    type AppSelectOption,
+} from "../components/AppSelect";
+
 import type {
     DictionaryBrand,
     DictionaryCategory,
     DictionaryModel,
 } from "../types/dictionaries";
 
-
 function ManageDictionariesPage() {
+    const [brands, setBrands] = useState<DictionaryBrand[]>([]);
+    const [categories, setCategories] = useState<DictionaryCategory[]>([]);
+    const [models, setModels] = useState<DictionaryModel[]>([]);
+    const [selectedBrandId, setSelectedBrandId] = useState("");
+    const [isLoading, setIsLoading] = useState(true);
+    const [isModelsLoading, setIsModelsLoading] = useState(false);
+    const [actionKey, setActionKey] = useState<string | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-    const [brands, setBrands] =
-        useState<DictionaryBrand[]>([]);
+    const loadBaseData = useCallback(async () => {
+        setIsLoading(true);
+        setErrorMessage(null);
 
-    const [categories, setCategories] =
-        useState<DictionaryCategory[]>([]);
+        try {
+            const [loadedBrands, loadedCategories] = await Promise.all([
+                getBrands(),
+                getCategories(),
+            ]);
 
-    const [models, setModels] =
-        useState<DictionaryModel[]>([]);
-
-    const [selectedBrandId, setSelectedBrandId] =
-        useState("");
-
-    const [isLoading, setIsLoading] =
-        useState(true);
-
-    const [isModelsLoading, setIsModelsLoading] =
-        useState(false);
-
-    const [actionKey, setActionKey] =
-        useState<string | null>(null);
-
-    const [errorMessage, setErrorMessage] =
-        useState<string | null>(null);
-
-    const [successMessage, setSuccessMessage] =
-        useState<string | null>(null);
-
-
-    const loadBaseData =
-        useCallback(
-            async () => {
-                setIsLoading(true);
-                setErrorMessage(null);
-
-                try {
-                    const [loadedBrands, loadedCategories] =
-                        await Promise.all([
-                            getBrands(),
-                            getCategories(),
-                        ]);
-
-                    setBrands(loadedBrands);
-                    setCategories(
-                        [...loadedCategories].sort((left, right) =>
-                            left.path.localeCompare(right.path, "pl"),
-                        ),
-                    );
-
-                    setSelectedBrandId((current) => {
-                        const stillExists =
-                            loadedBrands.some(
-                                (brand) =>
-                                    String(brand.id) === current,
-                            );
-
-                        if (stillExists) {
-                            return current;
-                        }
-
-                        return loadedBrands.length > 0
-                            ? String(loadedBrands[0].id)
-                            : "";
-                    });
-
-                } catch (error) {
-                    setErrorMessage(
-                        getErrorMessage(
-                            error,
-                            "Nie udało się pobrać słowników.",
-                        ),
-                    );
-                } finally {
-                    setIsLoading(false);
-                }
-            },
-            [],
-        );
-
-
-    const loadModels =
-        useCallback(
-            async (brandId: number) => {
-                setIsModelsLoading(true);
-
-                try {
-                    setModels(
-                        await getModelsByBrand(
-                            brandId,
-                        ),
-                    );
-                } catch (error) {
-                    setModels([]);
-
-                    setErrorMessage(
-                        getErrorMessage(
-                            error,
-                            "Nie udało się pobrać modeli.",
-                        ),
-                    );
-                } finally {
-                    setIsModelsLoading(false);
-                }
-            },
-            [],
-        );
-
-
-    useEffect(
-        () => {
-            void loadBaseData();
-        },
-        [loadBaseData],
-    );
-
-
-    useEffect(
-        () => {
-            if (selectedBrandId.length === 0) {
-                setModels([]);
-                return;
-            }
-
-            void loadModels(
-                Number(selectedBrandId),
+            setBrands(loadedBrands);
+            setCategories(
+                [...loadedCategories].sort((left, right) =>
+                    left.path.localeCompare(right.path, "pl"),
+                ),
             );
-        },
-        [
-            selectedBrandId,
-            loadModels,
-        ],
-    );
 
+            setSelectedBrandId(current => {
+                const stillExists = loadedBrands.some(
+                    brand => String(brand.id) === current,
+                );
+
+                if (stillExists) {
+                    return current;
+                }
+
+                return loadedBrands.length > 0
+                    ? String(loadedBrands[0].id)
+                    : "";
+            });
+        } catch (error) {
+            setErrorMessage(
+                getErrorMessage(error, "Nie udało się pobrać słowników."),
+            );
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    const loadModels = useCallback(async (brandId: number) => {
+        setIsModelsLoading(true);
+
+        try {
+            setModels(await getModelsByBrand(brandId));
+        } catch (error) {
+            setModels([]);
+            setErrorMessage(
+                getErrorMessage(error, "Nie udało się pobrać modeli."),
+            );
+        } finally {
+            setIsModelsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        void loadBaseData();
+    }, [loadBaseData]);
+
+    useEffect(() => {
+        if (selectedBrandId.length === 0) {
+            setModels([]);
+            return;
+        }
+
+        void loadModels(Number(selectedBrandId));
+    }, [selectedBrandId, loadModels]);
 
     async function runAction(
         key: string,
@@ -178,30 +124,19 @@ function ManageDictionariesPage() {
             await loadBaseData();
 
             if (selectedBrandId.length > 0) {
-                await loadModels(
-                    Number(selectedBrandId),
-                );
+                await loadModels(Number(selectedBrandId));
             }
         } catch (error) {
             setErrorMessage(
-                getErrorMessage(
-                    error,
-                    "Nie udało się wykonać operacji.",
-                ),
+                getErrorMessage(error, "Nie udało się wykonać operacji."),
             );
         } finally {
             setActionKey(null);
         }
     }
 
-
-    function handleEditBrand(
-        brand: DictionaryBrand,
-    ) {
-        const newName = window.prompt(
-            "Nowa nazwa marki:",
-            brand.name,
-        );
+    function handleEditBrand(brand: DictionaryBrand) {
+        const newName = window.prompt("Nowa nazwa marki:", brand.name);
 
         if (newName === null) {
             return;
@@ -209,27 +144,20 @@ function ManageDictionariesPage() {
 
         const normalized = normalizeText(newName);
 
-        if (normalized.length === 0
-            || normalized === brand.name) {
+        if (normalized.length === 0 || normalized === brand.name) {
             return;
         }
 
         void runAction(
             `brand-edit-${brand.id}`,
             async () => {
-                await updateBrand(
-                    brand.id,
-                    { name: normalized },
-                );
+                await updateBrand(brand.id, { name: normalized });
             },
             `Zmieniono markę „${brand.name}” na „${normalized}”.`,
         );
     }
 
-
-    function handleDeleteBrand(
-        brand: DictionaryBrand,
-    ) {
+    function handleDeleteBrand(brand: DictionaryBrand) {
         if (!window.confirm(
             `Usunąć markę „${brand.name}”? Marka nie może mieć modeli ani być używana przez bota.`,
         )) {
@@ -239,18 +167,13 @@ function ManageDictionariesPage() {
         void runAction(
             `brand-delete-${brand.id}`,
             async () => {
-                await deleteBrand(
-                    brand.id,
-                );
+                await deleteBrand(brand.id);
             },
             `Usunięto markę „${brand.name}”.`,
         );
     }
 
-
-    function handleEditCategory(
-        category: DictionaryCategory,
-    ) {
+    function handleEditCategory(category: DictionaryCategory) {
         const newPath = window.prompt(
             "Nowa pełna ścieżka kategorii:",
             category.path,
@@ -260,10 +183,7 @@ function ManageDictionariesPage() {
             return;
         }
 
-        const categoryPath =
-            parseCategoryPath(
-                newPath,
-            );
+        const categoryPath = parseCategoryPath(newPath);
 
         if (categoryPath.length === 0) {
             return;
@@ -272,19 +192,13 @@ function ManageDictionariesPage() {
         void runAction(
             `category-edit-${category.id}`,
             async () => {
-                await updateCategory(
-                    category.id,
-                    { categoryPath },
-                );
+                await updateCategory(category.id, { categoryPath });
             },
             `Zmieniono kategorię „${category.path}”.`,
         );
     }
 
-
-    function handleDeleteCategory(
-        category: DictionaryCategory,
-    ) {
+    function handleDeleteCategory(category: DictionaryCategory) {
         if (!window.confirm(
             `Usunąć kategorię „${category.path}”? Nie może być używana przez żadnego bota ani model słownikowy.`,
         )) {
@@ -294,22 +208,14 @@ function ManageDictionariesPage() {
         void runAction(
             `category-delete-${category.id}`,
             async () => {
-                await deleteCategory(
-                    category.id,
-                );
+                await deleteCategory(category.id);
             },
             `Usunięto kategorię „${category.path}”.`,
         );
     }
 
-
-    function handleEditModel(
-        model: DictionaryModel,
-    ) {
-        const newName = window.prompt(
-            "Nowa nazwa modelu:",
-            model.name,
-        );
+    function handleEditModel(model: DictionaryModel) {
+        const newName = window.prompt("Nowa nazwa modelu:", model.name);
 
         if (newName === null) {
             return;
@@ -317,8 +223,7 @@ function ManageDictionariesPage() {
 
         const normalized = normalizeText(newName);
 
-        if (normalized.length === 0
-            || normalized === model.name) {
+        if (normalized.length === 0 || normalized === model.name) {
             return;
         }
 
@@ -335,22 +240,21 @@ function ManageDictionariesPage() {
         );
     }
 
-
     function handleModelCategoryChange(
         model: DictionaryModel,
         rawCategoryId: string,
     ) {
         const categoryId = Number(rawCategoryId);
 
-        if (!Number.isInteger(categoryId)
+        if (
+            !Number.isInteger(categoryId)
             || categoryId <= 0
-            || categoryId === model.categoryId) {
+            || categoryId === model.categoryId
+        ) {
             return;
         }
 
-        const category = categories.find(
-            (item) => item.id === categoryId,
-        );
+        const category = categories.find(item => item.id === categoryId);
 
         if (category === undefined) {
             return;
@@ -369,10 +273,7 @@ function ManageDictionariesPage() {
         );
     }
 
-
-    function handleDeleteModel(
-        model: DictionaryModel,
-    ) {
+    function handleDeleteModel(model: DictionaryModel) {
         if (!window.confirm(
             `Usunąć model „${model.name}”? Nie może być używany przez żadnego bota.`,
         )) {
@@ -382,32 +283,37 @@ function ManageDictionariesPage() {
         void runAction(
             `model-delete-${model.id}`,
             async () => {
-                await deleteModel(
-                    model.brandId,
-                    model.id,
-                );
+                await deleteModel(model.brandId, model.id);
             },
             `Usunięto model „${model.name}”.`,
         );
     }
 
+    const isBusy = actionKey !== null;
 
-    const isBusy =
-        actionKey !== null;
+    const brandOptions: AppSelectOption[] = brands.map(brand => ({
+        value: String(brand.id),
+        label: brand.name,
+    }));
 
+    const categoryOptions: AppSelectOption[] = [
+        {
+            value: "",
+            label: "Przypisz kategorię",
+            disabled: true,
+        },
+        ...categories.map(category => ({
+            value: String(category.id),
+            label: category.path,
+        })),
+    ];
 
     return (
         <section className="page">
             <header className="page-header">
                 <div>
-                    <p className="page-eyebrow">
-                        Dane konfiguracyjne
-                    </p>
-
-                    <h1 className="page-title">
-                        Zarządzaj słownikami
-                    </h1>
-
+                    <p className="page-eyebrow">Dane konfiguracyjne</p>
+                    <h1 className="page-title">Zarządzaj słownikami</h1>
                     <p className="page-description">
                         Poprawiaj literówki, przypisuj kategorie do modeli i usuwaj
                         niepotrzebne wpisy. Kategoria modelu jest używana również przez
@@ -439,7 +345,7 @@ function ManageDictionariesPage() {
                     <DictionaryCard
                         title="Marki"
                         emptyMessage="Brak marek."
-                        items={brands.map((brand) => ({
+                        items={brands.map(brand => ({
                             id: brand.id,
                             title: brand.name,
                             subtitle: `ID: ${brand.id}`,
@@ -452,7 +358,7 @@ function ManageDictionariesPage() {
                     <DictionaryCard
                         title="Kategorie"
                         emptyMessage="Brak kategorii."
-                        items={categories.map((category) => ({
+                        items={categories.map(category => ({
                             id: category.id,
                             title: category.name,
                             subtitle: category.path,
@@ -465,10 +371,7 @@ function ManageDictionariesPage() {
                     <article className="content-card dictionary-model-placeholder">
                         <div className="dictionary-section-header">
                             <div>
-                                <h2 className="content-card-title">
-                                    Modele
-                                </h2>
-
+                                <h2 className="content-card-title">Modele</h2>
                                 <p className="content-card-text">
                                     Wybierz markę, a następnie przypisz każdemu modelowi kategorię Vinted.
                                 </p>
@@ -480,26 +383,21 @@ function ManageDictionariesPage() {
                                 Marka
                             </label>
 
-                            <select
+                            <AppSelect
                                 id="manage-model-brand"
-                                className="form-select"
                                 value={selectedBrandId}
+                                options={brandOptions}
+                                ariaLabel="Marka modeli"
                                 disabled={isBusy || brands.length === 0}
-                                onChange={(event) => {
-                                    setSelectedBrandId(event.target.value);
+                                onChange={value => {
+                                    setSelectedBrandId(value);
                                     setErrorMessage(null);
                                     setSuccessMessage(null);
                                 }}
-                            >
-                                {brands.map((brand) => (
-                                    <option key={brand.id} value={brand.id}>
-                                        {brand.name}
-                                    </option>
-                                ))}
-                            </select>
+                            />
                         </div>
 
-                        <div style={{ marginTop: 18 }}>
+                        <div className="dictionary-model-list-section">
                             {isModelsLoading ? (
                                 <div className="dictionary-list-state">
                                     Pobieranie modeli...
@@ -509,9 +407,12 @@ function ManageDictionariesPage() {
                                     Ta marka nie ma modeli.
                                 </div>
                             ) : (
-                                <ul className="dictionary-list">
-                                    {models.map((model) => (
-                                        <li key={model.id} className="dictionary-list-item">
+                                <ul className="dictionary-list dictionary-model-list">
+                                    {models.map(model => (
+                                        <li
+                                            key={model.id}
+                                            className="dictionary-list-item dictionary-model-row"
+                                        >
                                             <div className="dictionary-item-content">
                                                 <div className="dictionary-item-name">
                                                     {model.name}
@@ -524,37 +425,18 @@ function ManageDictionariesPage() {
                                                 </div>
                                             </div>
 
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    gap: 8,
-                                                    alignItems: "center",
-                                                    flexWrap: "wrap",
-                                                    justifyContent: "flex-end",
-                                                }}
-                                            >
-                                                <select
-                                                    className="form-select"
-                                                    aria-label={`Kategoria dla ${model.name}`}
-                                                    value={model.categoryId ?? ""}
+                                            <div className="dictionary-model-actions">
+                                                <AppSelect
+                                                    className="dictionary-category-select"
+                                                    value={model.categoryId === null
+                                                        ? ""
+                                                        : String(model.categoryId)}
+                                                    options={categoryOptions}
+                                                    ariaLabel={`Kategoria dla ${model.name}`}
                                                     disabled={isBusy || categories.length === 0}
-                                                    style={{ minWidth: 260, maxWidth: 420 }}
-                                                    onChange={(event) =>
-                                                        handleModelCategoryChange(
-                                                            model,
-                                                            event.target.value,
-                                                        )
-                                                    }
-                                                >
-                                                    <option value="" disabled>
-                                                        Przypisz kategorię
-                                                    </option>
-                                                    {categories.map((category) => (
-                                                        <option key={category.id} value={category.id}>
-                                                            {category.path}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    onChange={value =>
+                                                        handleModelCategoryChange(model, value)}
+                                                />
 
                                                 <button
                                                     className="secondary-button"
@@ -566,7 +448,7 @@ function ManageDictionariesPage() {
                                                 </button>
 
                                                 <button
-                                                    className="bot-stop-button"
+                                                    className="bot-stop-button dictionary-delete-button"
                                                     type="button"
                                                     disabled={isBusy}
                                                     onClick={() => handleDeleteModel(model)}
@@ -586,7 +468,6 @@ function ManageDictionariesPage() {
     );
 }
 
-
 interface DictionaryCardItem {
     id: number;
     title: string;
@@ -595,14 +476,12 @@ interface DictionaryCardItem {
     onDelete: () => void;
 }
 
-
 interface DictionaryCardProps {
     title: string;
     emptyMessage: string;
     items: DictionaryCardItem[];
     disabled: boolean;
 }
-
 
 function DictionaryCard({
     title,
@@ -614,9 +493,7 @@ function DictionaryCard({
         <article className="content-card">
             <div className="dictionary-section-header">
                 <div>
-                    <h2 className="content-card-title">
-                        {title}
-                    </h2>
+                    <h2 className="content-card-title">{title}</h2>
                 </div>
 
                 <span className="dictionary-count">
@@ -630,7 +507,7 @@ function DictionaryCard({
                 </div>
             ) : (
                 <ul className="dictionary-list">
-                    {items.map((item) => (
+                    {items.map(item => (
                         <li key={item.id} className="dictionary-list-item">
                             <div className="dictionary-item-content">
                                 <div className="dictionary-item-name">
@@ -642,7 +519,7 @@ function DictionaryCard({
                                 </div>
                             </div>
 
-                            <div style={{ display: "flex", gap: 8 }}>
+                            <div className="dictionary-card-actions">
                                 <button
                                     className="secondary-button"
                                     type="button"
@@ -669,25 +546,18 @@ function DictionaryCard({
     );
 }
 
-
-function parseCategoryPath(
-    value: string,
-): string[] {
+function parseCategoryPath(value: string): string[] {
     return value
         .split(">")
         .map(normalizeText)
-        .filter((element) => element.length > 0);
+        .filter(element => element.length > 0);
 }
 
-
-function normalizeText(
-    value: string,
-): string {
+function normalizeText(value: string): string {
     return value
         .trim()
         .replace(/\s+/g, " ");
 }
-
 
 function getErrorMessage(
     error: unknown,
@@ -699,6 +569,5 @@ function getErrorMessage(
 
     return fallbackMessage;
 }
-
 
 export default ManageDictionariesPage;
