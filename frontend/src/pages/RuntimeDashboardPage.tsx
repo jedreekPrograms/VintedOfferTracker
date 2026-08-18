@@ -12,6 +12,10 @@ import {
     type RuntimeStatus,
 } from "../api/dashboardApi";
 
+import AppSelect, {
+    type AppSelectOption,
+} from "../components/AppSelect";
+
 const runtimeStatuses: Array<RuntimeStatus | "ALL"> = [
     "ALL",
     "WORKING",
@@ -20,6 +24,13 @@ const runtimeStatuses: Array<RuntimeStatus | "ALL"> = [
     "ERROR",
     "IDLE",
 ];
+
+const runtimeStatusOptions: AppSelectOption[] = runtimeStatuses.map(status => ({
+    value: status,
+    label: status === "ALL"
+        ? "Wszystkie statusy"
+        : status,
+}));
 
 function RuntimeDashboardPage() {
     const [data, setData] = useState<RuntimeDashboardResponse | null>(null);
@@ -163,18 +174,9 @@ function RuntimeDashboardPage() {
                         />
                     </div>
 
-                    <article className="content-card" style={{ marginTop: "24px" }}>
-                        <div
-                            style={{
-                                display: "flex",
-                                gap: "12px",
-                                flexWrap: "wrap",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                marginBottom: "18px",
-                            }}
-                        >
-                            <div>
+                    <article className="content-card runtime-card">
+                        <div className="runtime-toolbar">
+                            <div className="runtime-toolbar-copy">
                                 <h2 className="content-card-title">
                                     Boty runtime
                                 </h2>
@@ -183,51 +185,31 @@ function RuntimeDashboardPage() {
                                 </p>
                             </div>
 
-                            <div
-                                style={{
-                                    display: "flex",
-                                    gap: "10px",
-                                    flexWrap: "wrap",
-                                }}
-                            >
+                            <div className="runtime-filter-controls">
                                 <input
                                     className="form-input"
                                     type="search"
                                     value={search}
                                     placeholder="Nazwa lub ID bota"
+                                    aria-label="Szukaj bota po nazwie lub ID"
                                     onChange={event => setSearch(event.target.value)}
-                                    style={{ minWidth: "220px" }}
                                 />
 
-                                <select
-                                    className="form-input"
+                                <AppSelect
                                     value={statusFilter}
-                                    onChange={event => {
+                                    ariaLabel="Filtr statusu runtime"
+                                    options={runtimeStatusOptions}
+                                    onChange={value => {
                                         setStatusFilter(
-                                            event.target.value as RuntimeStatus | "ALL",
+                                            value as RuntimeStatus | "ALL",
                                         );
                                     }}
-                                >
-                                    {runtimeStatuses.map(status => (
-                                        <option
-                                            key={status}
-                                            value={status}
-                                        >
-                                            {status === "ALL" ? "Wszystkie statusy" : status}
-                                        </option>
-                                    ))}
-                                </select>
+                                />
                             </div>
                         </div>
 
-                        <div style={{ overflowX: "auto" }}>
-                            <table
-                                style={{
-                                    width: "100%",
-                                    borderCollapse: "collapse",
-                                    minWidth: "1080px",
-                                }}
-                            >
+                        <div className="runtime-table-wrapper">
+                            <table className="runtime-table">
                                 <thead>
                                     <tr>
                                         <TableHeader>Bot</TableHeader>
@@ -303,36 +285,37 @@ function RuntimeRow({
 }) {
     return (
         <tr>
-            <TableCell>
+            <TableCell label="Bot">
                 <strong>{bot.name}</strong>
-                <div style={{ opacity: 0.65, marginTop: "3px" }}>
+                <div className="runtime-cell-secondary">
                     #{bot.botId}
                 </div>
             </TableCell>
-            <TableCell>{bot.botStatus}</TableCell>
-            <TableCell>
+            <TableCell label="Bot status">
+                {bot.botStatus}
+            </TableCell>
+            <TableCell label="Runtime">
                 <RuntimeBadge status={bot.runtimeStatus} />
             </TableCell>
-            <TableCell>
+            <TableCell label="Slot">
                 {bot.workerSlot === null ? "—" : `#${bot.workerSlot}`}
             </TableCell>
-            <TableCell>
+            <TableCell label="Ostatni job">
                 <div>{formatDateTime(bot.lastRunFinishedAt)}</div>
-                <div style={{ opacity: 0.65, marginTop: "3px" }}>
+                <div className="runtime-cell-secondary">
                     {formatDuration(bot.lastRunDurationMs)}
                 </div>
             </TableCell>
-            <TableCell>{formatDateTime(bot.nextRunAt)}</TableCell>
-            <TableCell>{bot.consecutiveFailures}</TableCell>
-            <TableCell>
+            <TableCell label="Następny job">
+                {formatDateTime(bot.nextRunAt)}
+            </TableCell>
+            <TableCell label="Błędy">
+                {bot.consecutiveFailures}
+            </TableCell>
+            <TableCell label="Ostatni błąd">
                 <div
+                    className="runtime-error-text"
                     title={bot.lastError ?? undefined}
-                    style={{
-                        maxWidth: "300px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                    }}
                 >
                     {bot.lastError ?? "—"}
                 </div>
@@ -342,57 +325,26 @@ function RuntimeRow({
 }
 
 function RuntimeBadge({ status }: { status: RuntimeStatus }) {
-    const background =
-        status === "ERROR"
-            ? "rgba(220, 38, 38, 0.14)"
-            : status === "WORKING"
-                ? "rgba(22, 163, 74, 0.14)"
-                : status === "COOLDOWN"
-                    ? "rgba(217, 119, 6, 0.14)"
-                    : "rgba(100, 116, 139, 0.14)";
-
     return (
-        <span
-            style={{
-                display: "inline-flex",
-                padding: "5px 9px",
-                borderRadius: "999px",
-                background,
-                fontWeight: 700,
-                fontSize: "12px",
-            }}
-        >
+        <span className={`runtime-badge runtime-badge-${status.toLowerCase()}`}>
             {status}
         </span>
     );
 }
 
 function TableHeader({ children }: { children: React.ReactNode }) {
-    return (
-        <th
-            style={{
-                textAlign: "left",
-                padding: "12px",
-                borderBottom: "1px solid rgba(148, 163, 184, 0.25)",
-                fontSize: "12px",
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-            }}
-        >
-            {children}
-        </th>
-    );
+    return <th>{children}</th>;
 }
 
-function TableCell({ children }: { children: React.ReactNode }) {
+function TableCell({
+    children,
+    label,
+}: {
+    children: React.ReactNode;
+    label: string;
+}) {
     return (
-        <td
-            style={{
-                padding: "13px 12px",
-                borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
-                verticalAlign: "top",
-            }}
-        >
+        <td data-label={label}>
             {children}
         </td>
     );
