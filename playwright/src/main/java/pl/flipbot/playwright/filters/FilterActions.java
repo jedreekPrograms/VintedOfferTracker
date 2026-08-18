@@ -7,6 +7,7 @@ import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -28,25 +29,40 @@ public class FilterActions {
     private String activeFilterTestId;
     private String activeFilterBaseUrl;
     private String selectedBrandOption;
+    private String lastKnownSafeVintedUrl;
 
     public void openFilter(String filterTestId) {
+        ensureVintedBeforeFilterAction("opening filter " + filterTestId);
+
         if (FilterSelectors.BRAND_FILTER.equals(filterTestId)) {
             activeFilterBaseUrl = page.url();
             selectedBrandOption = null;
         }
+
         activeFilterTestId = filterTestId;
         Locator filter = page.getByTestId(filterTestId);
         waitUntilVisible(filter, FILTER_TIMEOUT_MS);
         filter.click();
+        assertStillOnVinted("opening filter " + filterTestId);
     }
 
     public void selectOption(String option) {
         Locator locator = getOptionLocator(option);
         waitUntilVisible(locator, OPTION_TIMEOUT_MS);
         locator.click();
+
         if (FilterSelectors.BRAND_FILTER.equals(activeFilterTestId)) {
+            /*
+             * Brand confirmation owns its own three-attempt recovery loop.
+             * Preserve the selected option even if an ad redirect happened
+             * immediately after this click; waitForBrandFilterPersisted()
+             * will detect it and the retry loop will restore baseUrl.
+             */
             selectedBrandOption = option;
+            return;
         }
+
+        assertStillOnVinted("selecting filter option '" + option + "'");
     }
 
     public void waitForOption(String option) {
@@ -59,106 +75,236 @@ public class FilterActions {
     }
 
     public void fillInput(String testId, String value) {
+        ensureVintedBeforeFilterAction("filling filter input " + testId);
         Locator input = page.getByTestId(testId);
         waitUntilVisible(input, OPTION_TIMEOUT_MS);
         input.fill(value);
     }
 
-    public void pressEnter() { page.keyboard().press("Enter"); }
+    public void pressEnter() {
+        ensureVintedBeforeFilterAction("submitting filter input");
+        page.keyboard().press("Enter");
+    }
 
     public void clickSelector(String selector) {
         if (FilterSelectors.FILTER_SELECTION.equals(selector)
                 && FilterSelectors.BRAND_FILTER.equals(activeFilterTestId)
-                && selectedBrandOption != null && !selectedBrandOption.isBlank()) {
-            try { confirmBrandWithRetry(selector); } finally { clearActiveFilterState(); }
+                && selectedBrandOption != null
+                && !selectedBrandOption.isBlank()) {
+            try {
+                confirmBrandWithRetry(selector);
+            } finally {
+                clearActiveFilterState();
+            }
             return;
         }
+
+        ensureVintedBeforeFilterAction("clicking filter selector " + selector);
         Locator locator = page.locator(selector);
         waitUntilVisible(locator, OPTION_TIMEOUT_MS);
         locator.click();
+        assertStillOnVinted("clicking filter selector " + selector);
     }
 
     private void confirmBrandWithRetry(String confirmSelector) {
         String brand = selectedBrandOption;
         String baseUrl = activeFilterBaseUrl;
-        if (baseUrl == null || baseUrl.isBlank()) {
-            throw new IllegalStateException("Cannot apply brand retry because the pre-brand catalog URL is missing");
+
+        if (!MarketplaceUrls.isCatalogUrl(baseUrl)) {
+            throw new IllegalStateException(
+                    "Cannot apply brand retry because the pre-brand Vinted catalog URL is missing or unsafe: "
+                            + baseUrl
+            );
         }
+
         RuntimeException lastException = null;
+
         for (int attempt = 1; attempt <= BRAND_MAX_ATTEMPTS; attempt++) {
             try {
-                log.info("[FILTER BRAND] Attempt {}/{} for brand '{}'.", attempt, BRAND_MAX_ATTEMPTS, brand);
-                if (attempt > 1) prepareBrandRetry(baseUrl, brand);
+                log.info(
+                        "[FILTER BRAND] Attempt {}/{} for brand '{}'.",
+                        attempt,
+                        BRAND_MAX_ATTEMPTS,
+                        brand
+                );
+
+                if (attempt > 1) {
+                    prepareBrandRetry(baseUrl, brand);
+                }
+
                 if (waitForBrandFilterPersisted(BRAND_PRE_CONFIRM_PERSIST_TIMEOUT_MS)) {
-                    log.info("[FILTER BRAND] Brand '{}' persisted before confirm on attempt {}/{}. Current URL: {}", brand, attempt, BRAND_MAX_ATTEMPTS, page.url());
+                    log.info(
+                            "[FILTER BRAND] Brand '{}' persisted before confirm on attempt {}/{}. Current URL: {}",
+                            brand,
+                            attempt,
+                            BRAND_MAX_ATTEMPTS,
+                            page.url()
+                    );
                     return;
                 }
+
                 Locator confirmButton = page.locator(confirmSelector);
                 waitUntilVisible(confirmButton, OPTION_TIMEOUT_MS);
                 confirmButton.click();
+
                 if (waitForBrandFilterPersisted(BRAND_PERSIST_TIMEOUT_MS)) {
-                    log.info("[FILTER BRAND] Brand '{}' persisted successfully on attempt {}/{}. Current URL: {}", brand, attempt, BRAND_MAX_ATTEMPTS, page.url());
+                    log.info(
+                            "[FILTER BRAND] Brand '{}' persisted successfully on attempt {}/{}. Current URL: {}",
+                            brand,
+                            attempt,
+                            BRAND_MAX_ATTEMPTS,
+                            page.url()
+                    );
                     return;
                 }
-                log.warn("[FILTER BRAND] Attempt {}/{} for '{}' finished, but Vinted did not persist a brand filter in either brand_ids[] or canonical /brand/... form. Current URL: {}", attempt, BRAND_MAX_ATTEMPTS, brand, page.url());
+
+                log.warn(
+                        "[FILTER BRAND] Attempt {}/{} for '{}' finished, but Vinted did not persist a brand filter "
+                                + "in either brand_ids[] or canonical /brand/... form. Current URL: {}",
+                        attempt,
+                        BRAND_MAX_ATTEMPTS,
+                        brand,
+                        page.url()
+                );
+
             } catch (RuntimeException exception) {
                 lastException = exception;
-                log.warn("[FILTER BRAND] Attempt {}/{} for '{}' failed: {}", attempt, BRAND_MAX_ATTEMPTS, brand, getFriendlyErrorMessage(exception));
-                log.trace("[FILTER BRAND] Full brand filter error. Attempt {}/{}.", attempt, BRAND_MAX_ATTEMPTS, exception);
+
+                log.warn(
+                        "[FILTER BRAND] Attempt {}/{} for '{}' failed: {}",
+                        attempt,
+                        BRAND_MAX_ATTEMPTS,
+                        brand,
+                        getFriendlyErrorMessage(exception)
+                );
+
+                log.trace(
+                        "[FILTER BRAND] Full brand filter error. Attempt {}/{}.",
+                        attempt,
+                        BRAND_MAX_ATTEMPTS,
+                        exception
+                );
             }
+
             if (attempt < BRAND_MAX_ATTEMPTS) {
                 resetToBrandBaseUrl(baseUrl, attempt);
-                log.info("[FILTER BRAND] Next attempt in {}ms.", (int) BRAND_RETRY_DELAY_MS);
+                log.info(
+                        "[FILTER BRAND] Next attempt in {}ms.",
+                        (int) BRAND_RETRY_DELAY_MS
+                );
                 page.waitForTimeout(BRAND_RETRY_DELAY_MS);
             }
         }
-        String message = "Could not persist brand filter '" + brand + "' after " + BRAND_MAX_ATTEMPTS + " attempts. Expected either brand_ids[] or canonical /brand/... URL state. Base URL: " + baseUrl + ". Current URL: " + page.url();
-        if (lastException != null) throw new IllegalStateException(message, lastException);
+
+        String message =
+                "Could not persist brand filter '"
+                        + brand
+                        + "' after "
+                        + BRAND_MAX_ATTEMPTS
+                        + " attempts. Expected either brand_ids[] or canonical /brand/... URL state. Base URL: "
+                        + baseUrl
+                        + ". Current URL: "
+                        + page.url();
+
+        if (lastException != null) {
+            throw new IllegalStateException(message, lastException);
+        }
+
         throw new IllegalStateException(message);
     }
 
     private void prepareBrandRetry(String baseUrl, String brand) {
-        if (!isCatalogPage()) navigateToBrandBaseUrl(baseUrl);
+        if (!isCatalogPage()) {
+            navigateToBrandBaseUrl(baseUrl);
+        }
+
         Locator brandFilter = page.getByTestId(FilterSelectors.BRAND_FILTER);
         waitUntilVisible(brandFilter, FILTER_TIMEOUT_MS);
         brandFilter.click();
+        assertStillOnVinted("reopening brand filter for retry");
+
         page.waitForTimeout(BRAND_PANEL_SETTLE_MS);
+
         Locator brandOption = getOptionLocator(brand);
         waitUntilVisible(brandOption, OPTION_TIMEOUT_MS);
         brandOption.click();
-        log.info("[FILTER BRAND] Brand '{}' selected again for retry. Current URL: {}", brand, page.url());
+
+        log.info(
+                "[FILTER BRAND] Brand '{}' selected again for retry. Current URL: {}",
+                brand,
+                page.url()
+        );
     }
 
     private void resetToBrandBaseUrl(String baseUrl, int failedAttempt) {
-        log.info("[FILTER BRAND] Resetting catalog to the known-good pre-brand URL after failed attempt {}/{}.", failedAttempt, BRAND_MAX_ATTEMPTS);
+        log.info(
+                "[FILTER BRAND] Resetting catalog to the known-good pre-brand URL after failed attempt {}/{}.",
+                failedAttempt,
+                BRAND_MAX_ATTEMPTS
+        );
+
         navigateToBrandBaseUrl(baseUrl);
-        if (!isCatalogPage()) throw new IllegalStateException("Brand retry reset did not return to a Vinted catalog page. URL: " + page.url());
-        log.info("[FILTER BRAND] Pre-brand catalog state restored. Current URL: {}", page.url());
+
+        if (!isCatalogPage()) {
+            throw new IllegalStateException(
+                    "Brand retry reset did not return to a Vinted catalog page. URL: "
+                            + page.url()
+            );
+        }
+
+        rememberCurrentVintedUrl();
+
+        log.info(
+                "[FILTER BRAND] Pre-brand catalog state restored. Current URL: {}",
+                page.url()
+        );
     }
 
     private void navigateToBrandBaseUrl(String baseUrl) {
-        page.navigate(baseUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(RELOAD_TIMEOUT_MS));
+        if (!MarketplaceUrls.isCatalogUrl(baseUrl)) {
+            throw new IllegalStateException(
+                    "Refusing to use a non-Vinted catalog URL as brand retry base: "
+                            + baseUrl
+            );
+        }
+
+        navigateToSafeVintedUrl(baseUrl);
     }
 
     public void fillInputBySelector(String selector, Object value) {
+        ensureVintedBeforeFilterAction("filling selector " + selector);
         Locator input = page.locator(selector);
         waitUntilVisible(input, OPTION_TIMEOUT_MS);
         input.fill(String.valueOf(value));
     }
 
     public void clickModel(String model) {
-        Locator modelLocator = page.locator("[data-testid^='selectable-item-brand_collection-']").filter(new Locator.FilterOptions().setHasText(model)).first();
+        ensureVintedBeforeFilterAction("selecting model '" + model + "'");
+
+        Locator modelLocator =
+                page.locator("[data-testid^='selectable-item-brand_collection-']")
+                        .filter(
+                                new Locator.FilterOptions()
+                                        .setHasText(model)
+                        )
+                        .first();
+
         waitUntilVisible(modelLocator, OPTION_TIMEOUT_MS);
         modelLocator.click();
+        assertStillOnVinted("selecting model '" + model + "'");
     }
 
     public void clickConfirmButton() {
+        ensureVintedBeforeFilterAction("confirming filter selection");
         Locator button = page.getByTestId("filter-selection-button");
         waitUntilVisible(button, OPTION_TIMEOUT_MS);
         button.click();
+        assertStillOnVinted("confirming filter selection");
     }
 
     public void clickOutsideSafely() {
+        ensureVintedBeforeFilterAction("closing filter panel");
+
         page.evaluate(
                 """
                 () => {
@@ -168,86 +314,270 @@ public class FilterActions {
                         cancelable: true,
                         view: window
                     };
-        
+
                     target.dispatchEvent(
                             new MouseEvent("mousedown", e)
                     );
-        
+
                     target.dispatchEvent(
                             new MouseEvent("mouseup", e)
                     );
-        
+
                     target.dispatchEvent(
                             new MouseEvent("click", e)
                     );
                 }
                 """
         );
+
         page.waitForTimeout(1_000);
+        assertStillOnVinted("closing filter panel");
     }
 
     public void reloadCurrentPage() {
-        page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(RELOAD_TIMEOUT_MS));
+        String currentUrl = page.url();
+
+        if (!MarketplaceUrls.isVintedUrl(currentUrl)) {
+            String recoveryUrl = safeRecoveryUrl();
+
+            log.warn(
+                    "[PAGE SAFETY] Refusing to reload external main-page URL '{}'. "
+                            + "Recovering to last known Vinted URL '{}'.",
+                    currentUrl,
+                    recoveryUrl
+            );
+
+            navigateToSafeVintedUrl(recoveryUrl);
+            return;
+        }
+
+        rememberCurrentVintedUrl();
+        String recoveryUrl = safeRecoveryUrl();
+
+        page.reload(
+                new Page.ReloadOptions()
+                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(RELOAD_TIMEOUT_MS)
+        );
+
+        if (!MarketplaceUrls.isVintedUrl(page.url())) {
+            log.warn(
+                    "[PAGE SAFETY] Reload left Vinted and reached '{}'. Recovering to '{}'.",
+                    page.url(),
+                    recoveryUrl
+            );
+            navigateToSafeVintedUrl(recoveryUrl);
+        } else {
+            rememberCurrentVintedUrl();
+        }
     }
 
-    public void waitForTimeout(double milliseconds) { page.waitForTimeout(milliseconds); }
+    public void waitForTimeout(double milliseconds) {
+        page.waitForTimeout(milliseconds);
+    }
 
     public boolean waitForBrandFilterPersisted(double timeoutMilliseconds) {
-        long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) timeoutMilliseconds;
+
         while (System.currentTimeMillis() <= deadline) {
-            if (hasBrandFilterInUrl()) return true;
+            assertStillOnVinted("waiting for brand filter persistence");
+
+            if (hasBrandFilterInUrl()) {
+                rememberCurrentVintedUrl();
+                return true;
+            }
+
             page.waitForTimeout(200);
         }
+
         return false;
     }
 
     public boolean hasBrandFilterInUrl() {
-        if (getUrlParameter("brand_ids[]") != null) return true;
+        if (!MarketplaceUrls.isVintedUrl(page.url())) {
+            return false;
+        }
+
+        if (getUrlParameter("brand_ids[]") != null) {
+            return true;
+        }
+
         String currentUrl = page.url();
         int queryIndex = currentUrl.indexOf('?');
-        String withoutQuery = queryIndex >= 0 ? currentUrl.substring(0, queryIndex) : currentUrl;
+        String withoutQuery =
+                queryIndex >= 0
+                        ? currentUrl.substring(0, queryIndex)
+                        : currentUrl;
+
         int fragmentIndex = withoutQuery.indexOf('#');
-        if (fragmentIndex >= 0) withoutQuery = withoutQuery.substring(0, fragmentIndex);
+        if (fragmentIndex >= 0) {
+            withoutQuery = withoutQuery.substring(0, fragmentIndex);
+        }
+
         return withoutQuery.contains("/brand/");
     }
 
     private boolean isCatalogPage() {
-        String currentUrl = page.url();
-        return currentUrl.contains("vinted.pl/catalog") || currentUrl.contains("vinted.com/catalog") || currentUrl.matches("https?://[^/]+/catalog(?:[/?#].*)?");
+        return MarketplaceUrls.isCatalogUrl(page.url());
     }
 
     private String getUrlParameter(String parameterName) {
         String currentUrl = page.url();
         int questionMarkIndex = currentUrl.indexOf('?');
-        if (questionMarkIndex < 0 || questionMarkIndex == currentUrl.length() - 1) return null;
+
+        if (questionMarkIndex < 0
+                || questionMarkIndex == currentUrl.length() - 1) {
+            return null;
+        }
+
         String query = currentUrl.substring(questionMarkIndex + 1);
         int fragmentIndex = query.indexOf('#');
-        if (fragmentIndex >= 0) query = query.substring(0, fragmentIndex);
+
+        if (fragmentIndex >= 0) {
+            query = query.substring(0, fragmentIndex);
+        }
+
         for (String parameter : query.split("&")) {
             int equalsIndex = parameter.indexOf('=');
-            String rawName = equalsIndex >= 0 ? parameter.substring(0, equalsIndex) : parameter;
-            String rawValue = equalsIndex >= 0 ? parameter.substring(equalsIndex + 1) : "";
-            String decodedName = URLDecoder.decode(rawName, StandardCharsets.UTF_8);
-            if (parameterName.equals(decodedName)) return URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
+            String rawName =
+                    equalsIndex >= 0
+                            ? parameter.substring(0, equalsIndex)
+                            : parameter;
+            String rawValue =
+                    equalsIndex >= 0
+                            ? parameter.substring(equalsIndex + 1)
+                            : "";
+
+            String decodedName =
+                    URLDecoder.decode(
+                            rawName,
+                            StandardCharsets.UTF_8
+                    );
+
+            if (parameterName.equals(decodedName)) {
+                return URLDecoder.decode(
+                        rawValue,
+                        StandardCharsets.UTF_8
+                );
+            }
         }
+
         return null;
     }
 
     private Locator getOptionLocator(String option) {
-        return page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName(option));
+        return page.getByRole(
+                AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName(option)
+        );
     }
 
-    private void waitUntilVisible(Locator locator, double timeoutMilliseconds) {
-        locator.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.VISIBLE).setTimeout(timeoutMilliseconds));
+    private void waitUntilVisible(
+            Locator locator,
+            double timeoutMilliseconds
+    ) {
+        locator.waitFor(
+                new Locator.WaitForOptions()
+                        .setState(WaitForSelectorState.VISIBLE)
+                        .setTimeout(timeoutMilliseconds)
+        );
     }
 
-    private void clearActiveFilterState() { activeFilterTestId=null; activeFilterBaseUrl=null; selectedBrandOption=null; }
+    private void ensureVintedBeforeFilterAction(String action) {
+        if (MarketplaceUrls.isVintedUrl(page.url())) {
+            rememberCurrentVintedUrl();
+            return;
+        }
+
+        String externalUrl = page.url();
+        String recoveryUrl = safeRecoveryUrl();
+
+        log.warn(
+                "[PAGE SAFETY] Main page is outside Vinted before {}. URL='{}'. Recovering to '{}'.",
+                action,
+                externalUrl,
+                recoveryUrl
+        );
+
+        navigateToSafeVintedUrl(recoveryUrl);
+    }
+
+    private void assertStillOnVinted(String action) {
+        String currentUrl = page.url();
+
+        if (!MarketplaceUrls.isVintedUrl(currentUrl)) {
+            throw new IllegalStateException(
+                    "[PAGE SAFETY] Main page left Vinted while "
+                            + action
+                            + ". External URL: "
+                            + currentUrl
+            );
+        }
+
+        rememberCurrentVintedUrl();
+    }
+
+    private String safeRecoveryUrl() {
+        if (MarketplaceUrls.isVintedUrl(lastKnownSafeVintedUrl)) {
+            return lastKnownSafeVintedUrl;
+        }
+
+        if (MarketplaceUrls.isVintedUrl(activeFilterBaseUrl)) {
+            return activeFilterBaseUrl;
+        }
+
+        return MarketplaceUrls.CATALOG;
+    }
+
+    private void navigateToSafeVintedUrl(String url) {
+        if (!MarketplaceUrls.isVintedUrl(url)) {
+            throw new IllegalArgumentException(
+                    "Refusing to navigate filter recovery to non-Vinted URL: "
+                            + url
+            );
+        }
+
+        page.navigate(
+                url,
+                new Page.NavigateOptions()
+                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(RELOAD_TIMEOUT_MS)
+        );
+
+        assertStillOnVinted("recovering filter page");
+    }
+
+    private void rememberCurrentVintedUrl() {
+        String currentUrl = page.url();
+
+        if (MarketplaceUrls.isVintedUrl(currentUrl)) {
+            lastKnownSafeVintedUrl = currentUrl;
+        }
+    }
+
+    private void clearActiveFilterState() {
+        activeFilterTestId = null;
+        activeFilterBaseUrl = null;
+        selectedBrandOption = null;
+    }
 
     private String getFriendlyErrorMessage(Throwable exception) {
-        if (exception == null) return "Unknown error";
+        if (exception == null) {
+            return "Unknown error";
+        }
+
         String message = exception.getMessage();
-        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
+
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+
         int firstLineEnd = message.indexOf('\n');
-        return firstLineEnd > 0 ? message.substring(0, firstLineEnd).trim() : message.trim();
+
+        return firstLineEnd > 0
+                ? message.substring(0, firstLineEnd).trim()
+                : message.trim();
     }
 }
