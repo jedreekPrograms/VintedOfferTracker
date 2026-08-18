@@ -1,12 +1,8 @@
-import {
-    useEffect,
-    useState,
-} from "react";
+import { useState } from "react";
 
 import {
     NavLink,
     Outlet,
-    useLocation,
 } from "react-router-dom";
 
 interface NavigationItem {
@@ -58,11 +54,6 @@ const navigationItems: NavigationItem[] = [
 
 function AppLayout() {
     const [isNavigationOpen, setIsNavigationOpen] = useState(false);
-    const location = useLocation();
-
-    useEffect(() => {
-        setIsNavigationOpen(false);
-    }, [location.pathname]);
 
     return (
         <div className="app-layout">
@@ -106,7 +97,7 @@ function AppLayout() {
                     className="sidebar-navigation"
                     aria-label="Główna nawigacja"
                 >
-                    {navigationItems.map((item) => (
+                    {navigationItems.map(item => (
                         <NavLink
                             key={item.path}
                             to={item.path}
@@ -116,6 +107,7 @@ function AppLayout() {
                                     ? "navigation-link navigation-link-active"
                                     : "navigation-link"
                             }
+                            onClick={() => setIsNavigationOpen(false)}
                         >
                             {item.label}
                         </NavLink>
