@@ -32,7 +32,7 @@ function BotsPage() {
             setBots(loadedBots);
 
             const quotaResults = await Promise.all(
-                loadedBots.map(async (bot) => {
+                loadedBots.map(async bot => {
                     try {
                         return {
                             botId: bot.id,
@@ -190,7 +190,7 @@ function BotsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {bots.map((bot) => {
+                                {bots.map(bot => {
                                     const isRunning =
                                         bot.status.toUpperCase() === "RUNNING";
                                     const isActionInProgress =
@@ -199,29 +199,34 @@ function BotsPage() {
 
                                     return (
                                         <tr key={bot.id}>
-                                            <td>
+                                            <td data-label="Bot">
                                                 <div className="bot-name-cell">
                                                     <strong>{bot.name}</strong>
                                                     <span>Vinted</span>
                                                 </div>
                                             </td>
-                                            <td>{bot.email}</td>
-                                            <td>
+                                            <td data-label="Konto" className="bots-email-cell">
+                                                {bot.email}
+                                            </td>
+                                            <td data-label="Status">
                                                 <BotStatus status={bot.status} />
                                             </td>
-                                            <td>
+                                            <td data-label="Dzisiejsze oferty">
                                                 {quota ? (
                                                     <BotOfferQuotaCell quota={quota} />
                                                 ) : (
                                                     <span>Brak danych</span>
                                                 )}
                                             </td>
-                                            <td>
+                                            <td data-label="ID">
                                                 <span className="bot-id">
                                                     #{bot.id}
                                                 </span>
                                             </td>
-                                            <td>
+                                            <td
+                                                data-label="Akcje"
+                                                className="bots-actions-cell"
+                                            >
                                                 <div className="bot-row-actions">
                                                     {isRunning ? (
                                                         <button
