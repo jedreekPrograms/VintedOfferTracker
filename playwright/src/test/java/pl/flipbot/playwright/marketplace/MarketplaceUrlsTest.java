@@ -15,10 +15,11 @@ public class MarketplaceUrlsTest {
     }
 
     @Test
-    public void rejectsExternalAndLookalikeHosts() {
+    public void rejectsExternalLookalikeAndNonHttpsUrls() {
         assertFalse(MarketplaceUrls.isVintedUrl("https://www.sos-accessoire.com/example"));
         assertFalse(MarketplaceUrls.isVintedUrl("https://www.vinted.pl.evil.example/catalog"));
         assertFalse(MarketplaceUrls.isVintedUrl("https://evil.example/?next=https://www.vinted.pl/catalog"));
+        assertFalse(MarketplaceUrls.isVintedUrl("http://www.vinted.pl/catalog"));
         assertFalse(MarketplaceUrls.isVintedUrl("chrome-error://chromewebdata/"));
         assertFalse(MarketplaceUrls.isVintedUrl("about:blank"));
         assertFalse(MarketplaceUrls.isVintedUrl(null));
