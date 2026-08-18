@@ -83,7 +83,12 @@ jobs:
           cache: maven
 
       - name: Test backend
-        run: bash ./mvnw -B test
+        shell: bash
+        run: |
+          # The converter requires a Base64-encoded 32-byte AES key. Generate a
+          # deterministic non-secret value only for this disposable CI process.
+          export FLIPBOT_ENCRYPTION_KEY="$(printf '00000000000000000000000000000000' | base64 -w0)"
+          bash ./mvnw -B test
 
   playwright-unit:
     name: Playwright unit tests
