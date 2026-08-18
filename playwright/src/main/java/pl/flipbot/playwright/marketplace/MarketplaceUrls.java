@@ -18,9 +18,9 @@ public final class MarketplaceUrls {
             "https://www.vinted.pl/inbox";
 
     /**
-     * Treat only the real Polish Vinted host (or one of its subdomains) as trusted.
-     * String-prefix checks such as "https://www.vinted.pl..." are intentionally
-     * avoided because a host such as www.vinted.pl.example.com must never pass.
+     * Treat only HTTPS URLs on the real Polish Vinted host (or one of its
+     * subdomains) as trusted. Prefix checks are intentionally avoided because
+     * a lookalike host such as www.vinted.pl.example.com must never pass.
      */
     public static boolean isVintedUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
@@ -32,7 +32,7 @@ public final class MarketplaceUrls {
             String scheme = normalize(uri.getScheme());
             String host = normalize(uri.getHost());
 
-            if (!("https".equals(scheme) || "http".equals(scheme))) {
+            if (!"https".equals(scheme)) {
                 return false;
             }
 
