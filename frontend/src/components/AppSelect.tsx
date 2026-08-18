@@ -1,8 +1,11 @@
 import {
+    type CSSProperties,
     useEffect,
+    useLayoutEffect,
     useRef,
     useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 export interface AppSelectOption {
     value: string;
@@ -21,6 +24,14 @@ interface AppSelectProps {
     className?: string;
 }
 
+interface MenuPosition {
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+}
+
 function AppSelect({
     id,
     value,
@@ -32,11 +43,76 @@ function AppSelect({
     className = "",
 }: AppSelectProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
     const rootRef = useRef<HTMLDivElement | null>(null);
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
 
     const selectedOption = options.find(
         option => option.value === value,
     ) ?? null;
+
+    function updateMenuPosition() {
+        const trigger = triggerRef.current;
+
+        if (trigger === null) {
+            return;
+        }
+
+        const rect = trigger.getBoundingClientRect();
+        const viewportPadding = 10;
+        const preferredHeight = 320;
+        const gap = 7;
+        const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+        const spaceAbove = rect.top - viewportPadding;
+        const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+        const availableSpace = openUp ? spaceAbove : spaceBelow;
+        const maxHeight = Math.max(
+            120,
+            Math.min(preferredHeight, availableSpace - gap),
+        );
+        const safeLeft = Math.max(
+            viewportPadding,
+            Math.min(
+                rect.left,
+                window.innerWidth - rect.width - viewportPadding,
+            ),
+        );
+
+        setMenuPosition({
+            left: safeLeft,
+            width: rect.width,
+            maxHeight,
+            ...(openUp
+                ? {
+                    bottom: window.innerHeight - rect.top + gap,
+                }
+                : {
+                    top: rect.bottom + gap,
+                }),
+        });
+    }
+
+    useLayoutEffect(() => {
+        if (!isOpen) {
+            setMenuPosition(null);
+            return;
+        }
+
+        updateMenuPosition();
+
+        const handleViewportChange = () => {
+            updateMenuPosition();
+        };
+
+        window.addEventListener("resize", handleViewportChange);
+        window.addEventListener("scroll", handleViewportChange, true);
+
+        return () => {
+            window.removeEventListener("resize", handleViewportChange);
+            window.removeEventListener("scroll", handleViewportChange, true);
+        };
+    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -46,17 +122,24 @@ function AppSelect({
         const closeOnOutsidePress = (event: PointerEvent) => {
             const target = event.target;
 
-            if (
-                target instanceof Node
-                && !rootRef.current?.contains(target)
-            ) {
-                setIsOpen(false);
+            if (!(target instanceof Node)) {
+                return;
             }
+
+            if (
+                rootRef.current?.contains(target)
+                || menuRef.current?.contains(target)
+            ) {
+                return;
+            }
+
+            setIsOpen(false);
         };
 
         const closeOnEscape = (event: KeyboardEvent) => {
             if (event.key === "Escape") {
                 setIsOpen(false);
+                triggerRef.current?.focus();
             }
         };
 
@@ -75,12 +158,23 @@ function AppSelect({
         }
     }, [disabled]);
 
+    const menuStyle: CSSProperties | undefined = menuPosition === null
+        ? undefined
+        : {
+            left: menuPosition.left,
+            width: menuPosition.width,
+            maxHeight: menuPosition.maxHeight,
+            top: menuPosition.top,
+            bottom: menuPosition.bottom,
+        };
+
     return (
         <div
             ref={rootRef}
             className={`app-select ${isOpen ? "app-select-open" : ""} ${disabled ? "app-select-disabled" : ""} ${className}`.trim()}
         >
             <button
+                ref={triggerRef}
                 id={id}
                 className="app-select-trigger"
                 type="button"
@@ -104,45 +198,51 @@ function AppSelect({
                 />
             </button>
 
-            {isOpen && (
-                <div
-                    className="app-select-menu"
-                    role="listbox"
-                    aria-label={ariaLabel}
-                >
-                    {options.map(option => (
-                        <button
-                            key={option.value}
-                            className={`app-select-option ${option.value === value ? "app-select-option-selected" : ""}`.trim()}
-                            type="button"
-                            role="option"
-                            aria-selected={option.value === value}
-                            disabled={option.disabled}
-                            onClick={() => {
-                                if (option.disabled) {
-                                    return;
-                                }
+            {isOpen
+                && menuPosition !== null
+                && createPortal(
+                    <div
+                        ref={menuRef}
+                        className="app-select-menu app-select-menu-portal"
+                        role="listbox"
+                        aria-label={ariaLabel}
+                        style={menuStyle}
+                    >
+                        {options.map(option => (
+                            <button
+                                key={option.value}
+                                className={`app-select-option ${option.value === value ? "app-select-option-selected" : ""}`.trim()}
+                                type="button"
+                                role="option"
+                                aria-selected={option.value === value}
+                                disabled={option.disabled}
+                                onClick={() => {
+                                    if (option.disabled) {
+                                        return;
+                                    }
 
-                                onChange(option.value);
-                                setIsOpen(false);
-                            }}
-                        >
-                            <span className="app-select-option-label">
-                                {option.label}
-                            </span>
-
-                            {option.value === value && (
-                                <span
-                                    className="app-select-check"
-                                    aria-hidden="true"
-                                >
-                                    ✓
+                                    onChange(option.value);
+                                    setIsOpen(false);
+                                    triggerRef.current?.focus();
+                                }}
+                            >
+                                <span className="app-select-option-label">
+                                    {option.label}
                                 </span>
-                            )}
-                        </button>
-                    ))}
-                </div>
-            )}
+
+                                {option.value === value && (
+                                    <span
+                                        className="app-select-check"
+                                        aria-hidden="true"
+                                    >
+                                        ✓
+                                    </span>
+                                )}
+                            </button>
+                        ))}
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 }
