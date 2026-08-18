@@ -49,6 +49,8 @@ function AppSelect({
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
+    const isExpanded = isOpen && !disabled;
+
     const selectedOption = options.find(
         option => option.value === value,
     ) ?? null;
@@ -99,7 +101,7 @@ function AppSelect({
     }, []);
 
     useLayoutEffect(() => {
-        if (!isOpen) {
+        if (!isExpanded) {
             return;
         }
 
@@ -116,11 +118,10 @@ function AppSelect({
             window.removeEventListener("resize", handleViewportChange);
             window.removeEventListener("scroll", handleViewportChange, true);
         };
-    }, [isOpen, updateMenuPosition]);
+    }, [isExpanded, updateMenuPosition]);
 
     useEffect(() => {
-        if (!isOpen) {
-            setMenuPosition(null);
+        if (!isExpanded) {
             return;
         }
 
@@ -155,13 +156,7 @@ function AppSelect({
             window.removeEventListener("pointerdown", closeOnOutsidePress);
             window.removeEventListener("keydown", closeOnEscape);
         };
-    }, [isOpen]);
-
-    useEffect(() => {
-        if (disabled) {
-            setIsOpen(false);
-        }
-    }, [disabled]);
+    }, [isExpanded]);
 
     const menuStyle: CSSProperties | undefined = menuPosition === null
         ? undefined
@@ -176,7 +171,7 @@ function AppSelect({
     return (
         <div
             ref={rootRef}
-            className={`app-select ${isOpen ? "app-select-open" : ""} ${disabled ? "app-select-disabled" : ""} ${className}`.trim()}
+            className={`app-select ${isExpanded ? "app-select-open" : ""} ${disabled ? "app-select-disabled" : ""} ${className}`.trim()}
         >
             <button
                 ref={triggerRef}
@@ -185,7 +180,7 @@ function AppSelect({
                 type="button"
                 aria-label={ariaLabel}
                 aria-haspopup="listbox"
-                aria-expanded={isOpen}
+                aria-expanded={isExpanded}
                 disabled={disabled}
                 onClick={() => setIsOpen(current => !current)}
             >
@@ -203,7 +198,7 @@ function AppSelect({
                 />
             </button>
 
-            {isOpen
+            {isExpanded
                 && menuPosition !== null
                 && createPortal(
                     <div
