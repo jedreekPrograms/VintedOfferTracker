@@ -1,3 +1,7 @@
+import {
+    assertApiResponse,
+} from "./apiError";
+
 export interface MarketStatsObserver {
     id: number;
     name: string;
@@ -25,14 +29,10 @@ export async function getMarketStatsObserver(): Promise<MarketStatsObserver | nu
         return null;
     }
 
-    if (!response.ok) {
-        throw new Error(
-            await getApiErrorMessage(
-                response,
-                `Nie udało się pobrać observera. Status HTTP: ${response.status}.`,
-            ),
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać observera. Status HTTP: ${response.status}.`,
+    );
 
     return response.json() as Promise<MarketStatsObserver>;
 }
@@ -48,14 +48,10 @@ export async function createMarketStatsObserver(
         body: JSON.stringify(request),
     });
 
-    if (!response.ok) {
-        throw new Error(
-            await getApiErrorMessage(
-                response,
-                `Nie udało się utworzyć observera. Status HTTP: ${response.status}.`,
-            ),
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się utworzyć observera. Status HTTP: ${response.status}.`,
+    );
 
     return response.json() as Promise<MarketStatsObserver>;
 }
@@ -71,14 +67,10 @@ export async function updateMarketStatsObserver(
         body: JSON.stringify(request),
     });
 
-    if (!response.ok) {
-        throw new Error(
-            await getApiErrorMessage(
-                response,
-                `Nie udało się zapisać observera. Status HTTP: ${response.status}.`,
-            ),
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się zapisać observera. Status HTTP: ${response.status}.`,
+    );
 
     return response.json() as Promise<MarketStatsObserver>;
 }
@@ -88,31 +80,8 @@ export async function deleteMarketStatsObserver(): Promise<void> {
         method: "DELETE",
     });
 
-    if (!response.ok) {
-        throw new Error(
-            await getApiErrorMessage(
-                response,
-                `Nie udało się usunąć observera. Status HTTP: ${response.status}.`,
-            ),
-        );
-    }
-}
-
-async function getApiErrorMessage(
-    response: Response,
-    fallbackMessage: string,
-): Promise<string> {
-    try {
-        const body = await response.json() as {
-            message?: unknown;
-        };
-
-        if (typeof body.message === "string" && body.message.trim().length > 0) {
-            return body.message;
-        }
-    } catch {
-        // Response body does not have to be JSON.
-    }
-
-    return fallbackMessage;
+    await assertApiResponse(
+        response,
+        `Nie udało się usunąć observera. Status HTTP: ${response.status}.`,
+    );
 }
