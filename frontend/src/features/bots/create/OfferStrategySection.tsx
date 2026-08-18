@@ -1,18 +1,25 @@
+import AppSelect, {
+    type AppSelectOption,
+} from "../../../components/AppSelect";
+
 interface OfferStrategySectionProps {
     autoRaiseOfferToVintedMinimum: boolean;
-
     maxAutomaticOffer: string;
-
     firstConfiguredOffer: string;
-
-    onAutoRaiseChange: (
-        value: boolean,
-    ) => void;
-
-    onMaxAutomaticOfferChange: (
-        value: string,
-    ) => void;
+    onAutoRaiseChange: (value: boolean) => void;
+    onMaxAutomaticOfferChange: (value: string) => void;
 }
+
+const autoRaiseOptions: AppSelectOption[] = [
+    {
+        value: "NO",
+        label: "Nie — pomiń ofertę",
+    },
+    {
+        value: "YES",
+        label: "Tak — podnieś do minimum Vinted",
+    },
+];
 
 function OfferStrategySection({
     autoRaiseOfferToVintedMinimum,
@@ -21,24 +28,23 @@ function OfferStrategySection({
     onAutoRaiseChange,
     onMaxAutomaticOfferChange,
 }: OfferStrategySectionProps) {
+    const autoRaiseValue = autoRaiseOfferToVintedMinimum
+        ? "YES"
+        : "NO";
+
     return (
         <article className="content-card">
             <div className="bot-form-section-header">
                 <div>
-                    <span className="bot-form-step">
-                        5
-                    </span>
-
+                    <span className="bot-form-step">5</span>
                     <h2 className="content-card-title">
                         Strategia pierwszej oferty
                     </h2>
                 </div>
 
                 <p className="content-card-text">
-                    Określa, co zrobić, gdy
-                    pierwsza skonfigurowana oferta
-                    jest niższa niż minimum
-                    dopuszczane przez Vinted.
+                    Określa, co zrobić, gdy pierwsza skonfigurowana oferta
+                    jest niższa niż minimum dopuszczane przez Vinted.
                 </p>
             </div>
 
@@ -51,34 +57,17 @@ function OfferStrategySection({
                         Automatyczne podniesienie
                     </label>
 
-                    <select
+                    <AppSelect
                         id="auto-raise-offer"
-                        className="form-select"
-                        value={
-                            autoRaiseOfferToVintedMinimum
-                                ? "YES"
-                                : "NO"
-                        }
-                        onChange={(event) => {
-                            onAutoRaiseChange(
-                                event.target.value
-                                === "YES",
-                            );
-                        }}
-                    >
-                        <option value="NO">
-                            Nie — pomiń ofertę
-                        </option>
-
-                        <option value="YES">
-                            Tak — podnieś do minimum Vinted
-                        </option>
-                    </select>
+                        value={autoRaiseValue}
+                        options={autoRaiseOptions}
+                        ariaLabel="Automatyczne podniesienie pierwszej oferty"
+                        onChange={value => onAutoRaiseChange(value === "YES")}
+                    />
 
                     <span className="form-help">
-                        Pierwsza oferta nadal zaczyna się
-                        od ceny z kroku 1. Bot podniesie ją
-                        tylko wtedy, gdy Vinted wymaga więcej.
+                        Pierwsza oferta nadal zaczyna się od ceny z kroku 1.
+                        Bot podniesie ją tylko wtedy, gdy Vinted wymaga więcej.
                     </span>
                 </div>
 
@@ -96,24 +85,16 @@ function OfferStrategySection({
                         type="number"
                         min="0.01"
                         step="0.01"
-                        disabled={
-                            !autoRaiseOfferToVintedMinimum
-                        }
-                        value={
-                            maxAutomaticOffer
-                        }
+                        disabled={!autoRaiseOfferToVintedMinimum}
+                        value={maxAutomaticOffer}
                         placeholder="np. 1250"
-                        onChange={(event) => {
-                            onMaxAutomaticOfferChange(
-                                event.target.value,
-                            );
-                        }}
+                        onChange={event =>
+                            onMaxAutomaticOfferChange(event.target.value)}
                     />
 
                     <span className="form-help">
-                        Twardy limit bezpieczeństwa.
-                        Bot nie podniesie automatycznej
-                        pierwszej oferty powyżej tej kwoty.
+                        Twardy limit bezpieczeństwa. Bot nie podniesie
+                        automatycznej pierwszej oferty powyżej tej kwoty.
                     </span>
                 </div>
             </div>
@@ -121,23 +102,25 @@ function OfferStrategySection({
             <div className="information-box">
                 Pierwszy krok negocjacji:{" "}
                 <strong>
-                    {firstConfiguredOffer.trim().length > 0
-                        ? `${firstConfiguredOffer} zł`
-                        : "nie ustawiono"}
+                    {formatConfiguredPrice(firstConfiguredOffer)}
                 </strong>
                 {autoRaiseOfferToVintedMinimum && (
                     <>
                         {" "}· Maksimum automatyczne:{" "}
                         <strong>
-                            {maxAutomaticOffer.trim().length > 0
-                                ? `${maxAutomaticOffer} zł`
-                                : "nie ustawiono"}
+                            {formatConfiguredPrice(maxAutomaticOffer)}
                         </strong>
                     </>
                 )}
             </div>
         </article>
     );
+}
+
+function formatConfiguredPrice(value: string): string {
+    return value.trim().length > 0
+        ? `${value} zł`
+        : "nie ustawiono";
 }
 
 export default OfferStrategySection;

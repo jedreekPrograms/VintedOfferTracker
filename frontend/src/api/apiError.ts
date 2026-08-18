@@ -1,46 +1,49 @@
 interface ApiErrorResponse {
-    message?: string;
+    message?: unknown;
 }
-
 
 export async function getApiErrorMessage(
     response: Response,
     fallbackMessage: string,
 ): Promise<string> {
+    const responseText = await response.text();
+    const trimmedResponse = responseText.trim();
 
-    const responseText =
-        await response.text();
-
-
-    if (
-        responseText.trim().length === 0
-    ) {
-
+    if (trimmedResponse.length === 0) {
         return fallbackMessage;
     }
 
-
     try {
-
-        const errorResponse =
-            JSON.parse(
-                responseText,
-            ) as ApiErrorResponse;
-
+        const errorResponse = JSON.parse(trimmedResponse) as ApiErrorResponse;
 
         if (
             typeof errorResponse.message === "string"
             && errorResponse.message.trim().length > 0
         ) {
-
-            return errorResponse.message;
+            return errorResponse.message.trim();
         }
-
     } catch {
+        const contentType = response.headers
+            .get("content-type")
+            ?.toLowerCase() ?? "";
 
-        // Odpowiedź nie była JSON-em.
+        if (contentType.includes("text/plain")) {
+            return trimmedResponse;
+        }
     }
 
-
     return fallbackMessage;
+}
+
+export async function assertApiResponse(
+    response: Response,
+    fallbackMessage: string,
+): Promise<void> {
+    if (response.ok) {
+        return;
+    }
+
+    throw new Error(
+        await getApiErrorMessage(response, fallbackMessage),
+    );
 }

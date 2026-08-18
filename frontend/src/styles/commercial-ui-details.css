@@ -45,6 +45,16 @@
     gap: 10px;
 }
 
+/* History now uses the same control sizing and custom selects as the rest of the app. */
+.history-toolbar-field .app-select {
+    width: 100%;
+}
+
+.history-search input,
+.history-clear-button {
+    min-height: 48px;
+}
+
 /* Consistent long-value handling across the app. */
 .content-card strong,
 .dictionary-item-name,

@@ -1,4 +1,5 @@
 import {
+    useCallback,
     useEffect,
     useState,
 } from "react";
@@ -42,11 +43,7 @@ function MarketStatsObserverCard() {
     const [errorMessage, setErrorMessage] =
         useState<string | null>(null);
 
-    useEffect(() => {
-        void loadObserver();
-    }, []);
-
-    async function loadObserver() {
+    const loadObserver = useCallback(async () => {
         setIsLoading(true);
         setErrorMessage(null);
 
@@ -66,7 +63,11 @@ function MarketStatsObserverCard() {
         } finally {
             setIsLoading(false);
         }
-    }
+    }, []);
+
+    useEffect(() => {
+        void loadObserver();
+    }, [loadObserver]);
 
     function beginCreate() {
         setDraft(EMPTY_DRAFT);
