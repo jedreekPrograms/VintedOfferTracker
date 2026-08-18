@@ -64,6 +64,12 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/flipbot
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
+      # Historical Flyway migrations start from an already-existing Hibernate
+      # schema, so a clean CI database cannot replay V1 safely. For the context
+      # test we let Hibernate build an isolated schema. A true Flyway baseline
+      # should be introduced separately before switching production to validate.
+      SPRING_FLYWAY_ENABLED: "false"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
 
     steps:
       - name: Checkout
