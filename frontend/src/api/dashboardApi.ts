@@ -1,3 +1,7 @@
+import {
+    assertApiResponse,
+} from "./apiError";
+
 export type DashboardPeriod =
     | "TODAY"
     | "LAST_7_DAYS"
@@ -57,25 +61,21 @@ export async function getDashboardStats(
         `/api/dashboard/stats?period=${encodeURIComponent(period)}`,
     );
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się pobrać statystyk dashboardu. Status HTTP: ${response.status}.`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać statystyk dashboardu. Status HTTP: ${response.status}.`,
+    );
 
     return response.json() as Promise<DashboardStatsResponse>;
 }
 
 export async function getRuntimeDashboard(): Promise<RuntimeDashboardResponse> {
-    const response = await fetch(
-        "/api/dashboard/runtime",
-    );
+    const response = await fetch("/api/dashboard/runtime");
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się pobrać stanu runtime. Status HTTP: ${response.status}.`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać stanu runtime. Status HTTP: ${response.status}.`,
+    );
 
     return response.json() as Promise<RuntimeDashboardResponse>;
 }
