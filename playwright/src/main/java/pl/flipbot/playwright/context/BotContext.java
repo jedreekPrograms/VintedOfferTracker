@@ -6,6 +6,7 @@ import com.microsoft.playwright.Page;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.browser.BrowserManager;
+import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.session.SessionManager;
 
@@ -32,12 +33,10 @@ public class BotContext implements AutoCloseable {
 
     private boolean popupStormDetected;
 
-
     public BotContext(
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
-
         this.bot = bot;
         this.sessionManager = new SessionManager();
 
@@ -74,7 +73,6 @@ public class BotContext implements AutoCloseable {
         registerPopupGuard();
     }
 
-
     private boolean isStoredSessionRestoreFailure(
             Throwable throwable
     ) {
@@ -99,7 +97,6 @@ public class BotContext implements AutoCloseable {
         return false;
     }
 
-
     private String safeMessage(
             Throwable throwable
     ) {
@@ -114,9 +111,7 @@ public class BotContext implements AutoCloseable {
         return throwable.getMessage();
     }
 
-
     private Page resolveMainPage() {
-
         List<Page> existingPages = browserContext.pages();
 
         for (Page existingPage : existingPages) {
@@ -148,9 +143,7 @@ public class BotContext implements AutoCloseable {
         return browserContext.newPage();
     }
 
-
     private void closeExistingExtraPages() {
-
         List<Page> pages = new ArrayList<>(browserContext.pages());
 
         for (Page existingPage : pages) {
@@ -165,9 +158,7 @@ public class BotContext implements AutoCloseable {
         }
     }
 
-
     private void registerPopupGuard() {
-
         browserContext.onPage(
                 newPage -> {
                     if (newPage == page) {
@@ -231,9 +222,7 @@ public class BotContext implements AutoCloseable {
         );
     }
 
-
     private void registerNavigationGuard(Page extraPage) {
-
         extraPage.onFrameNavigated(
                 frame -> {
                     if (!isMainFrame(extraPage, frame)) {
@@ -248,12 +237,10 @@ public class BotContext implements AutoCloseable {
         );
     }
 
-
     private boolean isMainFrame(
             Page candidatePage,
             Frame frame
     ) {
-
         try {
             return frame == candidatePage.mainFrame();
         } catch (Exception exception) {
@@ -261,12 +248,10 @@ public class BotContext implements AutoCloseable {
         }
     }
 
-
     private void classifyExtraPage(
             Page extraPage,
             String reason
     ) {
-
         try {
             if (extraPage.isClosed()) {
                 return;
@@ -282,7 +267,7 @@ public class BotContext implements AutoCloseable {
                 return;
             }
 
-            if (isVintedUrl(url)) {
+            if (MarketplaceUrls.isVintedUrl(url)) {
                 log.debug(
                         "[BROWSER] Preserving additional Vinted page for bot {}. URL: {}",
                         bot.getId(),
@@ -306,12 +291,10 @@ public class BotContext implements AutoCloseable {
         }
     }
 
-
     private void closeUnexpectedPage(
             Page unexpectedPage,
             String reason
     ) {
-
         try {
             if (unexpectedPage == page || unexpectedPage.isClosed()) {
                 return;
@@ -338,54 +321,36 @@ public class BotContext implements AutoCloseable {
         }
     }
 
-
     private boolean isVintedPage(Page candidate) {
-
         try {
-            return isVintedUrl(
+            return MarketplaceUrls.isVintedUrl(
                     normalizeUrl(candidate.url())
             );
-
         } catch (Exception exception) {
             return false;
         }
     }
 
-
-    private boolean isVintedUrl(String url) {
-
-        return url.startsWith("https://www.vinted.pl")
-                || url.startsWith("https://vinted.pl");
-    }
-
-
     private boolean isTransientBlankUrl(String url) {
-
         return url.isBlank()
                 || "about:blank".equalsIgnoreCase(url);
     }
 
-
     private String normalizeUrl(String url) {
-
         return url == null
                 ? ""
                 : url.trim();
     }
 
-
     public void saveSession() {
-
         sessionManager.saveSession(
                 bot.getId(),
                 browserContext
         );
     }
 
-
     @Override
     public void close() {
-
         browserContext.close();
     }
 }
