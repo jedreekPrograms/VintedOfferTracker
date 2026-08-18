@@ -68,20 +68,24 @@ function AppSelect({
         const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
         const availableSpace = openUp ? spaceAbove : spaceBelow;
         const maxHeight = Math.max(
-            120,
-            Math.min(preferredHeight, availableSpace - gap),
+            96,
+            Math.min(preferredHeight, Math.max(96, availableSpace - gap)),
+        );
+        const safeWidth = Math.min(
+            rect.width,
+            Math.max(0, window.innerWidth - viewportPadding * 2),
         );
         const safeLeft = Math.max(
             viewportPadding,
             Math.min(
                 rect.left,
-                window.innerWidth - rect.width - viewportPadding,
+                window.innerWidth - safeWidth - viewportPadding,
             ),
         );
 
         setMenuPosition({
             left: safeLeft,
-            width: rect.width,
+            width: safeWidth,
             maxHeight,
             ...(openUp
                 ? {
@@ -164,8 +168,8 @@ function AppSelect({
             left: menuPosition.left,
             width: menuPosition.width,
             maxHeight: menuPosition.maxHeight,
-            top: menuPosition.top,
-            bottom: menuPosition.bottom,
+            top: menuPosition.top ?? "auto",
+            bottom: menuPosition.bottom ?? "auto",
         };
 
     return (
