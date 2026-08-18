@@ -8,61 +8,49 @@ import type {
     UpdateDictionaryModelCategoryRequest,
     UpdateDictionaryModelPricingRequest,
 } from "../types/dictionaries";
+import {
+    assertApiResponse,
+} from "./apiError";
 
-const DICTIONARIES_BASE_URL =
-    "/api/dictionaries";
-
+const DICTIONARIES_BASE_URL = "/api/dictionaries";
 
 export async function getBrands(): Promise<DictionaryBrand[]> {
-    const response = await fetch(
-        `${DICTIONARIES_BASE_URL}/brands`,
-    );
+    const response = await fetch(`${DICTIONARIES_BASE_URL}/brands`);
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się pobrać marek. Status HTTP: ${response.status}`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać marek. Status HTTP: ${response.status}`,
+    );
 
     return response.json() as Promise<DictionaryBrand[]>;
 }
 
-
 export async function createBrand(
     request: CreateDictionaryBrandRequest,
 ): Promise<DictionaryBrand> {
-    const response = await fetch(
-        `${DICTIONARIES_BASE_URL}/brands`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(request),
+    const response = await fetch(`${DICTIONARIES_BASE_URL}/brands`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
         },
-    );
+        body: JSON.stringify(request),
+    });
 
     if (response.status === 409) {
-        throw new Error(
-            `Marka „${request.name}” już istnieje.`,
-        );
+        throw new Error(`Marka „${request.name}” już istnieje.`);
     }
 
     if (response.status === 400) {
-        throw new Error(
-            "Nazwa marki jest nieprawidłowa.",
-        );
+        throw new Error("Nazwa marki jest nieprawidłowa.");
     }
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się dodać marki. Status HTTP: ${response.status}`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się dodać marki. Status HTTP: ${response.status}`,
+    );
 
     return response.json() as Promise<DictionaryBrand>;
 }
-
 
 export async function updateBrand(
     brandId: number,
@@ -79,60 +67,47 @@ export async function updateBrand(
         },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się zmienić marki.",
+        `Nie udało się zmienić marki. Status HTTP: ${response.status}.`,
     );
 
     return response.json() as Promise<DictionaryBrand>;
 }
 
-
-export async function deleteBrand(
-    brandId: number,
-): Promise<void> {
+export async function deleteBrand(brandId: number): Promise<void> {
     const response = await fetch(
         `${DICTIONARIES_BASE_URL}/brands/${brandId}`,
-        {
-            method: "DELETE",
-        },
+        { method: "DELETE" },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się usunąć marki.",
+        `Nie udało się usunąć marki. Status HTTP: ${response.status}.`,
     );
 }
 
-
 export async function getCategories(): Promise<DictionaryCategory[]> {
-    const response = await fetch(
-        `${DICTIONARIES_BASE_URL}/categories`,
-    );
+    const response = await fetch(`${DICTIONARIES_BASE_URL}/categories`);
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się pobrać kategorii. Status HTTP: ${response.status}`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać kategorii. Status HTTP: ${response.status}`,
+    );
 
     return response.json() as Promise<DictionaryCategory[]>;
 }
 
-
 export async function createCategory(
     request: CreateDictionaryCategoryRequest,
 ): Promise<DictionaryCategory> {
-    const response = await fetch(
-        `${DICTIONARIES_BASE_URL}/categories`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(request),
+    const response = await fetch(`${DICTIONARIES_BASE_URL}/categories`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
         },
-    );
+        body: JSON.stringify(request),
+    });
 
     if (response.status === 409) {
         throw new Error(
@@ -141,20 +116,16 @@ export async function createCategory(
     }
 
     if (response.status === 400) {
-        throw new Error(
-            "Ścieżka kategorii jest nieprawidłowa.",
-        );
+        throw new Error("Ścieżka kategorii jest nieprawidłowa.");
     }
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się dodać kategorii. Status HTTP: ${response.status}`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się dodać kategorii. Status HTTP: ${response.status}`,
+    );
 
     return response.json() as Promise<DictionaryCategory>;
 }
-
 
 export async function updateCategory(
     categoryId: number,
@@ -171,31 +142,25 @@ export async function updateCategory(
         },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się zmienić kategorii.",
+        `Nie udało się zmienić kategorii. Status HTTP: ${response.status}.`,
     );
 
     return response.json() as Promise<DictionaryCategory>;
 }
 
-
-export async function deleteCategory(
-    categoryId: number,
-): Promise<void> {
+export async function deleteCategory(categoryId: number): Promise<void> {
     const response = await fetch(
         `${DICTIONARIES_BASE_URL}/categories/${categoryId}`,
-        {
-            method: "DELETE",
-        },
+        { method: "DELETE" },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się usunąć kategorii.",
+        `Nie udało się usunąć kategorii. Status HTTP: ${response.status}.`,
     );
 }
-
 
 export async function getModelsByBrand(
     brandId: number,
@@ -205,20 +170,16 @@ export async function getModelsByBrand(
     );
 
     if (response.status === 404) {
-        throw new Error(
-            "Wybrana marka nie istnieje.",
-        );
+        throw new Error("Wybrana marka nie istnieje.");
     }
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się pobrać modeli. Status HTTP: ${response.status}`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać modeli. Status HTTP: ${response.status}`,
+    );
 
     return response.json() as Promise<DictionaryModel[]>;
 }
-
 
 export async function createModel(
     brandId: number,
@@ -236,9 +197,7 @@ export async function createModel(
     );
 
     if (response.status === 404) {
-        throw new Error(
-            "Wybrana marka lub kategoria nie istnieje.",
-        );
+        throw new Error("Wybrana marka lub kategoria nie istnieje.");
     }
 
     if (response.status === 409) {
@@ -253,15 +212,13 @@ export async function createModel(
         );
     }
 
-    if (!response.ok) {
-        throw new Error(
-            `Nie udało się dodać modelu. Status HTTP: ${response.status}`,
-        );
-    }
+    await assertApiResponse(
+        response,
+        `Nie udało się dodać modelu. Status HTTP: ${response.status}`,
+    );
 
     return response.json() as Promise<DictionaryModel>;
 }
-
 
 export async function updateModel(
     brandId: number,
@@ -279,14 +236,13 @@ export async function updateModel(
         },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się zmienić modelu.",
+        `Nie udało się zmienić modelu. Status HTTP: ${response.status}.`,
     );
 
     return response.json() as Promise<DictionaryModel>;
 }
-
 
 export async function updateModelCategory(
     brandId: number,
@@ -304,14 +260,13 @@ export async function updateModelCategory(
         },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się zmienić kategorii modelu.",
+        `Nie udało się zmienić kategorii modelu. Status HTTP: ${response.status}.`,
     );
 
     return response.json() as Promise<DictionaryModel>;
 }
-
 
 export async function updateModelPricing(
     brandId: number,
@@ -329,14 +284,13 @@ export async function updateModelPricing(
         },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się zapisać cen referencyjnych modelu.",
+        `Nie udało się zapisać cen referencyjnych modelu. Status HTTP: ${response.status}.`,
     );
 
     return response.json() as Promise<DictionaryModel>;
 }
-
 
 export async function deleteModel(
     brandId: number,
@@ -344,49 +298,11 @@ export async function deleteModel(
 ): Promise<void> {
     const response = await fetch(
         `${DICTIONARIES_BASE_URL}/brands/${brandId}/models/${modelId}`,
-        {
-            method: "DELETE",
-        },
+        { method: "DELETE" },
     );
 
-    await assertMutationResponse(
+    await assertApiResponse(
         response,
-        "Nie udało się usunąć modelu.",
-    );
-}
-
-
-async function assertMutationResponse(
-    response: Response,
-    fallbackMessage: string,
-): Promise<void> {
-    if (response.ok) {
-        return;
-    }
-
-    let backendMessage: string | null =
-        null;
-
-    try {
-        const body = await response.json() as {
-            message?: unknown;
-        };
-
-        if (
-            typeof body.message === "string"
-            && body.message.trim().length > 0
-        ) {
-            backendMessage = body.message;
-        }
-    } catch {
-        backendMessage = null;
-    }
-
-    if (backendMessage !== null) {
-        throw new Error(backendMessage);
-    }
-
-    throw new Error(
-        `${fallbackMessage} Status HTTP: ${response.status}.`,
+        `Nie udało się usunąć modelu. Status HTTP: ${response.status}.`,
     );
 }
