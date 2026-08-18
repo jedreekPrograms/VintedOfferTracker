@@ -40,6 +40,11 @@
     padding-block: 11px;
 }
 
+.bot-form-actions {
+    align-items: center;
+    gap: 10px;
+}
+
 /* Consistent long-value handling across the app. */
 .content-card strong,
 .dictionary-item-name,
@@ -213,5 +218,15 @@
 
     .bot-row-actions > * {
         width: 100%;
+    }
+
+    .bot-form-actions {
+        align-items: stretch;
+        flex-direction: column-reverse;
+    }
+
+    .bot-form-actions > * {
+        width: 100%;
+        justify-content: center;
     }
 }
