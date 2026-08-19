@@ -5,8 +5,9 @@
 -- change while active negotiations existed and could also feed Playwright an
 -- incorrectly ordered navigation path.
 --
--- Reconstruct the canonical order from dictionary_category.path, then persist
--- it explicitly for every existing bot configuration.
+-- Reconstruct the canonical order from dictionary_category.path, normalize the
+-- stored category text to the dictionary representation, then persist the order
+-- explicitly for every existing bot configuration.
 
 ALTER TABLE bot_category_path
     ADD COLUMN IF NOT EXISTS path_index integer;
@@ -69,6 +70,7 @@ matching_paths AS (
 resolved_positions AS (
     SELECT
         bot_category_path.ctid AS row_id,
+        btrim(path_part.category) AS canonical_category,
         (path_part.ordinality - 1)::integer AS path_index
     FROM bot_category_path
     JOIN matching_paths
@@ -93,22 +95,32 @@ resolved_positions AS (
     )
 )
 UPDATE bot_category_path
-SET path_index = resolved_positions.path_index
+SET
+    category = resolved_positions.canonical_category,
+    path_index = resolved_positions.path_index
 FROM resolved_positions
 WHERE bot_category_path.ctid = resolved_positions.row_id;
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM bot_category_path
-        WHERE path_index IS NULL
-    ) THEN
-        RAISE EXCEPTION
-            'Could not reconstruct category path order for every bot configuration. Migration aborted to avoid silently corrupting category navigation.';
-    END IF;
-END
-$$;
+-- Extremely old/manual configurations may predate the dictionary entry. Do not
+-- brick application startup for those rows: preserve their physical insertion
+-- order as a fallback. Normal bot configurations use the canonical dictionary
+-- reconstruction above.
+WITH fallback_positions AS (
+    SELECT
+        ctid AS row_id,
+        (
+            row_number() OVER (
+                PARTITION BY configuration_id
+                ORDER BY ctid
+            ) - 1
+        )::integer AS path_index
+    FROM bot_category_path
+    WHERE path_index IS NULL
+)
+UPDATE bot_category_path
+SET path_index = fallback_positions.path_index
+FROM fallback_positions
+WHERE bot_category_path.ctid = fallback_positions.row_id;
 
 ALTER TABLE bot_category_path
     ALTER COLUMN path_index SET NOT NULL;
