@@ -245,7 +245,8 @@ export function validateCreateBotForm({
             counterOfferResult.value;
 
         if (
-            previousOfferPrice !== null
+            form.autoRaiseOfferToVintedMinimum
+            && previousOfferPrice !== null
             && offerPrice <= previousOfferPrice
         ) {
             return invalid(
