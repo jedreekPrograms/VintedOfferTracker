@@ -47,38 +47,27 @@ public class ExistingNegotiationProcessor {
         this.nextStepExecutor = new NextNegotiationStepExecutor(context);
         this.preparedNextStepCoordinator =
                 new PreparedNextStepCoordinator(context, offerQuotaClient);
-        this.support =
-                new ExistingNegotiationSupport(
-                        context,
-                        listingClient,
-                        listingStatusUpdater,
-                        new NegotiationActivityClient()
-                );
+        this.support = new ExistingNegotiationSupport(
+                context,
+                listingClient,
+                listingStatusUpdater,
+                new NegotiationActivityClient()
+        );
         this.realNextStepsEnabled = realNextStepsEnabled;
         this.maxRealNextStepsPerRun = maxRealNextStepsPerRun;
     }
 
     public boolean process() {
         Long botId = context.getBot().getId();
-        List<ListingResponseDto> listings =
-                listingClient.getNegotiatingListings(botId);
+        List<ListingResponseDto> listings = listingClient.getNegotiatingListings(botId);
 
-        log.info(
-                "Bot {} currently has {} active negotiations",
-                botId,
-                listings.size()
-        );
-
+        log.info("Bot {} currently has {} active negotiations", botId, listings.size());
         return inspectExistingNegotiations(listings);
     }
 
-    private boolean inspectExistingNegotiations(
-            List<ListingResponseDto> listings
-    ) {
+    private boolean inspectExistingNegotiations(List<ListingResponseDto> listings) {
         if (listings.isEmpty()) {
-            log.info(
-                    "[CONVERSATION] There are no active negotiations to inspect."
-            );
+            log.info("[CONVERSATION] There are no active negotiations to inspect.");
             return false;
         }
 
@@ -99,9 +88,8 @@ public class ExistingNegotiationProcessor {
             try {
                 inspected++;
                 log.info(
-                        "[CONVERSATION] Inspecting negotiation {}/{}. "
-                                + "Backend listing {}, marketplace listing {}, "
-                                + "conversation {}, current step {}",
+                        "[CONVERSATION] Inspecting negotiation {}/{}. Backend listing {}, "
+                                + "marketplace listing {}, conversation {}, current step {}",
                         inspected,
                         listings.size(),
                         listing.id(),
@@ -111,8 +99,7 @@ public class ExistingNegotiationProcessor {
                 );
 
                 if (!support.matchesConfiguredTarget(listing, configuration)) {
-                    ListingResponseDto finished =
-                            support.finishWrongTargetNegotiation(listing);
+                    ListingResponseDto finished = support.finishWrongTargetNegotiation(listing);
                     log.error(
                             "[TARGET GUARD] Listing {} stopped as wrong target. Status={}. No additional offer was sent.",
                             listing.listingId(),
@@ -136,7 +123,7 @@ public class ExistingNegotiationProcessor {
 
                 ConversationActivitySnapshot activity = activityDetector.inspect();
                 support.logConversationActivity(listing, activity);
-                support.persistConversationActivity(listing, activity);
+                support.persistConversationActivity(listing, activity, snapshot);
 
                 boolean stepSent;
                 if (snapshot.result() == NegotiationConversationResult.PENDING) {
@@ -153,8 +140,7 @@ public class ExistingNegotiationProcessor {
                     }
 
                     if (pending.action() == PendingNegotiationDecision.Action.EXPIRE) {
-                        ListingResponseDto expired =
-                                listingStatusUpdater.markExpired(listing);
+                        ListingResponseDto expired = listingStatusUpdater.markExpired(listing);
                         log.warn(
                                 "[PENDING POLICY] Listing {} changed to EXPIRED. Reason: {}",
                                 expired.listingId(),
@@ -304,11 +290,10 @@ public class ExistingNegotiationProcessor {
                 listing.listingId()
         );
 
-        NextStepPreparationResult result =
-                nextStepExecutor.prepareDryRun(
-                        listing,
-                        decision.nextStep()
-                );
+        NextStepPreparationResult result = nextStepExecutor.prepareDryRun(
+                listing,
+                decision.nextStep()
+        );
 
         if (result == NextStepPreparationResult.PREPARED) {
             log.warn(
