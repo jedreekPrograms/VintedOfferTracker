@@ -24,18 +24,20 @@ public class CreateNegotiationStepRequest {
     @NotBlank
     private String message;
 
-    @NotNull
+    /*
+     * Nullable on the transport boundary for backward compatibility with an
+     * older frontend. BotService resolves missing values to the new sensible
+     * defaults before persisting them.
+     */
     private NegotiationReactionAction rejectionAction;
 
     private Integer rejectionWaitHours;
 
-    @NotNull
     private NegotiationReactionAction counterOfferDefaultAction;
 
     private Integer counterOfferDefaultWaitHours;
 
     @Valid
-    @NotNull
     private List<SellerCounterOfferRuleRequest> counterOfferRules =
             new ArrayList<>();
 }
