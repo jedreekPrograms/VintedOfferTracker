@@ -11,7 +11,6 @@ import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 
-import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.util.Locale;
 
@@ -59,7 +58,7 @@ public class ExistingNegotiationSupport {
             ConversationActivitySnapshot activity,
             NegotiationConversationSnapshot snapshot
     ) {
-        String formalResponseFingerprint = formalResponseFingerprint(
+        String formalResponseFingerprint = NegotiationResponseFingerprint.create(
                 listing,
                 snapshot
         );
@@ -100,30 +99,6 @@ public class ExistingNegotiationSupport {
                     friendlyError(exception)
             );
         }
-    }
-
-    public String formalResponseFingerprint(
-            ListingResponseDto listing,
-            NegotiationConversationSnapshot snapshot
-    ) {
-        if (listing == null || snapshot == null || listing.currentStep() == null) {
-            return null;
-        }
-
-        return switch (snapshot.result()) {
-            case REJECTED -> "REJECTED:" + listing.currentStep();
-            case SELLER_COUNTER_OFFER -> {
-                BigDecimal price = snapshot.sellerCounterOfferPrice();
-                if (price == null) {
-                    yield null;
-                }
-                yield "COUNTER:"
-                        + listing.currentStep()
-                        + ":"
-                        + price.stripTrailingZeros().toPlainString();
-            }
-            default -> null;
-        };
     }
 
     public boolean matchesConfiguredTarget(
