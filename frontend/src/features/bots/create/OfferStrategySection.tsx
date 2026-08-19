@@ -13,11 +13,11 @@ interface OfferStrategySectionProps {
 const autoRaiseOptions: AppSelectOption[] = [
     {
         value: "NO",
-        label: "Nie — pomiń ofertę",
+        label: "Nie — używaj dokładnych kwot z kroków",
     },
     {
         value: "YES",
-        label: "Tak — podnieś do minimum Vinted",
+        label: "Tak — skaluj drabinkę automatycznie",
     },
 ];
 
@@ -38,13 +38,14 @@ function OfferStrategySection({
                 <div>
                     <span className="bot-form-step">5</span>
                     <h2 className="content-card-title">
-                        Strategia pierwszej oferty
+                        Strategia negocjacji
                     </h2>
                 </div>
 
                 <p className="content-card-text">
-                    Określa, co zrobić, gdy pierwsza skonfigurowana oferta
-                    jest niższa niż minimum dopuszczane przez Vinted.
+                    Kwoty wpisane w krokach są bazową drabinką. Gdy pierwsza
+                    oferta jest za niska dla Vinted, bot może podnieść ją do
+                    bezpiecznej wartości i proporcjonalnie przeskalować kolejne kroki.
                 </p>
             </div>
 
@@ -54,20 +55,22 @@ function OfferStrategySection({
                         className="form-label"
                         htmlFor="auto-raise-offer"
                     >
-                        Automatyczne podniesienie
+                        Adaptacyjna drabinka cenowa
                     </label>
 
                     <AppSelect
                         id="auto-raise-offer"
                         value={autoRaiseValue}
                         options={autoRaiseOptions}
-                        ariaLabel="Automatyczne podniesienie pierwszej oferty"
+                        ariaLabel="Adaptacyjna drabinka negocjacyjna"
                         onChange={value => onAutoRaiseChange(value === "YES")}
                     />
 
                     <span className="form-help">
-                        Pierwsza oferta nadal zaczyna się od ceny z kroku 1.
-                        Bot podniesie ją tylko wtedy, gdy Vinted wymaga więcej.
+                        Bot najpierw próbuje ceny z kroku 1. Jeśli jest za niska,
+                        pierwszą podniesioną ofertę zaokrągla w górę do następnych
+                        50 zł. Kolejne kroki zachowują procentowe różnice między
+                        skonfigurowanymi kwotami i są zaokrąglane w górę do 10 zł.
                     </span>
                 </div>
 
@@ -76,7 +79,7 @@ function OfferStrategySection({
                         className="form-label"
                         htmlFor="max-automatic-offer"
                     >
-                        Maksymalna automatyczna oferta
+                        Maksymalna cena negocjacji
                     </label>
 
                     <input
@@ -87,26 +90,26 @@ function OfferStrategySection({
                         step="0.01"
                         disabled={!autoRaiseOfferToVintedMinimum}
                         value={maxAutomaticOffer}
-                        placeholder="np. 1250"
+                        placeholder="np. 1500"
                         onChange={event =>
                             onMaxAutomaticOfferChange(event.target.value)}
                     />
 
                     <span className="form-help">
-                        Twardy limit bezpieczeństwa. Bot nie podniesie
-                        automatycznej pierwszej oferty powyżej tej kwoty.
+                        Globalny twardy limit. Bot nie wyśle ani nie zaakceptuje
+                        automatycznie kwoty wyższej niż ta wartość, niezależnie od kroku.
                     </span>
                 </div>
             </div>
 
             <div className="information-box">
-                Pierwszy krok negocjacji:{" "}
+                Bazowa pierwsza oferta:{" "}
                 <strong>
                     {formatConfiguredPrice(firstConfiguredOffer)}
                 </strong>
                 {autoRaiseOfferToVintedMinimum && (
                     <>
-                        {" "}· Maksimum automatyczne:{" "}
+                        {" "}· Globalny limit negocjacji:{" "}
                         <strong>
                             {formatConfiguredPrice(maxAutomaticOffer)}
                         </strong>
