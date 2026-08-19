@@ -142,7 +142,7 @@ export function validateCreateBotForm({
         const maxAutomaticOfferResult =
             parseRequiredPositiveNumber(
                 form.maxAutomaticOffer,
-                "Maksymalna automatyczna oferta jest wymagana i musi być większa od 0.",
+                "Maksymalna cena negocjacji jest wymagana i musi być większa od 0.",
             );
 
         if (!maxAutomaticOfferResult.valid) {
@@ -159,7 +159,7 @@ export function validateCreateBotForm({
             > maxPrice
         ) {
             return invalid(
-                "Maksymalna automatyczna oferta nie może być większa od maksymalnej ceny ogłoszenia.",
+                "Maksymalna cena negocjacji nie może być większa od maksymalnej ceny ogłoszenia.",
             );
         }
     }
@@ -200,6 +200,8 @@ export function validateCreateBotForm({
 
     const negotiationSteps:
         ValidatedNegotiationStep[] = [];
+
+    let previousOfferPrice: number | null = null;
 
     for (
         let index = 0;
@@ -243,6 +245,16 @@ export function validateCreateBotForm({
             counterOfferResult.value;
 
         if (
+            form.autoRaiseOfferToVintedMinimum
+            && previousOfferPrice !== null
+            && offerPrice <= previousOfferPrice
+        ) {
+            return invalid(
+                `Krok ${stepNumber}: cena oferty musi być wyższa niż w poprzednim kroku, ponieważ różnica procentowa służy do skalowania adaptacyjnej drabinki.`,
+            );
+        }
+
+        if (
             maxAcceptedCounterOffer
             < offerPrice
         ) {
@@ -268,6 +280,8 @@ export function validateCreateBotForm({
             message:
                 normalizedMessage,
         });
+
+        previousOfferPrice = offerPrice;
     }
 
     if (
@@ -278,7 +292,7 @@ export function validateCreateBotForm({
         < negotiationSteps[0].offerPrice
     ) {
         return invalid(
-            "Maksymalna automatyczna oferta nie może być niższa od ceny pierwszego kroku negocjacji.",
+            "Maksymalna cena negocjacji nie może być niższa od ceny pierwszego kroku negocjacji.",
         );
     }
 

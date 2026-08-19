@@ -48,7 +48,7 @@ public class NewNegotiationProcessor {
         this.listingClient = listingClient;
         this.offerQuotaClient = offerQuotaClient;
         this.listingStatusUpdater = listingStatusUpdater;
-        this.firstOfferExecutor = new FirstOfferExecutor(context);
+        this.firstOfferExecutor = new AdaptiveFirstOfferExecutor(context);
         this.firstOfferActionGuardCoordinator = new FirstOfferActionGuardCoordinator();
         this.listingTargetMatcher = new ListingTargetMatcher();
         this.listingDetailTargetInspector = new ListingDetailTargetInspector(
@@ -204,11 +204,6 @@ public class NewNegotiationProcessor {
             } catch (VintedRateLimitException exception) {
                 throw exception;
             } catch (Exception exception) {
-                /*
-                 * Nothing external was submitted and no quota was reserved.
-                 * One bad/stale candidate must not starve every later valid
-                 * candidate in the same catalog cycle.
-                 */
                 log.error(
                         "[REAL OFFER PREPARE] Failed before quota reservation for marketplace listing {}: {}. No quota was reserved and no offer was sent. Trying the next verified candidate.",
                         listing.listingId(),
@@ -252,10 +247,6 @@ public class NewNegotiationProcessor {
             try {
                 firstOfferExecutor.assertPreparedOfferReady(listing);
             } catch (Exception exception) {
-                /*
-                 * Still pre-quota and pre-submit, so this candidate can be
-                 * abandoned without making the whole run fail closed.
-                 */
                 log.error(
                         "[REAL OFFER PREPARE] Prepared form became invalid before quota reservation for marketplace listing {}: {}. No quota was reserved. Trying the next verified candidate.",
                         listing.listingId(),
@@ -354,13 +345,6 @@ public class NewNegotiationProcessor {
                         quotaReservation.remaining()
                 );
 
-                /*
-                 * Production mode may intentionally allow several first
-                 * offers in one catalog run. Do NOT return after the first
-                 * confirmed success; the loop continues until its configured
-                 * limit/capacity is reached. Controlled mode still receives
-                 * maxRealOffersPerRun=1 from ScheduledBotRunExecutor.
-                 */
                 continue;
 
             } catch (Exception exception) {
@@ -556,7 +540,7 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[FINAL VERIFY] Finished. Checked={}, passed={}, mismatches={}, failures={}, real item-page requests={}. No quota was reserved during verification.",
+                "[FINAL VERIFY] Finished. Checked={}, passed={}, mismatches={}, failures={}, real item-page requests={}.",
                 checked,
                 verifiedListings.size(),
                 mismatches,

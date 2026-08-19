@@ -77,16 +77,21 @@ public class BotConfiguration {
     private BigDecimal maxPrice;
 
     /*
-     * Jeżeli true, w późniejszym etapie Playwright będzie mógł
-     * podnieść skonfigurowaną ofertę do minimum akceptowanego
-     * przez Vinted, ale nie wyżej niż maxAutomaticOffer.
+     * Jeżeli true, kwoty z negotiationSteps są bazową drabinką cenową.
      *
-     * Etap 3A wyłącznie zapisuje i przesyła tę konfigurację.
-     * Nie zmienia jeszcze działania negocjacji.
+     * Gdy pierwszy skonfigurowany krok jest za niski dla Vinted, Playwright
+     * podnosi pierwszą ofertę do bezpiecznej wartości i skaluje kolejne kroki
+     * proporcjonalnie do różnic pomiędzy kwotami zapisanymi w konfiguracji.
      */
     @Builder.Default
     private Boolean autoRaiseOfferToVintedMinimum = false;
 
+    /*
+     * Historyczna nazwa pola pozostaje dla zgodności API i bazy.
+     * W trybie adaptacyjnym jest to globalny limit automatycznej negocjacji:
+     * żaden kolejny automatyczny krok ani próg akceptowanej kontroferty nie
+     * może zostać wyliczony powyżej tej kwoty.
+     */
     private BigDecimal maxAutomaticOffer;
 
     private Integer dailyNegotiationBudget;
