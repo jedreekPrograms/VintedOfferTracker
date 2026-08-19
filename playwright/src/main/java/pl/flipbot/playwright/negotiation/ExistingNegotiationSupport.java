@@ -11,6 +11,7 @@ import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 
+import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.util.Locale;
 
@@ -55,18 +56,25 @@ public class ExistingNegotiationSupport {
 
     public void persistConversationActivity(
             ListingResponseDto listing,
-            ConversationActivitySnapshot activity
+            ConversationActivitySnapshot activity,
+            NegotiationConversationSnapshot snapshot
     ) {
-        if (!activity.inspectionSucceeded() || !activity.latestOwnOfferFound()) {
-            return;
-        }
+        String formalResponseFingerprint = formalResponseFingerprint(
+                listing,
+                snapshot
+        );
 
-        boolean sellerActivity =
-                activity.sellerMessageAfterLatestOwnOffer()
-                        && activity.latestSellerMessageAt() != null;
-        boolean readDetected = activity.readIndicatorAfterLatestOwnOffer();
+        boolean sellerActivity = activity.inspectionSucceeded()
+                && activity.latestOwnOfferFound()
+                && activity.sellerMessageAfterLatestOwnOffer()
+                && activity.latestSellerMessageAt() != null;
+        boolean readDetected = activity.inspectionSucceeded()
+                && activity.latestOwnOfferFound()
+                && activity.readIndicatorAfterLatestOwnOffer();
 
-        if (!sellerActivity && !readDetected) {
+        if (!sellerActivity
+                && !readDetected
+                && formalResponseFingerprint == null) {
             return;
         }
 
@@ -76,16 +84,46 @@ public class ExistingNegotiationSupport {
                     listing.id(),
                     new NegotiationActivityRequestDto(
                             sellerActivity ? activity.latestSellerMessageAt() : null,
-                            readDetected
+                            readDetected,
+                            formalResponseFingerprint
                     )
             );
         } catch (Exception exception) {
+            /*
+             * A delayed response rule must fail closed if we cannot persist its
+             * first-detection time. The decision layer sees no matching stable
+             * timestamp and keeps waiting instead of guessing.
+             */
             log.warn(
-                    "[NEGOTIATION ACTIVITY API] Could not persist activity for listing {}: {}",
+                    "[NEGOTIATION ACTIVITY API] Could not persist activity/response timer for listing {}: {}",
                     listing.listingId(),
                     friendlyError(exception)
             );
         }
+    }
+
+    public String formalResponseFingerprint(
+            ListingResponseDto listing,
+            NegotiationConversationSnapshot snapshot
+    ) {
+        if (listing == null || snapshot == null || listing.currentStep() == null) {
+            return null;
+        }
+
+        return switch (snapshot.result()) {
+            case REJECTED -> "REJECTED:" + listing.currentStep();
+            case SELLER_COUNTER_OFFER -> {
+                BigDecimal price = snapshot.sellerCounterOfferPrice();
+                if (price == null) {
+                    yield null;
+                }
+                yield "COUNTER:"
+                        + listing.currentStep()
+                        + ":"
+                        + price.stripTrailingZeros().toPlainString();
+            }
+            default -> null;
+        };
     }
 
     public boolean matchesConfiguredTarget(
@@ -98,12 +136,11 @@ public class ExistingNegotiationSupport {
         }
 
         String brand = normalize(configuration.getBrand());
-        String expected =
-                brand.isBlank()
-                        || model.equals(brand)
-                        || model.startsWith(brand + " ")
-                        ? model
-                        : brand + " " + model;
+        String expected = brand.isBlank()
+                || model.equals(brand)
+                || model.startsWith(brand + " ")
+                ? model
+                : brand + " " + model;
 
         String actual = normalize(listing.title());
         boolean matches = expected.equals(actual);
@@ -133,21 +170,20 @@ public class ExistingNegotiationSupport {
             );
         }
 
-        ListingResponseDto updated =
-                listingClient.updateListing(
-                        context.getBot().getId(),
-                        listing.id(),
-                        new UpdateListingRequestDto(
-                                "FINISHED",
-                                listing.currentPrice() != null
-                                        ? listing.currentPrice()
-                                        : listing.originalPrice(),
-                                listing.currentStep(),
-                                false,
-                                listing.conversationId(),
-                                listing.conversationUrl()
-                        )
-                );
+        ListingResponseDto updated = listingClient.updateListing(
+                context.getBot().getId(),
+                listing.id(),
+                new UpdateListingRequestDto(
+                        "FINISHED",
+                        listing.currentPrice() != null
+                                ? listing.currentPrice()
+                                : listing.originalPrice(),
+                        listing.currentStep(),
+                        false,
+                        listing.conversationId(),
+                        listing.conversationUrl()
+                )
+        );
 
         if (!"FINISHED".equals(updated.status())
                 || Boolean.TRUE.equals(updated.awaitingSellerResponse())) {
@@ -188,9 +224,11 @@ public class ExistingNegotiationSupport {
             return "";
         }
         String prepared = value.replace("+", " plus ").replace("＋", " plus ");
-        String withoutDiacritics =
-                Normalizer.normalize(prepared, Normalizer.Form.NFD)
-                        .replaceAll("\\p{M}+", "");
+        String withoutDiacritics = Normalizer.normalize(
+                        prepared,
+                        Normalizer.Form.NFD
+                )
+                .replaceAll("\\p{M}+", "");
         return withoutDiacritics
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", " ")
