@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 public record NegotiationActivityRequestDto(
         LocalDateTime sellerActivityAt,
-        boolean readDetected
+        boolean readDetected,
+        String formalResponseFingerprint
 ) {
 }
