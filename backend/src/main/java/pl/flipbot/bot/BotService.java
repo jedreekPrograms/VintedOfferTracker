@@ -49,13 +49,12 @@ public class BotService {
     }
 
     public BotEditCapabilitiesResponse getEditCapabilities(Long botId) {
-        getBotEntity(botId);
-
+        Bot bot = getBotEntity(botId);
         List<Listing> activeListings = getActiveNegotiationListings(botId);
 
         return BotEditCapabilitiesResponse.builder()
                 .hasActiveNegotiations(!activeListings.isEmpty())
-                .minimumNegotiationCap(highestAlreadySentOffer(activeListings))
+                .minimumNegotiationCap(minimumNegotiationCap(bot))
                 .build();
     }
 
@@ -298,6 +297,24 @@ public class BotService {
         return activeListings;
     }
 
+    private BigDecimal minimumNegotiationCap(Bot bot) {
+        BotConfiguration configuration = bot.getConfiguration();
+        if (configuration == null
+                || !Boolean.TRUE.equals(
+                configuration.getAutoRaiseOfferToVintedMinimum()
+        )) {
+            return null;
+        }
+
+        return configuration.getNegotiationSteps()
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(step -> step.getStepNumber() != null)
+                .min(Comparator.comparing(NegotiationStep::getStepNumber))
+                .map(NegotiationStep::getOfferPrice)
+                .orElse(null);
+    }
+
     private void validateActiveNegotiationEdit(
             Bot bot,
             BotConfiguration configuration,
@@ -386,43 +403,6 @@ public class BotService {
                             + "daily negotiation budget and global negotiation cap."
             );
         }
-
-        validateGlobalCapAgainstActiveOffers(
-                requestedConfiguration,
-                requestedAdaptiveMode,
-                activeListings
-        );
-    }
-
-    private void validateGlobalCapAgainstActiveOffers(
-            CreateBotConfigurationRequest requestedConfiguration,
-            boolean requestedAdaptiveMode,
-            List<Listing> activeListings
-    ) {
-        if (!requestedAdaptiveMode) {
-            return;
-        }
-
-        BigDecimal requestedCap = requestedConfiguration.getMaxAutomaticOffer();
-        BigDecimal minimumCap = highestAlreadySentOffer(activeListings);
-
-        if (requestedCap != null
-                && minimumCap != null
-                && requestedCap.compareTo(minimumCap) < 0) {
-            throw new IllegalStateException(
-                    "Global negotiation cap cannot be lowered below "
-                            + minimumCap.toPlainString()
-                            + " while an active negotiation has already sent that price."
-            );
-        }
-    }
-
-    private BigDecimal highestAlreadySentOffer(List<Listing> activeListings) {
-        return activeListings.stream()
-                .map(Listing::getCurrentPrice)
-                .filter(Objects::nonNull)
-                .max(BigDecimal::compareTo)
-                .orElse(null);
     }
 
     private boolean negotiationStepsChanged(
