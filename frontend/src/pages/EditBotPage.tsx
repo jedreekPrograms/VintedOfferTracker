@@ -12,6 +12,7 @@ import {
 
 import {
     getBot,
+    getBotEditCapabilities,
     updateBot,
 } from "../api/botsApi";
 
@@ -40,6 +41,7 @@ import type {
 
 import type {
     BotDetails,
+    BotEditCapabilities,
     TargetMode,
 } from "../types/bots";
 
@@ -85,6 +87,8 @@ function EditBotPage() {
     } = useCreateBotForm();
 
     const [bot, setBot] = useState<BotDetails | null>(null);
+    const [editCapabilities, setEditCapabilities] =
+        useState<BotEditCapabilities | null>(null);
     const [isLoadingBot, setIsLoadingBot] = useState(true);
     const [isBaseInitialized, setIsBaseInitialized] = useState(false);
     const [isModelResolved, setIsModelResolved] = useState(false);
@@ -120,12 +124,17 @@ function EditBotPage() {
     const isStopped = bot !== null
         && bot.status.toUpperCase() === "STOPPED";
 
+    const hasActiveNegotiations =
+        editCapabilities?.hasActiveNegotiations ?? false;
+
     const isFormInitialized = isBaseInitialized
         && isModelResolved
+        && editCapabilities !== null
         && initializationError === null;
 
     useEffect(() => {
         setBot(null);
+        setEditCapabilities(null);
         setIsBaseInitialized(false);
         setIsModelResolved(false);
         setInitializationError(null);
@@ -143,14 +152,22 @@ function EditBotPage() {
             setIsLoadingBot(true);
 
             try {
-                const loadedBot = await getBot(botId);
+                const [loadedBot, loadedCapabilities] = await Promise.all([
+                    getBot(botId),
+                    getBotEditCapabilities(botId),
+                ]);
+
                 if (!cancelled) {
                     setBot(loadedBot);
+                    setEditCapabilities(loadedCapabilities);
                 }
             } catch (error) {
                 if (!cancelled) {
                     setInitializationError(
-                        getErrorMessage(error, "Nie udało się pobrać konfiguracji bota."),
+                        getErrorMessage(
+                            error,
+                            "Nie udało się pobrać konfiguracji i zasad edycji bota.",
+                        ),
                     );
                 }
             } finally {
@@ -332,6 +349,26 @@ function EditBotPage() {
 
         clearMessages();
 
+        if (
+            hasActiveNegotiations
+            && form.autoRaiseOfferToVintedMinimum
+            && editCapabilities?.minimumNegotiationCap !== null
+        ) {
+            const requestedCap = Number(form.maxAutomaticOffer);
+            const minimumCap = editCapabilities?.minimumNegotiationCap ?? null;
+
+            if (
+                minimumCap !== null
+                && Number.isFinite(requestedCap)
+                && requestedCap < minimumCap
+            ) {
+                setErrorMessage(
+                    `Globalny limit negocjacji nie może być niższy niż ${formatPrice(minimumCap)} zł, ponieważ taka kwota została już wysłana w aktywnej negocjacji.`,
+                );
+                return;
+            }
+        }
+
         const validationResult = validateCreateBotForm({
             form,
             selectedCategory,
@@ -406,7 +443,7 @@ function EditBotPage() {
         );
     }
 
-    if (bot === null) {
+    if (bot === null || editCapabilities === null) {
         return null;
     }
 
@@ -417,8 +454,9 @@ function EditBotPage() {
                     <p className="page-eyebrow">Konfiguracja</p>
                     <h1 className="page-title">Edytuj bota</h1>
                     <p className="page-description">
-                        Model jest teraz rozwiązywany przez słownik. Puste hasło oznacza zachowanie
-                        obecnego hasła konta Vinted.
+                        Bot musi być zatrzymany podczas zapisu. Aktywne negocjacje
+                        ograniczają tylko pola, których zmiana mogłaby zmienić
+                        tożsamość bota albo znaczenie trwającej rozmowy.
                     </p>
                 </div>
             </header>
@@ -426,6 +464,17 @@ function EditBotPage() {
             {!isStopped && (
                 <div className="form-message form-message-error" role="alert">
                     Zatrzymaj bota przed edycją konfiguracji.
+                </div>
+            )}
+
+            {hasActiveNegotiations && (
+                <div className="information-box">
+                    <strong>Tryb ograniczonej edycji:</strong>{" "}
+                    bot ma aktywne negocjacje. Możesz zmienić nazwę bota,
+                    minimalną i maksymalną cenę nowych ofert, dzienny budżet
+                    oraz globalny limit negocjacji. Konto Vinted, cel/model,
+                    tryb adaptacyjny i kroki negocjacji pozostają zablokowane
+                    do zakończenia aktywnych rozmów.
                 </div>
             )}
 
@@ -457,6 +506,8 @@ function EditBotPage() {
                     <VintedAccountSection
                         email={form.email}
                         password={form.password}
+                        passwordOptional
+                        disabled={hasActiveNegotiations}
                         onEmailChange={(value) => {
                             setEmail(value);
                             clearMessages();
@@ -480,6 +531,7 @@ function EditBotPage() {
                         maxPrice={form.maxPrice}
                         isLoadingDictionaries={isLoadingDictionaries}
                         areModelsLoading={areModelsLoading}
+                        targetFieldsDisabled={hasActiveNegotiations}
                         onCategoryChange={(value) => {
                             setCategory(value);
                             clearMessages();
@@ -517,6 +569,8 @@ function EditBotPage() {
                         autoRaiseOfferToVintedMinimum={form.autoRaiseOfferToVintedMinimum}
                         maxAutomaticOffer={form.maxAutomaticOffer}
                         firstConfiguredOffer={form.negotiationSteps[0]?.offerPrice ?? ""}
+                        modeDisabled={hasActiveNegotiations}
+                        minimumNegotiationCap={editCapabilities.minimumNegotiationCap}
                         onAutoRaiseChange={(value) => {
                             setAutoRaiseOfferToVintedMinimum(value);
                             clearMessages();
@@ -530,6 +584,7 @@ function EditBotPage() {
                     <NegotiationStepsSection
                         negotiationSteps={form.negotiationSteps}
                         dailyNegotiationBudget={form.dailyNegotiationBudget}
+                        disabled={hasActiveNegotiations}
                         onAddStep={handleAddNegotiationStep}
                         onRemoveStep={handleRemoveNegotiationStep}
                         onUpdateStep={handleUpdateNegotiationStep}
@@ -571,6 +626,12 @@ function categoryPathsEqual(left: string[], right: string[]): boolean {
 
 function normalizedText(value: string): string {
     return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function formatPrice(value: number): string {
+    return new Intl.NumberFormat("pl-PL", {
+        maximumFractionDigits: 2,
+    }).format(value);
 }
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
