@@ -17,8 +17,8 @@ public class ScheduledBotRunExecutor {
     private static final ScheduledRealActionConfig REAL_ACTION_CONFIG =
             ScheduledRealActionConfig.fromEnvironment();
 
-    private static final int MAX_REAL_OFFERS_PER_RUN = 1;
-    private static final int MAX_REAL_NEXT_STEPS_PER_RUN = 1;
+    private static final ScheduledActionLimitConfig ACTION_LIMIT_CONFIG =
+            ScheduledActionLimitConfig.fromEnvironment();
 
     private final BotDetailsDto bot;
     private final BrowserManager browserManager;
@@ -30,7 +30,6 @@ public class ScheduledBotRunExecutor {
         if (bot == null
                 || bot.getId() == null
                 || bot.getId() <= 0) {
-
             throw new IllegalArgumentException(
                     "Bot details with a positive ID are required."
             );
@@ -48,9 +47,7 @@ public class ScheduledBotRunExecutor {
         executeInternal(null);
     }
 
-    public void executeJob(
-            ScheduledJobType jobType
-    ) {
+    public void executeJob(ScheduledJobType jobType) {
         if (jobType == null) {
             throw new IllegalArgumentException(
                     "Scheduled job type is required."
@@ -60,9 +57,7 @@ public class ScheduledBotRunExecutor {
         executeInternal(jobType);
     }
 
-    private void executeInternal(
-            ScheduledJobType jobType
-    ) {
+    private void executeInternal(ScheduledJobType jobType) {
         Long botId = bot.getId();
 
         boolean firstOfferRequested =
@@ -80,6 +75,19 @@ public class ScheduledBotRunExecutor {
         boolean realNextStepsEnabled =
                 jobType == ScheduledJobType.NEGOTIATION_CHECK
                         && REAL_ACTION_CONFIG.realNextStepsEnabledFor(botId);
+
+        boolean productionModeEnabled =
+                REAL_ACTION_CONFIG.productionModeEnabled();
+
+        int maxRealOffersPerRun =
+                ACTION_LIMIT_CONFIG.effectiveMaxRealOffers(
+                        productionModeEnabled
+                );
+
+        int maxRealNextStepsPerRun =
+                ACTION_LIMIT_CONFIG.effectiveMaxRealNextSteps(
+                        productionModeEnabled
+                );
 
         BotContext context = new BotContext(bot, browserManager);
         boolean loginReady = false;
@@ -137,7 +145,7 @@ public class ScheduledBotRunExecutor {
                             offerQuotaClient,
                             listingStatusUpdater,
                             realNextStepsEnabled,
-                            MAX_REAL_NEXT_STEPS_PER_RUN
+                            maxRealNextStepsPerRun
                     );
 
             CatalogWorkProcessor catalogWorkProcessor =
@@ -147,7 +155,7 @@ public class ScheduledBotRunExecutor {
                             offerQuotaClient,
                             listingStatusUpdater,
                             realOffersEnabled,
-                            MAX_REAL_OFFERS_PER_RUN
+                            maxRealOffersPerRun
                     );
 
             BotRunExecutor botRunExecutor =
@@ -165,7 +173,9 @@ public class ScheduledBotRunExecutor {
                     realOffersEnabled,
                     realNextStepsEnabled,
                     firstOfferRequested,
-                    nextStepRequested
+                    nextStepRequested,
+                    maxRealOffersPerRun,
+                    maxRealNextStepsPerRun
             );
 
             loginService.login();
@@ -213,7 +223,9 @@ public class ScheduledBotRunExecutor {
             boolean realOffersEnabled,
             boolean realNextStepsEnabled,
             boolean firstOfferRequested,
-            boolean nextStepRequested
+            boolean nextStepRequested,
+            int maxRealOffersPerRun,
+            int maxRealNextStepsPerRun
     ) {
         String jobLabel =
                 jobType == null
@@ -258,8 +270,8 @@ public class ScheduledBotRunExecutor {
                 realOffersEnabled,
                 realNextStepsEnabled,
                 REAL_ACTION_CONFIG.firstOfferOneShotTestModeEnabled(),
-                MAX_REAL_OFFERS_PER_RUN,
-                MAX_REAL_NEXT_STEPS_PER_RUN
+                maxRealOffersPerRun,
+                maxRealNextStepsPerRun
         );
     }
 }
