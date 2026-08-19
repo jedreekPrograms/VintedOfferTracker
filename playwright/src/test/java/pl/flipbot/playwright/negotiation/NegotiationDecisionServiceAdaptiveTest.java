@@ -104,6 +104,23 @@ public class NegotiationDecisionServiceAdaptiveTest {
     }
 
     @Test
+    public void loweredCapBelowAlreadySentOfferStopsFutureEscalation() {
+        BotConfigurationDto configuration = adaptiveConfiguration("1000.00");
+        ListingResponseDto listing = negotiatingListing("1390.00", 1);
+
+        NegotiationDecision decision = service.decide(
+                listing,
+                NegotiationConversationSnapshot.rejected("Odrzucono"),
+                configuration
+        );
+
+        assertEquals(
+                NegotiationDecisionType.MARK_REJECTED,
+                decision.type()
+        );
+    }
+
+    @Test
     public void staticModeKeepsConfiguredNextPrice() {
         BotConfigurationDto configuration = adaptiveConfiguration("1500.00");
         configuration.setAutoRaiseOfferToVintedMinimum(false);

@@ -113,19 +113,20 @@ class BotServiceFieldAwareEditingTest {
     }
 
     @Test
-    void activeNegotiationRejectsGlobalCapBelowAlreadySentOffer() {
+    void activeNegotiationAllowsGlobalCapBelowAlreadySentOffer() {
         activeNegotiation("1390.00");
 
         UpdateBotRequest request = unchangedRequest();
-        request.getConfiguration().setMaxAutomaticOffer(new BigDecimal("1380.00"));
+        request.getConfiguration().setMaxAutomaticOffer(new BigDecimal("1000.00"));
 
-        IllegalStateException exception = assertThrows(
-                IllegalStateException.class,
-                () -> service.updateBot(BOT_ID, request)
+        assertDoesNotThrow(() -> service.updateBot(BOT_ID, request));
+
+        assertEquals(
+                0,
+                new BigDecimal("1000.00").compareTo(
+                        configuration.getMaxAutomaticOffer()
+                )
         );
-
-        assertTrue(exception.getMessage().contains("1390.00"));
-        assertEquals(0, new BigDecimal("1500.00").compareTo(configuration.getMaxAutomaticOffer()));
     }
 
     @Test
@@ -185,7 +186,7 @@ class BotServiceFieldAwareEditingTest {
     }
 
     @Test
-    void editCapabilitiesExposeHighestAlreadySentActivePrice() {
+    void editCapabilitiesExposeFirstConfiguredOfferAsMinimumCap() {
         Listing negotiating = listing(ListingStatus.NEGOTIATING, "1250.00");
         Listing actionRequired = listing(ListingStatus.ACTION_REQUIRED, "1460.00");
 
@@ -203,7 +204,7 @@ class BotServiceFieldAwareEditingTest {
         assertTrue(capabilities.isHasActiveNegotiations());
         assertEquals(
                 0,
-                new BigDecimal("1460.00").compareTo(
+                new BigDecimal("900.00").compareTo(
                         capabilities.getMinimumNegotiationCap()
                 )
         );
