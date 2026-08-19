@@ -104,3 +104,8 @@ export interface BotDetails
     configuration:
         BotConfigurationDetails;
 }
+
+export interface BotEditCapabilities {
+    hasActiveNegotiations: boolean;
+    minimumNegotiationCap: number | null;
+}

@@ -29,6 +29,7 @@ interface BotFiltersSectionProps {
 
     isLoadingDictionaries: boolean;
     areModelsLoading: boolean;
+    targetFieldsDisabled?: boolean;
 
     onCategoryChange: (categoryId: string) => void;
     onBrandChange: (brandId: string) => void;
@@ -50,6 +51,7 @@ function BotFiltersSection({
     maxPrice,
     isLoadingDictionaries,
     areModelsLoading,
+    targetFieldsDisabled = false,
     onCategoryChange,
     onBrandChange,
     onModelChange,
@@ -125,6 +127,13 @@ function BotFiltersSection({
                 </p>
             </div>
 
+            {targetFieldsDisabled && (
+                <div className="information-box">
+                    Kategoria, marka i model są zablokowane przy aktywnych negocjacjach,
+                    ale nadal możesz zmienić zakres cen dla nowych ofert.
+                </div>
+            )}
+
             {selectedModel !== null && (
                 <div className="information-box">
                     <div className="bot-filter-reference-grid">
@@ -169,6 +178,7 @@ function BotFiltersSection({
                                 value={selectedCategoryId}
                                 options={categoryOptions}
                                 ariaLabel="Kategoria bota"
+                                disabled={targetFieldsDisabled}
                                 onChange={onCategoryChange}
                             />
                         </div>
@@ -182,6 +192,7 @@ function BotFiltersSection({
                                 value={selectedBrandId}
                                 options={brandOptions}
                                 ariaLabel="Marka bota"
+                                disabled={targetFieldsDisabled}
                                 onChange={onBrandChange}
                             />
                         </div>
@@ -195,7 +206,11 @@ function BotFiltersSection({
                                 value={selectedModelId}
                                 options={modelOptions}
                                 ariaLabel="Model bota"
-                                disabled={selectedBrandId.length === 0 || areModelsLoading}
+                                disabled={
+                                    targetFieldsDisabled
+                                    || selectedBrandId.length === 0
+                                    || areModelsLoading
+                                }
                                 onChange={onModelChange}
                             />
                             {selectedModel !== null && (

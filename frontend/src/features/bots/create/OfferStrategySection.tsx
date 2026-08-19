@@ -6,6 +6,8 @@ interface OfferStrategySectionProps {
     autoRaiseOfferToVintedMinimum: boolean;
     maxAutomaticOffer: string;
     firstConfiguredOffer: string;
+    modeDisabled?: boolean;
+    minimumNegotiationCap?: number | null;
     onAutoRaiseChange: (value: boolean) => void;
     onMaxAutomaticOfferChange: (value: string) => void;
 }
@@ -25,6 +27,8 @@ function OfferStrategySection({
     autoRaiseOfferToVintedMinimum,
     maxAutomaticOffer,
     firstConfiguredOffer,
+    modeDisabled = false,
+    minimumNegotiationCap = null,
     onAutoRaiseChange,
     onMaxAutomaticOfferChange,
 }: OfferStrategySectionProps) {
@@ -49,6 +53,19 @@ function OfferStrategySection({
                 </p>
             </div>
 
+            {modeDisabled && (
+                <div className="information-box">
+                    Przy aktywnych negocjacjach nie można zmienić sposobu liczenia
+                    drabinki, ale globalny limit negocjacji pozostaje edytowalny.
+                    {minimumNegotiationCap !== null && (
+                        <>
+                            {" "}Nie możesz ustawić go poniżej już wysłanej kwoty{" "}
+                            <strong>{formatNumber(minimumNegotiationCap)} zł</strong>.
+                        </>
+                    )}
+                </div>
+            )}
+
             <div className="bot-form-grid bot-form-grid-two">
                 <div className="form-field">
                     <label
@@ -63,6 +80,7 @@ function OfferStrategySection({
                         value={autoRaiseValue}
                         options={autoRaiseOptions}
                         ariaLabel="Adaptacyjna drabinka negocjacyjna"
+                        disabled={modeDisabled}
                         onChange={value => onAutoRaiseChange(value === "YES")}
                     />
 
@@ -86,7 +104,7 @@ function OfferStrategySection({
                         id="max-automatic-offer"
                         className="form-input"
                         type="number"
-                        min="0.01"
+                        min={minimumNegotiationCap ?? 0.01}
                         step="0.01"
                         disabled={!autoRaiseOfferToVintedMinimum}
                         value={maxAutomaticOffer}
@@ -124,6 +142,12 @@ function formatConfiguredPrice(value: string): string {
     return value.trim().length > 0
         ? `${value} zł`
         : "nie ustawiono";
+}
+
+function formatNumber(value: number): string {
+    return new Intl.NumberFormat("pl-PL", {
+        maximumFractionDigits: 2,
+    }).format(value);
 }
 
 export default OfferStrategySection;
