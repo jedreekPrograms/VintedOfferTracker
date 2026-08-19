@@ -1,5 +1,6 @@
 import type {
     BotDetails,
+    BotEditCapabilities,
     BotListItem,
     CreateBotRequest,
 } from "../types/bots";
@@ -40,6 +41,23 @@ export async function getBot(botId: number): Promise<BotDetails> {
     );
 
     return response.json() as Promise<BotDetails>;
+}
+
+export async function getBotEditCapabilities(
+    botId: number,
+): Promise<BotEditCapabilities> {
+    const response = await fetch(`${BOTS_BASE_URL}/${botId}/edit-capabilities`);
+
+    if (response.status === 404) {
+        throw new Error(`Nie znaleziono bota ${botId}.`);
+    }
+
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać zasad edycji bota ${botId}. Status HTTP: ${response.status}.`,
+    );
+
+    return response.json() as Promise<BotEditCapabilities>;
 }
 
 export async function getBotOfferQuota(
