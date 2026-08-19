@@ -8,7 +8,6 @@ import lombok.Setter;
 import pl.flipbot.negotiation.NegotiationReactionAction;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 
 @Getter
@@ -37,7 +36,10 @@ public class CreateNegotiationStepRequest {
 
     private Integer counterOfferDefaultWaitHours;
 
+    /*
+     * null = old client omitted the field -> apply default 10%/15% rules.
+     * []   = new client intentionally wants no discount thresholds.
+     */
     @Valid
-    private List<SellerCounterOfferRuleRequest> counterOfferRules =
-            new ArrayList<>();
+    private List<SellerCounterOfferRuleRequest> counterOfferRules;
 }
