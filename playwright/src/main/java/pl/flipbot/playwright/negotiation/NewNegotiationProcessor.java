@@ -77,7 +77,7 @@ public class NewNegotiationProcessor {
 
         if (targetEligibleListings.isEmpty()) {
             log.warn(
-                    "[TARGET MATCHER] None of the {} price-eligible current-scan listings matches the configured target. No quota will be reserved and no negotiation will be started.",
+                    "[TARGET MATCHER] None of the {} price-eligible DISCOVERED candidates matches the configured target. No quota will be reserved and no negotiation will be started.",
                     priceEligibleListings.size()
             );
             return;
@@ -130,7 +130,7 @@ public class NewNegotiationProcessor {
         );
 
         log.warn(
-                "[REAL OFFER DRY RUN] Real offers are disabled. {} target-eligible current-scan listings were found. {} candidate(s) were checked by final full-title verification. {} passed, {} failed target verification, {} could not be verified. Backend allows {} new negotiations. No quota was reserved and no offer was sent.",
+                "[REAL OFFER DRY RUN] Real offers are disabled. {} target-eligible DISCOVERED candidates were found. {} candidate(s) were checked by final full-title verification. {} passed, {} failed target verification, {} could not be verified. Backend allows {} new negotiations. No quota was reserved and no offer was sent.",
                 targetEligibleListings.size(),
                 finalVerification.checked(),
                 finalVerification.verifiedListings().size(),
@@ -160,7 +160,7 @@ public class NewNegotiationProcessor {
         }
 
         log.warn(
-                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible current-scan listings. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final full-title verification will run before offer-form preparation, and quota will be reserved only after the form is fully prepared and the submit button is ready.",
+                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final full-title verification will run before offer-form preparation, and quota will be reserved only after the form is fully prepared and the submit button is ready.",
                 botId,
                 targetEligibleListings.size(),
                 allowedNewNegotiations,
@@ -174,7 +174,8 @@ public class NewNegotiationProcessor {
                 MAX_FINAL_VERIFICATIONS_PER_CYCLE
         );
 
-        List<ListingResponseDto> finalVerifiedListings = finalVerification.verifiedListings();
+        List<ListingResponseDto> finalVerifiedListings =
+                finalVerification.verifiedListings();
 
         if (finalVerifiedListings.isEmpty()) {
             log.warn(
@@ -203,8 +204,13 @@ public class NewNegotiationProcessor {
             } catch (VintedRateLimitException exception) {
                 throw exception;
             } catch (Exception exception) {
+                /*
+                 * Nothing external was submitted and no quota was reserved.
+                 * One bad/stale candidate must not starve every later valid
+                 * candidate in the same catalog cycle.
+                 */
                 log.error(
-                        "[REAL OFFER PREPARE] Failed before quota reservation for marketplace listing {}: {}. No quota was reserved and no offer was sent.",
+                        "[REAL OFFER PREPARE] Failed before quota reservation for marketplace listing {}: {}. No quota was reserved and no offer was sent. Trying the next verified candidate.",
                         listing.listingId(),
                         getFriendlyErrorMessage(exception)
                 );
@@ -214,7 +220,7 @@ public class NewNegotiationProcessor {
                         exception
                 );
                 firstOfferExecutor.cancelPreparedOfferSafely();
-                return;
+                continue;
             }
 
             if (preparationResult == NegotiationPreparationResult.LISTING_UNAVAILABLE) {
@@ -246,8 +252,12 @@ public class NewNegotiationProcessor {
             try {
                 firstOfferExecutor.assertPreparedOfferReady(listing);
             } catch (Exception exception) {
+                /*
+                 * Still pre-quota and pre-submit, so this candidate can be
+                 * abandoned without making the whole run fail closed.
+                 */
                 log.error(
-                        "[REAL OFFER PREPARE] Prepared form became invalid before quota reservation for marketplace listing {}: {}. No quota was reserved.",
+                        "[REAL OFFER PREPARE] Prepared form became invalid before quota reservation for marketplace listing {}: {}. No quota was reserved. Trying the next verified candidate.",
                         listing.listingId(),
                         getFriendlyErrorMessage(exception)
                 );
@@ -257,7 +267,7 @@ public class NewNegotiationProcessor {
                         exception
                 );
                 firstOfferExecutor.cancelPreparedOfferSafely();
-                return;
+                continue;
             }
 
             var actionGuardRequestId =
@@ -335,15 +345,23 @@ public class NewNegotiationProcessor {
                 startedNegotiations++;
 
                 log.warn(
-                        "[REAL OFFER] Real negotiation STARTED for marketplace listing {}. Started during this run: {}. Daily quota used: {}/{}, remaining: {}.",
+                        "[REAL OFFER] Real negotiation STARTED for marketplace listing {}. Started during this run: {}/{}. Daily quota used: {}/{}, remaining: {}.",
                         listing.listingId(),
                         startedNegotiations,
+                        maximumOffersThisRun,
                         quotaReservation.used(),
                         quotaReservation.limit(),
                         quotaReservation.remaining()
                 );
 
-                return;
+                /*
+                 * Production mode may intentionally allow several first
+                 * offers in one catalog run. Do NOT return after the first
+                 * confirmed success; the loop continues until its configured
+                 * limit/capacity is reached. Controlled mode still receives
+                 * maxRealOffersPerRun=1 from ScheduledBotRunExecutor.
+                 */
+                continue;
 
             } catch (Exception exception) {
                 log.error(
@@ -493,10 +511,11 @@ public class NewNegotiationProcessor {
             );
 
             try {
-                boolean matchesTarget = listingDetailTargetInspector.matchesConfiguredTarget(
-                        listing,
-                        configuration
-                );
+                boolean matchesTarget =
+                        listingDetailTargetInspector.matchesConfiguredTarget(
+                                listing,
+                                configuration
+                        );
 
                 if (matchesTarget) {
                     verifiedListings.add(listing);
@@ -573,10 +592,11 @@ public class NewNegotiationProcessor {
         int detailRequestsThisCycle = 0;
 
         for (ListingResponseDto listing : listings) {
-            ListingTargetAssessment catalogAssessment = listingTargetMatcher.assessCatalogListing(
-                    listing,
-                    configuration
-            );
+            ListingTargetAssessment catalogAssessment =
+                    listingTargetMatcher.assessCatalogListing(
+                            listing,
+                            configuration
+                    );
 
             if (catalogAssessment == ListingTargetAssessment.MATCH) {
                 eligibleListings.add(listing);
@@ -589,10 +609,11 @@ public class NewNegotiationProcessor {
                 continue;
             }
 
-            ListingTargetAssessment urlAssessment = listingTargetMatcher.assessListingUrl(
-                    listing,
-                    configuration
-            );
+            ListingTargetAssessment urlAssessment =
+                    listingTargetMatcher.assessListingUrl(
+                            listing,
+                            configuration
+                    );
 
             if (urlAssessment == ListingTargetAssessment.MATCH) {
                 eligibleListings.add(listing);
@@ -610,10 +631,11 @@ public class NewNegotiationProcessor {
             );
 
             if (cached) {
-                boolean cachedMatches = listingDetailTargetInspector.matchesConfiguredTarget(
-                        listing,
-                        configuration
-                );
+                boolean cachedMatches =
+                        listingDetailTargetInspector.matchesConfiguredTarget(
+                                listing,
+                                configuration
+                        );
 
                 if (cachedMatches) {
                     eligibleListings.add(listing);
@@ -642,10 +664,11 @@ public class NewNegotiationProcessor {
             detailRequestsThisCycle++;
 
             try {
-                boolean detailMatches = listingDetailTargetInspector.matchesConfiguredTarget(
-                        listing,
-                        configuration
-                );
+                boolean detailMatches =
+                        listingDetailTargetInspector.matchesConfiguredTarget(
+                                listing,
+                                configuration
+                        );
 
                 if (detailMatches) {
                     eligibleListings.add(listing);
@@ -677,7 +700,7 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[TARGET MATCHER] Checked {} current-scan price-eligible listings. Catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, final eligible: {}. Target mode: {}.",
+                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, final eligible: {}. Target mode: {}.",
                 listings.size(),
                 matchedFromCatalogTitle,
                 matchedFromUrlSlug,
