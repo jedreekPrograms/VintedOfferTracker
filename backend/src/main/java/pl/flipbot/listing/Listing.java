@@ -71,36 +71,31 @@ public class Listing {
     @Column(name = "decision_at")
     private LocalDateTime decisionAt;
 
-    /*
-     * Moment rozpoczęcia AKTUALNEGO kroku negocjacji.
-     *
-     * Ustawiamy go:
-     * - gdy listing pierwszy raz przechodzi do NEGOTIATING,
-     * - gdy currentStep zmienia się na kolejny krok.
-     *
-     * Będzie podstawą timera 48h bez żadnej reakcji sprzedającego.
-     */
     @Column(name = "current_step_started_at")
     private LocalDateTime currentStepStartedAt;
 
-    /*
-     * Ostatnia wykryta zwykła wiadomość sprzedającego
-     * po naszej aktualnej ofercie.
-     *
-     * Później będziemy od tego czasu liczyć 3h
-     * przed wysłaniem kolejnego kroku.
-     */
     @Column(name = "seller_activity_at")
     private LocalDateTime sellerActivityAt;
 
-    /*
-     * Moment PIERWSZEGO wykrycia "Przeczytane"
-     * dla aktualnego kroku negocjacji.
-     *
-     * Tego pola nie będziemy przesuwać przy każdym skanie.
-     */
     @Column(name = "read_detected_at")
     private LocalDateTime readDetectedAt;
+
+    /*
+     * Formal response timing is deliberately persisted. Vinted may show the
+     * same "rejected" state or the same counteroffer on every poll. Without a
+     * stable first-detection timestamp a configurable 6h/12h/24h timer would
+     * restart forever.
+     *
+     * Fingerprints are scoped to the current step and are reset whenever a new
+     * step starts. A changed counteroffer price creates a new fingerprint and
+     * therefore a new timer, which is exactly what we want for a fresh seller
+     * concession.
+     */
+    @Column(name = "formal_response_fingerprint", length = 255)
+    private String formalResponseFingerprint;
+
+    @Column(name = "formal_response_detected_at")
+    private LocalDateTime formalResponseDetectedAt;
 
     @ManyToOne
     @JoinColumn(
