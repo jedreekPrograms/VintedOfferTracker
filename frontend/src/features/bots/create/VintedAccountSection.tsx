@@ -3,6 +3,7 @@ interface VintedAccountSectionProps {
     password: string;
 
     passwordOptional?: boolean;
+    disabled?: boolean;
 
     onEmailChange: (value: string) => void;
     onPasswordChange: (value: string) => void;
@@ -13,6 +14,7 @@ function VintedAccountSection({
     password,
 
     passwordOptional = false,
+    disabled = false,
 
     onEmailChange,
     onPasswordChange,
@@ -52,6 +54,7 @@ function VintedAccountSection({
                         value={email}
                         autoComplete="username"
                         placeholder="konto@example.com"
+                        disabled={disabled}
                         onChange={(event) => {
                             onEmailChange(
                                 event.target.value,
@@ -83,6 +86,7 @@ function VintedAccountSection({
                                 ? "Pozostaw puste, aby zachować obecne hasło"
                                 : "Hasło do konta Vinted"
                         }
+                        disabled={disabled}
                         onChange={(event) => {
                             onPasswordChange(
                                 event.target.value,
@@ -93,22 +97,23 @@ function VintedAccountSection({
             </div>
 
             <div className="information-box">
-                {
-                    passwordOptional
-                        ? (
-                            <>
-                                Pozostaw pole hasła puste,
-                                jeśli nie chcesz zmieniać
-                                danych logowania tego bota.
-                            </>
-                        )
-                        : (
-                            <>
-                                Konto zostanie przypisane wyłącznie
-                                do tego konkretnego bota.
-                            </>
-                        )
-                }
+                {disabled ? (
+                    <>
+                        Dane konta są zablokowane, dopóki bot ma aktywne negocjacje.
+                        Zmiana konta mogłaby odłączyć istniejące rozmowy od właściwej sesji.
+                    </>
+                ) : passwordOptional ? (
+                    <>
+                        Pozostaw pole hasła puste,
+                        jeśli nie chcesz zmieniać
+                        danych logowania tego bota.
+                    </>
+                ) : (
+                    <>
+                        Konto zostanie przypisane wyłącznie
+                        do tego konkretnego bota.
+                    </>
+                )}
             </div>
         </article>
     );
