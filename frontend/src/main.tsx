@@ -5,6 +5,7 @@ import App from "./App";
 import "./index.css";
 import "./styles/commercial-ui.css";
 import "./styles/commercial-ui-details.css";
+import "./styles/negotiation-response-policies.css";
 
 const rootElement = document.getElementById("root");
 
