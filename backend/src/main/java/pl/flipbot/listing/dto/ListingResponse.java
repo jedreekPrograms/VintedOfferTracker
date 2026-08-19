@@ -39,4 +39,8 @@ public class ListingResponse {
     private LocalDateTime sellerActivityAt;
 
     private LocalDateTime readDetectedAt;
+
+    private String formalResponseFingerprint;
+
+    private LocalDateTime formalResponseDetectedAt;
 }
