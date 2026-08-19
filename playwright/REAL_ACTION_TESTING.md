@@ -73,6 +73,8 @@ Controlled mode intentionally keeps:
 - backend real-action guard/idempotency,
 - explicit bot allowlist.
 
+Production throughput variables do not increase controlled-mode limits.
+
 ## Stage 4 - one bot, next-step PREFLIGHT ONLY
 
 Use a bot with an existing NEGOTIATING listing and at least two configured negotiation steps:
@@ -97,7 +99,7 @@ Only after Stage 4 is clean:
 FLIPBOT_REAL_ACTION_PREFLIGHT_ONLY=false
 ```
 
-Current per-run limit remains maximum 1 real next step per NEGOTIATION_CHECK.
+Controlled mode remains maximum 1 real next step per NEGOTIATION_CHECK.
 
 ## Stage 6 - controlled multi-bot validation
 
@@ -116,7 +118,7 @@ FLIPBOT_REAL_ACTION_ALLOW_ALL_RUNNING_BOTS=false
 
 ## Stage 7 - continuous production real actions
 
-Production mode is the explicit switch that removes only the process-wide first-offer one-shot test lock. It does **not** remove backend quota/idempotency, preflight validation, bot-level daily negotiation budgets, or per-run action limits.
+Production mode is the explicit switch that removes the process-wide first-offer one-shot test lock and enables configurable per-run throughput. It does **not** remove backend quota/idempotency, preflight validation, bot-level daily negotiation budgets, or the configured per-run action caps.
 
 ### Option A - production for an explicit bot allowlist
 
@@ -179,16 +181,42 @@ FLIPBOT_SCHEDULER_HEADLESS=true
 
 `FLIPBOT_WORKER_COUNT` is a concurrency cap, not a bot-count limit. You can have 100 RUNNING bots with 10 worker slots; jobs are queued and shared across those slots. Raising it toward 100 can create many simultaneous browser runtimes and should be load-tested gradually.
 
+### Production action throughput
+
+Production mode additionally reads:
+
+```text
+FLIPBOT_MAX_REAL_OFFERS_PER_CATALOG_SCAN=3
+FLIPBOT_MAX_REAL_NEXT_STEPS_PER_CHECK=1
+```
+
+Allowed range for each variable is `1..5`. Invalid values fail back to the safe default. Controlled mode always forces both limits back to `1`, even if larger environment values are configured.
+
+The first-offer default is `3` so a scan that finds several good listings can start several negotiations instead of sending one and potentially losing the rest when they fall off the newest-first catalog page. Backend daily capacity/quota remains authoritative and can reduce the effective count below this limit.
+
+### DISCOVERED backlog behavior
+
+A catalog run now has two candidate sources:
+
+1. fresh `DISCOVERED` listings that are still in the current newest-first Vinted scan,
+2. older persisted `DISCOVERED` listings that fell off the current first page before a negotiation was started.
+
+Fresh listings keep priority, but backlog items are interleaved in `3 fresh : 2 backlog` batches. The backlog is oldest-first, so it drains instead of starving forever. A backlog listing still goes through price guard, target checks, mandatory full-title verification, live listing availability/offer-action checks, persistent FIRST_OFFER guard, and quota reservation before a real submit.
+
+A failed candidate **before** guard/quota/submit no longer aborts all later verified candidates. A guard refusal or any ambiguous post-quota submit failure still fails closed for the whole run.
+
 ### Production invariants that remain enabled
 
 - only scheduler jobs (`CATALOG_SCAN` / `NEGOTIATION_CHECK`) may receive real-action capability,
 - real-action preflight still runs before an eligible real job,
 - backend guard/idempotency remains authoritative,
 - backend negotiation quota and bot daily negotiation budget remain authoritative,
-- maximum 1 real first offer per CATALOG_SCAN remains,
-- maximum 1 real next step per NEGOTIATION_CHECK remains,
+- first-offer throughput is capped by `FLIPBOT_MAX_REAL_OFFERS_PER_CATALOG_SCAN` (default 3, maximum 5),
+- next-step throughput is capped by `FLIPBOT_MAX_REAL_NEXT_STEPS_PER_CHECK` (default 1, maximum 5),
+- controlled mode still caps both action types at 1,
 - a single bot is not scheduled concurrently in two worker slots,
-- rate-limit and failure retry delays remain active.
+- rate-limit and failure retry delays remain active,
+- a marketplace listing remains globally claimed by one bot in the current backend schema, preventing multiple bot accounts from independently claiming the same listing.
 
 ## Fail-closed checks
 
