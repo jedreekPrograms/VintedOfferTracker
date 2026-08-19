@@ -7,6 +7,8 @@ public record NegotiationActivityResponse(
         Integer currentStep,
         LocalDateTime currentStepStartedAt,
         LocalDateTime sellerActivityAt,
-        LocalDateTime readDetectedAt
+        LocalDateTime readDetectedAt,
+        String formalResponseFingerprint,
+        LocalDateTime formalResponseDetectedAt
 ) {
 }

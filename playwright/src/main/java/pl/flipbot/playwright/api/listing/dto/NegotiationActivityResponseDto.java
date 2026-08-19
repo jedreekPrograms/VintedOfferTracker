@@ -5,6 +5,8 @@ public record NegotiationActivityResponseDto(
         Integer currentStep,
         String currentStepStartedAt,
         String sellerActivityAt,
-        String readDetectedAt
+        String readDetectedAt,
+        String formalResponseFingerprint,
+        String formalResponseDetectedAt
 ) {
 }

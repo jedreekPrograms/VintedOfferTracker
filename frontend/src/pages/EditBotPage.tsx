@@ -3,7 +3,6 @@ import {
     useEffect,
     useState,
 } from "react";
-
 import {
     Link,
     useNavigate,
@@ -15,51 +14,27 @@ import {
     getBotEditCapabilities,
     updateBot,
 } from "../api/botsApi";
-
-import BasicInfoSection
-    from "../features/bots/create/BasicInfoSection";
-
-import BotFiltersSection
-    from "../features/bots/create/BotFiltersSection";
-
-import NegotiationBudgetSection
-    from "../features/bots/create/NegotiationBudgetSection";
-
-import NegotiationStepsSection
-    from "../features/bots/create/NegotiationStepsSection";
-
-import OfferStrategySection
-    from "../features/bots/create/OfferStrategySection";
-
-import VintedAccountSection
-    from "../features/bots/create/VintedAccountSection";
-
+import BasicInfoSection from "../features/bots/create/BasicInfoSection";
+import BotFiltersSection from "../features/bots/create/BotFiltersSection";
+import NegotiationBudgetSection from "../features/bots/create/NegotiationBudgetSection";
+import NegotiationStepsSection from "../features/bots/create/NegotiationStepsSection";
+import OfferStrategySection from "../features/bots/create/OfferStrategySection";
+import VintedAccountSection from "../features/bots/create/VintedAccountSection";
 import type {
+    CounterOfferRuleField,
     CreateBotFormValues,
     NegotiationStepField,
+    NegotiationStepPolicyField,
 } from "../features/bots/create/botForm";
-
 import type {
     BotDetails,
     BotEditCapabilities,
     TargetMode,
 } from "../types/bots";
-
-import {
-    useBotDictionaries,
-} from "../features/bots/create/hooks/useBotDictionaries";
-
-import {
-    useCreateBotForm,
-} from "../features/bots/create/hooks/useCreateBotForm";
-
-import {
-    buildCreateBotRequest,
-} from "../features/bots/create/mappers/buildCreateBotRequest";
-
-import {
-    validateCreateBotForm,
-} from "../features/bots/create/validation/validateCreateBotForm";
+import { useBotDictionaries } from "../features/bots/create/hooks/useBotDictionaries";
+import { useCreateBotForm } from "../features/bots/create/hooks/useCreateBotForm";
+import { buildCreateBotRequest } from "../features/bots/create/mappers/buildCreateBotRequest";
+import { validateCreateBotForm } from "../features/bots/create/validation/validateCreateBotForm";
 
 function EditBotPage() {
     const navigate = useNavigate();
@@ -83,6 +58,10 @@ function EditBotPage() {
         addNegotiationStep,
         removeNegotiationStep,
         updateNegotiationStep,
+        updateNegotiationStepPolicy,
+        addCounterOfferRule,
+        removeCounterOfferRule,
+        updateCounterOfferRule,
         replaceForm,
     } = useCreateBotForm();
 
@@ -94,8 +73,7 @@ function EditBotPage() {
     const [isModelResolved, setIsModelResolved] = useState(false);
     const [initializationError, setInitializationError] =
         useState<string | null>(null);
-    const [errorMessage, setErrorMessage] =
-        useState<string | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const {
@@ -112,21 +90,17 @@ function EditBotPage() {
     const selectedCategory = categories.find(
         (category) => String(category.id) === form.selectedCategoryId,
     ) ?? null;
-
     const selectedBrand = brands.find(
         (brand) => String(brand.id) === form.selectedBrandId,
     ) ?? null;
-
     const selectedModel = models.find(
         (model) => String(model.id) === form.selectedModelId,
     ) ?? null;
 
     const isStopped = bot !== null
         && bot.status.toUpperCase() === "STOPPED";
-
     const hasActiveNegotiations =
         editCapabilities?.hasActiveNegotiations ?? false;
-
     const isFormInitialized = isBaseInitialized
         && isModelResolved
         && editCapabilities !== null
@@ -142,7 +116,9 @@ function EditBotPage() {
 
         if (!isBotIdValid) {
             setIsLoadingBot(false);
-            setInitializationError("Identyfikator bota w adresie jest nieprawidłowy.");
+            setInitializationError(
+                "Identyfikator bota w adresie jest nieprawidłowy.",
+            );
             return;
         }
 
@@ -150,13 +126,11 @@ function EditBotPage() {
 
         async function loadBot() {
             setIsLoadingBot(true);
-
             try {
                 const [loadedBot, loadedCapabilities] = await Promise.all([
                     getBot(botId),
                     getBotEditCapabilities(botId),
                 ]);
-
                 if (!cancelled) {
                     setBot(loadedBot);
                     setEditCapabilities(loadedCapabilities);
@@ -178,19 +152,16 @@ function EditBotPage() {
         }
 
         void loadBot();
-
         return () => {
             cancelled = true;
         };
     }, [botId, isBotIdValid]);
 
     useEffect(() => {
-        if (
-            bot === null
+        if (bot === null
             || isLoadingDictionaries
             || isBaseInitialized
-            || initializationError !== null
-        ) {
+            || initializationError !== null) {
             return;
         }
 
@@ -200,7 +171,6 @@ function EditBotPage() {
                 bot.configuration.categoryPath,
             ),
         );
-
         if (matchingCategory === undefined) {
             setInitializationError(
                 "Nie udało się odnaleźć zapisanej kategorii bota w aktualnym słowniku.",
@@ -214,7 +184,6 @@ function EditBotPage() {
             normalizedText(brand.name)
             === normalizedText(bot.configuration.brand),
         );
-
         if (matchingBrand === undefined) {
             setInitializationError(
                 "Nie udało się odnaleźć zapisanej marki bota w aktualnym słowniku.",
@@ -236,6 +205,28 @@ function EditBotPage() {
                         ? ""
                         : String(step.maxAcceptedCounterOffer),
                 message: step.message,
+                rejectionAction: step.rejectionAction ?? "NEXT_STEP_NOW",
+                rejectionWaitHours: step.rejectionWaitHours === null
+                    ? ""
+                    : String(step.rejectionWaitHours),
+                counterOfferDefaultAction:
+                    step.counterOfferDefaultAction ?? "WAIT_BEFORE_NEXT_STEP",
+                counterOfferDefaultWaitHours:
+                    step.counterOfferDefaultWaitHours === null
+                        ? ""
+                        : String(step.counterOfferDefaultWaitHours),
+                counterOfferRules: (step.counterOfferRules ?? []).map(
+                    (rule, ruleIndex) => ({
+                        id: (index + 1) * 100 + ruleIndex + 1,
+                        minimumDiscountPercent: String(
+                            rule.minimumDiscountPercent,
+                        ),
+                        action: rule.action,
+                        waitHours: rule.waitHours === null
+                            ? ""
+                            : String(rule.waitHours),
+                    }),
+                ),
             }));
 
         const initialForm: CreateBotFormValues = {
@@ -252,21 +243,15 @@ function EditBotPage() {
             autoRaiseOfferToVintedMinimum: Boolean(
                 bot.configuration.autoRaiseOfferToVintedMinimum,
             ),
-            maxAutomaticOffer:
-                bot.configuration.maxAutomaticOffer === null
-                    ? ""
-                    : String(bot.configuration.maxAutomaticOffer),
+            maxAutomaticOffer: bot.configuration.maxAutomaticOffer === null
+                ? ""
+                : String(bot.configuration.maxAutomaticOffer),
             dailyNegotiationBudget: String(
                 bot.configuration.dailyNegotiationBudget,
             ),
             negotiationSteps: steps.length > 0
                 ? steps
-                : [{
-                    id: 1,
-                    offerPrice: "",
-                    maxAcceptedCounterOffer: "",
-                    message: "",
-                }],
+                : [],
         };
 
         replaceForm(initialForm);
@@ -282,14 +267,12 @@ function EditBotPage() {
     ]);
 
     useEffect(() => {
-        if (
-            bot === null
+        if (bot === null
             || !isBaseInitialized
             || isModelResolved
             || form.selectedBrandId.length === 0
             || modelsBrandId !== form.selectedBrandId
-            || areModelsLoading
-        ) {
+            || areModelsLoading) {
             return;
         }
 
@@ -298,7 +281,8 @@ function EditBotPage() {
             ? bot.configuration.searchQuery
             : bot.configuration.model;
 
-        if (configuredTargetName === null || configuredTargetName.trim().length === 0) {
+        if (configuredTargetName === null
+            || configuredTargetName.trim().length === 0) {
             setInitializationError(
                 "Bot nie ma poprawnie zapisanego modelu / frazy wyszukiwania.",
             );
@@ -310,7 +294,6 @@ function EditBotPage() {
             normalizedText(model.name) === normalizedText(configuredTargetName)
             && model.targetMode === targetMode,
         );
-
         if (matchingModel === undefined) {
             setInitializationError(
                 `Nie znaleziono w słowniku modelu „${configuredTargetName}” z trybem ${
@@ -342,28 +325,23 @@ function EditBotPage() {
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-
         if (!isStopped || !isFormInitialized || isSubmitting) {
             return;
         }
 
         clearMessages();
 
-        if (
-            hasActiveNegotiations
+        if (hasActiveNegotiations
             && form.autoRaiseOfferToVintedMinimum
-            && editCapabilities?.minimumNegotiationCap !== null
-        ) {
+            && editCapabilities?.minimumNegotiationCap !== null) {
             const requestedCap = Number(form.maxAutomaticOffer);
             const minimumCap = editCapabilities?.minimumNegotiationCap ?? null;
 
-            if (
-                minimumCap !== null
+            if (minimumCap !== null
                 && Number.isFinite(requestedCap)
-                && requestedCap < minimumCap
-            ) {
+                && requestedCap < minimumCap) {
                 setErrorMessage(
-                    `Globalny limit negocjacji nie może być niższy niż ${formatPrice(minimumCap)} zł, ponieważ taka kwota została już wysłana w aktywnej negocjacji.`,
+                    `Globalny limit negocjacji nie może być niższy niż bazowa pierwsza oferta ${formatPrice(minimumCap)} zł. Już wysłane wyższe oferty nie blokują obniżenia limitu; limit dotyczy przyszłych automatycznych akcji.`,
                 );
                 return;
             }
@@ -376,17 +354,14 @@ function EditBotPage() {
             selectedModel,
             requirePassword: false,
         });
-
         if (!validationResult.valid) {
             setErrorMessage(validationResult.errorMessage);
             return;
         }
 
-        const request = buildCreateBotRequest(validationResult.data);
         setIsSubmitting(true);
-
         try {
-            await updateBot(botId, request);
+            await updateBot(botId, buildCreateBotRequest(validationResult.data));
             navigate("/bots");
         } catch (error) {
             setErrorMessage(
@@ -422,11 +397,40 @@ function EditBotPage() {
         clearMessages();
     }
 
+    function handleUpdateStepPolicy(
+        stepId: number,
+        field: NegotiationStepPolicyField,
+        value: string,
+    ) {
+        updateNegotiationStepPolicy(stepId, field, value);
+        clearMessages();
+    }
+
+    function handleAddCounterRule(stepId: number) {
+        if (!addCounterOfferRule(stepId)) {
+            setErrorMessage("Jeden krok może mieć maksymalnie 25 progów procentowych.");
+        } else {
+            clearMessages();
+        }
+    }
+
+    function handleUpdateCounterRule(
+        stepId: number,
+        ruleId: number,
+        field: CounterOfferRuleField,
+        value: string,
+    ) {
+        updateCounterOfferRule(stepId, ruleId, field, value);
+        clearMessages();
+    }
+
     if (isLoadingBot || isLoadingDictionaries) {
         return (
             <section className="page">
                 <article className="content-card">
-                    <div className="dictionary-list-state">Pobieranie konfiguracji bota...</div>
+                    <div className="dictionary-list-state">
+                        Pobieranie konfiguracji bota...
+                    </div>
                 </article>
             </section>
         );
@@ -455,8 +459,8 @@ function EditBotPage() {
                     <h1 className="page-title">Edytuj bota</h1>
                     <p className="page-description">
                         Bot musi być zatrzymany podczas zapisu. Aktywne negocjacje
-                        ograniczają tylko pola, których zmiana mogłaby zmienić
-                        tożsamość bota albo znaczenie trwającej rozmowy.
+                        blokują tylko zmianę tożsamości i znaczenia kroków;
+                        timery i reguły reakcji można dostrajać na bieżąco.
                     </p>
                 </div>
             </header>
@@ -470,11 +474,12 @@ function EditBotPage() {
             {hasActiveNegotiations && (
                 <div className="information-box">
                     <strong>Tryb ograniczonej edycji:</strong>{" "}
-                    bot ma aktywne negocjacje. Możesz zmienić nazwę bota,
-                    minimalną i maksymalną cenę nowych ofert, dzienny budżet
-                    oraz globalny limit negocjacji. Konto Vinted, cel/model,
-                    tryb adaptacyjny i kroki negocjacji pozostają zablokowane
-                    do zakończenia aktywnych rozmów.
+                    możesz zmienić nazwę, zakres cen nowych ofert, dzienny budżet,
+                    globalny limit negocjacji oraz <strong>reakcję po odrzuceniu,
+                    czasy oczekiwania i reguły procentowe kontrofert</strong>.
+                    Konto Vinted, cel/model, tryb adaptacyjny, ceny kroków,
+                    progi akceptacji, wiadomości i liczba kroków pozostają
+                    zablokowane do zakończenia aktywnych rozmów.
                 </div>
             )}
 
@@ -483,7 +488,6 @@ function EditBotPage() {
                     {dictionaryErrorMessage}
                 </div>
             )}
-
             {errorMessage !== null && (
                 <div className="form-message form-message-error" role="alert">
                     {errorMessage}
@@ -566,11 +570,17 @@ function EditBotPage() {
                     />
 
                     <OfferStrategySection
-                        autoRaiseOfferToVintedMinimum={form.autoRaiseOfferToVintedMinimum}
+                        autoRaiseOfferToVintedMinimum={
+                            form.autoRaiseOfferToVintedMinimum
+                        }
                         maxAutomaticOffer={form.maxAutomaticOffer}
-                        firstConfiguredOffer={form.negotiationSteps[0]?.offerPrice ?? ""}
+                        firstConfiguredOffer={
+                            form.negotiationSteps[0]?.offerPrice ?? ""
+                        }
                         modeDisabled={hasActiveNegotiations}
-                        minimumNegotiationCap={editCapabilities.minimumNegotiationCap}
+                        minimumNegotiationCap={
+                            editCapabilities.minimumNegotiationCap
+                        }
                         onAutoRaiseChange={(value) => {
                             setAutoRaiseOfferToVintedMinimum(value);
                             clearMessages();
@@ -584,10 +594,17 @@ function EditBotPage() {
                     <NegotiationStepsSection
                         negotiationSteps={form.negotiationSteps}
                         dailyNegotiationBudget={form.dailyNegotiationBudget}
-                        disabled={hasActiveNegotiations}
+                        definitionDisabled={hasActiveNegotiations}
                         onAddStep={handleAddNegotiationStep}
                         onRemoveStep={handleRemoveNegotiationStep}
                         onUpdateStep={handleUpdateNegotiationStep}
+                        onUpdateStepPolicy={handleUpdateStepPolicy}
+                        onAddCounterOfferRule={handleAddCounterRule}
+                        onRemoveCounterOfferRule={(stepId, ruleId) => {
+                            removeCounterOfferRule(stepId, ruleId);
+                            clearMessages();
+                        }}
+                        onUpdateCounterOfferRule={handleUpdateCounterRule}
                     />
                 </fieldset>
 
@@ -613,8 +630,8 @@ function resolveTargetMode(bot: BotDetails): TargetMode {
 
     return bot.configuration.searchQuery !== null
         && bot.configuration.searchQuery.trim().length > 0
-            ? "SEARCH_QUERY"
-            : "VINTED_MODEL";
+        ? "SEARCH_QUERY"
+        : "VINTED_MODEL";
 }
 
 function categoryPathsEqual(left: string[], right: string[]): boolean {
@@ -635,9 +652,7 @@ function formatPrice(value: number): string {
 }
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
-    return error instanceof Error
-        ? error.message
-        : fallbackMessage;
+    return error instanceof Error ? error.message : fallbackMessage;
 }
 
 export default EditBotPage;

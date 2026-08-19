@@ -17,14 +17,12 @@ public record ListingResponseDto(
         String decisionAt,
         String currentStepStartedAt,
         String sellerActivityAt,
-        String readDetectedAt
+        String readDetectedAt,
+        String formalResponseFingerprint,
+        String formalResponseDetectedAt
 ) {
 
-    /*
-     * Zachowujemy konstruktor ze starego kontraktu.
-     * Dzięki temu ewentualne testy / pomocniczy kod, który ręcznie
-     * tworzy ListingResponseDto z 12 polami, nadal się kompiluje.
-     */
+    /* Backward-compatible constructor used by older tests/helpers. */
     public ListingResponseDto(
             Long id,
             String listingId,
@@ -39,7 +37,6 @@ public record ListingResponseDto(
             String status,
             String decisionAt
     ) {
-
         this(
                 id,
                 listingId,
@@ -54,6 +51,48 @@ public record ListingResponseDto(
                 status,
                 decisionAt,
                 null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    /* Compatibility with code written after negotiation activity timers but
+       before formal-response timers were introduced. */
+    public ListingResponseDto(
+            Long id,
+            String listingId,
+            String title,
+            String url,
+            BigDecimal originalPrice,
+            BigDecimal currentPrice,
+            Integer currentStep,
+            Boolean awaitingSellerResponse,
+            String conversationId,
+            String conversationUrl,
+            String status,
+            String decisionAt,
+            String currentStepStartedAt,
+            String sellerActivityAt,
+            String readDetectedAt
+    ) {
+        this(
+                id,
+                listingId,
+                title,
+                url,
+                originalPrice,
+                currentPrice,
+                currentStep,
+                awaitingSellerResponse,
+                conversationId,
+                conversationUrl,
+                status,
+                decisionAt,
+                currentStepStartedAt,
+                sellerActivityAt,
+                readDetectedAt,
                 null,
                 null
         );

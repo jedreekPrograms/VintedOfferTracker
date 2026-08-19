@@ -12,6 +12,7 @@ import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotMapper;
 import pl.flipbot.marketplace.Marketplace;
+import pl.flipbot.negotiation.NegotiationReactionAction;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
@@ -130,6 +131,41 @@ class BotServiceFieldAwareEditingTest {
     }
 
     @Test
+    void activeNegotiationAllowsResponsePolicyOnlyEdit() {
+        activeNegotiation("1250.00");
+
+        UpdateBotRequest request = unchangedRequest();
+        CreateNegotiationStepRequest secondStep = request.getConfiguration()
+                .getNegotiationSteps()
+                .get(1);
+        secondStep.setRejectionAction(
+                NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
+        );
+        secondStep.setRejectionWaitHours(12);
+        secondStep.setCounterOfferDefaultAction(
+                NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
+        );
+        secondStep.setCounterOfferDefaultWaitHours(4);
+        secondStep.setCounterOfferRules(new ArrayList<>());
+
+        assertDoesNotThrow(() -> service.updateBot(BOT_ID, request));
+
+        NegotiationStep persistedSecondStep = configuration.getNegotiationSteps()
+                .stream()
+                .filter(step -> step.getStepNumber() == 2)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(
+                NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP,
+                persistedSecondStep.getRejectionAction()
+        );
+        assertEquals(12, persistedSecondStep.getRejectionWaitHours());
+        assertEquals(4, persistedSecondStep.getCounterOfferDefaultWaitHours());
+        assertTrue(persistedSecondStep.getCounterOfferRules().isEmpty());
+    }
+
+    @Test
     void activeNegotiationRejectsTargetChange() {
         activeNegotiation("1250.00");
 
@@ -160,7 +196,7 @@ class BotServiceFieldAwareEditingTest {
                 () -> service.updateBot(BOT_ID, request)
         );
 
-        assertTrue(exception.getMessage().contains("negotiation steps"));
+        assertTrue(exception.getMessage().contains("negotiation step"));
         assertEquals(
                 0,
                 new BigDecimal("1000.00").compareTo(
@@ -292,6 +328,15 @@ class BotServiceFieldAwareEditingTest {
                             step.getMaxAcceptedCounterOffer()
                     );
                     stepRequest.setMessage(step.getMessage());
+                    stepRequest.setRejectionAction(step.getRejectionAction());
+                    stepRequest.setRejectionWaitHours(step.getRejectionWaitHours());
+                    stepRequest.setCounterOfferDefaultAction(
+                            step.getCounterOfferDefaultAction()
+                    );
+                    stepRequest.setCounterOfferDefaultWaitHours(
+                            step.getCounterOfferDefaultWaitHours()
+                    );
+                    stepRequest.setCounterOfferRules(new ArrayList<>());
                     return stepRequest;
                 })
                 .toList();

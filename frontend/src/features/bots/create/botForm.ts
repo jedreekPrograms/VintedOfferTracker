@@ -5,6 +5,7 @@ import type {
 } from "../../../types/dictionaries";
 
 import type {
+    NegotiationReactionAction,
     TargetMode,
 } from "../../../types/bots";
 
@@ -13,11 +14,37 @@ export type NegotiationStepField =
     | "maxAcceptedCounterOffer"
     | "message";
 
+export type NegotiationStepPolicyField =
+    | "rejectionAction"
+    | "rejectionWaitHours"
+    | "counterOfferDefaultAction"
+    | "counterOfferDefaultWaitHours";
+
+export type CounterOfferRuleField =
+    | "minimumDiscountPercent"
+    | "action"
+    | "waitHours";
+
+export interface CounterOfferRuleForm {
+    id: number;
+    minimumDiscountPercent: string;
+    action: NegotiationReactionAction;
+    waitHours: string;
+}
+
 export interface NegotiationStepForm {
     id: number;
     offerPrice: string;
     maxAcceptedCounterOffer: string;
     message: string;
+
+    rejectionAction: NegotiationReactionAction;
+    rejectionWaitHours: string;
+
+    counterOfferDefaultAction: NegotiationReactionAction;
+    counterOfferDefaultWaitHours: string;
+
+    counterOfferRules: CounterOfferRuleForm[];
 }
 
 export interface CreateBotFormValues {
@@ -47,10 +74,24 @@ export interface CreateBotFormValues {
     negotiationSteps: NegotiationStepForm[];
 }
 
+export interface ValidatedCounterOfferRule {
+    minimumDiscountPercent: number;
+    action: NegotiationReactionAction;
+    waitHours: number | null;
+}
+
 export interface ValidatedNegotiationStep {
     offerPrice: number;
     maxAcceptedCounterOffer: number;
     message: string;
+
+    rejectionAction: NegotiationReactionAction;
+    rejectionWaitHours: number | null;
+
+    counterOfferDefaultAction: NegotiationReactionAction;
+    counterOfferDefaultWaitHours: number | null;
+
+    counterOfferRules: ValidatedCounterOfferRule[];
 }
 
 export interface ValidatedCreateBotForm {

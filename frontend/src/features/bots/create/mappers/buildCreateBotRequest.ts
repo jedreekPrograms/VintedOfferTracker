@@ -10,75 +10,36 @@ export function buildCreateBotRequest(
     validatedForm: ValidatedCreateBotForm,
 ): CreateBotRequest {
     return {
-        name:
-            validatedForm.name,
-
-        email:
-            validatedForm.email,
-
-        password:
-            validatedForm.password,
-
+        name: validatedForm.name,
+        email: validatedForm.email,
+        password: validatedForm.password,
         configuration: {
-            marketplace:
-                "VINTED",
-
-            categoryPath:
-                validatedForm
-                    .category
-                    .categoryPath,
-
-            brand:
-                validatedForm
-                    .brand
-                    .name,
-
-            targetMode:
-                validatedForm
-                    .targetMode,
-
-            model:
-                validatedForm.model
-                    ?.name
-                ?? null,
-
-            searchQuery:
-                validatedForm
-                    .searchQuery,
-
-            minPrice:
-                validatedForm.minPrice,
-
-            maxPrice:
-                validatedForm.maxPrice,
-
+            marketplace: "VINTED",
+            categoryPath: validatedForm.category.categoryPath,
+            brand: validatedForm.brand.name,
+            targetMode: validatedForm.targetMode,
+            model: validatedForm.model?.name ?? null,
+            searchQuery: validatedForm.searchQuery,
+            minPrice: validatedForm.minPrice,
+            maxPrice: validatedForm.maxPrice,
             autoRaiseOfferToVintedMinimum:
-                validatedForm
-                    .autoRaiseOfferToVintedMinimum,
-
-            maxAutomaticOffer:
-                validatedForm
-                    .maxAutomaticOffer,
-
-            dailyNegotiationBudget:
-                validatedForm
-                    .dailyNegotiationBudget,
-
-            negotiationSteps:
-                validatedForm
-                    .negotiationSteps
-                    .map(
-                        (step) => ({
-                            offerPrice:
-                                step.offerPrice,
-
-                            maxAcceptedCounterOffer:
-                                step.maxAcceptedCounterOffer,
-
-                            message:
-                                step.message,
-                        }),
-                    ),
+                validatedForm.autoRaiseOfferToVintedMinimum,
+            maxAutomaticOffer: validatedForm.maxAutomaticOffer,
+            dailyNegotiationBudget: validatedForm.dailyNegotiationBudget,
+            negotiationSteps: validatedForm.negotiationSteps.map((step) => ({
+                offerPrice: step.offerPrice,
+                maxAcceptedCounterOffer: step.maxAcceptedCounterOffer,
+                message: step.message,
+                rejectionAction: step.rejectionAction,
+                rejectionWaitHours: step.rejectionWaitHours,
+                counterOfferDefaultAction: step.counterOfferDefaultAction,
+                counterOfferDefaultWaitHours: step.counterOfferDefaultWaitHours,
+                counterOfferRules: step.counterOfferRules.map((rule) => ({
+                    minimumDiscountPercent: rule.minimumDiscountPercent,
+                    action: rule.action,
+                    waitHours: rule.waitHours,
+                })),
+            })),
         },
     };
 }
