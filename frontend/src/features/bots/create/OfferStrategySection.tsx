@@ -57,10 +57,14 @@ function OfferStrategySection({
                 <div className="information-box">
                     Przy aktywnych negocjacjach nie można zmienić sposobu liczenia
                     drabinki, ale globalny limit negocjacji pozostaje edytowalny.
+                    Możesz go również obniżyć poniżej kwoty już wysłanej w aktywnej
+                    negocjacji — nie cofnie to wcześniejszej oferty, ale kolejne
+                    automatyczne akcje nie przekroczą nowego limitu.
                     {minimumNegotiationCap !== null && (
                         <>
-                            {" "}Nie możesz ustawić go poniżej już wysłanej kwoty{" "}
-                            <strong>{formatNumber(minimumNegotiationCap)} zł</strong>.
+                            {" "}Minimalny poprawny limit dla tej drabinki to{" "}
+                            <strong>{formatNumber(minimumNegotiationCap)} zł</strong>,
+                            czyli bazowa oferta z kroku 1.
                         </>
                     )}
                 </div>
@@ -114,8 +118,8 @@ function OfferStrategySection({
                     />
 
                     <span className="form-help">
-                        Globalny twardy limit. Bot nie wyśle ani nie zaakceptuje
-                        automatycznie kwoty wyższej niż ta wartość, niezależnie od kroku.
+                        Globalny twardy limit dla kolejnych automatycznych akcji.
+                        Zmiana limitu nie cofa ofert wysłanych przed zapisaniem zmiany.
                     </span>
                 </div>
             </div>
