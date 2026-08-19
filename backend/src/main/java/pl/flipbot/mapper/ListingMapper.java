@@ -57,6 +57,12 @@ public class ListingMapper {
                 .readDetectedAt(
                         listing.getReadDetectedAt()
                 )
+                .formalResponseFingerprint(
+                        listing.getFormalResponseFingerprint()
+                )
+                .formalResponseDetectedAt(
+                        listing.getFormalResponseDetectedAt()
+                )
                 .build();
     }
 }
