@@ -6,6 +6,7 @@ import type {
 interface NegotiationStepsSectionProps {
     negotiationSteps: NegotiationStepForm[];
     dailyNegotiationBudget: string;
+    disabled?: boolean;
 
     onAddStep: () => void;
 
@@ -23,6 +24,7 @@ interface NegotiationStepsSectionProps {
 function NegotiationStepsSection({
     negotiationSteps,
     dailyNegotiationBudget,
+    disabled = false,
     onAddStep,
     onRemoveStep,
     onUpdateStep,
@@ -45,6 +47,14 @@ function NegotiationStepsSection({
                     kolejność kroków negocjacji
                 </p>
             </div>
+
+            {disabled && (
+                <div className="information-box">
+                    Kroki są zablokowane, dopóki istnieją aktywne negocjacje.
+                    Zmiana cen, progów, wiadomości albo liczby kroków mogłaby
+                    zmienić znaczenie aktualnego numeru kroku w trwającej rozmowie.
+                </div>
+            )}
 
             <div className="negotiation-steps-list">
                 {negotiationSteps.map(
@@ -74,8 +84,8 @@ function NegotiationStepsSection({
                                         className="danger-text-button"
                                         type="button"
                                         disabled={
-                                            negotiationSteps.length
-                                            === 1
+                                            disabled
+                                            || negotiationSteps.length === 1
                                         }
                                         onClick={() => {
                                             onRemoveStep(
@@ -103,6 +113,7 @@ function NegotiationStepsSection({
                                             min="0.01"
                                             step="0.01"
                                             required
+                                            disabled={disabled}
                                             value={
                                                 step.offerPrice
                                             }
@@ -138,6 +149,7 @@ function NegotiationStepsSection({
                                             min="0.01"
                                             step="0.01"
                                             required
+                                            disabled={disabled}
                                             value={
                                                 step.maxAcceptedCounterOffer
                                             }
@@ -152,9 +164,9 @@ function NegotiationStepsSection({
                                         />
 
                                         <span className="form-help">
-                                            Pole wymagane. Jeżeli 
-                                            sprzedający zaproponuje 
-                                            maksymalnie tę kwotę, 
+                                            Pole wymagane. Jeżeli
+                                            sprzedający zaproponuje
+                                            maksymalnie tę kwotę,
                                             oferta trafi do
                                             „Oferty do kupienia”.
                                         </span>
@@ -176,6 +188,7 @@ function NegotiationStepsSection({
                                         maxLength={1000}
                                         rows={3}
                                         required
+                                        disabled={disabled}
                                         placeholder="np. Dzień dobry, czy zaakceptuje Pan/Pani taką cenę?"
                                         onChange={(event) => {
                                             onUpdateStep(
@@ -201,8 +214,8 @@ function NegotiationStepsSection({
                 className="secondary-button add-negotiation-step-button"
                 type="button"
                 disabled={
-                    negotiationSteps.length
-                    >= 25
+                    disabled
+                    || negotiationSteps.length >= 25
                 }
                 onClick={onAddStep}
             >
