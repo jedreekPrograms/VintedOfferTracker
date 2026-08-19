@@ -32,170 +32,64 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ListingService {
 
-    private static final String UNIQUE_VIOLATION_SQL_STATE =
-            "23505";
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
 
     private final ListingRepository listingRepository;
-
     private final BotRepository botRepository;
-
     private final ListingMapper listingMapper;
-
     private final ListingClaimService listingClaimService;
 
-    public List<ListingResponse> getDiscoveredListings(
-            Long botId
-    ) {
-
-        return getListingsByStatus(
-                botId,
-                ListingStatus.DISCOVERED
-        );
-
+    public List<ListingResponse> getDiscoveredListings(Long botId) {
+        return getListingsByStatus(botId, ListingStatus.DISCOVERED);
     }
 
-    public List<ListingResponse> getNegotiatingListings(
-            Long botId
-    ) {
-
-        return getListingsByStatus(
-                botId,
-                ListingStatus.NEGOTIATING
-        );
-
+    public List<ListingResponse> getNegotiatingListings(Long botId) {
+        return getListingsByStatus(botId, ListingStatus.NEGOTIATING);
     }
 
-    public List<ListingResponse> getActionRequiredListings(
-            Long botId
-    ) {
-
-        return getListingsByStatus(
-                botId,
-                ListingStatus.ACTION_REQUIRED
-        );
-
+    public List<ListingResponse> getActionRequiredListings(Long botId) {
+        return getListingsByStatus(botId, ListingStatus.ACTION_REQUIRED);
     }
 
-    public List<ListingResponse> getPurchasedListings(
-            Long botId
-    ) {
-
-        return getListingsByStatus(
-                botId,
-                ListingStatus.PURCHASED
-        );
+    public List<ListingResponse> getPurchasedListings(Long botId) {
+        return getListingsByStatus(botId, ListingStatus.PURCHASED);
     }
 
-    public List<ListingResponse> getSkippedByUserListings(
-            Long botId
-    ) {
-
-        return getListingsByStatus(
-                botId,
-                ListingStatus.SKIPPED_BY_USER
-        );
+    public List<ListingResponse> getSkippedByUserListings(Long botId) {
+        return getListingsByStatus(botId, ListingStatus.SKIPPED_BY_USER);
     }
 
     @Transactional
-    public ListingResponse markAsPurchased(
-            Long botId,
-            Long listingId
-    ) {
+    public ListingResponse markAsPurchased(Long botId, Long listingId) {
+        Listing listing = findActionRequiredListing(botId, listingId);
+        listing.setStatus(ListingStatus.PURCHASED);
+        listing.setAwaitingSellerResponse(false);
+        listing.setDecisionAt(LocalDateTime.now());
 
-        Listing listing =
-                findActionRequiredListing(
-                        botId,
-                        listingId
-                );
-
-        listing.setStatus(
-                ListingStatus.PURCHASED
-        );
-
-        listing.setAwaitingSellerResponse(
-                false
-        );
-
-        listing.setDecisionAt(
-                LocalDateTime.now()
-        );
-
-        log.info(
-                "Listing {} for bot {} was manually marked as PURCHASED",
-                listingId,
-                botId
-        );
-
-        return listingMapper.map(
-                listing
-        );
+        log.info("Listing {} for bot {} was manually marked as PURCHASED", listingId, botId);
+        return listingMapper.map(listing);
     }
 
     @Transactional
-    public ListingResponse skipByUser(
-            Long botId,
-            Long listingId
-    ) {
+    public ListingResponse skipByUser(Long botId, Long listingId) {
+        Listing listing = findActionRequiredListing(botId, listingId);
+        listing.setStatus(ListingStatus.SKIPPED_BY_USER);
+        listing.setAwaitingSellerResponse(false);
+        listing.setDecisionAt(LocalDateTime.now());
 
-        Listing listing =
-                findActionRequiredListing(
-                        botId,
-                        listingId
-                );
-
-        listing.setStatus(
-                ListingStatus.SKIPPED_BY_USER
-        );
-
-        listing.setAwaitingSellerResponse(
-                false
-        );
-
-        listing.setDecisionAt(
-                LocalDateTime.now()
-        );
-
-        log.info(
-                "Listing {} for bot {} was manually skipped by user",
-                listingId,
-                botId
-        );
-
-        return listingMapper.map(
-                listing
-        );
+        log.info("Listing {} for bot {} was manually skipped by user", listingId, botId);
+        return listingMapper.map(listing);
     }
 
-    private Listing findActionRequiredListing(
-            Long botId,
-            Long listingId
-    ) {
+    private Listing findActionRequiredListing(Long botId, Long listingId) {
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Listing " + listingId + " was not found for bot " + botId
+                ));
 
-        Listing listing =
-                listingRepository
-                        .findByIdAndBotId(
-                                listingId,
-                                botId
-                        )
-                        .orElseThrow(
-                                () -> new NoSuchElementException(
-                                        "Listing "
-                                                + listingId
-                                                + " was not found for bot "
-                                                + botId
-                                )
-                        );
-
-        if (
-                listing.getStatus()
-                        != ListingStatus.ACTION_REQUIRED
-        ) {
-
+        if (listing.getStatus() != ListingStatus.ACTION_REQUIRED) {
             throw new IllegalStateException(
-                    "Listing "
-                            + listingId
-                            + " must have ACTION_REQUIRED status. "
-                            + "Current status: "
+                    "Listing " + listingId + " must have ACTION_REQUIRED status. Current status: "
                             + listing.getStatus()
             );
         }
@@ -203,69 +97,34 @@ public class ListingService {
         return listing;
     }
 
-    public List<ListingResponse> discoverListings(
-            Long botId,
-            DiscoverListingsRequest request
-    ) {
-
-        validateBotExists(
-                botId
-        );
+    public List<ListingResponse> discoverListings(Long botId, DiscoverListingsRequest request) {
+        validateBotExists(botId);
 
         Map<String, CreateListingRequest> uniqueRequests =
-                removeDuplicatedRequests(
-                        request.getListings()
-                );
+                removeDuplicatedRequests(request.getListings());
 
         if (uniqueRequests.isEmpty()) {
-
             return List.of();
         }
 
-        Set<String> existingListingIds =
-                findExistingListingIds(
-                        uniqueRequests.keySet()
-                );
+        Set<String> existingListingIds = findExistingListingIds(uniqueRequests.keySet());
+        List<ListingResponse> claimedListings = new ArrayList<>();
 
-        List<ListingResponse> claimedListings =
-                new ArrayList<>();
-
-        for (CreateListingRequest listingRequest
-                : uniqueRequests.values()) {
-
-            if (existingListingIds.contains(
-                    listingRequest.getListingId()
-            )) {
-
+        for (CreateListingRequest listingRequest : uniqueRequests.values()) {
+            if (existingListingIds.contains(listingRequest.getListingId())) {
                 continue;
             }
 
             try {
-
-                Listing claimedListing =
-                        listingClaimService.claimListing(
-                                botId,
-                                listingRequest
-                        );
-
-                claimedListings.add(
-                        listingMapper.map(
-                                claimedListing
-                        )
-                );
-
+                Listing claimedListing = listingClaimService.claimListing(botId, listingRequest);
+                claimedListings.add(listingMapper.map(claimedListing));
             } catch (DataIntegrityViolationException exception) {
-
-                if (!isUniqueConstraintViolation(
-                        exception
-                )) {
-
+                if (!isUniqueConstraintViolation(exception)) {
                     log.error(
                             "Database integrity error while claiming listing {}",
                             listingRequest.getListingId(),
                             exception
                     );
-
                     throw exception;
                 }
 
@@ -284,62 +143,27 @@ public class ListingService {
         );
 
         return claimedListings;
-
     }
 
     @Transactional
-    public ListingResponse createListing(
-            Long botId,
-            CreateListingRequest request
-    ) {
+    public ListingResponse createListing(Long botId, CreateListingRequest request) {
+        Bot bot = botRepository.findById(botId)
+                .orElseThrow(() -> new BotNotFoundException(botId));
 
-        Bot bot =
-                botRepository.findById(
-                                botId
-                        )
-                        .orElseThrow(
-                                () -> new BotNotFoundException(
-                                        botId
-                                )
-                        );
+        Listing listing = Listing.builder()
+                .listingId(request.getListingId())
+                .title(request.getTitle())
+                .url(request.getUrl())
+                .originalPrice(request.getOriginalPrice())
+                .currentPrice(request.getOriginalPrice())
+                .currentStep(1)
+                .awaitingSellerResponse(false)
+                .status(ListingStatus.NEGOTIATING)
+                .currentStepStartedAt(LocalDateTime.now())
+                .bot(bot)
+                .build();
 
-        Listing listing =
-                Listing.builder()
-                        .listingId(
-                                request.getListingId()
-                        )
-                        .title(
-                                request.getTitle()
-                        )
-                        .url(
-                                request.getUrl()
-                        )
-                        .originalPrice(
-                                request.getOriginalPrice()
-                        )
-                        .currentPrice(
-                                request.getOriginalPrice()
-                        )
-                        .currentStep(1)
-                        .awaitingSellerResponse(false)
-                        .status(
-                                ListingStatus.NEGOTIATING
-                        )
-                        .currentStepStartedAt(
-                                LocalDateTime.now()
-                        )
-                        .bot(bot)
-                        .build();
-
-        Listing savedListing =
-                listingRepository.save(
-                        listing
-                );
-
-        return listingMapper.map(
-                savedListing
-        );
-
+        return listingMapper.map(listingRepository.save(listing));
     }
 
     @Transactional
@@ -348,109 +172,47 @@ public class ListingService {
             Long listingId,
             UpdateListingRequest request
     ) {
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Listing " + listingId + " was not found for bot " + botId
+                ));
 
-        Listing listing =
-                listingRepository.findByIdAndBotId(
-                                listingId,
-                                botId
-                        )
-                        .orElseThrow(
-                                () -> new NoSuchElementException(
-                                        "Listing "
-                                                + listingId
-                                                + " was not found for bot "
-                                                + botId
-                                )
-                        );
+        ListingStatus previousStatus = listing.getStatus();
+        Integer previousStep = listing.getCurrentStep();
 
-        ListingStatus previousStatus =
-                listing.getStatus();
-
-        Integer previousStep =
-                listing.getCurrentStep();
-
-        /*
-         * Ważne:
-         *
-         * currentStepStartedAt ma oznaczać moment rozpoczęcia
-         * AKTUALNEGO kroku, a nie moment dowolnego PATCH-a.
-         *
-         * Dlatego resetujemy timer tylko gdy:
-         * 1. listing właśnie wchodzi do NEGOTIATING, albo
-         * 2. numer kroku rzeczywiście się zmienił.
-         */
         boolean negotiationStepStarted =
-                request.getStatus()
-                        == ListingStatus.NEGOTIATING
-                        && (
-                        previousStatus
-                                != ListingStatus.NEGOTIATING
-                                || !Objects.equals(
-                                previousStep,
-                                request.getCurrentStep()
-                        )
-                );
+                request.getStatus() == ListingStatus.NEGOTIATING
+                        && (previousStatus != ListingStatus.NEGOTIATING
+                        || !Objects.equals(previousStep, request.getCurrentStep()));
 
-        listing.setCurrentPrice(
-                request.getCurrentPrice()
-        );
+        listing.setCurrentPrice(request.getCurrentPrice());
+        listing.setCurrentStep(request.getCurrentStep());
+        listing.setAwaitingSellerResponse(request.getAwaitingSellerResponse());
+        listing.setConversationId(request.getConversationId());
+        listing.setConversationUrl(request.getConversationUrl());
+        listing.setStatus(request.getStatus());
 
-        listing.setCurrentStep(
-                request.getCurrentStep()
-        );
-
-        listing.setAwaitingSellerResponse(
-                request.getAwaitingSellerResponse()
-        );
-
-        listing.setConversationId(
-                request.getConversationId()
-        );
-
-        listing.setConversationUrl(
-                request.getConversationUrl()
-        );
-
-        listing.setStatus(
-                request.getStatus()
-        );
-
-        if (
-                request.getStatus()
-                        == ListingStatus.EXPIRED
-        ) {
-
-            listing.setDecisionAt(
-                    LocalDateTime.now()
-            );
+        if (request.getStatus() == ListingStatus.EXPIRED) {
+            listing.setDecisionAt(LocalDateTime.now());
         }
 
         if (negotiationStepStarted) {
-
-            LocalDateTime now =
-                    LocalDateTime.now();
-
-            listing.setCurrentStepStartedAt(
-                    now
-            );
+            LocalDateTime now = LocalDateTime.now();
+            listing.setCurrentStepStartedAt(now);
 
             /*
-             * Nowy krok = nowy zegar aktywności.
-             *
-             * Stare "Przeczytane" albo stara wiadomość sprzedającego
-             * nie mogą wpływać na kolejny krok negocjacji.
+             * Every negotiation step owns its own activity and response clocks.
+             * Neither a read/message nor a rejection/counteroffer from the old
+             * step may influence timing of the new step.
              */
-            listing.setSellerActivityAt(
-                    null
-            );
-
-            listing.setReadDetectedAt(
-                    null
-            );
+            listing.setSellerActivityAt(null);
+            listing.setReadDetectedAt(null);
+            listing.setFormalResponseFingerprint(null);
+            listing.setFormalResponseDetectedAt(null);
 
             log.info(
                     "Listing {} for bot {} started negotiation step {} at {}. "
-                            + "Seller activity timers were reset.",
+                            + "Seller activity and formal-response timers were reset.",
                     listingId,
                     botId,
                     request.getCurrentStep(),
@@ -458,10 +220,7 @@ public class ListingService {
             );
         }
 
-        return listingMapper.map(
-                listing
-        );
-
+        return listingMapper.map(listing);
     }
 
     @Transactional
@@ -470,88 +229,34 @@ public class ListingService {
             Long listingId,
             NegotiationActivityRequest request
     ) {
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Listing " + listingId + " was not found for bot " + botId
+                ));
 
-        Listing listing =
-                listingRepository.findByIdAndBotId(
-                                listingId,
-                                botId
-                        )
-                        .orElseThrow(
-                                () -> new NoSuchElementException(
-                                        "Listing "
-                                                + listingId
-                                                + " was not found for bot "
-                                                + botId
-                                )
-                        );
-
-
-        if (
-                listing.getStatus()
-                        != ListingStatus.NEGOTIATING
-        ) {
-
+        if (listing.getStatus() != ListingStatus.NEGOTIATING) {
             throw new IllegalStateException(
-                    "Negotiation activity can only be recorded for "
-                            + "NEGOTIATING listings. Listing "
-                            + listingId
-                            + " currently has status "
-                            + listing.getStatus()
+                    "Negotiation activity can only be recorded for NEGOTIATING listings. Listing "
+                            + listingId + " currently has status " + listing.getStatus()
             );
         }
 
-
-        LocalDateTime sellerActivityAt =
-                request.sellerActivityAt();
-
-
+        LocalDateTime sellerActivityAt = request.sellerActivityAt();
         if (sellerActivityAt != null) {
-
-            /*
-             * Wiadomość sprzedającego musi należeć do AKTUALNEGO
-             * kroku negocjacji.
-             *
-             * Jest to dodatkowe zabezpieczenie przed starymi wiadomościami
-             * widocznymi nadal w DOM rozmowy Vinted. Jeżeli timestamp
-             * wiadomości jest starszy niż moment rozpoczęcia aktualnego
-             * kroku, nie może uruchamiać nowego timera 3h.
-             */
-            boolean belongsToCurrentStep =
-                    listing.getCurrentStepStartedAt()
-                            == null
-                            || !sellerActivityAt.isBefore(
-                            listing.getCurrentStepStartedAt()
-                    );
+            boolean belongsToCurrentStep = listing.getCurrentStepStartedAt() == null
+                    || !sellerActivityAt.isBefore(listing.getCurrentStepStartedAt());
 
             if (!belongsToCurrentStep) {
-
                 log.debug(
-                        "Ignoring stale seller activity {} for listing {} "
-                                + "because current step {} started at {}",
+                        "Ignoring stale seller activity {} for listing {} because current step {} started at {}",
                         sellerActivityAt,
                         listingId,
                         listing.getCurrentStep(),
                         listing.getCurrentStepStartedAt()
                 );
-
-            } else if (
-                    listing.getSellerActivityAt()
-                            == null
-                            || sellerActivityAt.isAfter(
-                            listing.getSellerActivityAt()
-                    )
-            ) {
-
-                /*
-                 * Ten sam komunikat będzie widziany podczas wielu kolejnych
-                 * cykli workera, dlatego nie ustawiamy po prostu "now()".
-                 * Pole przesuwamy wyłącznie dla rzeczywiście nowszej
-                 * wiadomości sprzedającego.
-                 */
-                listing.setSellerActivityAt(
-                        sellerActivityAt
-                );
-
+            } else if (listing.getSellerActivityAt() == null
+                    || sellerActivityAt.isAfter(listing.getSellerActivityAt())) {
+                listing.setSellerActivityAt(sellerActivityAt);
                 log.info(
                         "Listing {} for bot {} recorded seller activity at {}",
                         listingId,
@@ -561,27 +266,9 @@ public class ListingService {
             }
         }
 
-
-        if (
-                request.readDetected()
-                        && listing.getReadDetectedAt()
-                        == null
-        ) {
-
-            /*
-             * Vinted pokazuje nam tylko stan "Przeczytane",
-             * bez czasu jego wystąpienia.
-             *
-             * Dlatego zapisujemy moment PIERWSZEGO wykrycia.
-             * Kolejne skany nie mogą przesuwać tego zegara.
-             */
-            LocalDateTime readDetectedAt =
-                    LocalDateTime.now();
-
-            listing.setReadDetectedAt(
-                    readDetectedAt
-            );
-
+        if (request.readDetected() && listing.getReadDetectedAt() == null) {
+            LocalDateTime readDetectedAt = LocalDateTime.now();
+            listing.setReadDetectedAt(readDetectedAt);
             log.info(
                     "Listing {} for bot {} recorded first read detection at {}",
                     listingId,
@@ -590,128 +277,93 @@ public class ListingService {
             );
         }
 
-
-        return mapNegotiationActivity(
-                listing
+        String formalResponseFingerprint = normalizeOptionalText(
+                request.formalResponseFingerprint()
         );
+
+        if (formalResponseFingerprint != null
+                && !Objects.equals(
+                formalResponseFingerprint,
+                listing.getFormalResponseFingerprint()
+        )) {
+            LocalDateTime detectedAt = LocalDateTime.now();
+            listing.setFormalResponseFingerprint(formalResponseFingerprint);
+            listing.setFormalResponseDetectedAt(detectedAt);
+
+            log.info(
+                    "Listing {} for bot {} recorded formal response '{}' for step {} at {}",
+                    listingId,
+                    botId,
+                    formalResponseFingerprint,
+                    listing.getCurrentStep(),
+                    detectedAt
+            );
+        }
+
+        return mapNegotiationActivity(listing);
     }
 
-
-    private NegotiationActivityResponse mapNegotiationActivity(
-            Listing listing
-    ) {
-
+    private NegotiationActivityResponse mapNegotiationActivity(Listing listing) {
         return new NegotiationActivityResponse(
                 listing.getId(),
                 listing.getCurrentStep(),
                 listing.getCurrentStepStartedAt(),
                 listing.getSellerActivityAt(),
-                listing.getReadDetectedAt()
+                listing.getReadDetectedAt(),
+                listing.getFormalResponseFingerprint(),
+                listing.getFormalResponseDetectedAt()
         );
     }
 
-
-    private List<ListingResponse> getListingsByStatus(
-            Long botId,
-            ListingStatus status
-    ) {
-
-        validateBotExists(
-                botId
-        );
-
-        return listingRepository
-                .findByBotIdAndStatusOrderByIdAsc(
-                        botId,
-                        status
-                )
+    private List<ListingResponse> getListingsByStatus(Long botId, ListingStatus status) {
+        validateBotExists(botId);
+        return listingRepository.findByBotIdAndStatusOrderByIdAsc(botId, status)
                 .stream()
-                .map(
-                        listingMapper::map
-                )
+                .map(listingMapper::map)
                 .toList();
-
     }
 
-    private void validateBotExists(
-            Long botId
-    ) {
-
-        if (!botRepository.existsById(
-                botId
-        )) {
-
-            throw new BotNotFoundException(
-                    botId
-            );
+    private void validateBotExists(Long botId) {
+        if (!botRepository.existsById(botId)) {
+            throw new BotNotFoundException(botId);
         }
-
     }
 
-    private Map<String, CreateListingRequest>
-    removeDuplicatedRequests(
+    private Map<String, CreateListingRequest> removeDuplicatedRequests(
             List<CreateListingRequest> requests
     ) {
-
-        Map<String, CreateListingRequest> uniqueRequests =
-                new LinkedHashMap<>();
-
+        Map<String, CreateListingRequest> uniqueRequests = new LinkedHashMap<>();
         for (CreateListingRequest request : requests) {
-
-            uniqueRequests.putIfAbsent(
-                    request.getListingId(),
-                    request
-            );
+            uniqueRequests.putIfAbsent(request.getListingId(), request);
         }
-
         return uniqueRequests;
     }
 
-    private Set<String> findExistingListingIds(
-            Set<String> listingIds
-    ) {
-
-        List<Listing> existingListings =
-                listingRepository.findAllByListingIdIn(
-                        listingIds
-                );
-
-        Set<String> existingListingIds =
-                new HashSet<>();
-
+    private Set<String> findExistingListingIds(Set<String> listingIds) {
+        List<Listing> existingListings = listingRepository.findAllByListingIdIn(listingIds);
+        Set<String> existingListingIds = new HashSet<>();
         for (Listing listing : existingListings) {
-
-            existingListingIds.add(
-                    listing.getListingId()
-            );
+            existingListingIds.add(listing.getListingId());
         }
-
         return existingListingIds;
     }
 
-    private boolean isUniqueConstraintViolation(
-            Throwable exception
-    ) {
-
-        Throwable currentCause =
-                exception;
-
-        while (currentCause != null) {
-
-            if (currentCause
-                    instanceof SQLException sqlException
-                    && UNIQUE_VIOLATION_SQL_STATE.equals(
-                    sqlException.getSQLState()
-            )) {
-
-                return true;
-            }
-
-            currentCause =
-                    currentCause.getCause();
+    private String normalizeOptionalText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
         }
-
-        return false;
+        return value.trim();
     }
 
+    private boolean isUniqueConstraintViolation(Throwable exception) {
+        Throwable currentCause = exception;
+        while (currentCause != null) {
+            if (currentCause instanceof SQLException sqlException
+                    && UNIQUE_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())) {
+                return true;
+            }
+            currentCause = currentCause.getCause();
+        }
+        return false;
+    }
 }
