@@ -8,10 +8,28 @@ export type TargetMode =
     | "VINTED_MODEL"
     | "SEARCH_QUERY";
 
+export type NegotiationReactionAction =
+    | "NEXT_STEP_NOW"
+    | "WAIT_BEFORE_NEXT_STEP";
+
+export interface SellerCounterOfferRuleRequest {
+    minimumDiscountPercent: number;
+    action: NegotiationReactionAction;
+    waitHours: number | null;
+}
+
 export interface CreateNegotiationStepRequest {
     offerPrice: number;
     maxAcceptedCounterOffer: number;
     message: string;
+
+    rejectionAction: NegotiationReactionAction;
+    rejectionWaitHours: number | null;
+
+    counterOfferDefaultAction: NegotiationReactionAction;
+    counterOfferDefaultWaitHours: number | null;
+
+    counterOfferRules: SellerCounterOfferRuleRequest[];
 }
 
 export interface CreateBotConfigurationRequest {
@@ -55,6 +73,12 @@ export interface BotListItem {
     status: string;
 }
 
+export interface BotSellerCounterOfferRule {
+    minimumDiscountPercent: number;
+    action: NegotiationReactionAction;
+    waitHours: number | null;
+}
+
 export interface BotNegotiationStep {
     stepNumber: number;
 
@@ -64,6 +88,14 @@ export interface BotNegotiationStep {
         number | null;
 
     message: string;
+
+    rejectionAction: NegotiationReactionAction;
+    rejectionWaitHours: number | null;
+
+    counterOfferDefaultAction: NegotiationReactionAction;
+    counterOfferDefaultWaitHours: number | null;
+
+    counterOfferRules: BotSellerCounterOfferRule[];
 }
 
 export interface BotConfigurationDetails {
