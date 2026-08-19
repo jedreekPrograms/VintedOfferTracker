@@ -7,4 +7,10 @@ public record NegotiationActivityRequestDto(
         boolean readDetected,
         String formalResponseFingerprint
 ) {
+    public NegotiationActivityRequestDto(
+            LocalDateTime sellerActivityAt,
+            boolean readDetected
+    ) {
+        this(sellerActivityAt, readDetected, null);
+    }
 }
