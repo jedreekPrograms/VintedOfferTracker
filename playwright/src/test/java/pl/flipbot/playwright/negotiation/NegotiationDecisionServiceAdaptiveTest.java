@@ -62,7 +62,7 @@ public class NegotiationDecisionServiceAdaptiveTest {
     }
 
     @Test
-    public void counterOfferAboveScaledThresholdEscalatesWithScaledPrice() {
+    public void sellerCounterOfferBelowPlannedNextPriceBecomesActionRequired() {
         BotConfigurationDto configuration = adaptiveConfiguration("1500.00");
         ListingResponseDto listing = negotiatingListing("1250.00", 1);
 
@@ -75,14 +75,8 @@ public class NegotiationDecisionServiceAdaptiveTest {
         );
 
         assertEquals(
-                NegotiationDecisionType.SEND_NEXT_STEP,
+                NegotiationDecisionType.MARK_ACTION_REQUIRED,
                 decision.type()
-        );
-        assertEquals(
-                0,
-                new BigDecimal("1390.00").compareTo(
-                        decision.nextStep().getOfferPrice()
-                )
         );
     }
 
