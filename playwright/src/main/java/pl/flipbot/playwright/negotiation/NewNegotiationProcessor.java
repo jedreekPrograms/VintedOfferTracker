@@ -12,6 +12,7 @@ import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.target.ListingDetailTargetInspector;
 import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
+import pl.flipbot.playwright.target.ListingUnavailableDuringVerificationException;
 import pl.flipbot.playwright.target.VintedRateLimitException;
 
 import java.math.BigDecimal;
@@ -534,6 +535,16 @@ public class NewNegotiationProcessor {
                 );
                 throw exception;
 
+            } catch (ListingUnavailableDuringVerificationException exception) {
+                listingStatusUpdater.markUnavailable(
+                        context.getBot().getId(),
+                        listing
+                );
+                log.info(
+                        "[FINAL VERIFY] Marketplace listing {} became unavailable and was persisted as UNAVAILABLE. Verification continues with the next candidate.",
+                        listing.listingId()
+                );
+
             } catch (Exception exception) {
                 failures++;
                 log.warn(
@@ -585,6 +596,7 @@ public class NewNegotiationProcessor {
         int deferredByDetailLimit = 0;
         int detailRequestsThisCycle = 0;
         int persistedTargetMismatches = 0;
+        int persistedUnavailable = 0;
         Long botId = context.getBot().getId();
 
         for (ListingResponseDto listing : listings) {
@@ -688,6 +700,14 @@ public class NewNegotiationProcessor {
                 );
                 throw exception;
 
+            } catch (ListingUnavailableDuringVerificationException exception) {
+                listingStatusUpdater.markUnavailable(botId, listing);
+                persistedUnavailable++;
+                log.info(
+                        "[TARGET DETAIL] Marketplace listing {} became unavailable during target inspection and was persisted as UNAVAILABLE.",
+                        listing.listingId()
+                );
+
             } catch (Exception exception) {
                 detailInspectionFailures++;
                 log.warn(
@@ -704,7 +724,7 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, persisted target mismatches: {}, final eligible: {}. Target mode: {}.",
+                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
                 listings.size(),
                 matchedFromCatalogTitle,
                 matchedFromUrlSlug,
@@ -719,6 +739,7 @@ public class NewNegotiationProcessor {
                 detailInspectionFailures,
                 deferredByDetailLimit,
                 persistedTargetMismatches,
+                persistedUnavailable,
                 eligibleListings.size(),
                 configuration.getTargetMode()
         );
