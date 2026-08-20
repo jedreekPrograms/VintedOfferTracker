@@ -75,7 +75,7 @@ public class BotWorkerSlot implements Runnable {
 
                     if (browserManager == null) {
                         log.info(
-                                "[SLOT {}] Launching Playwright browser runtime for the first claimed job. headless={}",
+                                "[SLOT {}] Launching reusable Playwright browser runtime for the first claimed job. headless={}",
                                 slotNumber,
                                 config.schedulerHeadless()
                         );
@@ -102,11 +102,12 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                     log.info(
-                            "[SLOT {}] Bot {} completed {} in {} ms. Normal interval={} seconds.",
+                            "[SLOT {}] Bot {} completed {} in {} ms. Next normal {} interval={} seconds.",
                             slotNumber,
                             botId,
                             jobType,
                             durationMs,
+                            jobType,
                             config.normalDelaySeconds(jobType)
                     );
 
@@ -131,7 +132,7 @@ public class BotWorkerSlot implements Runnable {
 
                     log.warn(
                             "[SLOT {}] Bot {} hit an explicit Vinted rate limit during {}. "
-                                    + "All jobs delayed by {} seconds.",
+                                    + "All jobs for this bot are delayed by {} seconds to protect the account.",
                             slotNumber,
                             botId,
                             jobType,
@@ -151,7 +152,14 @@ public class BotWorkerSlot implements Runnable {
                             TimeUnit.SECONDS.toMillis(
                                     config.failureDelaySeconds()
                             );
-                    delayAllJobs = true;
+
+                    /*
+                     * A catalog/filter failure must not delay negotiation
+                     * checks, and a conversation-check failure must not delay
+                     * catalog discovery. Only an explicit Vinted rate-limit
+                     * pauses all job types.
+                     */
+                    delayAllJobs = false;
                     reportQueuedAfterRun = false;
 
                     long durationMs = elapsedMillis(startedAtNanos);
@@ -166,12 +174,20 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                     log.error(
-                            "[SLOT {}] Bot {} failed during {}. "
-                                    + "All jobs delayed by {} seconds.",
+                            "[SLOT {}] Bot {} failed during {}. Only {} will retry in {} seconds; the bot's other scheduled job type keeps its own schedule. reason={}",
                             slotNumber,
                             botId,
                             jobType,
+                            jobType,
                             config.failureDelaySeconds(),
+                            errorMessage(exception)
+                    );
+
+                    log.debug(
+                            "[SLOT {}] Full failure for bot {} during {}.",
+                            slotNumber,
+                            botId,
+                            jobType,
                             exception
                     );
 
@@ -195,7 +211,12 @@ public class BotWorkerSlot implements Runnable {
 
         } catch (Exception exception) {
             log.error(
-                    "[SLOT {}] Worker slot stopped because its runtime failed.",
+                    "[SLOT {}] Worker slot stopped because its runtime failed. reason={}",
+                    slotNumber,
+                    errorMessage(exception)
+            );
+            log.debug(
+                    "[SLOT {}] Full worker-slot runtime failure.",
                     slotNumber,
                     exception
             );
@@ -206,7 +227,12 @@ public class BotWorkerSlot implements Runnable {
                     browserManager.close();
                 } catch (Exception exception) {
                     log.warn(
-                            "[SLOT {}] Could not close Playwright browser runtime cleanly.",
+                            "[SLOT {}] Could not close Playwright browser runtime cleanly. reason={}",
+                            slotNumber,
+                            errorMessage(exception)
+                    );
+                    log.debug(
+                            "[SLOT {}] Full browser-runtime close error.",
                             slotNumber,
                             exception
                     );
@@ -234,8 +260,13 @@ public class BotWorkerSlot implements Runnable {
             return exception.getClass().getSimpleName();
         }
 
+        String firstLine = message.lines()
+                .findFirst()
+                .orElse(message)
+                .trim();
+
         return exception.getClass().getSimpleName()
                 + ": "
-                + message;
+                + firstLine;
     }
 }
