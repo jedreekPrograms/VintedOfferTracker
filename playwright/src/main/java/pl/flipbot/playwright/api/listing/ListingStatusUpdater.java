@@ -2,7 +2,6 @@ package pl.flipbot.playwright.api.listing;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
@@ -19,33 +18,19 @@ public class ListingStatusUpdater {
 
     private final ListingClient listingClient;
 
-
     public ListingResponseDto markActionRequired(
             ListingResponseDto listing,
             NegotiationDecision decision
     ) {
+        BigDecimal price = resolveDecisionPrice(listing, decision);
 
-        BigDecimal price =
-                resolveDecisionPrice(
-                        listing,
-                        decision
-                );
+        ListingResponseDto updatedListing = updateNegotiationStatus(
+                listing,
+                "ACTION_REQUIRED",
+                price
+        );
 
-
-        ListingResponseDto updatedListing =
-                updateNegotiationStatus(
-                        listing,
-                        "ACTION_REQUIRED",
-                        price
-                );
-
-
-        if (
-                !"ACTION_REQUIRED".equals(
-                        updatedListing.status()
-                )
-        ) {
-
+        if (!"ACTION_REQUIRED".equals(updatedListing.status())) {
             throw new IllegalStateException(
                     "Backend returned an unexpected status. Expected "
                             + "ACTION_REQUIRED, actual: "
@@ -53,37 +38,22 @@ public class ListingStatusUpdater {
             );
         }
 
-
         return updatedListing;
     }
-
 
     public ListingResponseDto markRejected(
             ListingResponseDto listing,
             NegotiationDecision decision
     ) {
+        BigDecimal price = resolveDecisionPrice(listing, decision);
 
-        BigDecimal price =
-                resolveDecisionPrice(
-                        listing,
-                        decision
-                );
+        ListingResponseDto updatedListing = updateNegotiationStatus(
+                listing,
+                "REJECTED",
+                price
+        );
 
-
-        ListingResponseDto updatedListing =
-                updateNegotiationStatus(
-                        listing,
-                        "REJECTED",
-                        price
-                );
-
-
-        if (
-                !"REJECTED".equals(
-                        updatedListing.status()
-                )
-        ) {
-
+        if (!"REJECTED".equals(updatedListing.status())) {
             throw new IllegalStateException(
                     "Backend returned an unexpected status. Expected "
                             + "REJECTED, actual: "
@@ -91,46 +61,24 @@ public class ListingStatusUpdater {
             );
         }
 
-
         return updatedListing;
     }
-
 
     public ListingResponseDto markExpired(
             ListingResponseDto listing
     ) {
+        BigDecimal price = currentOrOriginalPrice(
+                listing,
+                "EXPIRED"
+        );
 
-        BigDecimal price =
-                listing.currentPrice()
-                        != null
-                        ? listing.currentPrice()
-                        : listing.originalPrice();
+        ListingResponseDto updatedListing = updateNegotiationStatus(
+                listing,
+                "EXPIRED",
+                price
+        );
 
-
-        if (price == null) {
-
-            throw new IllegalStateException(
-                    "Cannot mark backend listing "
-                            + listing.id()
-                            + " as EXPIRED because its price is null"
-            );
-        }
-
-
-        ListingResponseDto updatedListing =
-                updateNegotiationStatus(
-                        listing,
-                        "EXPIRED",
-                        price
-                );
-
-
-        if (
-                !"EXPIRED".equals(
-                        updatedListing.status()
-                )
-        ) {
-
+        if (!"EXPIRED".equals(updatedListing.status())) {
             throw new IllegalStateException(
                     "Backend returned an unexpected status. Expected "
                             + "EXPIRED, actual: "
@@ -138,46 +86,24 @@ public class ListingStatusUpdater {
             );
         }
 
-
         return updatedListing;
     }
-
 
     public ListingResponseDto markNegotiationUnavailable(
             ListingResponseDto listing
     ) {
+        BigDecimal price = currentOrOriginalPrice(
+                listing,
+                "UNAVAILABLE"
+        );
 
-        BigDecimal price =
-                listing.currentPrice()
-                        != null
-                        ? listing.currentPrice()
-                        : listing.originalPrice();
+        ListingResponseDto updatedListing = updateNegotiationStatus(
+                listing,
+                "UNAVAILABLE",
+                price
+        );
 
-
-        if (price == null) {
-
-            throw new IllegalStateException(
-                    "Cannot mark backend listing "
-                            + listing.id()
-                            + " as UNAVAILABLE because its price is null"
-            );
-        }
-
-
-        ListingResponseDto updatedListing =
-                updateNegotiationStatus(
-                        listing,
-                        "UNAVAILABLE",
-                        price
-                );
-
-
-        if (
-                !"UNAVAILABLE".equals(
-                        updatedListing.status()
-                )
-        ) {
-
+        if (!"UNAVAILABLE".equals(updatedListing.status())) {
             throw new IllegalStateException(
                     "Backend returned an unexpected status. Expected "
                             + "UNAVAILABLE, actual: "
@@ -185,30 +111,48 @@ public class ListingStatusUpdater {
             );
         }
 
-
         return updatedListing;
     }
 
+    public ListingResponseDto markContactUnavailable(
+            ListingResponseDto listing
+    ) {
+        BigDecimal price = currentOrOriginalPrice(
+                listing,
+                "CONTACT_UNAVAILABLE"
+        );
+
+        ListingResponseDto updatedListing = updateNegotiationStatus(
+                listing,
+                "CONTACT_UNAVAILABLE",
+                price
+        );
+
+        if (!"CONTACT_UNAVAILABLE".equals(updatedListing.status())) {
+            throw new IllegalStateException(
+                    "Backend returned an unexpected status. Expected "
+                            + "CONTACT_UNAVAILABLE, actual: "
+                            + updatedListing.status()
+            );
+        }
+
+        return updatedListing;
+    }
 
     public void markUnavailable(
             Long botId,
             ListingResponseDto listing
     ) {
+        UpdateListingRequestDto request = createDiscoveredStatusUpdateRequest(
+                listing,
+                "UNAVAILABLE"
+        );
 
-        UpdateListingRequestDto request =
-                createDiscoveredStatusUpdateRequest(
-                        listing,
-                        "UNAVAILABLE"
-                );
-
-
-        ListingResponseDto updatedListing =
-                listingClient.updateListing(
-                        botId,
-                        listing.id(),
-                        request
-                );
-
+        ListingResponseDto updatedListing = listingClient.updateListing(
+                botId,
+                listing.id(),
+                request
+        );
 
         log.info(
                 "Backend listing {} was marked as {}",
@@ -216,27 +160,21 @@ public class ListingStatusUpdater {
                 updatedListing.status()
         );
     }
-
 
     public void markOfferTooLow(
             Long botId,
             ListingResponseDto listing
     ) {
+        UpdateListingRequestDto request = createDiscoveredStatusUpdateRequest(
+                listing,
+                "SKIPPED_OFFER_TOO_LOW"
+        );
 
-        UpdateListingRequestDto request =
-                createDiscoveredStatusUpdateRequest(
-                        listing,
-                        "SKIPPED_OFFER_TOO_LOW"
-                );
-
-
-        ListingResponseDto updatedListing =
-                listingClient.updateListing(
-                        botId,
-                        listing.id(),
-                        request
-                );
-
+        ListingResponseDto updatedListing = listingClient.updateListing(
+                botId,
+                listing.id(),
+                request
+        );
 
         log.info(
                 "Backend listing {} was marked as {}",
@@ -245,175 +183,141 @@ public class ListingStatusUpdater {
         );
     }
 
-
     public void markOutsidePriceRange(
             Long botId,
             ListingResponseDto listing
     ) {
+        UpdateListingRequestDto request = createDiscoveredStatusUpdateRequest(
+                listing,
+                "SKIPPED_OUTSIDE_PRICE_RANGE"
+        );
 
-        UpdateListingRequestDto request =
-                createDiscoveredStatusUpdateRequest(
-                        listing,
-                        "SKIPPED_OUTSIDE_PRICE_RANGE"
-                );
-
-
-        ListingResponseDto updatedListing =
-                listingClient.updateListing(
-                        botId,
-                        listing.id(),
-                        request
-                );
-
+        ListingResponseDto updatedListing = listingClient.updateListing(
+                botId,
+                listing.id(),
+                request
+        );
 
         log.info(
-                "[PRICE GUARD] Backend listing {} was marked as {}. "
-                        + "Original price: {}.",
+                "[PRICE GUARD] Backend listing {} was marked as {}. Original price: {}.",
                 updatedListing.id(),
                 updatedListing.status(),
                 listing.originalPrice()
         );
     }
 
-
     private ListingResponseDto updateNegotiationStatus(
             ListingResponseDto listing,
             String status,
             BigDecimal currentPrice
     ) {
-
-        if (
-                listing.currentStep() == null
-                        || listing.currentStep() <= 0
-        ) {
-
+        if (listing.currentStep() == null
+                || listing.currentStep() <= 0) {
             throw new IllegalStateException(
-                    "Cannot update negotiation status because backend "
-                            + "listing "
+                    "Cannot update negotiation status because backend listing "
                             + listing.id()
                             + " has an invalid current step: "
                             + listing.currentStep()
             );
         }
 
+        UpdateListingRequestDto request = new UpdateListingRequestDto(
+                status,
+                currentPrice,
+                listing.currentStep(),
+                false,
+                listing.conversationId(),
+                listing.conversationUrl()
+        );
 
-        UpdateListingRequestDto request =
-                new UpdateListingRequestDto(
-                        status,
-                        currentPrice,
-                        listing.currentStep(),
-                        false,
-                        listing.conversationId(),
-                        listing.conversationUrl()
-                );
+        ListingResponseDto updatedListing = listingClient.updateListing(
+                context.getBot().getId(),
+                listing.id(),
+                request
+        );
 
-
-        ListingResponseDto updatedListing =
-                listingClient.updateListing(
-                        context.getBot().getId(),
-                        listing.id(),
-                        request
-                );
-
-
-        if (
-                Boolean.TRUE.equals(
-                        updatedListing.awaitingSellerResponse()
-                )
-        ) {
-
+        if (Boolean.TRUE.equals(updatedListing.awaitingSellerResponse())) {
             throw new IllegalStateException(
                     "Backend listing "
                             + listing.id()
-                            + " still has awaitingSellerResponse=true "
-                            + "after changing status to "
+                            + " still has awaitingSellerResponse=true after changing status to "
                             + status
             );
         }
 
-
-        if (
-                !Objects.equals(
-                        listing.currentStep(),
-                        updatedListing.currentStep()
-                )
-        ) {
-
+        if (!Objects.equals(
+                listing.currentStep(),
+                updatedListing.currentStep()
+        )) {
             throw new IllegalStateException(
-                    "Backend changed the current negotiation step "
-                            + "unexpectedly. Expected: "
+                    "Backend changed the current negotiation step unexpectedly. Expected: "
                             + listing.currentStep()
                             + ", actual: "
                             + updatedListing.currentStep()
             );
         }
 
-
-        if (
-                !Objects.equals(
-                        listing.conversationId(),
-                        updatedListing.conversationId()
-                )
-        ) {
-
+        if (!Objects.equals(
+                listing.conversationId(),
+                updatedListing.conversationId()
+        )) {
             throw new IllegalStateException(
-                    "Backend changed the conversation ID unexpectedly. "
-                            + "Expected: "
+                    "Backend changed the conversation ID unexpectedly. Expected: "
                             + listing.conversationId()
                             + ", actual: "
                             + updatedListing.conversationId()
             );
         }
 
-
-        if (
-                updatedListing.currentPrice() == null
-                        || updatedListing.currentPrice()
-                        .compareTo(
-                                currentPrice
-                        ) != 0
-        ) {
-
+        if (updatedListing.currentPrice() == null
+                || updatedListing.currentPrice().compareTo(currentPrice) != 0) {
             throw new IllegalStateException(
-                    "Backend returned an unexpected current price. "
-                            + "Expected: "
+                    "Backend returned an unexpected current price. Expected: "
                             + currentPrice
                             + ", actual: "
                             + updatedListing.currentPrice()
             );
         }
 
-
         return updatedListing;
     }
 
+    private BigDecimal currentOrOriginalPrice(
+            ListingResponseDto listing,
+            String targetStatus
+    ) {
+        BigDecimal price = listing.currentPrice() != null
+                ? listing.currentPrice()
+                : listing.originalPrice();
+
+        if (price == null) {
+            throw new IllegalStateException(
+                    "Cannot mark backend listing "
+                            + listing.id()
+                            + " as "
+                            + targetStatus
+                            + " because its price is null"
+            );
+        }
+
+        return price;
+    }
 
     private BigDecimal resolveDecisionPrice(
             ListingResponseDto listing,
             NegotiationDecision decision
     ) {
-
-        if (
-                decision.sellerCounterOfferPrice()
-                        != null
-        ) {
-
-            return decision
-                    .sellerCounterOfferPrice();
+        if (decision.sellerCounterOfferPrice() != null) {
+            return decision.sellerCounterOfferPrice();
         }
 
-
         if (listing.currentPrice() != null) {
-
             return listing.currentPrice();
         }
 
-
         if (listing.originalPrice() != null) {
-
             return listing.originalPrice();
         }
-
 
         throw new IllegalStateException(
                 "Cannot determine decision price for backend listing "
@@ -421,21 +325,15 @@ public class ListingStatusUpdater {
         );
     }
 
-
-    private UpdateListingRequestDto
-    createDiscoveredStatusUpdateRequest(
+    private UpdateListingRequestDto createDiscoveredStatusUpdateRequest(
             ListingResponseDto listing,
             String status
     ) {
-
-        BigDecimal currentPrice =
-                listing.currentPrice() != null
-                        ? listing.currentPrice()
-                        : listing.originalPrice();
-
+        BigDecimal currentPrice = listing.currentPrice() != null
+                ? listing.currentPrice()
+                : listing.originalPrice();
 
         if (currentPrice == null) {
-
             throw new IllegalStateException(
                     "Cannot update backend listing "
                             + listing.id()
@@ -443,12 +341,9 @@ public class ListingStatusUpdater {
             );
         }
 
-
-        Integer currentStep =
-                listing.currentStep() != null
-                        ? listing.currentStep()
-                        : 0;
-
+        Integer currentStep = listing.currentStep() != null
+                ? listing.currentStep()
+                : 0;
 
         return new UpdateListingRequestDto(
                 status,
