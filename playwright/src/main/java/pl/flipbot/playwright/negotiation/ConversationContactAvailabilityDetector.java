@@ -67,6 +67,7 @@ public class ConversationContactAvailabilityDetector {
             ContactSignals signals = readSignals(page);
             ConversationContactAssessment.State state = classify(
                     signals.offerButtonVisible(),
+                    signals.offerButtonEnabled(),
                     signals.messageInputVisible(),
                     signals.messageInputEnabled(),
                     false
@@ -93,7 +94,7 @@ public class ConversationContactAvailabilityDetector {
 
         return ConversationContactAssessment.suspected(
                 "The expected conversation is loaded, but neither a usable message composer "
-                        + "nor the offer action became available after "
+                        + "nor an enabled offer action became available after "
                         + (SETTLE_ATTEMPTS * SETTLE_DELAY_MS / 1000.0)
                         + " seconds. "
                         + finalSignals.describe()
@@ -102,6 +103,7 @@ public class ConversationContactAvailabilityDetector {
 
     static ConversationContactAssessment.State classify(
             boolean offerButtonVisible,
+            boolean offerButtonEnabled,
             boolean messageInputVisible,
             boolean messageInputEnabled,
             boolean explicitUnavailableSignal
@@ -110,7 +112,7 @@ public class ConversationContactAvailabilityDetector {
             return ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE;
         }
 
-        if (offerButtonVisible
+        if ((offerButtonVisible && offerButtonEnabled)
                 || (messageInputVisible && messageInputEnabled)) {
             return ConversationContactAssessment.State.AVAILABLE;
         }
@@ -130,12 +132,15 @@ public class ConversationContactAvailabilityDetector {
                 .first();
 
         boolean offerButtonVisible = isVisibleSafely(offerButton);
+        boolean offerButtonEnabled = offerButtonVisible
+                && isEnabledSafely(offerButton);
         boolean messageInputVisible = isVisibleSafely(messageInput);
         boolean messageInputEnabled = messageInputVisible
                 && isEnabledSafely(messageInput);
 
         return new ContactSignals(
                 offerButtonVisible,
+                offerButtonEnabled,
                 messageInputVisible,
                 messageInputEnabled
         );
@@ -240,11 +245,13 @@ public class ConversationContactAvailabilityDetector {
 
     private record ContactSignals(
             boolean offerButtonVisible,
+            boolean offerButtonEnabled,
             boolean messageInputVisible,
             boolean messageInputEnabled
     ) {
         String describe() {
             return "offerButtonVisible=" + offerButtonVisible
+                    + ", offerButtonEnabled=" + offerButtonEnabled
                     + ", messageInputVisible=" + messageInputVisible
                     + ", messageInputEnabled=" + messageInputEnabled;
         }
