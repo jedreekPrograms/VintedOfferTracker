@@ -19,6 +19,8 @@ public class LoginService {
     private static final double AUTH_VIEW_TIMEOUT_MS = 20_000;
     private static final double AUTH_POLL_INTERVAL_MS = 200;
     private static final double AUTH_SWITCH_RETRY_DELAY_MS = 600;
+    private static final double POST_LOGIN_TIMEOUT_MS = 60_000;
+    private static final int POST_LOGIN_STABLE_FALLBACK_POLLS = 4;
     private static final int MAX_REGISTER_SWITCH_ATTEMPTS = 6;
 
     private static final String REGISTER_VIEW_TEST_ID =
@@ -39,16 +41,18 @@ public class LoginService {
 
         hideAutomation(page);
 
-        log.info("Opening Vinted homepage...");
+        log.info("[LOGIN] Opening Vinted homepage for bot {}.", context.getBot().getId());
         new MarketplaceNavigator(context).goToHome();
         page.waitForLoadState();
 
         acceptCookiesIfVisible(page);
 
-        if (isLoggedIn()) {
+        String existingSignal = authenticatedSignal(page, true);
+        if (existingSignal != null) {
             log.info(
-                    "Bot {} is already logged in.",
-                    context.getBot().getId()
+                    "[LOGIN] Bot {} is already logged in. signal={}",
+                    context.getBot().getId(),
+                    existingSignal
             );
             return;
         }
@@ -62,19 +66,6 @@ public class LoginService {
         );
     }
 
-    private boolean isLoggedIn() {
-        try {
-            Locator conversationsButtons =
-                    context.getPage()
-                            .getByTestId(LoginSelectors.CONVERSATIONS_BUTTON);
-
-            return conversationsButtons.count() > 0
-                    && conversationsButtons.first().isVisible();
-        } catch (Exception exception) {
-            return false;
-        }
-    }
-
     private void acceptCookiesIfVisible(Page page) {
         try {
             Locator button =
@@ -86,11 +77,10 @@ public class LoginService {
                             .setTimeout(5_000)
             );
 
-            log.info("Clicking cookie button...");
+            log.info("[LOGIN] Accepting Vinted cookie banner.");
             button.click();
-            log.info("Cookies accepted.");
         } catch (Exception exception) {
-            log.debug("Cookie banner not displayed.");
+            log.debug("[LOGIN] Cookie banner not displayed.");
         }
     }
 
@@ -98,7 +88,7 @@ public class LoginService {
         Page page = context.getPage();
 
         log.info(
-                "Logging in bot {}",
+                "[LOGIN] Starting interactive login for bot {}.",
                 context.getBot().getId()
         );
 
@@ -107,20 +97,146 @@ public class LoginService {
         fillCredentials(page);
         submitLogin(page);
 
-        page.getByTestId(LoginSelectors.CONVERSATIONS_BUTTON)
-                .first()
-                .waitFor(
-                        new Locator.WaitForOptions()
-                                .setState(WaitForSelectorState.VISIBLE)
-                                .setTimeout(30_000)
-                );
+        String authenticatedBy = waitForAuthenticatedSession(page);
 
         context.saveSession();
 
         log.info(
-                "Bot {} logged in successfully.",
-                context.getBot().getId()
+                "[LOGIN] Bot {} logged in successfully. verifiedBy={}",
+                context.getBot().getId(),
+                authenticatedBy
         );
+    }
+
+    private String waitForAuthenticatedSession(Page page) {
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) POST_LOGIN_TIMEOUT_MS;
+
+        int stableFallbackPolls = 0;
+
+        while (System.currentTimeMillis() <= deadline) {
+            String strongSignal = authenticatedSignal(page, false);
+
+            if (strongSignal != null) {
+                return strongSignal;
+            }
+
+            if (looksLikeCompletedLoginWithoutKnownHeaderSelector(page)) {
+                stableFallbackPolls++;
+
+                if (stableFallbackPolls >= POST_LOGIN_STABLE_FALLBACK_POLLS) {
+                    return "login controls and auth form disappeared on a trusted Vinted page"
+                            + " for "
+                            + POST_LOGIN_STABLE_FALLBACK_POLLS
+                            + " consecutive checks";
+                }
+            } else {
+                stableFallbackPolls = 0;
+            }
+
+            page.waitForTimeout(AUTH_POLL_INTERVAL_MS);
+        }
+
+        log.error(
+                "[LOGIN] Login submission could not be verified within {}s for bot {}. Current URL: {}. The session will NOT be saved as authenticated.",
+                Math.round(POST_LOGIN_TIMEOUT_MS / 1_000),
+                context.getBot().getId(),
+                page.url()
+        );
+        logVisibleTestIds(page);
+
+        throw new IllegalStateException(
+                "Vinted login submission could not be verified. Current URL: "
+                        + page.url()
+        );
+    }
+
+    private String authenticatedSignal(
+            Page page,
+            boolean allowStableControlAbsenceFallback
+    ) {
+        Locator conversationsButtons =
+                page.getByTestId(LoginSelectors.CONVERSATIONS_BUTTON);
+
+        if (hasVisible(conversationsButtons)) {
+            return "header-conversations-button";
+        }
+
+        Locator visibleInboxLinks =
+                page.locator("a[href*='/inbox']:visible");
+
+        if (visibleInboxLinks.count() > 0) {
+            return "visible /inbox link";
+        }
+
+        if (allowStableControlAbsenceFallback
+                && looksLikeCompletedLoginWithoutKnownHeaderSelector(page)) {
+            return "login controls absent on trusted Vinted page";
+        }
+
+        return null;
+    }
+
+    private boolean looksLikeCompletedLoginWithoutKnownHeaderSelector(Page page) {
+        if (!MarketplaceUrls.isVintedUrl(page.url())
+                || isAuthenticationUrl(page.url())) {
+            return false;
+        }
+
+        Locator loginButton = page.getByTestId(LoginSelectors.LOGIN_BUTTON);
+        Locator emailInput = page.locator("#" + LoginSelectors.EMAIL_INPUT);
+        Locator passwordInput = page.locator("#" + LoginSelectors.PASSWORD_INPUT);
+        Locator registerView = page.getByTestId(REGISTER_VIEW_TEST_ID);
+        Locator loginView = page.getByTestId(LOGIN_VIEW_TEST_ID);
+        Locator switchToLogin = page.getByTestId(REGISTER_SWITCH_TEST_ID);
+        Locator emailLogin = page.getByTestId(LOGIN_EMAIL_TEST_ID);
+
+        return !hasVisible(loginButton)
+                && !hasVisible(emailInput)
+                && !hasVisible(passwordInput)
+                && !hasVisible(registerView)
+                && !hasVisible(loginView)
+                && !hasVisible(switchToLogin)
+                && !hasVisible(emailLogin);
+    }
+
+    private boolean isAuthenticationUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+
+        try {
+            URI uri = URI.create(url);
+            String path = uri.getPath();
+
+            if (path == null) {
+                return false;
+            }
+
+            String normalizedPath = path.toLowerCase();
+            return normalizedPath.startsWith("/member/register")
+                    || normalizedPath.startsWith("/member/login")
+                    || normalizedPath.startsWith("/member/auth");
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private boolean hasVisible(Locator locator) {
+        try {
+            int count = locator.count();
+
+            for (int index = 0; index < count; index++) {
+                if (locator.nth(index).isVisible()) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException exception) {
+            return false;
+        }
+
+        return false;
     }
 
     private void openLoginWindow(Page page) {
@@ -133,7 +249,7 @@ public class LoginService {
                         .setTimeout(10_000)
         );
 
-        log.info("Opening authentication window...");
+        log.info("[LOGIN] Opening authentication window.");
         loginButton.click();
     }
 
@@ -157,19 +273,15 @@ public class LoginService {
 
         while (System.currentTimeMillis() < deadline) {
             if (isVisible(emailInput)) {
-                log.info("E-mail login form is visible.");
+                log.info("[LOGIN] E-mail login form is visible.");
                 return;
             }
 
-            /*
-             * Do not depend on the login-view wrapper. Vinted has changed
-             * these wrappers before while keeping the actionable button.
-             */
             if (isLoginSelectionVisible(loginView, emailLogin)) {
-                log.info("Login view detected.");
+                log.info("[LOGIN] Login selection view detected.");
 
                 if (isVisible(emailLogin)) {
-                    log.info("Selecting e-mail login.");
+                    log.info("[LOGIN] Selecting e-mail login.");
 
                     if (clickEmailLoginAndWait(
                             page,
@@ -184,12 +296,6 @@ public class LoginService {
                 continue;
             }
 
-            /*
-             * The production log showed a Vinted registration screen where
-             * REGISTER_SWITCH_TEST_ID was visible but REGISTER_VIEW_TEST_ID
-             * was not rendered. Treat the actionable switch and the known
-             * registration URL as authoritative registration-state signals.
-             */
             if (isRegistrationSelectionVisible(
                     page,
                     registerView,
@@ -205,7 +311,7 @@ public class LoginService {
                         5_000
                 )) {
                     log.debug(
-                            "Registration screen detected, but login switch is not visible yet."
+                            "[LOGIN] Registration screen detected, but login switch is not visible yet."
                     );
                     page.waitForTimeout(AUTH_POLL_INTERVAL_MS);
                     continue;
@@ -214,17 +320,12 @@ public class LoginService {
                 registerSwitchAttempts++;
 
                 log.info(
-                        "Registration view detected. Switching to login view. Attempt {}/{}.",
+                        "[LOGIN] Registration selection is visible. Switching to login view. Attempt {}/{}.",
                         registerSwitchAttempts,
                         MAX_REGISTER_SWITCH_ATTEMPTS
                 );
 
                 String href = safeAttribute(switchToLogin, "href");
-
-                log.info(
-                        "Login switch href: {}",
-                        href
-                );
 
                 if (clickRegistrationSwitchAndWait(
                         page,
@@ -238,8 +339,8 @@ public class LoginService {
                     continue;
                 }
 
-                log.warn(
-                        "Authentication view is still unchanged after attempt {}/{}. Retrying.",
+                log.info(
+                        "[LOGIN] Authentication view is still unchanged after attempt {}/{}. Retrying.",
                         registerSwitchAttempts,
                         MAX_REGISTER_SWITCH_ATTEMPTS
                 );
@@ -252,7 +353,7 @@ public class LoginService {
         }
 
         log.error(
-                "Could not reach Vinted e-mail login form. Current URL: {}. Register switch attempts: {}.",
+                "[LOGIN] Could not reach Vinted e-mail login form. Current URL: {}. Register switch attempts: {}.",
                 page.url(),
                 registerSwitchAttempts
         );
@@ -272,9 +373,9 @@ public class LoginService {
         try {
             emailLogin.click();
         } catch (Exception exception) {
-            log.warn(
-                    "Normal e-mail login click failed: {}",
-                    exception.getMessage()
+            log.info(
+                    "[LOGIN] Normal e-mail-login click failed; DOM fallback will be tried. reason={}",
+                    friendlyMessage(exception)
             );
         }
 
@@ -282,20 +383,20 @@ public class LoginService {
 
         if (isVisible(emailInput)) {
             log.info(
-                    "E-mail login form appeared after normal click."
+                    "[LOGIN] E-mail login form appeared after normal click."
             );
             return true;
         }
 
         try {
-            log.warn(
-                    "Normal e-mail login click did not open the form. Trying DOM click."
+            log.info(
+                    "[LOGIN] Normal e-mail-login click did not open the form. Trying DOM click."
             );
             emailLogin.evaluate("element => element.click()");
         } catch (Exception exception) {
             log.warn(
-                    "DOM e-mail login click failed: {}",
-                    exception.getMessage()
+                    "[LOGIN] DOM e-mail-login click failed: {}",
+                    friendlyMessage(exception)
             );
         }
 
@@ -303,7 +404,7 @@ public class LoginService {
 
         if (isVisible(emailInput)) {
             log.info(
-                    "E-mail login form appeared after DOM click."
+                    "[LOGIN] E-mail login form appeared after DOM click."
             );
             return true;
         }
@@ -323,9 +424,9 @@ public class LoginService {
         try {
             switchToLogin.click();
         } catch (Exception exception) {
-            log.warn(
-                    "Normal login switch click failed: {}",
-                    exception.getMessage()
+            log.info(
+                    "[LOGIN] Normal login-switch click failed; DOM fallback will be tried. reason={}",
+                    friendlyMessage(exception)
             );
         }
 
@@ -340,21 +441,21 @@ public class LoginService {
                 emailInput
         )) {
             log.info(
-                    "Authentication view changed after normal click."
+                    "[LOGIN] Authentication view changed after normal click."
             );
             return true;
         }
 
-        log.warn(
-                "Normal click did not change authentication view. Trying DOM click."
+        log.info(
+                "[LOGIN] Normal click did not change authentication view. Trying DOM click."
         );
 
         try {
             switchToLogin.evaluate("element => element.click()");
         } catch (Exception exception) {
             log.warn(
-                    "DOM click failed: {}",
-                    exception.getMessage()
+                    "[LOGIN] DOM login-switch click failed: {}",
+                    friendlyMessage(exception)
             );
         }
 
@@ -369,7 +470,7 @@ public class LoginService {
                 emailInput
         )) {
             log.info(
-                    "Authentication view changed after DOM click."
+                    "[LOGIN] Authentication view changed after DOM click."
             );
             return true;
         }
@@ -382,14 +483,14 @@ public class LoginService {
 
         if (!MarketplaceUrls.isVintedUrl(resolvedUrl)) {
             log.warn(
-                    "Refusing authentication href fallback outside trusted Vinted hosts: {}",
+                    "[LOGIN] Refusing authentication href fallback outside trusted Vinted hosts: {}",
                     resolvedUrl
             );
             return false;
         }
 
-        log.warn(
-                "Clicks did not change auth view. Navigating directly to href: {}",
+        log.info(
+                "[LOGIN] Click fallbacks did not change auth view. Navigating directly to trusted href: {}",
                 resolvedUrl
         );
 
@@ -398,8 +499,8 @@ public class LoginService {
             page.waitForTimeout(AUTH_SWITCH_RETRY_DELAY_MS);
         } catch (Exception exception) {
             log.warn(
-                    "Direct href navigation failed: {}",
-                    exception.getMessage()
+                    "[LOGIN] Direct trusted href navigation failed: {}",
+                    friendlyMessage(exception)
             );
         }
 
@@ -412,7 +513,7 @@ public class LoginService {
                 emailInput
         )) {
             log.info(
-                    "Authentication view changed after direct navigation."
+                    "[LOGIN] Authentication view changed after direct navigation."
             );
             return true;
         }
@@ -505,7 +606,7 @@ public class LoginService {
             return locator.getAttribute(attributeName);
         } catch (Exception exception) {
             log.debug(
-                    "Could not read authentication element attribute '{}'.",
+                    "[LOGIN] Could not read authentication element attribute '{}'.",
                     attributeName
             );
             return null;
@@ -533,7 +634,7 @@ public class LoginService {
                     .toString();
         } catch (Exception exception) {
             log.warn(
-                    "Could not resolve href {} against current URL {}",
+                    "[LOGIN] Could not resolve href {} against current URL {}",
                     href,
                     currentUrl
             );
@@ -579,7 +680,7 @@ public class LoginService {
                         .setTimeout(10_000)
         );
 
-        log.info("Submitting login form...");
+        log.info("[LOGIN] Submitting login form.");
         submitButton.click();
     }
 
@@ -587,7 +688,7 @@ public class LoginService {
         Locator elements = page.locator("[data-testid]");
         int count = elements.count();
 
-        log.info("Visible Vinted elements:");
+        log.debug("[LOGIN DIAGNOSTIC] Visible Vinted data-testid elements:");
 
         for (int i = 0; i < count; i++) {
             Locator element = elements.nth(i);
@@ -609,13 +710,29 @@ public class LoginService {
                     }
                 }
 
-                log.info(
-                        "VISIBLE TESTID: {} | TEXT: {}",
+                log.debug(
+                        "[LOGIN DIAGNOSTIC] testId={} text={}",
                         testId,
                         text
                 );
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private String friendlyMessage(Throwable exception) {
+        if (exception == null
+                || exception.getMessage() == null
+                || exception.getMessage().isBlank()) {
+            return exception == null
+                    ? "unknown error"
+                    : exception.getClass().getSimpleName();
+        }
+
+        return exception.getMessage()
+                .lines()
+                .findFirst()
+                .orElse(exception.getMessage())
+                .trim();
     }
 }

@@ -11,6 +11,10 @@ import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -25,6 +29,8 @@ public class FilterActions {
     private static final double BRAND_PERSIST_TIMEOUT_MS = 5_000;
     private static final double BRAND_RETRY_DELAY_MS = 2_000;
     private static final double BRAND_PANEL_SETTLE_MS = 400;
+    private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 10_000;
+    private static final double MODEL_OPTION_POLL_INTERVAL_MS = 250;
 
     private final Page page;
     private String activeFilterTestId;
@@ -152,22 +158,44 @@ public class FilterActions {
                     return;
                 }
 
-                log.warn(
-                        "[FILTER BRAND] Attempt {}/{} for '{}' finished, but Vinted did not persist a brand filter. Current URL: {}",
-                        attempt,
-                        BRAND_MAX_ATTEMPTS,
-                        brand,
-                        page.url()
-                );
+                if (attempt < BRAND_MAX_ATTEMPTS) {
+                    log.info(
+                            "[FILTER BRAND] Attempt {}/{} did not persist '{}' yet. Retrying safely. Current URL: {}",
+                            attempt,
+                            BRAND_MAX_ATTEMPTS,
+                            brand,
+                            page.url()
+                    );
+                } else {
+                    log.warn(
+                            "[FILTER BRAND] Final attempt {}/{} did not persist '{}'. Current URL: {}",
+                            attempt,
+                            BRAND_MAX_ATTEMPTS,
+                            brand,
+                            page.url()
+                    );
+                }
             } catch (RuntimeException exception) {
                 lastException = exception;
-                log.warn(
-                        "[FILTER BRAND] Attempt {}/{} for '{}' failed: {}",
-                        attempt,
-                        BRAND_MAX_ATTEMPTS,
-                        brand,
-                        getFriendlyErrorMessage(exception)
-                );
+
+                if (attempt < BRAND_MAX_ATTEMPTS) {
+                    log.info(
+                            "[FILTER BRAND] Attempt {}/{} for '{}' needs retry: {}",
+                            attempt,
+                            BRAND_MAX_ATTEMPTS,
+                            brand,
+                            getFriendlyErrorMessage(exception)
+                    );
+                } else {
+                    log.warn(
+                            "[FILTER BRAND] Final attempt {}/{} for '{}' failed: {}",
+                            attempt,
+                            BRAND_MAX_ATTEMPTS,
+                            brand,
+                            getFriendlyErrorMessage(exception)
+                    );
+                }
+
                 log.trace(
                         "[FILTER BRAND] Full brand filter error. Attempt {}/{}.",
                         attempt,
@@ -272,48 +300,81 @@ public class FilterActions {
 
         String selector = "[data-testid^='selectable-item-brand_collection-']";
         Locator allModelOptions = page.locator(selector);
-        Locator exactModelOptions = allModelOptions.filter(
-                new Locator.FilterOptions().setHasText(exactModelOptionPattern(model))
-        );
+        long deadline = System.currentTimeMillis() + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
+        List<String> lastVisiblePartialLabels = List.of();
+        int lastVisibleCount = 0;
 
-        int exactMatchCount = exactModelOptions.count();
-        int partialMatchCount = allModelOptions
-                .filter(new Locator.FilterOptions().setHasText(model))
-                .count();
+        while (System.currentTimeMillis() <= deadline) {
+            ensureVintedBeforeFilterAction("waiting for exact model '" + model + "'");
 
-        if (exactMatchCount == 0) {
-            throw new IllegalStateException(
-                    "Could not find an exact Vinted model option for '"
-                            + model
-                            + "'. Partial matches visible in the model list: "
-                            + partialMatchCount
-                            + ". Refusing to click a partial model match because it could select a different variant such as Edge, Ultra, FE or Plus."
-            );
+            int optionCount = allModelOptions.count();
+            List<Locator> exactMatches = new ArrayList<>();
+            Set<String> partialLabels = new LinkedHashSet<>();
+            int visibleCount = 0;
+
+            for (int index = 0; index < optionCount; index++) {
+                Locator candidate = allModelOptions.nth(index);
+
+                if (!safeIsVisible(candidate)) {
+                    continue;
+                }
+
+                visibleCount++;
+                String visibleText = safeInnerText(candidate);
+
+                if (exactVisibleModelLabelMatches(model, visibleText)) {
+                    exactMatches.add(candidate);
+                    continue;
+                }
+
+                String normalizedVisible = normalizeOptionText(visibleText);
+                if (containsIgnoreCase(normalizedVisible, normalizeOptionText(model))) {
+                    partialLabels.add(normalizedVisible);
+                }
+            }
+
+            lastVisibleCount = visibleCount;
+            lastVisiblePartialLabels = List.copyOf(partialLabels);
+
+            if (!exactMatches.isEmpty()) {
+                if (exactMatches.size() > 1) {
+                    log.warn(
+                            "[FILTER MODEL] Found {} visible exact options for '{}'. Using the first exact option.",
+                            exactMatches.size(),
+                            model
+                    );
+                }
+
+                Locator modelLocator = exactMatches.getFirst();
+                String actualOptionText = normalizeOptionText(safeInnerText(modelLocator));
+                String testId = modelLocator.getAttribute("data-testid");
+
+                log.info(
+                        "[FILTER MODEL] Exact visible Vinted model resolved after filtered-list settling. requested='{}', visibleOption='{}', testId='{}'. Partial variants are never accepted.",
+                        model,
+                        actualOptionText,
+                        testId
+                );
+
+                modelLocator.click();
+                assertStillOnVinted("selecting exact model '" + model + "'");
+                return;
+            }
+
+            page.waitForTimeout(MODEL_OPTION_POLL_INTERVAL_MS);
         }
 
-        if (exactMatchCount > 1) {
-            log.warn(
-                    "[FILTER MODEL] Found {} exact Vinted model options for '{}'. Using the first visible exact option.",
-                    exactMatchCount,
-                    model
-            );
-        }
-
-        Locator modelLocator = exactModelOptions.first();
-        waitUntilVisible(modelLocator, OPTION_TIMEOUT_MS);
-
-        String actualOptionText = normalizeOptionText(modelLocator.innerText());
-        String testId = modelLocator.getAttribute("data-testid");
-
-        log.info(
-                "[FILTER MODEL] Exact Vinted model option resolved. requested='{}', visibleOption='{}', testId='{}'. Partial matches are never accepted.",
-                model,
-                actualOptionText,
-                testId
+        throw new IllegalStateException(
+                "Could not find an exact visible Vinted model option for '"
+                        + model
+                        + "' within "
+                        + Math.round(MODEL_OPTION_SETTLE_TIMEOUT_MS / 1_000)
+                        + " seconds. Visible model options="
+                        + lastVisibleCount
+                        + ", visible partial matches="
+                        + lastVisiblePartialLabels
+                        + ". Refusing to click Edge/Ultra/FE/Plus or any other partial variant."
         );
-
-        modelLocator.click();
-        assertStillOnVinted("selecting exact model '" + model + "'");
     }
 
     static Pattern exactModelOptionPattern(String model) {
@@ -324,11 +385,55 @@ public class FilterActions {
         );
     }
 
+    static boolean exactVisibleModelLabelMatches(
+            String requestedModel,
+            String visibleText
+    ) {
+        String normalizedRequested = normalizeOptionText(requestedModel);
+
+        if (normalizedRequested.isBlank() || visibleText == null) {
+            return false;
+        }
+
+        String normalizedVisible = normalizeOptionText(visibleText);
+        if (normalizedRequested.equalsIgnoreCase(normalizedVisible)) {
+            return true;
+        }
+
+        return visibleText.lines()
+                .map(FilterActions::normalizeOptionText)
+                .filter(line -> !line.isBlank())
+                .anyMatch(line -> normalizedRequested.equalsIgnoreCase(line));
+    }
+
     static String normalizeOptionText(String value) {
         if (value == null) {
             return "";
         }
         return value.trim().replaceAll("\\s+", " ");
+    }
+
+    private boolean containsIgnoreCase(String value, String fragment) {
+        if (value == null || fragment == null || fragment.isBlank()) {
+            return false;
+        }
+        return value.toLowerCase().contains(fragment.toLowerCase());
+    }
+
+    private boolean safeIsVisible(Locator locator) {
+        try {
+            return locator.isVisible();
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private String safeInnerText(Locator locator) {
+        try {
+            return locator.innerText();
+        } catch (RuntimeException exception) {
+            return "";
+        }
     }
 
     public void clickConfirmButton() {
@@ -341,18 +446,15 @@ public class FilterActions {
 
     public void clickOutsideSafely() {
         ensureVintedBeforeFilterAction("closing filter panel");
-        page.evaluate(
-                """
-                () -> {
-                    const target = document.body;
-                    const e = { bubbles: true, cancelable: true, view: window };
-                    target.dispatchEvent(new MouseEvent("mousedown", e));
-                    target.dispatchEvent(new MouseEvent("mouseup", e));
-                    target.dispatchEvent(new MouseEvent("click", e));
-                }
-                """
-        );
-        page.waitForTimeout(1_000);
+
+        /*
+         * Escape is a native, low-risk way to dismiss Vinted's filter drawer.
+         * The old synthetic document.body MouseEvent script occasionally
+         * produced a JavaScript SyntaxError and forced an unnecessary URL
+         * fallback even though the entered prices were already valid.
+         */
+        page.keyboard().press("Escape");
+        page.waitForTimeout(400);
         assertStillOnVinted("closing filter panel");
     }
 
@@ -393,6 +495,26 @@ public class FilterActions {
 
     public void waitForTimeout(double milliseconds) {
         page.waitForTimeout(milliseconds);
+    }
+
+    public boolean waitForUrlParameterPresent(
+            String parameterName,
+            double timeoutMilliseconds
+    ) {
+        long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
+
+        while (System.currentTimeMillis() <= deadline) {
+            assertStillOnVinted("waiting for URL parameter '" + parameterName + "'");
+
+            if (getUrlParameter(parameterName) != null) {
+                rememberCurrentVintedUrl();
+                return true;
+            }
+
+            page.waitForTimeout(200);
+        }
+
+        return false;
     }
 
     public boolean waitForBrandFilterPersisted(double timeoutMilliseconds) {

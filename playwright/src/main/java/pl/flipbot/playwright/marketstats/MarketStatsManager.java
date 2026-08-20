@@ -92,8 +92,11 @@ public class MarketStatsManager implements AutoCloseable {
                 );
             } catch (Exception exception) {
                 log.warn(
-                        "[MARKET STATS] Could not check whether an early baseline scan is needed. "
-                                + "Keeping the normal schedule.",
+                        "[MARKET STATS] Could not check whether an early baseline scan is needed. Keeping the normal schedule. reason={}",
+                        friendlyMessage(exception)
+                );
+                log.debug(
+                        "[MARKET STATS] Full early-baseline check error.",
                         exception
                 );
                 return;
@@ -144,9 +147,12 @@ public class MarketStatsManager implements AutoCloseable {
                     );
 
             log.error(
-                    "[MARKET STATS] Collection failed. The normal bot scheduler is unaffected; "
-                            + "the collector will retry in {} minutes.",
+                    "[MARKET STATS] Collection failed. Normal bot scheduling is unaffected. Retry in {} minutes. reason={}",
                     FAILURE_RETRY_MINUTES,
+                    friendlyMessage(exception)
+            );
+            log.debug(
+                    "[MARKET STATS] Full collection failure.",
                     exception
             );
         }
@@ -173,5 +179,21 @@ public class MarketStatsManager implements AutoCloseable {
     @Override
     public void close() {
         stop();
+    }
+
+    private String friendlyMessage(Throwable exception) {
+        if (exception == null
+                || exception.getMessage() == null
+                || exception.getMessage().isBlank()) {
+            return exception == null
+                    ? "unknown error"
+                    : exception.getClass().getSimpleName();
+        }
+
+        return exception.getMessage()
+                .lines()
+                .findFirst()
+                .orElse(exception.getMessage())
+                .trim();
     }
 }

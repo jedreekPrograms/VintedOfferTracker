@@ -38,4 +38,49 @@ public class FilterActionsModelOptionTest {
 
         assertEquals(Pattern.CASE_INSENSITIVE, pattern.flags());
     }
+
+    @Test
+    public void visibleModelMatcherAcceptsExactLabelInsideMultilineOption() {
+        assertTrue(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25\n123 przedmioty"
+                )
+        );
+
+        assertTrue(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "  GALAXY S25  \n  123 przedmioty  "
+                )
+        );
+    }
+
+    @Test
+    public void visibleModelMatcherRejectsEveryS25Variant() {
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25 Edge\n50 przedmiotów"
+                )
+        );
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25 Ultra\n50 przedmiotów"
+                )
+        );
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25 FE\n50 przedmiotów"
+                )
+        );
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25+\n50 przedmiotów"
+                )
+        );
+    }
 }
