@@ -18,6 +18,8 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class ExistingNegotiationSupport {
 
+    private static final String VINTED_MODEL = "VINTED_MODEL";
+
     private final BotContext context;
     private final ListingClient listingClient;
     private final ListingStatusUpdater listingStatusUpdater;
@@ -105,6 +107,33 @@ public class ExistingNegotiationSupport {
             ListingResponseDto listing,
             BotConfigurationDto configuration
     ) {
+        if (configuration == null) {
+            throw new IllegalArgumentException("Bot configuration cannot be null");
+        }
+
+        String targetMode = configuration.getTargetMode();
+        if (targetMode == null
+                || targetMode.isBlank()
+                || VINTED_MODEL.equalsIgnoreCase(targetMode.trim())) {
+            /*
+             * The negotiation was created only after the exact Vinted model
+             * filter had been proven and its brand_collection_ids[] value had
+             * been verified. Seller-written listing titles are not allowed to
+             * reinterpret that Vinted classification later in the lifecycle.
+             */
+            log.debug(
+                    "[TARGET GUARD] Listing {} remains valid because VINTED_MODEL negotiations trust the exact Vinted model filter used when the listing was discovered.",
+                    listing == null ? null : listing.listingId()
+            );
+            return true;
+        }
+
+        /*
+         * Preserve the historical behavior for non-VINTED_MODEL modes. In the
+         * current SEARCH_QUERY configuration model is null, so this guard does
+         * not replace the dedicated search-query verification performed before
+         * a new negotiation starts.
+         */
         String model = normalize(configuration.getModel());
         if (model.isBlank()) {
             return true;
