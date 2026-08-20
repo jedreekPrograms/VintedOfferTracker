@@ -329,7 +329,7 @@ function NegotiationStepsSection({
                                                                     type="number"
                                                                     min="0.001"
                                                                     max="100"
-                                                                    step="0.1"
+                                                                    step="any"
                                                                     disabled={policyDisabled}
                                                                     value={rule.minimumDiscountPercent}
                                                                     placeholder="10"
