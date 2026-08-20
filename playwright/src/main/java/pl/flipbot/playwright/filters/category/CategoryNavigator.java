@@ -14,7 +14,7 @@ public class CategoryNavigator {
 
     private static final int MAX_ATTEMPTS = 3;
     private static final double RETRY_DELAY_MS = 2_000;
-    private static final double FIRST_ROOT_OPTION_TIMEOUT_MS = 5_000;
+    private static final double FIRST_ROOT_OPTION_TIMEOUT_MS = 10_000;
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
     private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
 
