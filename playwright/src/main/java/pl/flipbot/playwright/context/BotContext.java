@@ -1,7 +1,6 @@
 package pl.flipbot.playwright.context;
 
 import com.microsoft.playwright.BrowserContext;
-import com.microsoft.playwright.Frame;
 import com.microsoft.playwright.Page;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -13,13 +12,24 @@ import pl.flipbot.playwright.session.SessionManager;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Getter
 public class BotContext implements AutoCloseable {
 
-    private static final int MAX_CONCURRENT_EXTRA_PAGES = 2;
-    private static final int POPUP_STORM_EVENT_LIMIT = 10;
+    /*
+     * Every FlipBot job is deliberately single-page. All production flows
+     * (catalog filtering, item inspection, offer submission and inbox
+     * negotiation) navigate the same Playwright Page. Vinted/ad-tech can still
+     * try to open target=_blank windows such as adtarget.biz or
+     * monetixads.com. Keeping a blank popup alive even for a fraction of a
+     * second lets Chromium render a visible advertising tab before the old
+     * navigation guard classifies it. Closing every additional Page at the
+     * creation event prevents that redirect chain from starting at all.
+     */
+    private static final int EXTRA_PAGE_LOG_FIRST_EVENTS = 3;
+    private static final int EXTRA_PAGE_LOG_INTERVAL = 25;
 
     private final BotDetailsDto bot;
 
@@ -29,9 +39,7 @@ public class BotContext implements AutoCloseable {
 
     private final SessionManager sessionManager;
 
-    private int extraPageEvents;
-
-    private boolean popupStormDetected;
+    private final AtomicInteger extraPageEvents = new AtomicInteger();
 
     public BotContext(
             BotDetailsDto bot,
@@ -70,7 +78,7 @@ public class BotContext implements AutoCloseable {
         this.page = resolveMainPage();
 
         closeExistingExtraPages();
-        registerPopupGuard();
+        registerSinglePageGuard();
     }
 
     private boolean isStoredSessionRestoreFailure(
@@ -153,147 +161,49 @@ public class BotContext implements AutoCloseable {
 
             closeUnexpectedPage(
                     existingPage,
-                    "existing extra page"
+                    "existing extra page",
+                    true
             );
         }
     }
 
-    private void registerPopupGuard() {
+    private void registerSinglePageGuard() {
         browserContext.onPage(
                 newPage -> {
                     if (newPage == page) {
                         return;
                     }
 
-                    extraPageEvents++;
+                    int eventNumber = extraPageEvents.incrementAndGet();
 
-                    if (extraPageEvents > POPUP_STORM_EVENT_LIMIT) {
-                        if (!popupStormDetected) {
-                            popupStormDetected = true;
-
-                            log.error(
-                                    "[BROWSER] POPUP STORM detected for bot {} after {} extra-page events. "
-                                            + "All subsequent extra pages will be closed immediately.",
-                                    bot.getId(),
-                                    extraPageEvents
-                            );
-                        }
-
-                        closeUnexpectedPage(
-                                newPage,
-                                "popup storm hard limit"
-                        );
-                        return;
-                    }
-
-                    int extraPagesOpen = Math.max(
-                            0,
-                            browserContext.pages().size() - 1
+                    /*
+                     * Close immediately, including about:blank. Do not wait for
+                     * the popup to navigate, because that is exactly the window
+                     * in which the ad/RTB tab becomes visible to the user.
+                     */
+                    closeUnexpectedPage(
+                            newPage,
+                            "single-page policy, extra-page event #" + eventNumber,
+                            shouldLogExtraPageEvent(eventNumber)
                     );
-
-                    if (extraPagesOpen > MAX_CONCURRENT_EXTRA_PAGES) {
-                        log.warn(
-                                "[BROWSER] Too many extra pages for bot {}: {} open. "
-                                        + "Closing newest page defensively.",
-                                bot.getId(),
-                                extraPagesOpen
-                        );
-
-                        closeUnexpectedPage(
-                                newPage,
-                                "concurrent extra-page limit"
-                        );
-                        return;
-                    }
-
-                    registerNavigationGuard(newPage);
-                    classifyExtraPage(newPage, "new popup/page");
                 }
         );
 
         log.info(
-                "[BROWSER] Popup guard enabled for bot {}. "
-                        + "Blank pages are re-checked after navigation; "
-                        + "external pages are closed; concurrent extras are limited to {}; "
-                        + "popup-storm limit={} events per bot job.",
-                bot.getId(),
-                MAX_CONCURRENT_EXTRA_PAGES,
-                POPUP_STORM_EVENT_LIMIT
+                "[BROWSER] Single-page guard enabled for bot {}. Every additional browser tab/window is closed immediately before an advertising or external redirect can proceed.",
+                bot.getId()
         );
     }
 
-    private void registerNavigationGuard(Page extraPage) {
-        extraPage.onFrameNavigated(
-                frame -> {
-                    if (!isMainFrame(extraPage, frame)) {
-                        return;
-                    }
-
-                    classifyExtraPage(
-                            extraPage,
-                            "extra page navigated"
-                    );
-                }
-        );
-    }
-
-    private boolean isMainFrame(
-            Page candidatePage,
-            Frame frame
-    ) {
-        try {
-            return frame == candidatePage.mainFrame();
-        } catch (Exception exception) {
-            return false;
-        }
-    }
-
-    private void classifyExtraPage(
-            Page extraPage,
-            String reason
-    ) {
-        try {
-            if (extraPage.isClosed()) {
-                return;
-            }
-
-            String url = normalizeUrl(extraPage.url());
-
-            if (isTransientBlankUrl(url)) {
-                log.debug(
-                        "[BROWSER] Waiting for transient blank extra page to navigate. Bot: {}.",
-                        bot.getId()
-                );
-                return;
-            }
-
-            if (MarketplaceUrls.isVintedUrl(url)) {
-                log.debug(
-                        "[BROWSER] Preserving additional Vinted page for bot {}. URL: {}",
-                        bot.getId(),
-                        url
-                );
-                return;
-            }
-
-            closeUnexpectedPage(
-                    extraPage,
-                    reason + ", external URL"
-            );
-
-        } catch (Exception exception) {
-            log.debug(
-                    "[BROWSER] Could not classify extra page for bot {}. "
-                            + "The concurrent-page and popup-storm limits remain active.",
-                    bot.getId(),
-                    exception
-            );
-        }
+    private boolean shouldLogExtraPageEvent(int eventNumber) {
+        return eventNumber <= EXTRA_PAGE_LOG_FIRST_EVENTS
+                || eventNumber % EXTRA_PAGE_LOG_INTERVAL == 0;
     }
 
     private void closeUnexpectedPage(
             Page unexpectedPage,
-            String reason
+            String reason,
+            boolean logEvent
     ) {
         try {
             if (unexpectedPage == page || unexpectedPage.isClosed()) {
@@ -302,20 +212,29 @@ public class BotContext implements AutoCloseable {
 
             String url = normalizeUrl(unexpectedPage.url());
 
-            log.warn(
-                    "[BROWSER] Closing unexpected browser page. "
-                            + "Bot: {}, reason: {}, URL: {}",
-                    bot.getId(),
-                    reason,
-                    url
-            );
+            if (logEvent) {
+                log.warn(
+                        "[BROWSER] Closing unexpected browser page immediately. Bot: {}, reason: {}, initialURL: {}",
+                        bot.getId(),
+                        reason,
+                        url
+                );
+            } else {
+                log.debug(
+                        "[BROWSER] Suppressed extra-page log. Bot: {}, reason: {}, initialURL: {}",
+                        bot.getId(),
+                        reason,
+                        url
+                );
+            }
 
             unexpectedPage.close();
 
         } catch (Exception exception) {
             log.warn(
-                    "[BROWSER] Could not close unexpected page for bot {}.",
+                    "[BROWSER] Could not close unexpected page for bot {}. reason={}",
                     bot.getId(),
+                    reason,
                     exception
             );
         }
@@ -329,11 +248,6 @@ public class BotContext implements AutoCloseable {
         } catch (Exception exception) {
             return false;
         }
-    }
-
-    private boolean isTransientBlankUrl(String url) {
-        return url.isBlank()
-                || "about:blank".equalsIgnoreCase(url);
     }
 
     private String normalizeUrl(String url) {
@@ -351,6 +265,16 @@ public class BotContext implements AutoCloseable {
 
     @Override
     public void close() {
+        int blockedExtraPages = extraPageEvents.get();
+
+        if (blockedExtraPages > 0) {
+            log.info(
+                    "[BROWSER] Bot {} job blocked {} additional browser tab/window event(s). Main page remained isolated.",
+                    bot.getId(),
+                    blockedExtraPages
+            );
+        }
+
         browserContext.close();
     }
 }
