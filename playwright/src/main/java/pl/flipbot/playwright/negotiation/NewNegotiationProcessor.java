@@ -12,6 +12,7 @@ import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.target.ListingDetailTargetInspector;
 import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
+import pl.flipbot.playwright.target.ListingUnavailableDuringVerificationException;
 import pl.flipbot.playwright.target.VintedRateLimitException;
 
 import java.math.BigDecimal;
@@ -22,7 +23,16 @@ import java.util.List;
 public class NewNegotiationProcessor {
 
     private static final int MAX_DETAIL_INSPECTIONS_PER_CYCLE = 5;
-    private static final int MAX_FINAL_VERIFICATIONS_PER_CYCLE = 5;
+
+    /*
+     * Historical DISCOVERED queues can contain stale or no-longer-matching
+     * items. Checking only five final candidates meant that five bad backlog
+     * entries could starve dozens of valid listings behind them. We now scan
+     * further until enough candidates are verified for this run, with a
+     * bounded ceiling to avoid excessive item-page traffic.
+     */
+    private static final int MAX_FINAL_VERIFICATIONS_PER_CYCLE = 20;
+
     private static final double DETAIL_INSPECTION_PACING_MS = 1_500;
 
     private final BotContext context;
@@ -113,20 +123,16 @@ public class NewNegotiationProcessor {
             BotConfigurationDto configuration,
             int allowedNewNegotiations
     ) {
-        int maximumCandidatesToVerify = Math.min(
+        int desiredVerified = Math.min(
                 targetEligibleListings.size(),
                 allowedNewNegotiations
-        );
-        maximumCandidatesToVerify = Math.min(
-                maximumCandidatesToVerify,
-                MAX_FINAL_VERIFICATIONS_PER_CYCLE
         );
 
         FinalVerificationResult finalVerification = verifyFinalCandidates(
                 targetEligibleListings,
                 configuration,
-                maximumCandidatesToVerify,
-                maximumCandidatesToVerify
+                MAX_FINAL_VERIFICATIONS_PER_CYCLE,
+                desiredVerified
         );
 
         log.warn(
@@ -160,10 +166,12 @@ public class NewNegotiationProcessor {
         }
 
         log.warn(
-                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final full-title verification will run before offer-form preparation, and quota will be reserved only after the form is fully prepared and the submit button is ready.",
+                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final verification will inspect up to {} candidates until {} verified candidate(s) are found. Quota is reserved only after the form is fully prepared and submit is ready.",
                 botId,
                 targetEligibleListings.size(),
                 allowedNewNegotiations,
+                maximumOffersThisRun,
+                MAX_FINAL_VERIFICATIONS_PER_CYCLE,
                 maximumOffersThisRun
         );
 
@@ -171,7 +179,7 @@ public class NewNegotiationProcessor {
                 targetEligibleListings,
                 configuration,
                 MAX_FINAL_VERIFICATIONS_PER_CYCLE,
-                MAX_FINAL_VERIFICATIONS_PER_CYCLE
+                maximumOffersThisRun
         );
 
         List<ListingResponseDto> finalVerifiedListings =
@@ -220,6 +228,11 @@ public class NewNegotiationProcessor {
 
             if (preparationResult == NegotiationPreparationResult.LISTING_UNAVAILABLE) {
                 listingStatusUpdater.markUnavailable(botId, listing);
+                continue;
+            }
+
+            if (preparationResult == NegotiationPreparationResult.TARGET_MISMATCH) {
+                listingStatusUpdater.markTargetMismatch(botId, listing);
                 continue;
             }
 
@@ -345,8 +358,6 @@ public class NewNegotiationProcessor {
                         quotaReservation.remaining()
                 );
 
-                continue;
-
             } catch (Exception exception) {
                 log.error(
                         "[REAL OFFER] Failure occurred after quota reservation while submitting marketplace listing {}: {}. Quota will NOT be released automatically and FIRST_OFFER action guard will remain persisted because the real submit action may have been attempted.",
@@ -429,10 +440,6 @@ public class NewNegotiationProcessor {
                 targetEligibleListings.size(),
                 maximumCandidatesToCheck
         );
-        candidatesToCheck = Math.min(
-                candidatesToCheck,
-                MAX_FINAL_VERIFICATIONS_PER_CYCLE
-        );
 
         if (candidatesToCheck <= 0) {
             return new FinalVerificationResult(
@@ -511,8 +518,12 @@ public class NewNegotiationProcessor {
                     );
                 } else {
                     mismatches++;
+                    listingStatusUpdater.markTargetMismatch(
+                            context.getBot().getId(),
+                            listing
+                    );
                     log.warn(
-                            "[FINAL VERIFY] Marketplace listing {} FAILED mandatory full-title verification. It will NOT proceed toward quota reservation.",
+                            "[FINAL VERIFY] Marketplace listing {} FAILED mandatory full-title verification and was persisted as SKIPPED_TARGET_MISMATCH. It will not block later backlog candidates.",
                             listing.listingId()
                     );
                 }
@@ -524,10 +535,20 @@ public class NewNegotiationProcessor {
                 );
                 throw exception;
 
+            } catch (ListingUnavailableDuringVerificationException exception) {
+                listingStatusUpdater.markUnavailable(
+                        context.getBot().getId(),
+                        listing
+                );
+                log.info(
+                        "[FINAL VERIFY] Marketplace listing {} became unavailable and was persisted as UNAVAILABLE. Verification continues with the next candidate.",
+                        listing.listingId()
+                );
+
             } catch (Exception exception) {
                 failures++;
                 log.warn(
-                        "[FINAL VERIFY] Could not verify marketplace listing {}: {}. The listing will NOT proceed toward quota reservation.",
+                        "[FINAL VERIFY] Could not verify marketplace listing {}: {}. It remains DISCOVERED and will be retried in a later cycle; verification will continue with the next candidate now.",
                         listing.listingId(),
                         getFriendlyErrorMessage(exception)
                 );
@@ -574,6 +595,9 @@ public class NewNegotiationProcessor {
         int detailInspectionFailures = 0;
         int deferredByDetailLimit = 0;
         int detailRequestsThisCycle = 0;
+        int persistedTargetMismatches = 0;
+        int persistedUnavailable = 0;
+        Long botId = context.getBot().getId();
 
         for (ListingResponseDto listing : listings) {
             ListingTargetAssessment catalogAssessment =
@@ -590,6 +614,8 @@ public class NewNegotiationProcessor {
 
             if (catalogAssessment == ListingTargetAssessment.MISMATCH) {
                 rejectedCatalogMismatch++;
+                listingStatusUpdater.markTargetMismatch(botId, listing);
+                persistedTargetMismatches++;
                 continue;
             }
 
@@ -607,6 +633,8 @@ public class NewNegotiationProcessor {
 
             if (urlAssessment == ListingTargetAssessment.MISMATCH) {
                 rejectedUrlMismatch++;
+                listingStatusUpdater.markTargetMismatch(botId, listing);
+                persistedTargetMismatches++;
                 continue;
             }
 
@@ -626,6 +654,8 @@ public class NewNegotiationProcessor {
                     matchedFromDetailCache++;
                 } else {
                     rejectedFromDetailCache++;
+                    listingStatusUpdater.markTargetMismatch(botId, listing);
+                    persistedTargetMismatches++;
                 }
 
                 continue;
@@ -659,6 +689,8 @@ public class NewNegotiationProcessor {
                     matchedAfterDetailRequest++;
                 } else {
                     rejectedAfterDetailRequest++;
+                    listingStatusUpdater.markTargetMismatch(botId, listing);
+                    persistedTargetMismatches++;
                 }
 
             } catch (VintedRateLimitException exception) {
@@ -668,10 +700,18 @@ public class NewNegotiationProcessor {
                 );
                 throw exception;
 
+            } catch (ListingUnavailableDuringVerificationException exception) {
+                listingStatusUpdater.markUnavailable(botId, listing);
+                persistedUnavailable++;
+                log.info(
+                        "[TARGET DETAIL] Marketplace listing {} became unavailable during target inspection and was persisted as UNAVAILABLE.",
+                        listing.listingId()
+                );
+
             } catch (Exception exception) {
                 detailInspectionFailures++;
                 log.warn(
-                        "[TARGET DETAIL] Failed to inspect marketplace listing {}. It will be skipped for this cycle before quota reservation. Error: {}",
+                        "[TARGET DETAIL] Failed to inspect marketplace listing {}. It remains DISCOVERED and will be retried in a later cycle. Error: {}",
                         listing.listingId(),
                         getFriendlyErrorMessage(exception)
                 );
@@ -684,7 +724,7 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, final eligible: {}. Target mode: {}.",
+                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
                 listings.size(),
                 matchedFromCatalogTitle,
                 matchedFromUrlSlug,
@@ -698,6 +738,8 @@ public class NewNegotiationProcessor {
                 MAX_DETAIL_INSPECTIONS_PER_CYCLE,
                 detailInspectionFailures,
                 deferredByDetailLimit,
+                persistedTargetMismatches,
+                persistedUnavailable,
                 eligibleListings.size(),
                 configuration.getTargetMode()
         );

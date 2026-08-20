@@ -32,6 +32,16 @@ public class ListingTargetMatcherTest {
     }
 
     @Test
+    public void galaxyS25StillRejectsEdgeVariant() {
+        assertFalse(
+                matcher.matchesFullTitle(
+                        "Samsung Galaxy S25 Edge 12/256GB",
+                        samsungModel("Galaxy S25")
+                )
+        );
+    }
+
+    @Test
     public void galaxyS25StillRejectsDifferentGeneration() {
         assertFalse(
                 matcher.matchesFullTitle(

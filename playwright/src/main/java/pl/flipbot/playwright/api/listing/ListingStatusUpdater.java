@@ -143,21 +143,11 @@ public class ListingStatusUpdater {
             Long botId,
             ListingResponseDto listing
     ) {
-        UpdateListingRequestDto request = createDiscoveredStatusUpdateRequest(
-                listing,
-                "UNAVAILABLE"
-        );
-
-        ListingResponseDto updatedListing = listingClient.updateListing(
+        updateDiscoveredStatus(
                 botId,
-                listing.id(),
-                request
-        );
-
-        log.info(
-                "Backend listing {} was marked as {}",
-                updatedListing.id(),
-                updatedListing.status()
+                listing,
+                "UNAVAILABLE",
+                "[LISTING STATUS]"
         );
     }
 
@@ -165,21 +155,23 @@ public class ListingStatusUpdater {
             Long botId,
             ListingResponseDto listing
     ) {
-        UpdateListingRequestDto request = createDiscoveredStatusUpdateRequest(
-                listing,
-                "SKIPPED_OFFER_TOO_LOW"
-        );
-
-        ListingResponseDto updatedListing = listingClient.updateListing(
+        updateDiscoveredStatus(
                 botId,
-                listing.id(),
-                request
+                listing,
+                "SKIPPED_OFFER_TOO_LOW",
+                "[LISTING STATUS]"
         );
+    }
 
-        log.info(
-                "Backend listing {} was marked as {}",
-                updatedListing.id(),
-                updatedListing.status()
+    public void markTargetMismatch(
+            Long botId,
+            ListingResponseDto listing
+    ) {
+        updateDiscoveredStatus(
+                botId,
+                listing,
+                "SKIPPED_TARGET_MISMATCH",
+                "[TARGET VERIFY]"
         );
     }
 
@@ -203,6 +195,41 @@ public class ListingStatusUpdater {
                 updatedListing.id(),
                 updatedListing.status(),
                 listing.originalPrice()
+        );
+    }
+
+    private void updateDiscoveredStatus(
+            Long botId,
+            ListingResponseDto listing,
+            String status,
+            String logPrefix
+    ) {
+        UpdateListingRequestDto request = createDiscoveredStatusUpdateRequest(
+                listing,
+                status
+        );
+
+        ListingResponseDto updatedListing = listingClient.updateListing(
+                botId,
+                listing.id(),
+                request
+        );
+
+        if (!status.equals(updatedListing.status())) {
+            throw new IllegalStateException(
+                    "Backend returned an unexpected listing status. Expected "
+                            + status
+                            + ", actual: "
+                            + updatedListing.status()
+            );
+        }
+
+        log.info(
+                "{} Backend listing {} / marketplace listing {} was marked as {}.",
+                logPrefix,
+                updatedListing.id(),
+                listing.listingId(),
+                updatedListing.status()
         );
     }
 
