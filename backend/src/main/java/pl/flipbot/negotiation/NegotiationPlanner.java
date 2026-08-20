@@ -1,6 +1,7 @@
 package pl.flipbot.negotiation;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.configuration.BotConfiguration;
@@ -11,6 +12,7 @@ import pl.flipbot.listing.ListingStatus;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class NegotiationPlanner {
@@ -54,11 +56,22 @@ public class NegotiationPlanner {
         int actionsAvailableForNewConversations =
                 remainingDailyActions - reservedFutureSteps;
 
-        if (actionsAvailableForNewConversations < maxSteps) {
-            return 0;
-        }
+        int allowedNewNegotiations =
+                actionsAvailableForNewConversations < maxSteps
+                        ? 0
+                        : actionsAvailableForNewConversations / maxSteps;
 
-        return actionsAvailableForNewConversations / maxSteps;
+        log.info(
+                "[NEGOTIATION CAPACITY] Bot {}: remainingDailyActions={}, reservedFutureSteps={}, stepsRequiredPerNewConversation={}, actionsLeftAfterReservations={}, allowedNewNegotiations={}.",
+                bot.getId(),
+                remainingDailyActions,
+                reservedFutureSteps,
+                maxSteps,
+                Math.max(actionsAvailableForNewConversations, 0),
+                allowedNewNegotiations
+        );
+
+        return allowedNewNegotiations;
     }
 
     int calculateReservedFutureSteps(
@@ -104,7 +117,24 @@ public class NegotiationPlanner {
             }
 
             reservedFutureSteps += remainingSteps;
+
+            log.info(
+                    "[NEGOTIATION CAPACITY] Bot {} active listing backendId={}, marketplaceId={}, status={}, currentStep={} reserves {} future action(s).",
+                    botId,
+                    listing.getId(),
+                    listing.getListingId(),
+                    listing.getStatus(),
+                    currentStep,
+                    remainingSteps
+            );
         }
+
+        log.info(
+                "[NEGOTIATION CAPACITY] Bot {} has {} active negotiation(s) reserving {} future action(s) in total.",
+                botId,
+                activeListings.size(),
+                reservedFutureSteps
+        );
 
         return reservedFutureSteps;
     }
