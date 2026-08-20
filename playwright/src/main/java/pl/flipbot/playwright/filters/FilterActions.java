@@ -11,6 +11,7 @@ import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -264,13 +265,70 @@ public class FilterActions {
 
     public void clickModel(String model) {
         ensureVintedBeforeFilterAction("selecting model '" + model + "'");
-        Locator modelLocator =
-                page.locator("[data-testid^='selectable-item-brand_collection-']")
-                        .filter(new Locator.FilterOptions().setHasText(model))
-                        .first();
+
+        if (model == null || model.isBlank()) {
+            throw new IllegalArgumentException("Model cannot be blank");
+        }
+
+        String selector = "[data-testid^='selectable-item-brand_collection-']";
+        Locator allModelOptions = page.locator(selector);
+        Locator exactModelOptions = allModelOptions.filter(
+                new Locator.FilterOptions().setHasText(exactModelOptionPattern(model))
+        );
+
+        int exactMatchCount = exactModelOptions.count();
+        int partialMatchCount = allModelOptions
+                .filter(new Locator.FilterOptions().setHasText(model))
+                .count();
+
+        if (exactMatchCount == 0) {
+            throw new IllegalStateException(
+                    "Could not find an exact Vinted model option for '"
+                            + model
+                            + "'. Partial matches visible in the model list: "
+                            + partialMatchCount
+                            + ". Refusing to click a partial model match because it could select a different variant such as Edge, Ultra, FE or Plus."
+            );
+        }
+
+        if (exactMatchCount > 1) {
+            log.warn(
+                    "[FILTER MODEL] Found {} exact Vinted model options for '{}'. Using the first visible exact option.",
+                    exactMatchCount,
+                    model
+            );
+        }
+
+        Locator modelLocator = exactModelOptions.first();
         waitUntilVisible(modelLocator, OPTION_TIMEOUT_MS);
+
+        String actualOptionText = normalizeOptionText(modelLocator.innerText());
+        String testId = modelLocator.getAttribute("data-testid");
+
+        log.info(
+                "[FILTER MODEL] Exact Vinted model option resolved. requested='{}', visibleOption='{}', testId='{}'. Partial matches are never accepted.",
+                model,
+                actualOptionText,
+                testId
+        );
+
         modelLocator.click();
-        assertStillOnVinted("selecting model '" + model + "'");
+        assertStillOnVinted("selecting exact model '" + model + "'");
+    }
+
+    static Pattern exactModelOptionPattern(String model) {
+        String normalizedModel = normalizeOptionText(model);
+        return Pattern.compile(
+                "^\\s*" + Pattern.quote(normalizedModel) + "\\s*$",
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+        );
+    }
+
+    static String normalizeOptionText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().replaceAll("\\s+", " ");
     }
 
     public void clickConfirmButton() {
@@ -285,7 +343,7 @@ public class FilterActions {
         ensureVintedBeforeFilterAction("closing filter panel");
         page.evaluate(
                 """
-                () => {
+                () -> {
                     const target = document.body;
                     const e = { bubbles: true, cancelable: true, view: window };
                     target.dispatchEvent(new MouseEvent("mousedown", e));
