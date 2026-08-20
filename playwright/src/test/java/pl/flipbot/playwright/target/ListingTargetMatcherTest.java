@@ -12,56 +12,82 @@ public class ListingTargetMatcherTest {
             new ListingTargetMatcher();
 
     @Test
-    public void samsungTechnicalProductCodeDoesNotConflictWithGalaxyS25() {
+    public void searchQueryAllowsSamsungTechnicalProductCodeForGalaxyS25() {
         assertTrue(
                 matcher.matchesFullTitle(
                         "Samsung Galaxy S25 SM-S931 12/128GB Enterprise Edition Srebrny",
-                        samsungModel("Galaxy S25")
+                        samsungSearchQuery("Galaxy S25")
                 )
         );
     }
 
     @Test
-    public void galaxyS25StillRejectsUltraVariant() {
+    public void searchQueryGalaxyS25RejectsUltraVariant() {
         assertFalse(
                 matcher.matchesFullTitle(
                         "Samsung Galaxy S25 Ultra SM-S938 12/256GB",
-                        samsungModel("Galaxy S25")
+                        samsungSearchQuery("Galaxy S25")
                 )
         );
     }
 
     @Test
-    public void galaxyS25StillRejectsEdgeVariant() {
+    public void searchQueryGalaxyS25RejectsEdgeVariant() {
         assertFalse(
                 matcher.matchesFullTitle(
                         "Samsung Galaxy S25 Edge 12/256GB",
-                        samsungModel("Galaxy S25")
+                        samsungSearchQuery("Galaxy S25")
                 )
         );
     }
 
     @Test
-    public void galaxyS25StillRejectsDifferentGeneration() {
+    public void searchQueryGalaxyS25RejectsDifferentGeneration() {
         assertFalse(
                 matcher.matchesFullTitle(
                         "Samsung Galaxy S24 SM-S921 8/256GB",
-                        samsungModel("Galaxy S25")
+                        samsungSearchQuery("Galaxy S25")
                 )
         );
     }
 
     @Test
-    public void galaxyS25PlusAcceptsItsTechnicalProductCode() {
+    public void searchQueryGalaxyS25PlusAcceptsItsTechnicalProductCode() {
         assertTrue(
                 matcher.matchesFullTitle(
                         "Samsung Galaxy S25+ SM-S936 12/256GB",
-                        samsungModel("Galaxy S25+")
+                        samsungSearchQuery("Galaxy S25+")
                 )
         );
     }
 
-    private BotConfigurationDto samsungModel(String model) {
+    @Test
+    public void vintedModelDoesNotReinterpretListingsAfterExactFilterSelection() {
+        BotConfigurationDto configuration = samsungVintedModel("Galaxy S25");
+
+        assertTrue(
+                matcher.matchesFullTitle(
+                        "Seller wrote a completely custom title",
+                        configuration
+                )
+        );
+        assertTrue(
+                matcher.matchesFullTitle(
+                        "Samsung Galaxy S25 Edge text would be irrelevant here because the exact Vinted filter already defines the result set",
+                        configuration
+                )
+        );
+    }
+
+    private BotConfigurationDto samsungSearchQuery(String query) {
+        BotConfigurationDto configuration = new BotConfigurationDto();
+        configuration.setTargetMode("SEARCH_QUERY");
+        configuration.setBrand("Samsung");
+        configuration.setSearchQuery(query);
+        return configuration;
+    }
+
+    private BotConfigurationDto samsungVintedModel(String model) {
         BotConfigurationDto configuration = new BotConfigurationDto();
         configuration.setTargetMode("VINTED_MODEL");
         configuration.setBrand("Samsung");
