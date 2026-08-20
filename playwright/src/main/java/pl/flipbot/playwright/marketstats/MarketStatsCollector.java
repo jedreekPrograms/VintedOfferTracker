@@ -6,7 +6,6 @@ import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.filters.FilterService;
-import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.marketstats.dto.KnownMarketListingIdsDto;
 import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchResponseDto;
@@ -92,42 +91,20 @@ public class MarketStatsCollector {
         try (BrowserManager browserManager = new BrowserManager(config.headless());
              BotContext context = new BotContext(observerBot, browserManager)) {
 
-            boolean authenticatedObserverSession = false;
-            LoginService loginService = new LoginService(context);
-
-            try {
-                loginService.login();
-                authenticatedObserverSession = true;
-            } catch (RuntimeException loginFailure) {
-                if (containsInterruptedException(loginFailure)) {
-                    throw loginFailure;
-                }
-
-                /*
-                 * Market statistics collection is intentionally read-only. It
-                 * only visits the public Vinted catalog, applies filters and
-                 * records listing ids in our backend. A temporary/invalid
-                 * observer login must therefore not suppress all market data.
-                 *
-                 * Do not save the resulting anonymous context as the observer
-                 * session: that would overwrite a previously useful storage
-                 * state with an unauthenticated one.
-                 */
-                log.warn(
-                        "[MARKET STATS] Observer bot {} could not establish an authenticated Vinted session. "
-                                + "Continuing with anonymous READ-ONLY catalog collection; this collector never "
-                                + "submits offers or negotiation actions. The anonymous context will not overwrite "
-                                + "the stored observer session. reason={}",
-                        observerBot.getId(),
-                        safeMessage(loginFailure)
-                );
-                log.debug(
-                        "[MARKET STATS] Full observer login failure before anonymous fallback.",
-                        loginFailure
-                );
-
-                new MarketplaceNavigator(context).goToCatalog();
-            }
+            /*
+             * The market-statistics collector is strictly read-only and only
+             * needs the public catalog. BotContext already restores a stored
+             * observer storage-state file when one exists, so probe that
+             * restored session once. If it is authenticated we keep using it;
+             * otherwise continue anonymously immediately instead of spending
+             * up to 60 seconds on an interactive login that is not required
+             * for catalog collection.
+             */
+            boolean authenticatedObserverSession =
+                    prepareObserverCatalogSession(
+                            context,
+                            observerBot
+                    );
 
             try {
                 for (int index = 0; index < targets.size(); index++) {
@@ -204,6 +181,86 @@ public class MarketStatsCollector {
         }
 
         log.info("[MARKET STATS] Daily collection finished successfully for all targets.");
+    }
+
+    private boolean prepareObserverCatalogSession(
+            BotContext context,
+            BotDetailsDto observerBot
+    ) {
+        MarketplaceNavigator navigator = new MarketplaceNavigator(context);
+        navigator.goToCatalog();
+        context.getPage().waitForLoadState();
+
+        dismissCookieBannerIfVisible(context);
+
+        boolean authenticated =
+                hasVisible(
+                        context,
+                        "[data-testid='header-conversations-button']"
+                )
+                        || hasVisible(
+                        context,
+                        "a[href*='/inbox']"
+                );
+
+        if (authenticated) {
+            log.info(
+                    "[MARKET STATS] Observer bot {} restored an authenticated Vinted session. "
+                            + "Using it for this read-only collection; no interactive login is needed.",
+                    observerBot.getId()
+            );
+        } else {
+            log.info(
+                    "[MARKET STATS] Observer bot {} has no verifiably authenticated stored Vinted session. "
+                            + "Continuing immediately with anonymous READ-ONLY catalog collection; "
+                            + "interactive login is intentionally skipped and anonymous state will not be saved.",
+                    observerBot.getId()
+            );
+        }
+
+        return authenticated;
+    }
+
+    private void dismissCookieBannerIfVisible(
+            BotContext context
+    ) {
+        try {
+            var button = context.getPage().locator("#onetrust-accept-btn-handler");
+
+            if (button.count() > 0 && button.first().isVisible()) {
+                button.first().click();
+                log.debug("[MARKET STATS] Accepted Vinted cookie banner before observer scan.");
+            }
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "[MARKET STATS] Cookie banner was not actionable; catalog scan will continue.",
+                    exception
+            );
+        }
+    }
+
+    private boolean hasVisible(
+            BotContext context,
+            String selector
+    ) {
+        try {
+            var locator = context.getPage().locator(selector);
+            int count = locator.count();
+
+            for (int index = 0; index < count; index++) {
+                if (locator.nth(index).isVisible()) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "[MARKET STATS] Could not probe observer authentication selector '{}'.",
+                    selector,
+                    exception
+            );
+        }
+
+        return false;
     }
 
     private boolean collectTarget(
