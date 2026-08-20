@@ -10,7 +10,6 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
-import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -139,19 +138,6 @@ public class ListingDetailTargetInspector {
                 listing
         );
 
-        if (itemTitle == null) {
-            /*
-             * A known unavailable page is a safe non-match. NewNegotiationProcessor
-             * will not reserve quota or submit anything for it.
-             */
-            log.info(
-                    "[TARGET DETAIL] Marketplace listing {} is no longer available during live verification. Current URL: {}.",
-                    listing.listingId(),
-                    page.url()
-            );
-            return false;
-        }
-
         String fullTitle = normalizeVisibleText(
                 itemTitle.innerText()
         );
@@ -202,10 +188,7 @@ public class ListingDetailTargetInspector {
 
         while (System.currentTimeMillis() < deadline) {
             throwIfRateLimited(page, listing);
-
-            if (isListingUnavailable(page)) {
-                return null;
-            }
+            throwIfListingUnavailable(page, listing);
 
             Locator visibleTitle = findVisibleItemTitle(page);
             if (visibleTitle != null) {
@@ -221,10 +204,7 @@ public class ListingDetailTargetInspector {
         }
 
         throwIfRateLimited(page, listing);
-
-        if (isListingUnavailable(page)) {
-            return null;
-        }
+        throwIfListingUnavailable(page, listing);
 
         throw new IllegalStateException(
                 "No visible item h1 was found within "
@@ -293,19 +273,27 @@ public class ListingDetailTargetInspector {
         }
     }
 
-    private boolean isListingUnavailable(Page page) {
+    private void throwIfListingUnavailable(
+            Page page,
+            ListingResponseDto listing
+    ) {
         String pageText = readPageTextSafely(page);
         if (pageText.isBlank()) {
-            return false;
+            return;
         }
 
         for (String marker : UNAVAILABLE_MARKERS) {
             if (pageText.contains(marker)) {
-                return true;
+                throw new ListingUnavailableDuringVerificationException(
+                        "Marketplace listing "
+                                + listing.listingId()
+                                + " is unavailable during live verification. Marker: '"
+                                + marker
+                                + "'. Current URL: "
+                                + page.url()
+                );
             }
         }
-
-        return false;
     }
 
     private String readPageTextSafely(Page page) {
@@ -323,31 +311,6 @@ public class ListingDetailTargetInspector {
                     exception
             );
             return "";
-        }
-    }
-
-    private boolean isCurrentListingPage(
-            Page page,
-            String marketplaceListingId
-    ) {
-        if (marketplaceListingId == null
-                || marketplaceListingId.isBlank()) {
-            return false;
-        }
-
-        try {
-            URI uri = URI.create(page.url());
-            String path = uri.getPath();
-            if (path == null) {
-                return false;
-            }
-
-            return path.equals("/items/" + marketplaceListingId)
-                    || path.startsWith(
-                    "/items/" + marketplaceListingId + "-"
-            );
-        } catch (Exception exception) {
-            return false;
         }
     }
 
