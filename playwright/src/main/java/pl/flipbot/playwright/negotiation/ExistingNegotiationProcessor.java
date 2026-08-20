@@ -295,6 +295,18 @@ public class ExistingNegotiationProcessor {
                 contactAvailabilityDetector.inspect(listing);
 
         if (contactAssessment.state()
+                == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
+            clearContactUnavailableSuspicion(listing);
+            log.warn(
+                    "[CONTACT AVAILABILITY] Listing {} can still be messaged, but Vinted currently exposes no enabled offer action. "
+                            + "The bot will not throw a generic timeout or reserve quota; it will retry on a later negotiation check. Reason: {}",
+                    listing.listingId(),
+                    contactAssessment.reason()
+            );
+            return false;
+        }
+
+        if (contactAssessment.state()
                 == ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE) {
             ListingResponseDto updated =
                     listingStatusUpdater.markContactUnavailable(listing);
