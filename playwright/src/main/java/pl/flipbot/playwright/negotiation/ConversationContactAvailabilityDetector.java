@@ -63,8 +63,14 @@ public class ConversationContactAvailabilityDetector {
             return ConversationContactAssessment.confirmed(explicitReason);
         }
 
+        ConversationContactAssessment.State lastState =
+                ConversationContactAssessment.State.SUSPECTED_UNAVAILABLE;
+        ContactSignals lastSignals = readSignals(page);
+
         for (int attempt = 1; attempt <= SETTLE_ATTEMPTS; attempt++) {
             ContactSignals signals = readSignals(page);
+            lastSignals = signals;
+
             ConversationContactAssessment.State state = classify(
                     signals.offerButtonVisible(),
                     signals.offerButtonEnabled(),
@@ -72,10 +78,18 @@ public class ConversationContactAvailabilityDetector {
                     signals.messageInputEnabled(),
                     false
             );
+            lastState = state;
 
             if (state == ConversationContactAssessment.State.AVAILABLE) {
                 return ConversationContactAssessment.available(
-                        "Conversation interaction controls are available. "
+                        "The enabled negotiation offer action is available. "
+                                + signals.describe()
+                );
+            }
+
+            if (state == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
+                return ConversationContactAssessment.offerActionUnavailable(
+                        "Messaging is available, but Vinted currently exposes no enabled negotiation offer action. "
                                 + signals.describe()
                 );
             }
@@ -90,14 +104,19 @@ public class ConversationContactAvailabilityDetector {
             }
         }
 
-        ContactSignals finalSignals = readSignals(page);
+        if (lastState == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
+            return ConversationContactAssessment.offerActionUnavailable(
+                    "Messaging is available, but Vinted currently exposes no enabled negotiation offer action. "
+                            + lastSignals.describe()
+            );
+        }
 
         return ConversationContactAssessment.suspected(
                 "The expected conversation is loaded, but neither a usable message composer "
                         + "nor an enabled offer action became available after "
                         + (SETTLE_ATTEMPTS * SETTLE_DELAY_MS / 1000.0)
                         + " seconds. "
-                        + finalSignals.describe()
+                        + lastSignals.describe()
         );
     }
 
@@ -112,9 +131,12 @@ public class ConversationContactAvailabilityDetector {
             return ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE;
         }
 
-        if ((offerButtonVisible && offerButtonEnabled)
-                || (messageInputVisible && messageInputEnabled)) {
+        if (offerButtonVisible && offerButtonEnabled) {
             return ConversationContactAssessment.State.AVAILABLE;
+        }
+
+        if (messageInputVisible && messageInputEnabled) {
+            return ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE;
         }
 
         return ConversationContactAssessment.State.SUSPECTED_UNAVAILABLE;
