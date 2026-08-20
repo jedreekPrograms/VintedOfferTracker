@@ -40,7 +40,7 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
-    public void visibleModelMatcherAcceptsExactLabelInsideMultilineOption() {
+    public void visibleModelMatcherAcceptsExactLabelWithCountMetadata() {
         assertTrue(
                 FilterActions.exactVisibleModelLabelMatches(
                         "Galaxy S25",
@@ -51,7 +51,14 @@ public class FilterActionsModelOptionTest {
         assertTrue(
                 FilterActions.exactVisibleModelLabelMatches(
                         "Galaxy S25",
-                        "  GALAXY S25  \n  123 przedmioty  "
+                        "  GALAXY S25  \n  123 przedmiotów  "
+                )
+        );
+
+        assertTrue(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25 123 przedmioty"
                 )
         );
     }
@@ -80,6 +87,38 @@ public class FilterActionsModelOptionTest {
                 FilterActions.exactVisibleModelLabelMatches(
                         "Galaxy S25",
                         "Galaxy S25+\n50 przedmiotów"
+                )
+        );
+    }
+
+    @Test
+    public void visibleModelMatcherRejectsHighlightedBaseNameInsideVariantRow() {
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25\nEdge\n50 przedmiotów"
+                )
+        );
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25\nUltra\n50 przedmiotów"
+                )
+        );
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25\nFE\n50 przedmiotów"
+                )
+        );
+    }
+
+    @Test
+    public void visibleModelMatcherDoesNotTreatAProductSuffixAsCountMetadata() {
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S25",
+                        "Galaxy S25 5G"
                 )
         );
     }
