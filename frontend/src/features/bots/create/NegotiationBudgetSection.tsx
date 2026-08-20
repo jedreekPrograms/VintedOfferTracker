@@ -21,9 +21,11 @@ function NegotiationBudgetSection({
                 </div>
 
                 <p className="content-card-text">
-                    Maksymalna liczba realnych akcji cenowych bota w ciągu dnia.
-                    Liczą się zarówno pierwsze oferty, jak i kolejne kroki.
-                    Przyszłe kroki aktywnych rozmów nie są rezerwowane z góry.
+                    Dzienna pula realnych akcji cenowych. Każda rozpoczęta
+                    rozmowa rezerwuje miejsce na wszystkie jeszcze niewysłane
+                    kroki. Gdy rozmowa kończy się wcześniej, niewykorzystana
+                    rezerwa wraca do puli i może pozwolić uruchomić kolejną
+                    pełną negocjację.
                 </p>
             </div>
 
@@ -51,8 +53,10 @@ function NegotiationBudgetSection({
                 />
 
                 <span className="form-help">
-                    Maksymalna wartość to 25. Każde faktycznie wysłane działanie
-                    cenowe zużywa jeden punkt dopiero w momencie wysłania.
+                    Maksymalna wartość to 25. O północy licznik faktycznie
+                    wysłanych akcji zaczyna nowy dzień, ale aktywne rozmowy nadal
+                    rezerwują swoje pozostałe kroki. Np. trzy rozmowy na kroku 3
+                    przy drabince 5-krokowej rezerwują na nowy dzień 6 akcji.
                 </span>
             </div>
         </article>

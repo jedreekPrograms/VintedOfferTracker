@@ -5,6 +5,9 @@ import org.junit.jupiter.api.Test;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.configuration.BotConfiguration;
+import pl.flipbot.listing.Listing;
+import pl.flipbot.listing.ListingRepository;
+import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.negotiation.quota.DailyOfferQuotaService;
 import pl.flipbot.negotiation.quota.dto.DailyOfferQuotaResponse;
 
@@ -22,6 +25,7 @@ class NegotiationCapacityServiceTest {
     private static final long BOT_ID = 3L;
 
     private BotRepository botRepository;
+    private ListingRepository listingRepository;
     private DailyOfferQuotaService dailyOfferQuotaService;
     private NegotiationCapacityService service;
     private Bot bot;
@@ -29,9 +33,15 @@ class NegotiationCapacityServiceTest {
     @BeforeEach
     void setUp() {
         botRepository = mock(BotRepository.class);
+        listingRepository = mock(ListingRepository.class);
         dailyOfferQuotaService = mock(DailyOfferQuotaService.class);
+
+        NegotiationPlanner negotiationPlanner =
+                new NegotiationPlanner(listingRepository);
+
         service = new NegotiationCapacityService(
                 botRepository,
+                negotiationPlanner,
                 dailyOfferQuotaService
         );
 
@@ -55,23 +65,123 @@ class NegotiationCapacityServiceTest {
 
         configuration.setBot(bot);
         when(botRepository.findById(BOT_ID)).thenReturn(Optional.of(bot));
+        activeListings(List.of(), List.of());
     }
 
     @Test
-    void capacityUsesActualRemainingQuotaWithoutReservingFutureSteps() {
-        when(dailyOfferQuotaService.getQuota(BOT_ID))
-                .thenReturn(new DailyOfferQuotaResponse(25, 7, 18));
+    void freshDayAllowsFiveFullFiveStepNegotiations() {
+        quota(25, 0);
 
         assertEquals(
-                18,
+                5,
+                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
+        );
+    }
+
+    @Test
+    void fiveStartedConversationsReserveTheirRemainingTwentySteps() {
+        quota(25, 5);
+        activeListings(
+                List.of(
+                        active(ListingStatus.NEGOTIATING, 1),
+                        active(ListingStatus.NEGOTIATING, 1),
+                        active(ListingStatus.NEGOTIATING, 1),
+                        active(ListingStatus.NEGOTIATING, 1),
+                        active(ListingStatus.NEGOTIATING, 1)
+                ),
+                List.of()
+        );
+
+        assertEquals(
+                0,
+                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
+        );
+    }
+
+    @Test
+    void finishingFiveConversationsAfterThreeStepsFreesTenSlotsSameDay() {
+        quota(25, 15);
+        activeListings(List.of(), List.of());
+
+        assertEquals(
+                2,
+                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
+        );
+    }
+
+    @Test
+    void midnightReservesOnlyFutureStepsOfStillActiveConversations() {
+        quota(25, 0);
+        activeListings(
+                List.of(
+                        active(ListingStatus.NEGOTIATING, 3),
+                        active(ListingStatus.NEGOTIATING, 3),
+                        active(ListingStatus.NEGOTIATING, 3)
+                ),
+                List.of()
+        );
+
+        /*
+         * Three active step-3 conversations reserve 3 * 2 = 6 future actions.
+         * Fresh daily quota: 25 - 6 = 19. A new five-step conversation needs
+         * five slots, therefore floor(19 / 5) = 3 new conversations.
+         */
+        assertEquals(
+                3,
+                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
+        );
+    }
+
+    @Test
+    void negotiatingAndActionRequiredBothReserveFutureSteps() {
+        quota(25, 0);
+        activeListings(
+                List.of(active(ListingStatus.NEGOTIATING, 2)),
+                List.of(active(ListingStatus.ACTION_REQUIRED, 4))
+        );
+
+        /*
+         * Step 2 reserves 3 future actions, step 4 reserves 1. 21 slots remain,
+         * so four new five-step conversations fit.
+         */
+        assertEquals(
+                4,
+                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
+        );
+    }
+
+    @Test
+    void missingCurrentStepFailsSafeByReservingWholeConversation() {
+        quota(25, 0);
+        activeListings(
+                List.of(active(ListingStatus.NEGOTIATING, null)),
+                List.of()
+        );
+
+        assertEquals(
+                4,
+                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
+        );
+    }
+
+    @Test
+    void usedActionsAndFutureReservationsAreBothSubtracted() {
+        quota(25, 7);
+        activeListings(
+                List.of(active(ListingStatus.NEGOTIATING, 3)),
+                List.of()
+        );
+
+        /* remaining today=18, active future reservation=2, free=16, 16/5=3 */
+        assertEquals(
+                3,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
 
     @Test
     void exhaustedQuotaBlocksNewNegotiations() {
-        when(dailyOfferQuotaService.getQuota(BOT_ID))
-                .thenReturn(new DailyOfferQuotaResponse(25, 25, 0));
+        quota(25, 25);
 
         assertEquals(
                 0,
@@ -89,5 +199,39 @@ class NegotiationCapacityServiceTest {
         );
 
         verifyNoInteractions(dailyOfferQuotaService);
+    }
+
+    private void quota(int limit, int used) {
+        when(dailyOfferQuotaService.getQuota(BOT_ID))
+                .thenReturn(new DailyOfferQuotaResponse(
+                        limit,
+                        used,
+                        Math.max(limit - used, 0)
+                ));
+    }
+
+    private void activeListings(
+            List<Listing> negotiating,
+            List<Listing> actionRequired
+    ) {
+        when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
+                BOT_ID,
+                ListingStatus.NEGOTIATING
+        )).thenReturn(negotiating);
+        when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
+                BOT_ID,
+                ListingStatus.ACTION_REQUIRED
+        )).thenReturn(actionRequired);
+    }
+
+    private Listing active(
+            ListingStatus status,
+            Integer currentStep
+    ) {
+        return Listing.builder()
+                .status(status)
+                .currentStep(currentStep)
+                .bot(bot)
+                .build();
     }
 }
