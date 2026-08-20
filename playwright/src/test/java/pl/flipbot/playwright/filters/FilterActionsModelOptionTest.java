@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class FilterActionsModelOptionTest {
@@ -37,6 +38,22 @@ public class FilterActionsModelOptionTest {
         var pattern = FilterActions.exactModelOptionPattern("Galaxy S25");
 
         assertEquals(Pattern.CASE_INSENSITIVE, pattern.flags());
+    }
+
+    @Test
+    public void modelCollectionIdIsDerivedOnlyFromExpectedVintedTestId() {
+        assertEquals(
+                "9976",
+                FilterActions.modelCollectionIdFromTestId(
+                        "selectable-item-brand_collection-9976"
+                )
+        );
+        assertNull(FilterActions.modelCollectionIdFromTestId("9976"));
+        assertNull(
+                FilterActions.modelCollectionIdFromTestId(
+                        "selectable-item-brand_collection-Galaxy-S25"
+                )
+        );
     }
 
     @Test
