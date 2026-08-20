@@ -32,11 +32,15 @@ public class FilterActions {
     private static final double BRAND_PANEL_SETTLE_MS = 400;
     private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 10_000;
     private static final double MODEL_OPTION_POLL_INTERVAL_MS = 250;
+    private static final double MODEL_PERSIST_TIMEOUT_MS = 5_000;
+    private static final String MODEL_TEST_ID_PREFIX =
+            "selectable-item-brand_collection-";
 
     private final Page page;
     private String activeFilterTestId;
     private String activeFilterBaseUrl;
     private String selectedBrandOption;
+    private String selectedModelCollectionId;
     private String lastKnownSafeVintedUrl;
 
     public void openFilter(String filterTestId) {
@@ -45,6 +49,10 @@ public class FilterActions {
         if (FilterSelectors.BRAND_FILTER.equals(filterTestId)) {
             activeFilterBaseUrl = page.url();
             selectedBrandOption = null;
+        }
+
+        if (FilterSelectors.MODEL_FILTER.equals(filterTestId)) {
+            selectedModelCollectionId = null;
         }
 
         activeFilterTestId = filterTestId;
@@ -299,7 +307,7 @@ public class FilterActions {
             throw new IllegalArgumentException("Model cannot be blank");
         }
 
-        String selector = "[data-testid^='selectable-item-brand_collection-']";
+        String selector = "[data-testid^='" + MODEL_TEST_ID_PREFIX + "']";
         Locator allModelOptions = page.locator(selector);
         long deadline = System.currentTimeMillis() + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
         List<String> lastVisiblePartialLabels = List.of();
@@ -379,11 +387,25 @@ public class FilterActions {
                         .findFirst()
                         .orElse(model);
                 String testId = modelLocator.getAttribute("data-testid");
+                String collectionId = modelCollectionIdFromTestId(testId);
+
+                if (collectionId == null) {
+                    throw new IllegalStateException(
+                            "Exact model row for '"
+                                    + model
+                                    + "' has an unexpected data-testid='"
+                                    + testId
+                                    + "'. Refusing to click because the persisted Vinted collection id could not be verified afterwards."
+                    );
+                }
+
+                selectedModelCollectionId = collectionId;
 
                 log.info(
-                        "[FILTER MODEL] EXACT Vinted model row verified. requested='{}', testId='{}', evidence='{}'. Partial/highlight fragments and variants are rejected.",
+                        "[FILTER MODEL] EXACT Vinted model row verified. requested='{}', testId='{}', expectedCollectionId='{}', evidence='{}'. Partial/highlight fragments and variants are rejected.",
                         model,
                         testId,
+                        collectionId,
                         evidence
                 );
 
@@ -408,6 +430,19 @@ public class FilterActions {
                         + lastVisiblePartialLabels
                         + ". Failing closed instead of clicking a similar model."
         );
+    }
+
+    static String modelCollectionIdFromTestId(String testId) {
+        if (testId == null || !testId.startsWith(MODEL_TEST_ID_PREFIX)) {
+            return null;
+        }
+
+        String collectionId = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
+        if (!collectionId.matches("^\\d+$")) {
+            return null;
+        }
+
+        return collectionId;
     }
 
     static Pattern exactModelOptionPattern(String model) {
@@ -598,10 +633,48 @@ public class FilterActions {
 
     public void clickConfirmButton() {
         ensureVintedBeforeFilterAction("confirming filter selection");
+        boolean verifyExactModelPersistence =
+                FilterSelectors.MODEL_FILTER.equals(activeFilterTestId);
+        String expectedModelCollectionId = selectedModelCollectionId;
+
         Locator button = page.getByTestId("filter-selection-button");
         waitUntilVisible(button, OPTION_TIMEOUT_MS);
         button.click();
         assertStillOnVinted("confirming filter selection");
+
+        try {
+            if (verifyExactModelPersistence) {
+                if (expectedModelCollectionId == null
+                        || expectedModelCollectionId.isBlank()) {
+                    throw new IllegalStateException(
+                            "Model filter confirmation was requested without a verified exact model collection id."
+                    );
+                }
+
+                if (!waitForUrlParameterValue(
+                        "brand_collection_ids[]",
+                        expectedModelCollectionId,
+                        MODEL_PERSIST_TIMEOUT_MS
+                )) {
+                    throw new IllegalStateException(
+                            "Vinted did not persist the exact clicked model collection id. Expected brand_collection_ids[]="
+                                    + expectedModelCollectionId
+                                    + ", actual="
+                                    + getUrlParameter("brand_collection_ids[]")
+                                    + ", URL="
+                                    + page.url()
+                    );
+                }
+
+                log.info(
+                        "[FILTER MODEL] EXACT model persistence verified end-to-end. brand_collection_ids[]={}. Current URL: {}",
+                        expectedModelCollectionId,
+                        page.url()
+                );
+            }
+        } finally {
+            clearActiveFilterState();
+        }
     }
 
     public void clickOutsideSafely() {
@@ -667,6 +740,29 @@ public class FilterActions {
             assertStillOnVinted("waiting for URL parameter '" + parameterName + "'");
 
             if (getUrlParameter(parameterName) != null) {
+                rememberCurrentVintedUrl();
+                return true;
+            }
+
+            page.waitForTimeout(200);
+        }
+
+        return false;
+    }
+
+    private boolean waitForUrlParameterValue(
+            String parameterName,
+            String expectedValue,
+            double timeoutMilliseconds
+    ) {
+        long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
+
+        while (System.currentTimeMillis() <= deadline) {
+            assertStillOnVinted(
+                    "waiting for exact URL parameter '" + parameterName + "'"
+            );
+
+            if (expectedValue.equals(getUrlParameter(parameterName))) {
                 rememberCurrentVintedUrl();
                 return true;
             }
@@ -873,6 +969,7 @@ public class FilterActions {
         activeFilterTestId = null;
         activeFilterBaseUrl = null;
         selectedBrandOption = null;
+        selectedModelCollectionId = null;
     }
 
     private String getFriendlyErrorMessage(Throwable exception) {
