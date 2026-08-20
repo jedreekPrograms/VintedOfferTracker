@@ -18,6 +18,8 @@ public enum ListingStatus {
 
     UNAVAILABLE,
 
+    CONTACT_UNAVAILABLE,
+
     REJECTED,
 
     EXPIRED,
