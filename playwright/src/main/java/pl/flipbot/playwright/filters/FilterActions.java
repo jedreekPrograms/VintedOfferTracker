@@ -25,22 +25,30 @@ public class FilterActions {
     private static final double FILTER_TIMEOUT_MS = 10_000;
     private static final double OPTION_TIMEOUT_MS = 10_000;
     private static final double RELOAD_TIMEOUT_MS = 30_000;
+
     private static final int BRAND_MAX_ATTEMPTS = 3;
     private static final double BRAND_PRE_CONFIRM_PERSIST_TIMEOUT_MS = 1_000;
     private static final double BRAND_PERSIST_TIMEOUT_MS = 5_000;
     private static final double BRAND_RETRY_DELAY_MS = 2_000;
     private static final double BRAND_PANEL_SETTLE_MS = 400;
+
+    private static final int MODEL_MAX_UI_ATTEMPTS = 3;
     private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 10_000;
     private static final double MODEL_OPTION_POLL_INTERVAL_MS = 250;
     private static final double MODEL_PERSIST_TIMEOUT_MS = 5_000;
+    private static final double MODEL_RETRY_DELAY_MS = 1_000;
+    private static final double MODEL_PANEL_SETTLE_MS = 350;
     private static final String MODEL_TEST_ID_PREFIX =
             "selectable-item-brand_collection-";
 
     private final Page page;
+
     private String activeFilterTestId;
     private String activeFilterBaseUrl;
     private String selectedBrandOption;
+    private String selectedModelOption;
     private String selectedModelCollectionId;
+    private int modelSelectionAttempt;
     private String lastKnownSafeVintedUrl;
 
     public void openFilter(String filterTestId) {
@@ -52,7 +60,10 @@ public class FilterActions {
         }
 
         if (FilterSelectors.MODEL_FILTER.equals(filterTestId)) {
+            activeFilterBaseUrl = page.url();
+            selectedModelOption = null;
             selectedModelCollectionId = null;
+            modelSelectionAttempt = 0;
         }
 
         activeFilterTestId = filterTestId;
@@ -307,6 +318,8 @@ public class FilterActions {
             throw new IllegalArgumentException("Model cannot be blank");
         }
 
+        selectedModelOption = model;
+
         String selector = "[data-testid^='" + MODEL_TEST_ID_PREFIX + "']";
         Locator allModelOptions = page.locator(selector);
         long deadline = System.currentTimeMillis() + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
@@ -319,10 +332,9 @@ public class FilterActions {
 
             /*
              * hasText() is deliberately only a search/narrowing mechanism.
-             * Vinted may split a label into highlighted spans. For example an
-             * Edge row can contain a child span whose text is exactly
-             * "Galaxy S25". Such a fragment is NOT proof that the row itself
-             * is the exact Galaxy S25 option.
+             * Vinted may split a label into highlighted spans. A child span
+             * containing "Galaxy S25" inside a "Galaxy S25 Edge" row is not
+             * proof that the full selectable row is the requested model.
              */
             Locator textMatchedOptions = allModelOptions.filter(
                     new Locator.FilterOptions().setHasText(model)
@@ -371,15 +383,24 @@ public class FilterActions {
             lastVisiblePartialLabels = List.copyOf(partialLabels);
 
             if (!exactMatches.isEmpty()) {
+                int exactMatchIndex = Math.min(
+                        modelSelectionAttempt,
+                        exactMatches.size() - 1
+                );
+                modelSelectionAttempt++;
+
                 if (exactMatches.size() > 1) {
                     log.warn(
-                            "[FILTER MODEL] Found {} visible rows that independently prove the exact option '{}'. Using the first exact row.",
+                            "[FILTER MODEL] Found {} visible rows that independently prove exact option '{}'. Selection attempt {} will use exact row {}/{}.",
                             exactMatches.size(),
-                            model
+                            model,
+                            modelSelectionAttempt,
+                            exactMatchIndex + 1,
+                            exactMatches.size()
                     );
                 }
 
-                Locator modelLocator = exactMatches.getFirst();
+                Locator modelLocator = exactMatches.get(exactMatchIndex);
                 String evidence = readCompleteModelOptionTexts(modelLocator)
                         .stream()
                         .filter(text -> exactVisibleModelLabelMatches(model, text))
@@ -468,13 +489,6 @@ public class FilterActions {
             return true;
         }
 
-        /*
-         * Some Vinted rows append only a result count to the model label. That
-         * metadata is safe. A variant word is not. Therefore
-         *   Galaxy S25 + "123 przedmioty" -> exact
-         * but
-         *   Galaxy S25 + "Edge"           -> never exact.
-         */
         if (startsWithIgnoreCase(normalizedVisible, normalizedRequested)) {
             String suffix = normalizedVisible
                     .substring(normalizedRequested.length())
@@ -545,13 +559,6 @@ public class FilterActions {
     private List<String> readCompleteModelOptionTexts(Locator locator) {
         Set<String> texts = new LinkedHashSet<>();
 
-        /*
-         * Only read the complete selectable row or a complete <label>
-         * container. Never use arbitrary span/p descendants as exact-match
-         * evidence: Vinted highlights the searched substring in those leaf
-         * nodes and that is how "Galaxy S25 Edge" was previously mistaken for
-         * "Galaxy S25".
-         */
         addModelOptionText(texts, safeInnerText(locator));
         addModelOptionText(texts, safeTextContent(locator));
         addModelOptionText(texts, safeAttribute(locator, "aria-label"));
@@ -633,59 +640,272 @@ public class FilterActions {
 
     public void clickConfirmButton() {
         ensureVintedBeforeFilterAction("confirming filter selection");
-        boolean verifyExactModelPersistence =
-                FilterSelectors.MODEL_FILTER.equals(activeFilterTestId);
-        String expectedModelCollectionId = selectedModelCollectionId;
+
+        if (FilterSelectors.MODEL_FILTER.equals(activeFilterTestId)) {
+            try {
+                confirmExactModelWithRetry();
+            } finally {
+                clearActiveFilterState();
+            }
+            return;
+        }
 
         Locator button = page.getByTestId("filter-selection-button");
         waitUntilVisible(button, OPTION_TIMEOUT_MS);
         button.click();
         assertStillOnVinted("confirming filter selection");
+        clearActiveFilterState();
+    }
 
-        try {
-            if (verifyExactModelPersistence) {
-                if (expectedModelCollectionId == null
-                        || expectedModelCollectionId.isBlank()) {
-                    throw new IllegalStateException(
-                            "Model filter confirmation was requested without a verified exact model collection id."
-                    );
-                }
+    private void confirmExactModelWithRetry() {
+        String model = selectedModelOption;
+        String expectedModelCollectionId = selectedModelCollectionId;
+        String baseUrl = activeFilterBaseUrl;
 
-                if (!waitForUrlParameterValue(
-                        "brand_collection_ids[]",
-                        expectedModelCollectionId,
-                        MODEL_PERSIST_TIMEOUT_MS
-                )) {
-                    throw new IllegalStateException(
-                            "Vinted did not persist the exact clicked model collection id. Expected brand_collection_ids[]="
-                                    + expectedModelCollectionId
-                                    + ", actual="
-                                    + getUrlParameter("brand_collection_ids[]")
-                                    + ", URL="
-                                    + page.url()
+        if (model == null || model.isBlank()) {
+            throw new IllegalStateException(
+                    "Model filter confirmation was requested without the exact requested model label."
+            );
+        }
+
+        if (expectedModelCollectionId == null
+                || expectedModelCollectionId.isBlank()) {
+            throw new IllegalStateException(
+                    "Model filter confirmation was requested without a verified exact model collection id."
+            );
+        }
+
+        if (!MarketplaceUrls.isCatalogUrl(baseUrl)) {
+            throw new IllegalStateException(
+                    "Cannot retry exact model filter because the pre-model Vinted catalog URL is missing or unsafe: "
+                            + baseUrl
+            );
+        }
+
+        RuntimeException lastException = null;
+
+        for (int attempt = 1; attempt <= MODEL_MAX_UI_ATTEMPTS; attempt++) {
+            try {
+                if (attempt > 1) {
+                    prepareExactModelRetry(
+                            baseUrl,
+                            model,
+                            expectedModelCollectionId,
+                            attempt
                     );
                 }
 
                 log.info(
-                        "[FILTER MODEL] EXACT model persistence verified end-to-end. brand_collection_ids[]={}. Current URL: {}",
+                        "[FILTER MODEL] Confirm attempt {}/{} for exact model '{}' / collectionId={}.",
+                        attempt,
+                        MODEL_MAX_UI_ATTEMPTS,
+                        model,
+                        expectedModelCollectionId
+                );
+
+                Locator button = page.getByTestId("filter-selection-button");
+                waitUntilVisible(button, OPTION_TIMEOUT_MS);
+                button.click();
+                assertStillOnVinted("confirming exact model selection");
+
+                if (waitForUrlParameterValue(
+                        "brand_collection_ids[]",
+                        expectedModelCollectionId,
+                        MODEL_PERSIST_TIMEOUT_MS
+                )) {
+                    log.info(
+                            "[FILTER MODEL] EXACT model persistence verified end-to-end on attempt {}/{}. brand_collection_ids[]={}. Current URL: {}",
+                            attempt,
+                            MODEL_MAX_UI_ATTEMPTS,
+                            expectedModelCollectionId,
+                            page.url()
+                    );
+                    return;
+                }
+
+                log.warn(
+                        "[FILTER MODEL] Exact row was proven and clicked, but Vinted dropped collectionId={} after confirm attempt {}/{}. Current URL: {}. Retrying without changing target identity.",
+                        expectedModelCollectionId,
+                        attempt,
+                        MODEL_MAX_UI_ATTEMPTS,
+                        page.url()
+                );
+            } catch (RuntimeException exception) {
+                lastException = exception;
+                log.warn(
+                        "[FILTER MODEL] Exact model confirm attempt {}/{} needs retry. model='{}', collectionId={}, reason={}",
+                        attempt,
+                        MODEL_MAX_UI_ATTEMPTS,
+                        model,
+                        expectedModelCollectionId,
+                        getFriendlyErrorMessage(exception)
+                );
+                log.trace(
+                        "[FILTER MODEL] Full exact-model retry error. Attempt {}/{}.",
+                        attempt,
+                        MODEL_MAX_UI_ATTEMPTS,
+                        exception
+                );
+            }
+
+            if (attempt < MODEL_MAX_UI_ATTEMPTS) {
+                resetToModelBaseUrl(baseUrl, attempt);
+                page.waitForTimeout(MODEL_RETRY_DELAY_MS);
+            }
+        }
+
+        /*
+         * The collection id below is not guessed and does not come from text
+         * search. It was parsed from the data-testid of a selectable row whose
+         * COMPLETE visible label independently proved the exact requested
+         * model. If Vinted's confirmation UI repeatedly loses that state, the
+         * same proven id can safely be restored in the catalog URL. We still
+         * verify the final URL and fail closed if it does not persist.
+         */
+        String recoveryUrl = appendExactModelCollectionId(
+                baseUrl,
+                expectedModelCollectionId
+        );
+
+        log.warn(
+                "[FILTER MODEL] Vinted UI failed to persist exact model '{}' after {} attempts. Applying fail-safe exact-ID URL recovery using previously proven collectionId={}: {}",
+                model,
+                MODEL_MAX_UI_ATTEMPTS,
+                expectedModelCollectionId,
+                recoveryUrl
+        );
+
+        try {
+            navigateToSafeVintedUrl(recoveryUrl);
+
+            if (waitForUrlParameterValue(
+                    "brand_collection_ids[]",
+                    expectedModelCollectionId,
+                    MODEL_PERSIST_TIMEOUT_MS
+            )) {
+                log.info(
+                        "[FILTER MODEL] EXACT model persistence recovered with the previously proven collection id. brand_collection_ids[]={}. Current URL: {}",
                         expectedModelCollectionId,
                         page.url()
                 );
+                return;
             }
-        } finally {
-            clearActiveFilterState();
+        } catch (RuntimeException recoveryFailure) {
+            if (lastException != null) {
+                recoveryFailure.addSuppressed(lastException);
+            }
+            throw recoveryFailure;
         }
+
+        String message =
+                "Vinted did not persist the exact proven model collection id after "
+                        + MODEL_MAX_UI_ATTEMPTS
+                        + " UI attempts and exact-ID recovery. Model='"
+                        + model
+                        + "', expected brand_collection_ids[]="
+                        + expectedModelCollectionId
+                        + ", actual="
+                        + getUrlParameter("brand_collection_ids[]")
+                        + ", URL="
+                        + page.url();
+
+        if (lastException != null) {
+            throw new IllegalStateException(message, lastException);
+        }
+
+        throw new IllegalStateException(message);
+    }
+
+    private void prepareExactModelRetry(
+            String baseUrl,
+            String model,
+            String expectedModelCollectionId,
+            int attempt
+    ) {
+        if (!MarketplaceUrls.isCatalogUrl(page.url())) {
+            navigateToSafeVintedUrl(baseUrl);
+        }
+
+        Locator modelFilter = page.getByTestId(FilterSelectors.MODEL_FILTER);
+        waitUntilVisible(modelFilter, FILTER_TIMEOUT_MS);
+        modelFilter.click();
+        assertStillOnVinted("reopening model filter for retry");
+        page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
+
+        Locator input = page.locator(FilterSelectors.MODEL_SEARCH_INPUT);
+        waitUntilVisible(input, OPTION_TIMEOUT_MS);
+        input.fill(model);
+        page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
+
+        clickModel(model);
+
+        if (!expectedModelCollectionId.equals(selectedModelCollectionId)) {
+            throw new IllegalStateException(
+                    "Exact model retry resolved a different Vinted collection id. Expected "
+                            + expectedModelCollectionId
+                            + ", actual "
+                            + selectedModelCollectionId
+                            + ". Failing closed."
+            );
+        }
+
+        log.info(
+                "[FILTER MODEL] Exact model '{}' selected again for persistence retry {}/{}. collectionId={}.",
+                model,
+                attempt,
+                MODEL_MAX_UI_ATTEMPTS,
+                expectedModelCollectionId
+        );
+    }
+
+    private void resetToModelBaseUrl(String baseUrl, int failedAttempt) {
+        log.info(
+                "[FILTER MODEL] Resetting catalog to the known-good pre-model URL after failed confirm attempt {}/{}.",
+                failedAttempt,
+                MODEL_MAX_UI_ATTEMPTS
+        );
+
+        navigateToSafeVintedUrl(baseUrl);
+
+        if (!isCatalogPage()) {
+            throw new IllegalStateException(
+                    "Model retry reset did not return to a Vinted catalog page. URL: "
+                            + page.url()
+            );
+        }
+
+        rememberCurrentVintedUrl();
+    }
+
+    private String appendExactModelCollectionId(
+            String baseUrl,
+            String expectedModelCollectionId
+    ) {
+        if (!MarketplaceUrls.isCatalogUrl(baseUrl)) {
+            throw new IllegalArgumentException(
+                    "Refusing exact model URL recovery on a non-catalog URL: " + baseUrl
+            );
+        }
+
+        String withoutFragment = baseUrl;
+        String fragment = "";
+        int fragmentIndex = baseUrl.indexOf('#');
+
+        if (fragmentIndex >= 0) {
+            withoutFragment = baseUrl.substring(0, fragmentIndex);
+            fragment = baseUrl.substring(fragmentIndex);
+        }
+
+        String separator = withoutFragment.contains("?") ? "&" : "?";
+        return withoutFragment
+                + separator
+                + "brand_collection_ids[]="
+                + expectedModelCollectionId
+                + fragment;
     }
 
     public void clickOutsideSafely() {
         ensureVintedBeforeFilterAction("closing filter panel");
-
-        /*
-         * Escape is a native, low-risk way to dismiss Vinted's filter drawer.
-         * The old synthetic document.body MouseEvent script occasionally
-         * produced a JavaScript SyntaxError and forced an unnecessary URL
-         * fallback even though the entered prices were already valid.
-         */
         page.keyboard().press("Escape");
         page.waitForTimeout(400);
         assertStillOnVinted("closing filter panel");
@@ -881,11 +1101,6 @@ public class FilterActions {
         navigateToSafeVintedUrl(recoveryUrl);
     }
 
-    /**
-     * Detect an ad/external takeover immediately. Recover the main page before
-     * propagating an exception so callers that implement a URL fallback never
-     * accidentally append Vinted query parameters to the external URL.
-     */
     private void assertStillOnVinted(String action) {
         String currentUrl = page.url();
 
@@ -969,17 +1184,21 @@ public class FilterActions {
         activeFilterTestId = null;
         activeFilterBaseUrl = null;
         selectedBrandOption = null;
+        selectedModelOption = null;
         selectedModelCollectionId = null;
+        modelSelectionAttempt = 0;
     }
 
     private String getFriendlyErrorMessage(Throwable exception) {
         if (exception == null) {
             return "Unknown error";
         }
+
         String message = exception.getMessage();
         if (message == null || message.isBlank()) {
             return exception.getClass().getSimpleName();
         }
+
         int firstLineEnd = message.indexOf('\n');
         return firstLineEnd > 0
                 ? message.substring(0, firstLineEnd).trim()
