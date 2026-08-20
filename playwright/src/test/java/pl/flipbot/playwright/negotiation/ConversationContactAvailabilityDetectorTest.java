@@ -7,11 +7,26 @@ import static org.junit.Assert.assertEquals;
 public class ConversationContactAvailabilityDetectorTest {
 
     @Test
-    public void offerButtonMakesConversationAvailable() {
+    public void enabledOfferButtonMakesConversationAvailable() {
         assertEquals(
                 ConversationContactAssessment.State.AVAILABLE,
                 ConversationContactAvailabilityDetector.classify(
                         true,
+                        true,
+                        false,
+                        false,
+                        false
+                )
+        );
+    }
+
+    @Test
+    public void disabledOfferButtonWithoutComposerIsSuspectedUnavailable() {
+        assertEquals(
+                ConversationContactAssessment.State.SUSPECTED_UNAVAILABLE,
+                ConversationContactAvailabilityDetector.classify(
+                        true,
+                        false,
                         false,
                         false,
                         false
@@ -24,6 +39,7 @@ public class ConversationContactAvailabilityDetectorTest {
         assertEquals(
                 ConversationContactAssessment.State.AVAILABLE,
                 ConversationContactAvailabilityDetector.classify(
+                        false,
                         false,
                         true,
                         true,
@@ -40,6 +56,7 @@ public class ConversationContactAvailabilityDetectorTest {
                         false,
                         false,
                         false,
+                        false,
                         false
                 )
         );
@@ -50,6 +67,7 @@ public class ConversationContactAvailabilityDetectorTest {
         assertEquals(
                 ConversationContactAssessment.State.SUSPECTED_UNAVAILABLE,
                 ConversationContactAvailabilityDetector.classify(
+                        false,
                         false,
                         true,
                         false,
@@ -63,6 +81,7 @@ public class ConversationContactAvailabilityDetectorTest {
         assertEquals(
                 ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE,
                 ConversationContactAvailabilityDetector.classify(
+                        true,
                         true,
                         true,
                         true,
