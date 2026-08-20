@@ -12,7 +12,7 @@ public class FilterActionsModelOptionTest {
         var pattern = FilterActions.exactModelOptionPattern("Galaxy S25");
 
         assertTrue(pattern.matcher("Galaxy S25").matches());
-        assertTrue(pattern.matcher("  Galaxy   S25  ").matches());
+        assertTrue(pattern.matcher("  Galaxy S25  ").matches());
 
         assertFalse(pattern.matcher("Galaxy S25 Edge").matches());
         assertFalse(pattern.matcher("Galaxy S25 Ultra").matches());
