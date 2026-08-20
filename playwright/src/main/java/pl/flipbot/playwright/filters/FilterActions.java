@@ -320,7 +320,7 @@ public class FilterActions {
         String normalizedModel = normalizeOptionText(model);
         return Pattern.compile(
                 "^\\s*" + Pattern.quote(normalizedModel) + "\\s*$",
-                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+                Pattern.CASE_INSENSITIVE
         );
     }
 

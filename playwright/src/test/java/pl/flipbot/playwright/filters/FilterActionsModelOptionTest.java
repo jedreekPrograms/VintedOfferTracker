@@ -2,6 +2,9 @@ package pl.flipbot.playwright.filters;
 
 import org.junit.Test;
 
+import java.util.regex.Pattern;
+
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -27,5 +30,12 @@ public class FilterActionsModelOptionTest {
 
         assertTrue(pattern.matcher("GALAXY TAB S11 ULTRA").matches());
         assertFalse(pattern.matcher("Galaxy Tab S11").matches());
+    }
+
+    @Test
+    public void exactModelPatternUsesOnlyPlaywrightSupportedFlags() {
+        var pattern = FilterActions.exactModelOptionPattern("Galaxy S25");
+
+        assertEquals(Pattern.CASE_INSENSITIVE, pattern.flags());
     }
 }
