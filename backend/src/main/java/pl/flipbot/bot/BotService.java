@@ -162,6 +162,15 @@ public class BotService {
                         ? requestedConfiguration.getMaxAutomaticOffer()
                         : null
         );
+        boolean targetDefinitionChanged = targetDefinitionChanged(
+                configuration,
+                requestedConfiguration,
+                requestedTargetMode
+        );
+        boolean accountIdentityChanged = !sameNormalizedText(
+                bot.getEmail(),
+                normalizedEmail
+        ) || (request.getPassword() != null && !request.getPassword().isBlank());
 
         List<Listing> activeListings = getActiveNegotiationListings(botId);
 
@@ -228,6 +237,24 @@ public class BotService {
 
         if (priceRangeChanged) {
             resetSkippedOutsidePriceRangeListings(botId);
+        }
+
+        /*
+         * A target mismatch is only valid for the target that classified it.
+         * If category/brand/model/query/marketplace changes, historical
+         * mismatches must become DISCOVERED so the new target can evaluate
+         * them again instead of inheriting stale decisions forever.
+         */
+        if (targetDefinitionChanged) {
+            resetSkippedTargetMismatchListings(botId);
+        }
+
+        /*
+         * CANNOT_NEGOTIATE can be account-specific (permissions, seller block,
+         * account state). A new Vinted identity deserves one fresh check.
+         */
+        if (accountIdentityChanged) {
+            resetSkippedCannotNegotiateListings(botId);
         }
 
         return botMapper.map(bot);
@@ -463,6 +490,32 @@ public class BotService {
         return true;
     }
 
+    private boolean targetDefinitionChanged(
+            BotConfiguration current,
+            CreateBotConfigurationRequest requested,
+            TargetMode requestedTargetMode
+    ) {
+        if (!Objects.equals(current.getMarketplace(), requested.getMarketplace())
+                || !Objects.equals(current.getCategoryPath(), requested.getCategoryPath())
+                || !sameNormalizedText(current.getBrand(), requested.getBrand())) {
+            return true;
+        }
+
+        TargetMode currentTargetMode = current.getTargetMode() == null
+                ? TargetMode.VINTED_MODEL
+                : current.getTargetMode();
+
+        if (currentTargetMode != requestedTargetMode) {
+            return true;
+        }
+
+        if (requestedTargetMode == TargetMode.VINTED_MODEL) {
+            return !sameNormalizedText(current.getModel(), requested.getModel());
+        }
+
+        return !sameNormalizedText(current.getSearchQuery(), requested.getSearchQuery());
+    }
+
     private boolean isGlobalCapIncreased(BigDecimal currentCap, BigDecimal requestedCap) {
         if (requestedCap == null) {
             return false;
@@ -485,18 +538,40 @@ public class BotService {
     }
 
     private void resetSkippedOfferTooLowListings(Long botId) {
-        for (Listing listing : listingRepository.findByBotIdAndStatusOrderByIdAsc(
+        resetListingsWithStatus(
                 botId,
                 ListingStatus.SKIPPED_OFFER_TOO_LOW
-        )) {
-            listing.setStatus(ListingStatus.DISCOVERED);
-        }
+        );
     }
 
     private void resetSkippedOutsidePriceRangeListings(Long botId) {
-        for (Listing listing : listingRepository.findByBotIdAndStatusOrderByIdAsc(
+        resetListingsWithStatus(
                 botId,
                 ListingStatus.SKIPPED_OUTSIDE_PRICE_RANGE
+        );
+    }
+
+    private void resetSkippedTargetMismatchListings(Long botId) {
+        resetListingsWithStatus(
+                botId,
+                ListingStatus.SKIPPED_TARGET_MISMATCH
+        );
+    }
+
+    private void resetSkippedCannotNegotiateListings(Long botId) {
+        resetListingsWithStatus(
+                botId,
+                ListingStatus.SKIPPED_CANNOT_NEGOTIATE
+        );
+    }
+
+    private void resetListingsWithStatus(
+            Long botId,
+            ListingStatus status
+    ) {
+        for (Listing listing : listingRepository.findByBotIdAndStatusOrderByIdAsc(
+                botId,
+                status
         )) {
             listing.setStatus(ListingStatus.DISCOVERED);
         }
