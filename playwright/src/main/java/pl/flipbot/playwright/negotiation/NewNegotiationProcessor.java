@@ -22,6 +22,7 @@ import java.util.List;
 @Slf4j
 public class NewNegotiationProcessor {
 
+    private static final String VINTED_MODEL = "VINTED_MODEL";
     private static final int MAX_DETAIL_INSPECTIONS_PER_CYCLE = 5;
 
     /*
@@ -136,7 +137,7 @@ public class NewNegotiationProcessor {
         );
 
         log.warn(
-                "[REAL OFFER DRY RUN] Real offers are disabled. {} target-eligible DISCOVERED candidates were found. {} candidate(s) were checked by final full-title verification. {} passed, {} failed target verification, {} could not be verified. Backend allows {} new negotiations. No quota was reserved and no offer was sent.",
+                "[REAL OFFER DRY RUN] Real offers are disabled. {} target-eligible DISCOVERED candidates were found. {} candidate(s) were checked by final target verification. {} passed, {} failed target verification, {} could not be verified. Backend allows {} new negotiations. No quota was reserved and no offer was sent.",
                 targetEligibleListings.size(),
                 finalVerification.checked(),
                 finalVerification.verifiedListings().size(),
@@ -166,7 +167,7 @@ public class NewNegotiationProcessor {
         }
 
         log.warn(
-                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final verification will inspect up to {} candidates until {} verified candidate(s) are found. Quota is reserved only after the form is fully prepared and submit is ready.",
+                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final target verification will inspect up to {} candidates until {} verified candidate(s) are found. Quota is reserved only after the form is fully prepared and submit is ready.",
                 botId,
                 targetEligibleListings.size(),
                 allowedNewNegotiations,
@@ -187,13 +188,13 @@ public class NewNegotiationProcessor {
 
         if (finalVerifiedListings.isEmpty()) {
             log.warn(
-                    "[REAL OFFER] No candidate passed mandatory final full-title verification. No quota will be reserved and no offer will be sent."
+                    "[REAL OFFER] No candidate passed mandatory final target verification. No quota will be reserved and no offer will be sent."
             );
             return;
         }
 
         log.info(
-                "[REAL OFFER] {} candidate(s) passed mandatory final full-title verification. They may be tried in order until {} real negotiation(s) are started.",
+                "[REAL OFFER] {} candidate(s) passed mandatory final target verification. They may be tried in order until {} real negotiation(s) are started.",
                 finalVerifiedListings.size(),
                 maximumOffersThisRun
         );
@@ -452,7 +453,7 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[FINAL VERIFY] Starting mandatory full-title verification. Target-eligible={}, candidatesLimit={}, desiredVerified={}. No quota has been reserved.",
+                "[FINAL VERIFY] Starting mandatory final target verification. Target-eligible={}, candidatesLimit={}, desiredVerified={}. No quota has been reserved.",
                 targetEligibleListings.size(),
                 candidatesToCheck,
                 desiredVerifiedCount
@@ -463,6 +464,7 @@ public class NewNegotiationProcessor {
         int mismatches = 0;
         int failures = 0;
         int realItemPageRequests = 0;
+        boolean exactVintedModelMode = usesExactVintedModelFilter(configuration);
 
         for (ListingResponseDto listing : targetEligibleListings) {
             if (checked >= candidatesToCheck) {
@@ -476,17 +478,25 @@ public class NewNegotiationProcessor {
 
             checked++;
 
-            boolean cached = listingDetailTargetInspector.hasCachedFullTitle(
+            boolean cached = !exactVintedModelMode
+                    && listingDetailTargetInspector.hasCachedFullTitle(
                     listing.listingId()
             );
+            boolean liveItemPageRequest = !exactVintedModelMode && !cached;
 
-            if (!cached && realItemPageRequests > 0) {
+            if (liveItemPageRequest && realItemPageRequests > 0) {
                 context.getPage().waitForTimeout(DETAIL_INSPECTION_PACING_MS);
             }
 
-            if (!cached) {
+            if (liveItemPageRequest) {
                 realItemPageRequests++;
             }
+
+            String verificationSource = exactVintedModelMode
+                    ? "EXACT_VINTED_MODEL_FILTER"
+                    : cached
+                    ? "FULL_TITLE_CACHE"
+                    : "VINTED_ITEM_PAGE";
 
             log.info(
                     "[FINAL VERIFY] Candidate {}/{}. Backend listing={}, marketplace listing={}, catalog title='{}', price={}, targetMode={}, target='{}', source={}.",
@@ -498,7 +508,7 @@ public class NewNegotiationProcessor {
                     listing.originalPrice(),
                     configuration.getTargetMode(),
                     getConfiguredTargetLabel(configuration),
-                    cached ? "FULL_TITLE_CACHE" : "VINTED_ITEM_PAGE"
+                    verificationSource
             );
 
             try {
@@ -511,7 +521,7 @@ public class NewNegotiationProcessor {
                 if (matchesTarget) {
                     verifiedListings.add(listing);
                     log.info(
-                            "[FINAL VERIFY] Marketplace listing {} PASSED mandatory full-title verification. Verified candidates: {}/{}.",
+                            "[FINAL VERIFY] Marketplace listing {} PASSED mandatory final target verification. Verified candidates: {}/{}.",
                             listing.listingId(),
                             verifiedListings.size(),
                             desiredVerifiedCount
@@ -523,7 +533,7 @@ public class NewNegotiationProcessor {
                             listing
                     );
                     log.warn(
-                            "[FINAL VERIFY] Marketplace listing {} FAILED mandatory full-title verification and was persisted as SKIPPED_TARGET_MISMATCH. It will not block later backlog candidates.",
+                            "[FINAL VERIFY] Marketplace listing {} FAILED mandatory final target verification and was persisted as SKIPPED_TARGET_MISMATCH. It will not block later backlog candidates.",
                             listing.listingId()
                     );
                 }
@@ -747,6 +757,13 @@ public class NewNegotiationProcessor {
         return eligibleListings;
     }
 
+    private boolean usesExactVintedModelFilter(
+            BotConfigurationDto configuration
+    ) {
+        return configuration != null
+                && VINTED_MODEL.equalsIgnoreCase(configuration.getTargetMode());
+    }
+
     private String getConfiguredTargetLabel(
             BotConfigurationDto configuration
     ) {
@@ -758,7 +775,7 @@ public class NewNegotiationProcessor {
             return configuration.getSearchQuery();
         }
 
-        if ("VINTED_MODEL".equalsIgnoreCase(configuration.getTargetMode())) {
+        if (VINTED_MODEL.equalsIgnoreCase(configuration.getTargetMode())) {
             return configuration.getModel();
         }
 
