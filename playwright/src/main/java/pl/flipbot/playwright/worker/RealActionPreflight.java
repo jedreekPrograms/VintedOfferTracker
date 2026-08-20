@@ -25,17 +25,18 @@ public class RealActionPreflight {
     ) {
         List<String> failures = new ArrayList<>();
         List<String> notes = new ArrayList<>();
+        boolean capacityBlocked = false;
 
         if (bot == null || bot.getId() == null || bot.getId() <= 0) {
             failures.add("bot id is missing or invalid");
-            return finish(bot, jobType, failures, notes);
+            return finish(bot, jobType, failures, notes, false);
         }
 
         BotConfigurationDto configuration = bot.getConfiguration();
 
         if (configuration == null) {
             failures.add("bot configuration is missing");
-            return finish(bot, jobType, failures, notes);
+            return finish(bot, jobType, failures, notes, false);
         }
 
         if (!"VINTED".equalsIgnoreCase(configuration.getMarketplace())) {
@@ -63,7 +64,10 @@ public class RealActionPreflight {
                 int allowed = listingClient.getAllowedNewNegotiations(bot.getId());
 
                 if (allowed <= 0) {
-                    failures.add("backend currently allows 0 new negotiations");
+                    capacityBlocked = true;
+                    notes.add(
+                            "backend capacity is 0; no FIRST_OFFER submit is allowed in this catalog cycle"
+                    );
                 } else {
                     notes.add("backend allows " + allowed + " new negotiation(s)");
                 }
@@ -95,7 +99,13 @@ public class RealActionPreflight {
             }
         }
 
-        return finish(bot, jobType, failures, notes);
+        return finish(
+                bot,
+                jobType,
+                failures,
+                notes,
+                capacityBlocked
+        );
     }
 
     private void validateTarget(
@@ -240,19 +250,14 @@ public class RealActionPreflight {
             BotDetailsDto bot,
             ScheduledJobType jobType,
             List<String> failures,
-            List<String> notes
+            List<String> notes,
+            boolean capacityBlocked
     ) {
         Long botId = bot == null ? null : bot.getId();
-        boolean ready = failures.isEmpty();
+        boolean hasHardFailure = !failures.isEmpty();
+        boolean ready = !hasHardFailure && !capacityBlocked;
 
-        if (ready) {
-            log.warn(
-                    "[REAL ACTION PREFLIGHT] READY for bot {} / {}. {}",
-                    botId,
-                    jobType,
-                    String.join("; ", notes)
-            );
-        } else {
+        if (hasHardFailure) {
             log.error(
                     "[REAL ACTION PREFLIGHT] BLOCKED for bot {} / {}. Failures: {}. Notes: {}",
                     botId,
@@ -260,10 +265,25 @@ public class RealActionPreflight {
                     String.join("; ", failures),
                     String.join("; ", notes)
             );
+        } else if (capacityBlocked) {
+            log.info(
+                    "[REAL ACTION PREFLIGHT] NO_CAPACITY for bot {} / {}. {} Catalog discovery may still continue; only real FIRST_OFFER submission is disabled for this cycle.",
+                    botId,
+                    jobType,
+                    String.join("; ", notes)
+            );
+        } else {
+            log.info(
+                    "[REAL ACTION PREFLIGHT] READY for bot {} / {}. {}",
+                    botId,
+                    jobType,
+                    String.join("; ", notes)
+            );
         }
 
         return new Result(
                 ready,
+                capacityBlocked && !hasHardFailure,
                 List.copyOf(failures),
                 List.copyOf(notes)
         );
@@ -288,6 +308,7 @@ public class RealActionPreflight {
 
     public record Result(
             boolean ready,
+            boolean expectedCapacityBlock,
             List<String> failures,
             List<String> notes
     ) {
