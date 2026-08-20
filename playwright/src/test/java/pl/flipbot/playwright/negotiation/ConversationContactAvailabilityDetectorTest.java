@@ -35,9 +35,9 @@ public class ConversationContactAvailabilityDetectorTest {
     }
 
     @Test
-    public void enabledMessageComposerMakesConversationAvailable() {
+    public void enabledMessageComposerWithoutOfferActionIsNotTreatedAsBlocked() {
         assertEquals(
-                ConversationContactAssessment.State.AVAILABLE,
+                ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE,
                 ConversationContactAvailabilityDetector.classify(
                         false,
                         false,
