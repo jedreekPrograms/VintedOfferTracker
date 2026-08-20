@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -31,11 +32,15 @@ public class FilterActions {
     private static final double BRAND_PANEL_SETTLE_MS = 400;
     private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 10_000;
     private static final double MODEL_OPTION_POLL_INTERVAL_MS = 250;
+    private static final double MODEL_PERSIST_TIMEOUT_MS = 5_000;
+    private static final String MODEL_TEST_ID_PREFIX =
+            "selectable-item-brand_collection-";
 
     private final Page page;
     private String activeFilterTestId;
     private String activeFilterBaseUrl;
     private String selectedBrandOption;
+    private String selectedModelCollectionId;
     private String lastKnownSafeVintedUrl;
 
     public void openFilter(String filterTestId) {
@@ -44,6 +49,10 @@ public class FilterActions {
         if (FilterSelectors.BRAND_FILTER.equals(filterTestId)) {
             activeFilterBaseUrl = page.url();
             selectedBrandOption = null;
+        }
+
+        if (FilterSelectors.MODEL_FILTER.equals(filterTestId)) {
+            selectedModelCollectionId = null;
         }
 
         activeFilterTestId = filterTestId;
@@ -298,7 +307,7 @@ public class FilterActions {
             throw new IllegalArgumentException("Model cannot be blank");
         }
 
-        String selector = "[data-testid^='selectable-item-brand_collection-']";
+        String selector = "[data-testid^='" + MODEL_TEST_ID_PREFIX + "']";
         Locator allModelOptions = page.locator(selector);
         long deadline = System.currentTimeMillis() + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
         List<String> lastVisiblePartialLabels = List.of();
@@ -309,16 +318,11 @@ public class FilterActions {
             ensureVintedBeforeFilterAction("waiting for exact model '" + model + "'");
 
             /*
-             * Vinted currently renders the human-readable model label below
-             * the selectable row rather than exposing it reliably through the
-             * row's own innerText(). Playwright's plain-string hasText lookup
-             * still sees descendant text correctly and, unlike the old regex
-             * implementation, does not use unsupported Java regexp flags.
-             *
-             * Use hasText only to narrow the DOM to likely candidates. The
-             * final selection is still exact and is performed below against
-             * the candidate and its visible label descendants, so Galaxy S25
-             * can never silently become Edge/Ultra/FE/Plus.
+             * hasText() is deliberately only a search/narrowing mechanism.
+             * Vinted may split a label into highlighted spans. For example an
+             * Edge row can contain a child span whose text is exactly
+             * "Galaxy S25". Such a fragment is NOT proof that the row itself
+             * is the exact Galaxy S25 option.
              */
             Locator textMatchedOptions = allModelOptions.filter(
                     new Locator.FilterOptions().setHasText(model)
@@ -341,7 +345,7 @@ public class FilterActions {
                 }
 
                 visibleCandidateCount++;
-                List<String> optionTexts = readModelOptionTexts(candidate);
+                List<String> optionTexts = readCompleteModelOptionTexts(candidate);
 
                 boolean exact = optionTexts.stream()
                         .anyMatch(text -> exactVisibleModelLabelMatches(model, text));
@@ -369,27 +373,40 @@ public class FilterActions {
             if (!exactMatches.isEmpty()) {
                 if (exactMatches.size() > 1) {
                     log.warn(
-                            "[FILTER MODEL] Found {} visible exact options for '{}'. Using the first exact option.",
+                            "[FILTER MODEL] Found {} visible rows that independently prove the exact option '{}'. Using the first exact row.",
                             exactMatches.size(),
                             model
                     );
                 }
 
                 Locator modelLocator = exactMatches.getFirst();
-                List<String> resolvedTexts = readModelOptionTexts(modelLocator);
-                String actualOptionText = resolvedTexts.stream()
+                String evidence = readCompleteModelOptionTexts(modelLocator)
+                        .stream()
                         .filter(text -> exactVisibleModelLabelMatches(model, text))
                         .map(FilterActions::normalizeOptionText)
                         .findFirst()
-                        .orElseGet(() -> normalizeOptionText(safeInnerText(modelLocator)));
+                        .orElse(model);
                 String testId = modelLocator.getAttribute("data-testid");
+                String collectionId = modelCollectionIdFromTestId(testId);
+
+                if (collectionId == null) {
+                    throw new IllegalStateException(
+                            "Exact model row for '"
+                                    + model
+                                    + "' has an unexpected data-testid='"
+                                    + testId
+                                    + "'. Refusing to click because the persisted Vinted collection id could not be verified afterwards."
+                    );
+                }
+
+                selectedModelCollectionId = collectionId;
 
                 log.info(
-                        "[FILTER MODEL] Exact Vinted model resolved. requested='{}', exactLabel='{}', testId='{}'. Text narrowing matched {} row(s); partial variants are never accepted.",
+                        "[FILTER MODEL] EXACT Vinted model row verified. requested='{}', testId='{}', expectedCollectionId='{}', evidence='{}'. Partial/highlight fragments and variants are rejected.",
                         model,
-                        actualOptionText,
                         testId,
-                        textMatchedCount
+                        collectionId,
+                        evidence
                 );
 
                 modelLocator.click();
@@ -401,7 +418,7 @@ public class FilterActions {
         }
 
         throw new IllegalStateException(
-                "Could not find an exact visible Vinted model option for '"
+                "Could not prove an exact visible Vinted model option for '"
                         + model
                         + "' within "
                         + Math.round(MODEL_OPTION_SETTLE_TIMEOUT_MS / 1_000)
@@ -409,10 +426,23 @@ public class FilterActions {
                         + lastTextMatchedCount
                         + ", visible candidates inspected="
                         + lastVisibleCandidateCount
-                        + ", visible partial labels="
+                        + ", visible partial/full labels="
                         + lastVisiblePartialLabels
-                        + ". Refusing to click Edge/Ultra/FE/Plus or any other partial variant."
+                        + ". Failing closed instead of clicking a similar model."
         );
+    }
+
+    static String modelCollectionIdFromTestId(String testId) {
+        if (testId == null || !testId.startsWith(MODEL_TEST_ID_PREFIX)) {
+            return null;
+        }
+
+        String collectionId = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
+        if (!collectionId.matches("^\\d+$")) {
+            return null;
+        }
+
+        return collectionId;
     }
 
     static Pattern exactModelOptionPattern(String model) {
@@ -438,10 +468,71 @@ public class FilterActions {
             return true;
         }
 
-        return visibleText.lines()
+        /*
+         * Some Vinted rows append only a result count to the model label. That
+         * metadata is safe. A variant word is not. Therefore
+         *   Galaxy S25 + "123 przedmioty" -> exact
+         * but
+         *   Galaxy S25 + "Edge"           -> never exact.
+         */
+        if (startsWithIgnoreCase(normalizedVisible, normalizedRequested)) {
+            String suffix = normalizedVisible
+                    .substring(normalizedRequested.length())
+                    .trim();
+            if (isModelOptionMetadata(suffix)) {
+                return true;
+            }
+        }
+
+        List<String> lines = visibleText.lines()
                 .map(FilterActions::normalizeOptionText)
                 .filter(line -> !line.isBlank())
-                .anyMatch(line -> normalizedRequested.equalsIgnoreCase(line));
+                .toList();
+
+        for (int index = 0; index < lines.size(); index++) {
+            if (!normalizedRequested.equalsIgnoreCase(lines.get(index))) {
+                continue;
+            }
+
+            boolean onlyMetadataAroundExactLabel = true;
+            for (int otherIndex = 0; otherIndex < lines.size(); otherIndex++) {
+                if (otherIndex == index) {
+                    continue;
+                }
+
+                if (!isModelOptionMetadata(lines.get(otherIndex))) {
+                    onlyMetadataAroundExactLabel = false;
+                    break;
+                }
+            }
+
+            if (onlyMetadataAroundExactLabel) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean startsWithIgnoreCase(String value, String prefix) {
+        return value.length() >= prefix.length()
+                && value.regionMatches(true, 0, prefix, 0, prefix.length());
+    }
+
+    private static boolean isModelOptionMetadata(String value) {
+        String normalized = normalizeOptionText(value);
+        if (normalized.isBlank()) {
+            return false;
+        }
+
+        if (normalized.matches("^\\d[\\d\\s.,]*$")) {
+            return true;
+        }
+
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return lower.matches(
+                "^\\d[\\d\\s.,]*\\s*(przedmiot\\p{L}*|item\\p{L}*|article\\p{L}*|result\\p{L}*|wynik\\p{L}*)$"
+        );
     }
 
     static String normalizeOptionText(String value) {
@@ -451,40 +542,41 @@ public class FilterActions {
         return value.trim().replaceAll("\\s+", " ");
     }
 
-    private List<String> readModelOptionTexts(Locator locator) {
+    private List<String> readCompleteModelOptionTexts(Locator locator) {
         Set<String> texts = new LinkedHashSet<>();
 
+        /*
+         * Only read the complete selectable row or a complete <label>
+         * container. Never use arbitrary span/p descendants as exact-match
+         * evidence: Vinted highlights the searched substring in those leaf
+         * nodes and that is how "Galaxy S25 Edge" was previously mistaken for
+         * "Galaxy S25".
+         */
         addModelOptionText(texts, safeInnerText(locator));
         addModelOptionText(texts, safeTextContent(locator));
         addModelOptionText(texts, safeAttribute(locator, "aria-label"));
         addModelOptionText(texts, safeAttribute(locator, "title"));
 
-        /*
-         * hasText() proved that Vinted's row contains the requested text even
-         * when row.innerText() is empty. Read the small set of usual label
-         * descendants explicitly so the exact label can be recovered from the
-         * current DOM without weakening model matching.
-         */
-        Locator descendants = locator.locator("label, span, p");
-        int descendantCount;
+        Locator labels = locator.locator("label");
+        int labelCount;
 
         try {
-            descendantCount = Math.min(descendants.count(), 20);
+            labelCount = Math.min(labels.count(), 10);
         } catch (RuntimeException exception) {
-            descendantCount = 0;
+            labelCount = 0;
         }
 
-        for (int index = 0; index < descendantCount; index++) {
-            Locator descendant = descendants.nth(index);
+        for (int index = 0; index < labelCount; index++) {
+            Locator label = labels.nth(index);
 
-            if (!safeIsVisible(descendant)) {
+            if (!safeIsVisible(label)) {
                 continue;
             }
 
-            addModelOptionText(texts, safeInnerText(descendant));
-            addModelOptionText(texts, safeTextContent(descendant));
-            addModelOptionText(texts, safeAttribute(descendant, "aria-label"));
-            addModelOptionText(texts, safeAttribute(descendant, "title"));
+            addModelOptionText(texts, safeInnerText(label));
+            addModelOptionText(texts, safeTextContent(label));
+            addModelOptionText(texts, safeAttribute(label, "aria-label"));
+            addModelOptionText(texts, safeAttribute(label, "title"));
         }
 
         return List.copyOf(texts);
@@ -501,7 +593,8 @@ public class FilterActions {
         if (value == null || fragment == null || fragment.isBlank()) {
             return false;
         }
-        return value.toLowerCase().contains(fragment.toLowerCase());
+        return value.toLowerCase(Locale.ROOT)
+                .contains(fragment.toLowerCase(Locale.ROOT));
     }
 
     private boolean safeIsVisible(Locator locator) {
@@ -540,10 +633,48 @@ public class FilterActions {
 
     public void clickConfirmButton() {
         ensureVintedBeforeFilterAction("confirming filter selection");
+        boolean verifyExactModelPersistence =
+                FilterSelectors.MODEL_FILTER.equals(activeFilterTestId);
+        String expectedModelCollectionId = selectedModelCollectionId;
+
         Locator button = page.getByTestId("filter-selection-button");
         waitUntilVisible(button, OPTION_TIMEOUT_MS);
         button.click();
         assertStillOnVinted("confirming filter selection");
+
+        try {
+            if (verifyExactModelPersistence) {
+                if (expectedModelCollectionId == null
+                        || expectedModelCollectionId.isBlank()) {
+                    throw new IllegalStateException(
+                            "Model filter confirmation was requested without a verified exact model collection id."
+                    );
+                }
+
+                if (!waitForUrlParameterValue(
+                        "brand_collection_ids[]",
+                        expectedModelCollectionId,
+                        MODEL_PERSIST_TIMEOUT_MS
+                )) {
+                    throw new IllegalStateException(
+                            "Vinted did not persist the exact clicked model collection id. Expected brand_collection_ids[]="
+                                    + expectedModelCollectionId
+                                    + ", actual="
+                                    + getUrlParameter("brand_collection_ids[]")
+                                    + ", URL="
+                                    + page.url()
+                    );
+                }
+
+                log.info(
+                        "[FILTER MODEL] EXACT model persistence verified end-to-end. brand_collection_ids[]={}. Current URL: {}",
+                        expectedModelCollectionId,
+                        page.url()
+                );
+            }
+        } finally {
+            clearActiveFilterState();
+        }
     }
 
     public void clickOutsideSafely() {
@@ -609,6 +740,29 @@ public class FilterActions {
             assertStillOnVinted("waiting for URL parameter '" + parameterName + "'");
 
             if (getUrlParameter(parameterName) != null) {
+                rememberCurrentVintedUrl();
+                return true;
+            }
+
+            page.waitForTimeout(200);
+        }
+
+        return false;
+    }
+
+    private boolean waitForUrlParameterValue(
+            String parameterName,
+            String expectedValue,
+            double timeoutMilliseconds
+    ) {
+        long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
+
+        while (System.currentTimeMillis() <= deadline) {
+            assertStillOnVinted(
+                    "waiting for exact URL parameter '" + parameterName + "'"
+            );
+
+            if (expectedValue.equals(getUrlParameter(parameterName))) {
                 rememberCurrentVintedUrl();
                 return true;
             }
@@ -815,6 +969,7 @@ public class FilterActions {
         activeFilterTestId = null;
         activeFilterBaseUrl = null;
         selectedBrandOption = null;
+        selectedModelCollectionId = null;
     }
 
     private String getFriendlyErrorMessage(Throwable exception) {

@@ -36,8 +36,6 @@ public class MarketStatsCollector {
             "DICTIONARY_FILTERS";
     private static final String STRATEGY_GLOBAL_BRAND_TEXT =
             "GLOBAL_BRAND_TEXT_FALLBACK";
-    private static final String STRATEGY_CATEGORY_TEXT =
-            "CATEGORY_TEXT_FALLBACK";
     private static final String STRATEGY_TEXT_ONLY =
             "TEXT_ONLY_FALLBACK";
 
@@ -45,8 +43,9 @@ public class MarketStatsCollector {
     private static final int MAX_NO_GROWTH_ROUNDS = 2;
 
     /*
-     * Used for broad discovery fallbacks. The strict target matcher remains
-     * the final authority before a marketplace listing id is counted.
+     * Used for broad SEARCH_QUERY discovery fallbacks. The strict target
+     * matcher remains the final authority before a marketplace listing id is
+     * counted. VINTED_MODEL never enters these text-search fallbacks.
      */
     private static final Set<String> ACCESSORY_WORDS = Set.of(
             "etui",
@@ -273,6 +272,24 @@ public class MarketStatsCollector {
             MarketStatsTargetDto target
     ) {
         boolean resolvedCategory = hasResolvedCategory(target);
+        String requestedTargetMode = resolveTargetMode(target.targetMode());
+
+        /*
+         * A dictionary entry marked VINTED_MODEL is a hard contract. The
+         * observer is not allowed to silently turn it into a text search just
+         * because metadata or a UI filter is unavailable. Otherwise market
+         * statistics would represent a different target than the production
+         * bot. Fail this one model scan and retry later instead.
+         */
+        if (VINTED_MODEL.equals(requestedTargetMode) && !resolvedCategory) {
+            throw new IllegalStateException(
+                    "VINTED_MODEL market target "
+                            + target.brandName()
+                            + " / "
+                            + target.modelName()
+                            + " has no resolved category. Exact Vinted model filtering is mandatory; refusing SEARCH_QUERY fallback."
+            );
+        }
 
         BotDetailsDto primaryBot = buildScanBot(
                 observerBot,
@@ -286,7 +303,7 @@ public class MarketStatsCollector {
         if (!resolvedCategory) {
             log.warn(
                     "[MARKET STATS] modelId={} {} / {} has no resolved category. "
-                            + "Collector will NOT skip it: trying brand + text search without a category first.",
+                            + "SEARCH_QUERY collector will try brand + text search without a category first.",
                     target.modelId(),
                     target.brandName(),
                     target.modelName()
@@ -313,48 +330,32 @@ public class MarketStatsCollector {
 
             log.warn(
                     "[MARKET STATS] Primary filter strategy failed for modelId={} {} / {}. "
-                            + "strategy={}, reason={}",
+                            + "strategy={}, targetMode={}, reason={}",
                     target.modelId(),
                     target.brandName(),
                     target.modelName(),
                     primaryStrategy,
+                    requestedTargetMode,
                     safeMessage(primaryFailure)
             );
 
-            if (resolvedCategory
-                    && VINTED_MODEL.equals(resolveTargetMode(target.targetMode()))) {
-                BotDetailsDto categoryTextBot = buildCategoryTextFallbackBot(
-                        observerBot,
-                        target
+            if (VINTED_MODEL.equals(requestedTargetMode)) {
+                log.error(
+                        "[MARKET STATS] Exact Vinted model filter is mandatory for modelId={} {} / {}. "
+                                + "This target will FAIL CLOSED; no category-text or text-only fallback is allowed.",
+                        target.modelId(),
+                        target.brandName(),
+                        target.modelName()
                 );
 
-                try {
-                    applyTargetFilters(
-                            context,
-                            target,
-                            categoryTextBot,
-                            STRATEGY_CATEGORY_TEXT
-                    );
-
-                    return new PreparedScan(
-                            categoryTextBot,
-                            STRATEGY_CATEGORY_TEXT,
-                            true
-                    );
-                } catch (RuntimeException categoryTextFailure) {
-                    if (containsInterruptedException(categoryTextFailure)) {
-                        throw categoryTextFailure;
-                    }
-
-                    log.warn(
-                            "[MARKET STATS] Category text fallback also failed for modelId={} {} / {}. "
-                                    + "Falling back to text-only discovery. reason={}",
-                            target.modelId(),
-                            target.brandName(),
-                            target.modelName(),
-                            safeMessage(categoryTextFailure)
-                    );
-                }
+                throw new IllegalStateException(
+                        "Exact Vinted model filtering failed for "
+                                + target.brandName()
+                                + " / "
+                                + target.modelName()
+                                + "; refusing to collect statistics from a different search strategy.",
+                        primaryFailure
+                );
             }
 
             BotDetailsDto textOnlyBot = buildTextOnlyFallbackBot(
@@ -620,6 +621,10 @@ public class MarketStatsCollector {
         configuration.setBrand(target.brandName());
 
         if (!resolvedCategory) {
+            /*
+             * prepareScan already rejects VINTED_MODEL without a category, so
+             * this branch is exclusively a SEARCH_QUERY fallback.
+             */
             configuration.setTargetMode(SEARCH_QUERY);
             configuration.setModel(null);
             configuration.setSearchQuery(target.modelName());
@@ -636,27 +641,6 @@ public class MarketStatsCollector {
             }
         }
 
-        applyObserverPriceRange(configuration, target);
-
-        return buildBotWithConfiguration(
-                observerBot,
-                configuration
-        );
-    }
-
-    private BotDetailsDto buildCategoryTextFallbackBot(
-            BotDetailsDto observerBot,
-            MarketStatsTargetDto target
-    ) {
-        BotConfigurationDto configuration = new BotConfigurationDto();
-        configuration.setMarketplace("VINTED");
-        configuration.setCategoryPath(
-                List.copyOf(target.categoryPath())
-        );
-        configuration.setBrand(target.brandName());
-        configuration.setTargetMode(SEARCH_QUERY);
-        configuration.setModel(null);
-        configuration.setSearchQuery(target.modelName());
         applyObserverPriceRange(configuration, target);
 
         return buildBotWithConfiguration(
