@@ -93,8 +93,42 @@ public class MarketStatsCollector {
         try (BrowserManager browserManager = new BrowserManager(config.headless());
              BotContext context = new BotContext(observerBot, browserManager)) {
 
+            boolean authenticatedObserverSession = false;
             LoginService loginService = new LoginService(context);
-            loginService.login();
+
+            try {
+                loginService.login();
+                authenticatedObserverSession = true;
+            } catch (RuntimeException loginFailure) {
+                if (containsInterruptedException(loginFailure)) {
+                    throw loginFailure;
+                }
+
+                /*
+                 * Market statistics collection is intentionally read-only. It
+                 * only visits the public Vinted catalog, applies filters and
+                 * records listing ids in our backend. A temporary/invalid
+                 * observer login must therefore not suppress all market data.
+                 *
+                 * Do not save the resulting anonymous context as the observer
+                 * session: that would overwrite a previously useful storage
+                 * state with an unauthenticated one.
+                 */
+                log.warn(
+                        "[MARKET STATS] Observer bot {} could not establish an authenticated Vinted session. "
+                                + "Continuing with anonymous READ-ONLY catalog collection; this collector never "
+                                + "submits offers or negotiation actions. The anonymous context will not overwrite "
+                                + "the stored observer session. reason={}",
+                        observerBot.getId(),
+                        safeMessage(loginFailure)
+                );
+                log.debug(
+                        "[MARKET STATS] Full observer login failure before anonymous fallback.",
+                        loginFailure
+                );
+
+                new MarketplaceNavigator(context).goToCatalog();
+            }
 
             try {
                 for (int index = 0; index < targets.size(); index++) {
@@ -133,12 +167,19 @@ public class MarketStatsCollector {
                     }
                 }
             } finally {
-                try {
-                    context.saveSession();
-                } catch (Exception exception) {
-                    log.warn(
-                            "[MARKET STATS] Could not save observer session after daily scan.",
-                            exception
+                if (authenticatedObserverSession) {
+                    try {
+                        context.saveSession();
+                    } catch (Exception exception) {
+                        log.warn(
+                                "[MARKET STATS] Could not save observer session after daily scan.",
+                                exception
+                        );
+                    }
+                } else {
+                    log.info(
+                            "[MARKET STATS] Observer collection ran without an authenticated session. "
+                                    + "Skipping session save so anonymous storage state cannot replace the saved observer session."
                     );
                 }
             }
