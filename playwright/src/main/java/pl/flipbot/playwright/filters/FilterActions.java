@@ -302,38 +302,68 @@ public class FilterActions {
         Locator allModelOptions = page.locator(selector);
         long deadline = System.currentTimeMillis() + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
         List<String> lastVisiblePartialLabels = List.of();
-        int lastVisibleCount = 0;
+        int lastVisibleCandidateCount = 0;
+        int lastTextMatchedCount = 0;
 
         while (System.currentTimeMillis() <= deadline) {
             ensureVintedBeforeFilterAction("waiting for exact model '" + model + "'");
 
-            int optionCount = allModelOptions.count();
+            /*
+             * Vinted currently renders the human-readable model label below
+             * the selectable row rather than exposing it reliably through the
+             * row's own innerText(). Playwright's plain-string hasText lookup
+             * still sees descendant text correctly and, unlike the old regex
+             * implementation, does not use unsupported Java regexp flags.
+             *
+             * Use hasText only to narrow the DOM to likely candidates. The
+             * final selection is still exact and is performed below against
+             * the candidate and its visible label descendants, so Galaxy S25
+             * can never silently become Edge/Ultra/FE/Plus.
+             */
+            Locator textMatchedOptions = allModelOptions.filter(
+                    new Locator.FilterOptions().setHasText(model)
+            );
+            int textMatchedCount = textMatchedOptions.count();
+            Locator candidates = textMatchedCount > 0
+                    ? textMatchedOptions
+                    : allModelOptions;
+            int candidateCount = candidates.count();
+
             List<Locator> exactMatches = new ArrayList<>();
             Set<String> partialLabels = new LinkedHashSet<>();
-            int visibleCount = 0;
+            int visibleCandidateCount = 0;
 
-            for (int index = 0; index < optionCount; index++) {
-                Locator candidate = allModelOptions.nth(index);
+            for (int index = 0; index < candidateCount; index++) {
+                Locator candidate = candidates.nth(index);
 
                 if (!safeIsVisible(candidate)) {
                     continue;
                 }
 
-                visibleCount++;
-                String visibleText = safeInnerText(candidate);
+                visibleCandidateCount++;
+                List<String> optionTexts = readModelOptionTexts(candidate);
 
-                if (exactVisibleModelLabelMatches(model, visibleText)) {
+                boolean exact = optionTexts.stream()
+                        .anyMatch(text -> exactVisibleModelLabelMatches(model, text));
+
+                if (exact) {
                     exactMatches.add(candidate);
                     continue;
                 }
 
-                String normalizedVisible = normalizeOptionText(visibleText);
-                if (containsIgnoreCase(normalizedVisible, normalizeOptionText(model))) {
-                    partialLabels.add(normalizedVisible);
+                for (String optionText : optionTexts) {
+                    String normalizedVisible = normalizeOptionText(optionText);
+                    if (containsIgnoreCase(
+                            normalizedVisible,
+                            normalizeOptionText(model)
+                    )) {
+                        partialLabels.add(normalizedVisible);
+                    }
                 }
             }
 
-            lastVisibleCount = visibleCount;
+            lastVisibleCandidateCount = visibleCandidateCount;
+            lastTextMatchedCount = textMatchedCount;
             lastVisiblePartialLabels = List.copyOf(partialLabels);
 
             if (!exactMatches.isEmpty()) {
@@ -346,14 +376,20 @@ public class FilterActions {
                 }
 
                 Locator modelLocator = exactMatches.getFirst();
-                String actualOptionText = normalizeOptionText(safeInnerText(modelLocator));
+                List<String> resolvedTexts = readModelOptionTexts(modelLocator);
+                String actualOptionText = resolvedTexts.stream()
+                        .filter(text -> exactVisibleModelLabelMatches(model, text))
+                        .map(FilterActions::normalizeOptionText)
+                        .findFirst()
+                        .orElseGet(() -> normalizeOptionText(safeInnerText(modelLocator)));
                 String testId = modelLocator.getAttribute("data-testid");
 
                 log.info(
-                        "[FILTER MODEL] Exact visible Vinted model resolved after filtered-list settling. requested='{}', visibleOption='{}', testId='{}'. Partial variants are never accepted.",
+                        "[FILTER MODEL] Exact Vinted model resolved. requested='{}', exactLabel='{}', testId='{}'. Text narrowing matched {} row(s); partial variants are never accepted.",
                         model,
                         actualOptionText,
-                        testId
+                        testId,
+                        textMatchedCount
                 );
 
                 modelLocator.click();
@@ -369,9 +405,11 @@ public class FilterActions {
                         + model
                         + "' within "
                         + Math.round(MODEL_OPTION_SETTLE_TIMEOUT_MS / 1_000)
-                        + " seconds. Visible model options="
-                        + lastVisibleCount
-                        + ", visible partial matches="
+                        + " seconds. hasText candidates="
+                        + lastTextMatchedCount
+                        + ", visible candidates inspected="
+                        + lastVisibleCandidateCount
+                        + ", visible partial labels="
                         + lastVisiblePartialLabels
                         + ". Refusing to click Edge/Ultra/FE/Plus or any other partial variant."
         );
@@ -413,6 +451,52 @@ public class FilterActions {
         return value.trim().replaceAll("\\s+", " ");
     }
 
+    private List<String> readModelOptionTexts(Locator locator) {
+        Set<String> texts = new LinkedHashSet<>();
+
+        addModelOptionText(texts, safeInnerText(locator));
+        addModelOptionText(texts, safeTextContent(locator));
+        addModelOptionText(texts, safeAttribute(locator, "aria-label"));
+        addModelOptionText(texts, safeAttribute(locator, "title"));
+
+        /*
+         * hasText() proved that Vinted's row contains the requested text even
+         * when row.innerText() is empty. Read the small set of usual label
+         * descendants explicitly so the exact label can be recovered from the
+         * current DOM without weakening model matching.
+         */
+        Locator descendants = locator.locator("label, span, p");
+        int descendantCount;
+
+        try {
+            descendantCount = Math.min(descendants.count(), 20);
+        } catch (RuntimeException exception) {
+            descendantCount = 0;
+        }
+
+        for (int index = 0; index < descendantCount; index++) {
+            Locator descendant = descendants.nth(index);
+
+            if (!safeIsVisible(descendant)) {
+                continue;
+            }
+
+            addModelOptionText(texts, safeInnerText(descendant));
+            addModelOptionText(texts, safeTextContent(descendant));
+            addModelOptionText(texts, safeAttribute(descendant, "aria-label"));
+            addModelOptionText(texts, safeAttribute(descendant, "title"));
+        }
+
+        return List.copyOf(texts);
+    }
+
+    private void addModelOptionText(Set<String> texts, String value) {
+        if (value == null || normalizeOptionText(value).isBlank()) {
+            return;
+        }
+        texts.add(value);
+    }
+
     private boolean containsIgnoreCase(String value, String fragment) {
         if (value == null || fragment == null || fragment.isBlank()) {
             return false;
@@ -431,6 +515,24 @@ public class FilterActions {
     private String safeInnerText(Locator locator) {
         try {
             return locator.innerText();
+        } catch (RuntimeException exception) {
+            return "";
+        }
+    }
+
+    private String safeTextContent(Locator locator) {
+        try {
+            String text = locator.textContent();
+            return text == null ? "" : text;
+        } catch (RuntimeException exception) {
+            return "";
+        }
+    }
+
+    private String safeAttribute(Locator locator, String attributeName) {
+        try {
+            String value = locator.getAttribute(attributeName);
+            return value == null ? "" : value;
         } catch (RuntimeException exception) {
             return "";
         }
