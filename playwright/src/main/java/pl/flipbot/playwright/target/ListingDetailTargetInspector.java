@@ -85,11 +85,25 @@ public class ListingDetailTargetInspector {
             ListingResponseDto listing,
             BotConfigurationDto configuration
     ) {
+        /*
+         * VINTED_MODEL has already been proven by FilterActions and persisted
+         * in the catalog URL. Opening every item page to reinterpret the title
+         * would be both wasteful and conceptually wrong: seller-written text
+         * is not the target classifier in this mode.
+         */
+        if (listingTargetMatcher.usesVintedModelFilter(configuration)) {
+            log.debug(
+                    "[TARGET DETAIL] Marketplace listing {} accepted without semantic item-title verification because VINTED_MODEL trusts the exact persisted Vinted model filter.",
+                    listing == null ? null : listing.listingId()
+            );
+            return true;
+        }
+
         if (listing == null
                 || listing.url() == null
                 || listing.url().isBlank()) {
             log.warn(
-                    "[TARGET DETAIL] Listing has no usable URL. It cannot be inspected safely."
+                    "[TARGET DETAIL] Listing has no usable URL. It cannot be inspected safely for SEARCH_QUERY."
             );
             return false;
         }
@@ -117,7 +131,7 @@ public class ListingDetailTargetInspector {
         Page page = context.getPage();
 
         log.info(
-                "[TARGET DETAIL] Opening marketplace listing {} for live title verification: {}",
+                "[TARGET DETAIL] Opening marketplace listing {} for live SEARCH_QUERY title verification: {}",
                 listing.listingId(),
                 listing.url()
         );
@@ -162,14 +176,14 @@ public class ListingDetailTargetInspector {
 
         if (matches) {
             log.info(
-                    "[TARGET DETAIL] Marketplace listing {} MATCHES after live item-page verification. Catalog title='{}', full item title='{}'.",
+                    "[TARGET DETAIL] Marketplace listing {} MATCHES SEARCH_QUERY after live item-page verification. Catalog title='{}', full item title='{}'.",
                     listing.listingId(),
                     listing.title(),
                     fullTitle
             );
         } else {
             log.info(
-                    "[TARGET DETAIL] Marketplace listing {} does NOT match after live item-page verification. Catalog title='{}', full item title='{}'.",
+                    "[TARGET DETAIL] Marketplace listing {} does NOT match SEARCH_QUERY after live item-page verification. Catalog title='{}', full item title='{}'.",
                     listing.listingId(),
                     listing.title(),
                     fullTitle
