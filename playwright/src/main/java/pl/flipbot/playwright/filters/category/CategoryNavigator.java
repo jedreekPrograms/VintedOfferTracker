@@ -16,6 +16,7 @@ public class CategoryNavigator {
     private static final double RETRY_DELAY_MS = 2_000;
     private static final double FIRST_ROOT_OPTION_TIMEOUT_MS = 5_000;
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
+    private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
 
     private final FilterActions actions;
 
@@ -40,8 +41,22 @@ public class CategoryNavigator {
 
                 selectCategoryPath(categoryPath, attempt);
 
+                if (!actions.waitForUrlParameterPresent(
+                        "catalog[]",
+                        CATEGORY_PERSIST_TIMEOUT_MS
+                )) {
+                    String leafCategory = categoryPath.getLast();
+                    throw new CategorySelectionException(
+                            leafCategory,
+                            CATEGORY_PERSIST_TIMEOUT_MS,
+                            new IllegalStateException(
+                                    "Vinted accepted the category clicks but did not persist catalog[] in the URL"
+                            )
+                    );
+                }
+
                 log.info(
-                        "[FILTER CATEGORY] Category selected successfully: {}",
+                        "[FILTER CATEGORY] Category selected and URL persistence verified: {}",
                         formatPath(categoryPath)
                 );
                 return;
@@ -65,12 +80,21 @@ public class CategoryNavigator {
             } catch (RuntimeException exception) {
                 lastException = exception;
 
-                log.warn(
-                        "[FILTER CATEGORY] Attempt {}/{} failed because of unexpected error: {}",
-                        attempt,
-                        MAX_ATTEMPTS,
-                        getFriendlyErrorMessage(exception)
-                );
+                if (attempt < MAX_ATTEMPTS) {
+                    log.info(
+                            "[FILTER CATEGORY] Attempt {}/{} needs retry because of: {}",
+                            attempt,
+                            MAX_ATTEMPTS,
+                            getFriendlyErrorMessage(exception)
+                    );
+                } else {
+                    log.warn(
+                            "[FILTER CATEGORY] Final attempt {}/{} failed because of: {}",
+                            attempt,
+                            MAX_ATTEMPTS,
+                            getFriendlyErrorMessage(exception)
+                    );
+                }
 
                 log.trace(
                         "[FILTER CATEGORY] Full unexpected error for attempt {}/{}.",
@@ -86,7 +110,7 @@ public class CategoryNavigator {
         }
 
         StringBuilder errorMessage = new StringBuilder(
-                "Could not select category path after "
+                "Could not select and persist category path after "
                         + MAX_ATTEMPTS
                         + " attempts: "
                         + formatPath(categoryPath)
@@ -94,7 +118,7 @@ public class CategoryNavigator {
 
         if (failedCategory != null) {
             errorMessage.append(". Last failed category: ").append(failedCategory);
-            errorMessage.append(". Last option timeout: ")
+            errorMessage.append(". Last option/persistence timeout: ")
                     .append(Math.round(failedTimeoutMs / 1_000))
                     .append("s");
         }
@@ -152,21 +176,31 @@ public class CategoryNavigator {
             Throwable exception,
             double timeoutMilliseconds
     ) {
+        String message;
+
         if (exception instanceof TimeoutError) {
-            log.warn(
-                    "[FILTER CATEGORY] Attempt {}/{} failed at '{}': option not visible after {}s.",
+            message = "option not visible after "
+                    + Math.round(timeoutMilliseconds / 1_000)
+                    + "s";
+        } else {
+            message = getFriendlyErrorMessage(exception);
+        }
+
+        if (attempt < MAX_ATTEMPTS) {
+            log.info(
+                    "[FILTER CATEGORY] Attempt {}/{} needs retry at '{}': {}.",
                     attempt,
                     MAX_ATTEMPTS,
                     category,
-                    Math.round(timeoutMilliseconds / 1_000)
+                    message
             );
         } else {
             log.warn(
-                    "[FILTER CATEGORY] Attempt {}/{} failed at '{}': {}",
+                    "[FILTER CATEGORY] Final attempt {}/{} failed at '{}': {}.",
                     attempt,
                     MAX_ATTEMPTS,
                     category,
-                    getFriendlyErrorMessage(exception)
+                    message
             );
         }
 
