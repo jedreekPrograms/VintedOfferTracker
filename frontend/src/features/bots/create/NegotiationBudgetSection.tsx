@@ -21,8 +21,9 @@ function NegotiationBudgetSection({
                 </div>
 
                 <p className="content-card-text">
-                    Określa maksymalną liczbę
-                    zarezerwowanych kroków negocjacji.
+                    Maksymalna liczba realnych akcji cenowych bota w ciągu dnia.
+                    Liczą się zarówno pierwsze oferty, jak i kolejne kroki.
+                    Przyszłe kroki aktywnych rozmów nie są rezerwowane z góry.
                 </p>
             </div>
 
@@ -31,7 +32,7 @@ function NegotiationBudgetSection({
                     className="form-label"
                     htmlFor="negotiation-budget"
                 >
-                    Dzienny budżet
+                    Dzienny limit ofert i kroków
                 </label>
 
                 <input
@@ -50,7 +51,8 @@ function NegotiationBudgetSection({
                 />
 
                 <span className="form-help">
-                    Maksymalna wartość to 25.
+                    Maksymalna wartość to 25. Każde faktycznie wysłane działanie
+                    cenowe zużywa jeden punkt dopiero w momencie wysłania.
                 </span>
             </div>
         </article>
