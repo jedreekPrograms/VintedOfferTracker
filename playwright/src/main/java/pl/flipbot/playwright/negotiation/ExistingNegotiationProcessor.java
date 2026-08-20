@@ -20,6 +20,8 @@ public class ExistingNegotiationProcessor {
     private final NegotiationConversationProcessor conversationProcessor;
     private final ConversationAvailabilityDetector availabilityDetector;
     private final ConversationActivityDetector activityDetector;
+    private final ConversationContactAvailabilityDetector contactAvailabilityDetector;
+    private final ConsecutiveContactUnavailableTracker contactUnavailableTracker;
     private final NegotiationDecisionService decisionService;
     private final PendingNegotiationPolicy pendingPolicy;
     private final NextNegotiationStepExecutor nextStepExecutor;
@@ -42,6 +44,10 @@ public class ExistingNegotiationProcessor {
         this.conversationProcessor = new NegotiationConversationProcessor(context);
         this.availabilityDetector = new ConversationAvailabilityDetector(context);
         this.activityDetector = new ConversationActivityDetector(context);
+        this.contactAvailabilityDetector =
+                new ConversationContactAvailabilityDetector(context);
+        this.contactUnavailableTracker =
+                new ConsecutiveContactUnavailableTracker();
         this.decisionService = new NegotiationDecisionService();
         this.pendingPolicy = new PendingNegotiationPolicy();
         this.nextStepExecutor = new NextNegotiationStepExecutor(context);
@@ -100,6 +106,7 @@ public class ExistingNegotiationProcessor {
 
                 if (!support.matchesConfiguredTarget(listing, configuration)) {
                     ListingResponseDto finished = support.finishWrongTargetNegotiation(listing);
+                    clearContactUnavailableSuspicion(listing);
                     log.error(
                             "[TARGET GUARD] Listing {} stopped as wrong target. Status={}. No additional offer was sent.",
                             listing.listingId(),
@@ -114,6 +121,7 @@ public class ExistingNegotiationProcessor {
                 if (availabilityDetector.isUnavailable(listing)) {
                     ListingResponseDto unavailable =
                             listingStatusUpdater.markNegotiationUnavailable(listing);
+                    clearContactUnavailableSuspicion(listing);
                     log.warn(
                             "[AVAILABILITY] Listing {} changed from NEGOTIATING to UNAVAILABLE. No new quota slot was reserved.",
                             unavailable.listingId()
@@ -141,6 +149,7 @@ public class ExistingNegotiationProcessor {
 
                     if (pending.action() == PendingNegotiationDecision.Action.EXPIRE) {
                         ListingResponseDto expired = listingStatusUpdater.markExpired(listing);
+                        clearContactUnavailableSuspicion(listing);
                         log.warn(
                                 "[PENDING POLICY] Listing {} changed to EXPIRED. Reason: {}",
                                 expired.listingId(),
@@ -229,6 +238,7 @@ public class ExistingNegotiationProcessor {
             case MARK_ACTION_REQUIRED -> {
                 ListingResponseDto updated =
                         listingStatusUpdater.markActionRequired(listing, decision);
+                clearContactUnavailableSuspicion(listing);
                 log.warn(
                         "[DECISION] Listing {} changed to ACTION_REQUIRED at price {}. Buy now was NOT clicked. Reason: {}",
                         updated.listingId(),
@@ -241,6 +251,7 @@ public class ExistingNegotiationProcessor {
             case MARK_REJECTED -> {
                 ListingResponseDto updated =
                         listingStatusUpdater.markRejected(listing, decision);
+                clearContactUnavailableSuspicion(listing);
                 log.warn(
                         "[DECISION] Listing {} changed to REJECTED at price {}. Reason: {}",
                         updated.listingId(),
@@ -280,6 +291,71 @@ public class ExistingNegotiationProcessor {
                 decision.reason()
         );
 
+        ConversationContactAssessment contactAssessment =
+                contactAvailabilityDetector.inspect(listing);
+
+        if (contactAssessment.state()
+                == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
+            clearContactUnavailableSuspicion(listing);
+            log.warn(
+                    "[CONTACT AVAILABILITY] Listing {} can still be messaged, but Vinted currently exposes no enabled offer action. "
+                            + "The bot will not throw a generic timeout or reserve quota; it will retry on a later negotiation check. Reason: {}",
+                    listing.listingId(),
+                    contactAssessment.reason()
+            );
+            return false;
+        }
+
+        if (contactAssessment.state()
+                == ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE) {
+            ListingResponseDto updated =
+                    listingStatusUpdater.markContactUnavailable(listing);
+            clearContactUnavailableSuspicion(listing);
+
+            log.warn(
+                    "[CONTACT AVAILABILITY] Listing {} changed to CONTACT_UNAVAILABLE. "
+                            + "The bot will stop retrying this conversation. Reason: {}",
+                    updated.listingId(),
+                    contactAssessment.reason()
+            );
+            return false;
+        }
+
+        if (contactAssessment.state()
+                == ConversationContactAssessment.State.SUSPECTED_UNAVAILABLE) {
+            int consecutiveChecks = contactUnavailableTracker.recordSuspected(
+                    context.getBot().getId(),
+                    listing.listingId()
+            );
+
+            if (contactUnavailableTracker.shouldClose(consecutiveChecks)) {
+                ListingResponseDto updated =
+                        listingStatusUpdater.markContactUnavailable(listing);
+                clearContactUnavailableSuspicion(listing);
+
+                log.warn(
+                        "[CONTACT AVAILABILITY] Listing {} changed to CONTACT_UNAVAILABLE after {} consecutive checks with no usable message composer and no offer action. "
+                                + "This avoids an endless 2-minute retry loop. Last observation: {}",
+                        updated.listingId(),
+                        consecutiveChecks,
+                        contactAssessment.reason()
+                );
+            } else {
+                log.warn(
+                        "[CONTACT AVAILABILITY] Listing {} may no longer allow contact. Observation {}/{}: {} "
+                                + "No offer will be attempted this cycle; the conversation will be checked again before being closed permanently.",
+                        listing.listingId(),
+                        consecutiveChecks,
+                        ConsecutiveContactUnavailableTracker.REQUIRED_CONSECUTIVE_SUSPECTED_CHECKS,
+                        contactAssessment.reason()
+                );
+            }
+
+            return false;
+        }
+
+        clearContactUnavailableSuspicion(listing);
+
         if (realNextStepsEnabled) {
             return preparedNextStepCoordinator.execute(listing, decision);
         }
@@ -311,5 +387,14 @@ public class ExistingNegotiationProcessor {
             );
         }
         return false;
+    }
+
+    private void clearContactUnavailableSuspicion(
+            ListingResponseDto listing
+    ) {
+        contactUnavailableTracker.clear(
+                context.getBot().getId(),
+                listing.listingId()
+        );
     }
 }
