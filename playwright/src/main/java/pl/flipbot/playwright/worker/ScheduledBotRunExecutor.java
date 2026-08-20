@@ -111,11 +111,19 @@ public class ScheduledBotRunExecutor {
                     realOffersEnabled = false;
                     realNextStepsEnabled = false;
 
-                    log.error(
-                            "[REAL ACTION PREFLIGHT] Real actions downgraded to DRY RUN for bot {} / {} because preflight is BLOCKED.",
-                            botId,
-                            jobType
-                    );
+                    if (preflight.expectedCapacityBlock()) {
+                        log.info(
+                                "[REAL ACTION PREFLIGHT] Bot {} / {} has no room for a new full negotiation right now. Real FIRST_OFFER submit is disabled for this cycle, but catalog discovery and historical-backlog processing continue safely.",
+                                botId,
+                                jobType
+                        );
+                    } else {
+                        log.error(
+                                "[REAL ACTION PREFLIGHT] Real actions downgraded to DRY RUN for bot {} / {} because preflight found a real configuration/runtime failure.",
+                                botId,
+                                jobType
+                        );
+                    }
                 }
             }
 
@@ -205,6 +213,12 @@ public class ScheduledBotRunExecutor {
                 }
             }
 
+            log.info(
+                    "[BROWSER LIFECYCLE] Bot {} {} job is finished. Closing only this job's isolated browser context/page. The reusable worker-slot browser runtime stays alive for later jobs. With scheduler headless=false the visible window may disappear between jobs; this is expected.",
+                    botId,
+                    jobType == null ? "FULL_RUN" : jobType
+            );
+
             try {
                 context.close();
             } catch (Exception exception) {
@@ -247,8 +261,8 @@ public class ScheduledBotRunExecutor {
 
         if (!realOffersEnabled && !realNextStepsEnabled) {
             log.info(
-                    "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN mode. "
-                            + "realOffers=false, realNextSteps=false.",
+                    "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN / NO REAL SUBMIT mode. "
+                            + "Discovery, verification and read-only checks may still run; realOffers=false, realNextSteps=false.",
                     jobLabel,
                     botId
             );
@@ -260,7 +274,7 @@ public class ScheduledBotRunExecutor {
                         ? "PRODUCTION REAL ACTION MODE"
                         : "CONTROLLED REAL ACTION MODE";
 
-        log.warn(
+        log.info(
                 "[SCHEDULED JOB] {} for {} / bot {}. "
                         + "realOffers={}, realNextSteps={}, firstOfferOneShotTestMode={}, "
                         + "maxRealOffersPerRun={}, maxRealNextStepsPerRun={}.",
