@@ -1,6 +1,8 @@
 package pl.flipbot.playwright.negotiation;
 
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
@@ -10,6 +12,7 @@ import pl.flipbot.playwright.model.NegotiationStepDto;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Keeps the existing FirstOfferExecutor submit/guard behavior intact, but when
@@ -26,6 +29,11 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     private static final int CANNOT_NEGOTIATE_CONFIRMATION_ATTEMPTS = 3;
     private static final double CANNOT_NEGOTIATE_RETRY_DELAY_MS = 1_500;
     private static final double CANNOT_NEGOTIATE_RELOAD_TIMEOUT_MS = 30_000;
+
+    private static final Pattern SOLD_STATUS_TEXT = Pattern.compile(
+            "^(Sprzedane|Sold)$",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+    );
 
     private final BotContext context;
     private final AdaptiveNegotiationPricingService pricingService;
@@ -121,6 +129,22 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
                 return result;
             }
 
+            /*
+             * Vinted's sold item page can still expose a perfectly valid h1,
+             * so the generic item-page availability check may see a loaded
+             * listing while the offer action is intentionally absent. The
+             * visible green "Sprzedane"/"Sold" status is authoritative enough
+             * to classify the listing as UNAVAILABLE instead of permanently
+             * labelling it CANNOT_NEGOTIATE.
+             */
+            if (isExplicitlySold(context.getPage())) {
+                log.info(
+                        "[REAL OFFER AVAILABILITY] Marketplace listing {} is explicitly marked as sold by Vinted. Returning LISTING_UNAVAILABLE; caller will persist UNAVAILABLE and no quota/offer will be used.",
+                        listing.listingId()
+                );
+                return NegotiationPreparationResult.LISTING_UNAVAILABLE;
+            }
+
             if (attempt >= CANNOT_NEGOTIATE_CONFIRMATION_ATTEMPTS) {
                 log.warn(
                         "[REAL OFFER AVAILABILITY] Marketplace listing {} exposed no offer action in {}/{} fully loaded checks. Each check already waited up to the normal 15-second button timeout. Only now is CANNOT_NEGOTIATE considered confirmed for this run; this does not claim the seller blocked the account, only that Vinted repeatedly exposed no negotiation action.",
@@ -151,5 +175,42 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
         throw new IllegalStateException(
                 "Negotiation-action confirmation loop exited unexpectedly"
         );
+    }
+
+    private boolean isExplicitlySold(Page page) {
+        try {
+            Locator exactSoldLabels = page.getByText(
+                    SOLD_STATUS_TEXT,
+                    new Page.GetByTextOptions().setExact(true)
+            );
+
+            int count = Math.min(exactSoldLabels.count(), 20);
+            for (int index = 0; index < count; index++) {
+                if (exactSoldLabels.nth(index).isVisible()) {
+                    return true;
+                }
+            }
+
+            String bodyText = page.locator("body").innerText();
+            if (bodyText == null || bodyText.isBlank()) {
+                return false;
+            }
+
+            String normalized = bodyText
+                    .replaceAll("\\s+", " ")
+                    .toLowerCase();
+
+            return normalized.contains("przedmiot został sprzedany")
+                    || normalized.contains("przedmiot zostal sprzedany")
+                    || normalized.contains("item has been sold")
+                    || normalized.contains("item was sold");
+
+        } catch (PlaywrightException exception) {
+            log.debug(
+                    "[REAL OFFER AVAILABILITY] Sold-state probe could not read the current item page; normal availability safeguards remain active.",
+                    exception
+            );
+            return false;
+        }
     }
 }
