@@ -7,6 +7,7 @@ public record ConversationContactAssessment(
 
     public enum State {
         AVAILABLE,
+        OFFER_ACTION_UNAVAILABLE,
         SUSPECTED_UNAVAILABLE,
         CONFIRMED_UNAVAILABLE
     }
@@ -14,6 +15,13 @@ public record ConversationContactAssessment(
     public static ConversationContactAssessment available(String reason) {
         return new ConversationContactAssessment(
                 State.AVAILABLE,
+                reason
+        );
+    }
+
+    public static ConversationContactAssessment offerActionUnavailable(String reason) {
+        return new ConversationContactAssessment(
+                State.OFFER_ACTION_UNAVAILABLE,
                 reason
         );
     }
