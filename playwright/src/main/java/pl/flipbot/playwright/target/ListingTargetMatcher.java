@@ -46,7 +46,8 @@ public class ListingTargetMatcher {
                     "max",
                     "fe",
                     "lite",
-                    "mini"
+                    "mini",
+                    "edge"
             );
 
     /*
