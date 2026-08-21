@@ -18,8 +18,8 @@ public class NegotiationController {
 
     @PostMapping("/offer-sent")
     public void offerSent(@Valid @RequestBody OfferSentRequest request) {
-
         negotiationService.markOfferAsSent(
+                request.getBotId(),
                 request.getListingId()
         );
     }
@@ -28,8 +28,8 @@ public class NegotiationController {
     public NegotiationDecision processResult(
             @Valid @RequestBody NegotiationResultRequest request
     ) {
-
         return negotiationService.processNegotiationResult(
+                request.getBotId(),
                 request.getListingId(),
                 request.getResult(),
                 request.getCounterOffer()

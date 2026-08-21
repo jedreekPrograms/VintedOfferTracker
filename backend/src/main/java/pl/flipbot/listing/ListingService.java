@@ -107,7 +107,10 @@ public class ListingService {
             return List.of();
         }
 
-        Set<String> existingListingIds = findExistingListingIds(uniqueRequests.keySet());
+        Set<String> existingListingIds = findExistingListingIds(
+                botId,
+                uniqueRequests.keySet()
+        );
         List<ListingResponse> claimedListings = new ArrayList<>();
 
         for (CreateListingRequest listingRequest : uniqueRequests.values()) {
@@ -121,16 +124,18 @@ public class ListingService {
             } catch (DataIntegrityViolationException exception) {
                 if (!isUniqueConstraintViolation(exception)) {
                     log.error(
-                            "Database integrity error while claiming listing {}",
+                            "Database integrity error while claiming listing {} for bot {}",
                             listingRequest.getListingId(),
+                            botId,
                             exception
                     );
                     throw exception;
                 }
 
                 log.debug(
-                        "Listing {} was claimed concurrently by another bot",
-                        listingRequest.getListingId()
+                        "Listing {} was claimed concurrently for bot {} by another worker",
+                        listingRequest.getListingId(),
+                        botId
                 );
             }
         }
@@ -339,8 +344,15 @@ public class ListingService {
         return uniqueRequests;
     }
 
-    private Set<String> findExistingListingIds(Set<String> listingIds) {
-        List<Listing> existingListings = listingRepository.findAllByListingIdIn(listingIds);
+    private Set<String> findExistingListingIds(
+            Long botId,
+            Set<String> listingIds
+    ) {
+        List<Listing> existingListings =
+                listingRepository.findAllByBotIdAndListingIdIn(
+                        botId,
+                        listingIds
+                );
         Set<String> existingListingIds = new HashSet<>();
         for (Listing listing : existingListings) {
             existingListingIds.add(listing.getListingId());

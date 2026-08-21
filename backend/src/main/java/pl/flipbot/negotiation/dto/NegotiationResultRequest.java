@@ -12,6 +12,9 @@ import java.math.BigDecimal;
 @Setter
 public class NegotiationResultRequest {
 
+    @NotNull
+    private Long botId;
+
     @NotBlank
     private String listingId;
 

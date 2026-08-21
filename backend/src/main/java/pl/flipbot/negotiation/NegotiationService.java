@@ -18,17 +18,12 @@ public class NegotiationService {
 
     @Transactional
     public NegotiationDecision processNegotiationResult(
+            Long botId,
             String listingId,
             NegotiationResult result,
             BigDecimal counterOffer
     ) {
-
-
-
-        Listing listing = listingRepository.findByListingId(listingId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException("Listing not found")
-                );
+        Listing listing = findMarketplaceListing(botId, listingId);
 
         if (!listing.getAwaitingSellerResponse()) {
             throw new IllegalStateException(
@@ -49,14 +44,30 @@ public class NegotiationService {
     }
 
     @Transactional
-    public void markOfferAsSent(String listingId) {
-
-        Listing listing = listingRepository.findByListingId(listingId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException("Listing not found")
-                );
-
+    public void markOfferAsSent(
+            Long botId,
+            String listingId
+    ) {
+        Listing listing = findMarketplaceListing(botId, listingId);
         listing.setAwaitingSellerResponse(true);
+    }
+
+    private Listing findMarketplaceListing(
+            Long botId,
+            String marketplaceListingId
+    ) {
+        return listingRepository.findByBotIdAndListingId(
+                        botId,
+                        marketplaceListingId
+                )
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Listing "
+                                        + marketplaceListingId
+                                        + " was not found for bot "
+                                        + botId
+                        )
+                );
     }
 
     private void updateListing(
@@ -64,13 +75,9 @@ public class NegotiationService {
             NegotiationDecision decision,
             BigDecimal counterOffer
     ) {
-
         switch (decision.getAction()) {
-
             case ACTION_REQUIRED -> {
-
                 listing.setAwaitingSellerResponse(false);
-
                 listing.setStatus(ListingStatus.ACTION_REQUIRED);
 
                 if (counterOffer != null) {
@@ -79,22 +86,14 @@ public class NegotiationService {
             }
 
             case SEND_NEXT_OFFER -> {
-
                 listing.setCurrentStep(decision.getNextStep());
-
-                listing.setCurrentPrice(
-                        decision.getOfferPrice()
-                );
-
+                listing.setCurrentPrice(decision.getOfferPrice());
                 listing.setAwaitingSellerResponse(false);
-
                 listing.setStatus(ListingStatus.NEGOTIATING);
             }
 
             case FINISH_NEGOTIATION -> {
-
                 listing.setAwaitingSellerResponse(false);
-
                 listing.setStatus(ListingStatus.FINISHED);
             }
         }

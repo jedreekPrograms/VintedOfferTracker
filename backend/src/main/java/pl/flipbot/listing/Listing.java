@@ -9,6 +9,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -20,6 +22,13 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
+@Table(
+        name = "listing",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_listing_bot_marketplace",
+                columnNames = {"bot_id", "listing_id"}
+        )
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -31,10 +40,7 @@ public class Listing {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(
-            unique = true,
-            nullable = false
-    )
+    @Column(nullable = false)
     private String listingId;
 
     @Column(nullable = false)
