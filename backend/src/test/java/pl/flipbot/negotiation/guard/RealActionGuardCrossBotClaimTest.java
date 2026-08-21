@@ -12,16 +12,14 @@ import pl.flipbot.marketplace.Marketplace;
 import pl.flipbot.negotiation.audit.RealActionAuditService;
 import pl.flipbot.negotiation.guard.dto.AcquireRealActionGuardRequest;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -58,12 +56,14 @@ class RealActionGuardCrossBotClaimTest {
         when(guardRepository.findByRequestId(requestId)).thenReturn(Optional.empty());
         when(guardRepository.findByListing_Id(22L)).thenReturn(Optional.empty());
         when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(0);
-        when(jdbcTemplate.queryForList(anyString(), any(Object[].class))).thenReturn(List.of(
+        when(jdbcTemplate.queryForMap(anyString(), any(Object[].class))).thenReturn(
                 Map.of(
                         "owner_bot_id", 1L,
-                        "owner_listing_id", 11L
+                        "owner_listing_id", 11L,
+                        "request_id", UUID.randomUUID(),
+                        "claimed_at", java.time.LocalDateTime.now()
                 )
-        ));
+        );
 
         var response = service.acquire(
                 2L,
