@@ -20,15 +20,17 @@ import java.util.Set;
 public class CatalogCandidateProcessor {
 
     /*
-     * Fresh listings should remain the priority, but older DISCOVERED
-     * listings must never starve just because they fell off page 1.
+     * A listing that is already DISCOVERED but has never started a
+     * negotiation must not starve just because newer items keep appearing.
      *
-     * A 3:2 merge gives every catalog cycle room for both groups while
-     * preserving Vinted's newest-first ordering inside the current scan and
-     * backend id ordering inside the backlog.
+     * Every cycle starts with the oldest persisted DISCOVERED backlog item,
+     * then gives two slots to genuinely new listings before progressing the
+     * backlog again. This guarantees backlog progress even when the real-offer
+     * run limit is only one, while still keeping most capacity focused on new
+     * marketplace offers.
      */
-    private static final int CURRENT_SCAN_PRIORITY_BATCH = 3;
-    private static final int BACKLOG_PROGRESS_BATCH = 2;
+    private static final int FRESH_PRIORITY_BATCH = 2;
+    private static final int BACKLOG_PROGRESS_BATCH = 1;
 
     private final BotContext context;
     private final ListingClient listingClient;
@@ -81,39 +83,56 @@ public class CatalogCandidateProcessor {
 
         /*
          * 2. Persist genuinely new current-scan listings.
-         * The backend remains authoritative for global listing ownership.
+         * The backend remains authoritative for listing identity within this
+         * bot. A listing already known to this bot is intentionally not
+         * recreated and remains in its existing lifecycle state.
          */
         var newlyClaimedListings = listingProcessingService.process(scannedListings);
 
+        Set<String> newlyClaimedListingIds = new LinkedHashSet<>();
+        for (ListingResponseDto listing : newlyClaimedListings) {
+            if (listing != null
+                    && listing.listingId() != null
+                    && !listing.listingId().isBlank()) {
+                newlyClaimedListingIds.add(listing.listingId());
+            }
+        }
+
         log.info(
-                "[CATALOG CANDIDATES] Bot {} claimed {} new listings.",
+                "[CATALOG CANDIDATES] Bot {} claimed {} genuinely new listings.",
                 botId,
-                newlyClaimedListings.size()
+                newlyClaimedListingIds.size()
         );
 
         /*
          * 3. Load the whole DISCOVERED backlog for this bot.
          *
-         * IMPORTANT: an older DISCOVERED listing is NOT discarded merely
-         * because it has fallen off the current first catalog page. It still
-         * has a stored direct URL and will go through target verification,
-         * availability checks and all real-action guards before submit.
+         * IMPORTANT: a listing is backlog whenever it was already DISCOVERED
+         * before this scan, even if it still appears on the current Vinted
+         * page. That distinction prevents a yesterday listing from being
+         * treated as forever "fresh" and pushed behind tomorrow's new items.
+         *
+         * An older DISCOVERED listing is NOT discarded merely because it has
+         * fallen off the current first catalog page. It still has a stored
+         * direct URL and will go through target verification, availability
+         * checks and all real-action guards before submit.
          */
         List<ListingResponseDto> discoveredListings =
                 listingClient.getDiscoveredListings(botId);
 
         CandidateSelection candidateSelection = selectCandidates(
                 discoveredListings,
-                currentScanListingIds
+                currentScanListingIds,
+                newlyClaimedListingIds
         );
 
         log.info(
-                "[CATALOG CANDIDATES] DISCOVERED listings: backend={}, currentScan={}, backlog={}. "
-                        + "Processing order uses {} fresh : {} backlog fairness batches.",
+                "[CATALOG CANDIDATES] DISCOVERED listings: backend={}, genuinelyNew={}, backlog={}. "
+                        + "Processing starts with the oldest backlog item, then uses {} fresh : {} backlog fairness batches.",
                 discoveredListings.size(),
-                candidateSelection.currentScan().size(),
+                candidateSelection.fresh().size(),
                 candidateSelection.backlog().size(),
-                CURRENT_SCAN_PRIORITY_BATCH,
+                FRESH_PRIORITY_BATCH,
                 BACKLOG_PROGRESS_BATCH
         );
 
@@ -176,7 +195,8 @@ public class CatalogCandidateProcessor {
 
     static CandidateSelection selectCandidates(
             List<ListingResponseDto> discoveredListings,
-            Set<String> currentScanListingIds
+            Set<String> currentScanListingIds,
+            Set<String> newlyClaimedListingIds
     ) {
         if (discoveredListings == null || discoveredListings.isEmpty()) {
             return new CandidateSelection(
@@ -189,6 +209,9 @@ public class CatalogCandidateProcessor {
         Set<String> currentIds = currentScanListingIds == null
                 ? Set.of()
                 : currentScanListingIds;
+        Set<String> newIds = newlyClaimedListingIds == null
+                ? Set.of()
+                : newlyClaimedListingIds;
 
         Map<String, ListingResponseDto> remainingByMarketplaceId =
                 new LinkedHashMap<>();
@@ -206,60 +229,75 @@ public class CatalogCandidateProcessor {
             );
         }
 
-        List<ListingResponseDto> currentScan = new ArrayList<>();
+        List<ListingResponseDto> fresh = new ArrayList<>();
 
         /*
-         * Iterate currentIds, not discoveredListings: this preserves the
-         * newest-first ordering produced by the live Vinted scan.
+         * Fresh means genuinely claimed during THIS scan, not merely visible
+         * in the current catalog. Iterate currentIds so genuinely new items
+         * retain Vinted's newest-first ordering.
          */
         for (String marketplaceListingId : currentIds) {
+            if (!newIds.contains(marketplaceListingId)) {
+                continue;
+            }
+
             ListingResponseDto current =
                     remainingByMarketplaceId.remove(marketplaceListingId);
 
             if (current != null) {
-                currentScan.add(current);
+                fresh.add(current);
             }
         }
 
         /*
-         * getDiscoveredListings() is backend-id ASC, so the remaining values
-         * form an oldest-first backlog. Old items therefore eventually drain
-         * instead of being permanently starved by newer catalog pages.
+         * getDiscoveredListings() is backend-id ASC. Every remaining value was
+         * already DISCOVERED before this scan, so the remaining values form an
+         * oldest-first backlog regardless of whether they are still visible
+         * on page 1. Old items therefore cannot be permanently starved by a
+         * continuous stream of newer listings.
          */
         List<ListingResponseDto> backlog =
                 new ArrayList<>(remainingByMarketplaceId.values());
 
         List<ListingResponseDto> prioritized = interleaveFairly(
-                currentScan,
+                fresh,
                 backlog
         );
 
         return new CandidateSelection(
-                List.copyOf(currentScan),
+                List.copyOf(fresh),
                 List.copyOf(backlog),
                 List.copyOf(prioritized)
         );
     }
 
     private static List<ListingResponseDto> interleaveFairly(
-            List<ListingResponseDto> currentScan,
+            List<ListingResponseDto> fresh,
             List<ListingResponseDto> backlog
     ) {
         List<ListingResponseDto> result = new ArrayList<>(
-                currentScan.size() + backlog.size()
+                fresh.size() + backlog.size()
         );
 
-        int currentIndex = 0;
+        int freshIndex = 0;
         int backlogIndex = 0;
 
-        while (currentIndex < currentScan.size()
+        /*
+         * The oldest outstanding candidate goes first. This is what makes the
+         * guarantee hold even when capacity/maxRealOffersPerRun is only one.
+         */
+        if (backlogIndex < backlog.size()) {
+            result.add(backlog.get(backlogIndex++));
+        }
+
+        while (freshIndex < fresh.size()
                 || backlogIndex < backlog.size()) {
 
             for (int count = 0;
-                    count < CURRENT_SCAN_PRIORITY_BATCH
-                            && currentIndex < currentScan.size();
+                    count < FRESH_PRIORITY_BATCH
+                            && freshIndex < fresh.size();
                     count++) {
-                result.add(currentScan.get(currentIndex++));
+                result.add(fresh.get(freshIndex++));
             }
 
             for (int count = 0;
@@ -318,7 +356,7 @@ public class CatalogCandidateProcessor {
     }
 
     record CandidateSelection(
-            List<ListingResponseDto> currentScan,
+            List<ListingResponseDto> fresh,
             List<ListingResponseDto> backlog,
             List<ListingResponseDto> prioritized
     ) {
