@@ -1,14 +1,14 @@
 package pl.flipbot.playwright.verification;
 
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
-class HumanVerificationHandlerTextTest {
+public class HumanVerificationHandlerTextTest {
 
     @Test
-    void strongVisibleHumanTextIsRecognized() {
+    public void strongVisibleHumanTextIsRecognized() {
         assertEquals(
                 "verify you are human",
                 HumanVerificationHandler.matchingStrongText(
@@ -18,7 +18,7 @@ class HumanVerificationHandlerTextTest {
     }
 
     @Test
-    void genericSecurityTextDoesNotFreezeNormalBodyContent() {
+    public void genericSecurityTextDoesNotFreezeNormalBodyContent() {
         assertNull(
                 HumanVerificationHandler.matchingStrongText(
                         "Security check provided by a background widget"
@@ -32,7 +32,7 @@ class HumanVerificationHandlerTextTest {
     }
 
     @Test
-    void genericChallengeMarkersRemainValidForPageTitleOnly() {
+    public void genericChallengeMarkersRemainValidForPageTitleOnly() {
         assertEquals(
                 "just a moment",
                 HumanVerificationHandler.matchingTitleOnlyText(
