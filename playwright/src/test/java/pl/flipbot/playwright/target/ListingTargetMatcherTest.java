@@ -88,6 +88,17 @@ public class ListingTargetMatcherTest {
     }
 
     @Test
+    public void searchQueryGalaxyTabFePlusKeepsBothVariantTokens() {
+        assertMatch("Galaxy Tab S9 FE+", "Samsung Galaxy Tab S9 FE+ 5G 256GB");
+        assertMatch("Galaxy Tab S9 FE+", "Samsung TabS9FE Plus 256GB");
+        assertMatch("Galaxy Tab S9 FE Plus", "Samsung GalaxyTabS9FE+ 256GB");
+
+        assertMismatch("Galaxy Tab S9 FE+", "Samsung Galaxy Tab S9 FE 256GB");
+        assertMismatch("Galaxy Tab S9 FE", "Samsung Galaxy Tab S9 FE+ 256GB");
+        assertMismatch("Galaxy Tab S9 FE+", "Samsung Galaxy Tab S9+ 256GB");
+    }
+
+    @Test
     public void phoneSSeriesDoesNotAccidentallyMatchTabWithSameSNumber() {
         assertMismatch("Galaxy S10+", "Samsung Galaxy Tab S10+ 256GB");
         assertMismatch("Galaxy S25", "Samsung Galaxy Tab S25 256GB");
@@ -98,6 +109,7 @@ public class ListingTargetMatcherTest {
         assertMatch("Galaxy Z Fold 7", "Samsung Galaxy Z Fold 7 512GB");
         assertMatch("Galaxy Z Fold 7", "Samsung Galaxy ZFold7 512GB");
         assertMatch("Galaxy Z Fold 7", "Samsung Fold7 512GB");
+        assertMatch("Galaxy Z Fold 7", "Samsung Galaxy Fold 7 512GB");
         assertMatch("Galaxy Z Fold 7", "Samsung GalaxyZFold7 512GB");
 
         assertMismatch("Galaxy Z Fold 7", "Samsung Galaxy Z Fold 6 512GB");
@@ -109,9 +121,31 @@ public class ListingTargetMatcherTest {
         assertMatch("Galaxy Z Flip 7", "Samsung Galaxy Z Flip 7 256GB");
         assertMatch("Galaxy Z Flip 7", "Samsung ZFlip7 256GB");
         assertMatch("Galaxy Z Flip 7", "Samsung Flip7 256GB");
+        assertMatch("Galaxy Z Flip 7", "Samsung Galaxy Flip 7 256GB");
 
         assertMismatch("Galaxy Z Flip 7", "Samsung Galaxy Z Flip 6 256GB");
         assertMismatch("Galaxy Z Flip 7", "Samsung Galaxy Z Fold 7 256GB");
+    }
+
+    @Test
+    public void searchQueryGalaxyNoteKeepsFamilyGenerationAndUltraVariantStrict() {
+        assertMatch("Galaxy Note20 Ultra", "Samsung Galaxy Note20 Ultra 5G 256GB");
+        assertMatch("Galaxy Note20 Ultra", "Samsung Note 20 Ultra 256GB");
+        assertMatch("Galaxy Note 20 Ultra", "Samsung Note20Ultra 256GB");
+
+        assertMismatch("Galaxy Note20 Ultra", "Samsung Galaxy Note20 256GB");
+        assertMismatch("Galaxy Note20 Ultra", "Samsung Galaxy Note10 Ultra 256GB");
+        assertMismatch("Galaxy Note20 Ultra", "Samsung Galaxy S20 Ultra 256GB");
+    }
+
+    @Test
+    public void searchQueryGalaxyXCoverAcceptsJoinedAndSpacedGeneration() {
+        assertMatch("Galaxy XCover7", "Samsung Galaxy XCover7 5G 128GB");
+        assertMatch("Galaxy XCover7", "Samsung XCover 7 128GB");
+        assertMatch("Galaxy XCover 7", "Samsung GalaxyXCover7 128GB");
+
+        assertMismatch("Galaxy XCover7", "Samsung Galaxy XCover6 Pro 128GB");
+        assertMismatch("Galaxy XCover7", "Samsung Galaxy S7 128GB");
     }
 
     @Test
@@ -120,6 +154,14 @@ public class ListingTargetMatcherTest {
         assertMatch("Galaxy A56", "Samsung A56 5G 128GB");
         assertMismatch("Galaxy A56", "Samsung Galaxy A55 5G 256GB");
         assertMismatch("Galaxy A56", "Samsung Galaxy A56 Ultra 256GB");
+    }
+
+    @Test
+    public void searchQueryGalaxyMSeriesDoesNotCrossIntoASeries() {
+        assertMatch("Galaxy M55", "Samsung Galaxy M55 5G 256GB");
+        assertMatch("Galaxy M55", "Samsung M55 128GB");
+        assertMismatch("Galaxy M55", "Samsung Galaxy M54 5G 256GB");
+        assertMismatch("Galaxy M55", "Samsung Galaxy A55 5G 256GB");
     }
 
     @Test
