@@ -458,12 +458,16 @@ public class FilterActions {
             return null;
         }
 
-        String collectionId = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
-        if (!collectionId.matches("^\\d+$")) {
+        String suffix = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
+        java.util.regex.Matcher matcher = Pattern.compile(
+                "^(\\d+)(?:--title)?$"
+        ).matcher(suffix);
+
+        if (!matcher.matches()) {
             return null;
         }
 
-        return collectionId;
+        return matcher.group(1);
     }
 
     static Pattern exactModelOptionPattern(String model) {
@@ -754,14 +758,6 @@ public class FilterActions {
             }
         }
 
-        /*
-         * The collection id below is not guessed and does not come from text
-         * search. It was parsed from the data-testid of a selectable row whose
-         * COMPLETE visible label independently proved the exact requested
-         * model. If Vinted's confirmation UI repeatedly loses that state, the
-         * same proven id can safely be restored in the catalog URL. We still
-         * verify the final URL and fail closed if it does not persist.
-         */
         String recoveryUrl = appendExactModelCollectionId(
                 baseUrl,
                 expectedModelCollectionId

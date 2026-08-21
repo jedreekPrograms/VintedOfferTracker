@@ -9,7 +9,6 @@ import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -21,16 +20,21 @@ public class NegotiationPlanner {
 
     /**
      * Calculates how many NEW conversations may be started without spending
-     * action slots already needed by active conversations.
+     * action slots already needed by conversations that are still automated.
      *
      * The daily quota counts actions actually sent today. Separately, every
-     * active NEGOTIATING/ACTION_REQUIRED conversation reserves one slot for
-     * each configured step that has not been sent yet. Starting a new
-     * conversation therefore requires room for the whole configured ladder.
+     * NEGOTIATING conversation reserves one slot for each configured step that
+     * has not been sent yet. Starting a new conversation therefore requires
+     * room for the whole configured ladder.
      *
-     * Example: limit=25, five configured steps, three active conversations at
-     * currentStep=3 at the beginning of a new day. Each conversation reserves
-     * two future steps, so 6 slots are reserved. 19 slots remain and at most
+     * ACTION_REQUIRED is deliberately NOT reserved here. Once a conversation
+     * reaches ACTION_REQUIRED it has been handed to the user and the scheduler
+     * no longer sends automatic next steps for it. Keeping phantom future
+     * reservations for such rows would unnecessarily suppress new discovery.
+     *
+     * Example: limit=25, five configured steps, three NEGOTIATING conversations
+     * at currentStep=3 at the beginning of a new day. Each reserves two future
+     * steps, so 6 slots are reserved. 19 slots remain and at most
      * floor(19/5)=3 new conversations may be started.
      */
     public int calculateNewNegotiations(
@@ -82,18 +86,11 @@ public class NegotiationPlanner {
             return 0;
         }
 
-        List<Listing> activeListings = new ArrayList<>(
+        List<Listing> activeListings =
                 listingRepository.findByBotIdAndStatusOrderByIdAsc(
                         botId,
                         ListingStatus.NEGOTIATING
-                )
-        );
-        activeListings.addAll(
-                listingRepository.findByBotIdAndStatusOrderByIdAsc(
-                        botId,
-                        ListingStatus.ACTION_REQUIRED
-                )
-        );
+                );
 
         int reservedFutureSteps = 0;
 
@@ -101,10 +98,10 @@ public class NegotiationPlanner {
             Integer currentStep = listing.getCurrentStep();
 
             /*
-             * Once a listing is active, currentStep denotes the last step that
-             * has already been sent. Therefore only maxSteps-currentStep future
-             * actions need reservation. Missing/invalid step state fails safe
-             * by reserving the entire ladder for that conversation.
+             * currentStep denotes the last step that has already been sent.
+             * Therefore only maxSteps-currentStep future actions need
+             * reservation. Missing/invalid step state fails safe by reserving
+             * the entire ladder for that conversation.
              */
             int remainingSteps;
             if (currentStep == null || currentStep < 1) {
@@ -119,7 +116,7 @@ public class NegotiationPlanner {
             reservedFutureSteps += remainingSteps;
 
             log.info(
-                    "[NEGOTIATION CAPACITY] Bot {} active listing backendId={}, marketplaceId={}, status={}, currentStep={} reserves {} future action(s).",
+                    "[NEGOTIATION CAPACITY] Bot {} automated listing backendId={}, marketplaceId={}, status={}, currentStep={} reserves {} future action(s).",
                     botId,
                     listing.getId(),
                     listing.getListingId(),
@@ -130,7 +127,7 @@ public class NegotiationPlanner {
         }
 
         log.info(
-                "[NEGOTIATION CAPACITY] Bot {} has {} active negotiation(s) reserving {} future action(s) in total.",
+                "[NEGOTIATION CAPACITY] Bot {} has {} NEGOTIATING conversation(s) reserving {} future action(s) in total. ACTION_REQUIRED rows reserve 0 automatic steps.",
                 botId,
                 activeListings.size(),
                 reservedFutureSteps

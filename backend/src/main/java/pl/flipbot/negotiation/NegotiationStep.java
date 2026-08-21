@@ -59,6 +59,21 @@ public class NegotiationStep {
     private Integer rejectionWaitHours;
 
     /*
+     * Pending-offer policies are intentionally per step. readWaitHours starts
+     * from the first persisted read indicator after the latest own offer.
+     * unreadWaitHours starts from currentStepStartedAt when there is no seller
+     * message, formal response or read marker. After the configured delay the
+     * bot may continue to the next configured step (or expire if none exists).
+     */
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer readWaitHours = 3;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer unreadWaitHours = 48;
+
+    /*
      * Fallback reaction for a seller counteroffer that is still above our
      * accepted-counteroffer threshold and does not match any discount rule.
      */
