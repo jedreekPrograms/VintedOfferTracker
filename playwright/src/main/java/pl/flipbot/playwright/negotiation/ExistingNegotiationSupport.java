@@ -19,6 +19,7 @@ import java.util.Locale;
 public class ExistingNegotiationSupport {
 
     private static final String VINTED_MODEL = "VINTED_MODEL";
+    private static final int FRIENDLY_ERROR_MAX_LENGTH = 500;
 
     private final BotContext context;
     private final ListingClient listingClient;
@@ -203,14 +204,21 @@ public class ExistingNegotiationSupport {
         if (exception == null) {
             return "Unknown error";
         }
+
         String message = exception.getMessage();
         if (message == null || message.isBlank()) {
             return exception.getClass().getSimpleName();
         }
-        int newline = message.indexOf('\n');
-        return newline > 0
-                ? message.substring(0, newline).trim()
-                : message.trim();
+
+        String singleLine = message
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        if (singleLine.length() <= FRIENDLY_ERROR_MAX_LENGTH) {
+            return singleLine;
+        }
+
+        return singleLine.substring(0, FRIENDLY_ERROR_MAX_LENGTH) + "...";
     }
 
     private String abbreviate(String value, int max) {
