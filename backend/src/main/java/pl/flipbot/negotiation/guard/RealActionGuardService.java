@@ -154,7 +154,8 @@ public class RealActionGuardService {
 
             log.warn(
                     "[MARKETPLACE CLAIM] FIRST_OFFER blocked for bot {}, backend listing {}, marketplace listing {}. "
-                            + "Another bot already owns this marketplace negotiation. The losing per-bot row is now SKIPPED_ALREADY_NEGOTIATED; no quota or real submit is allowed.",
+                            + "Another bot already owns this marketplace negotiation. The losing per-bot row is now SKIPPED_ALREADY_NEGOTIATED; no quota or real submit is allowed. "
+                            + "If the owner later releases its claim before submit, all rows skipped solely by this temporary claim are reopened automatically.",
                     botId,
                     listingId,
                     listing.getListingId()
@@ -346,13 +347,43 @@ public class RealActionGuardService {
             );
         }
 
+        /*
+         * A competing bot may have observed this claim while it was only a
+         * pre-submit reservation and marked its own per-bot row as
+         * SKIPPED_ALREADY_NEGOTIATED. If the owner proves that no real submit
+         * was attempted and releases the claim, those rows must become
+         * DISCOVERED again; otherwise a harmless quota/preparation failure in
+         * the temporary owner could permanently hide the listing from every
+         * bot that lost the race during that short window.
+         *
+         * Durable/ambiguous claims never reach this method, so reopening here
+         * cannot revive a listing after a real or potentially-real offer.
+         */
+        int reopenedListings = jdbcTemplate.update(
+                """
+                UPDATE listing AS losing_listing
+                SET status = ?,
+                    decision_at = NULL
+                FROM bot_configuration AS configuration
+                WHERE losing_listing.bot_id = configuration.bot_id
+                  AND configuration.marketplace = ?
+                  AND losing_listing.listing_id = ?
+                  AND losing_listing.status = ?
+                """,
+                ListingStatus.DISCOVERED.name(),
+                marketplace,
+                listing.getListingId(),
+                ListingStatus.SKIPPED_ALREADY_NEGOTIATED.name()
+        );
+
         log.info(
-                "[MARKETPLACE CLAIM] RELEASED pre-submit {}:{} for bot {}, backend listing {}, requestId={}",
+                "[MARKETPLACE CLAIM] RELEASED pre-submit {}:{} for bot {}, backend listing {}, requestId={}. Reopened {} competing per-bot listing row(s) that had been skipped only because of this temporary claim.",
                 marketplace,
                 listing.getListingId(),
                 listing.getBot().getId(),
                 listing.getId(),
-                requestId
+                requestId,
+                reopenedListings
         );
     }
 
