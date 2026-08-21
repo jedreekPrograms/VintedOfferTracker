@@ -155,7 +155,7 @@ public class RealActionGuardService {
             log.warn(
                     "[MARKETPLACE CLAIM] FIRST_OFFER blocked for bot {}, backend listing {}, marketplace listing {}. "
                             + "Another bot already owns this marketplace negotiation. The losing per-bot row is now SKIPPED_ALREADY_NEGOTIATED; no quota or real submit is allowed. "
-                            + "If the owner later releases its claim before submit, all rows skipped solely by this temporary claim are reopened automatically.",
+                            + "If the owner later releases its claim before submit, rows skipped solely by that temporary claim are reopened automatically.",
                     botId,
                     listingId,
                     listing.getListingId()
@@ -353,31 +353,45 @@ public class RealActionGuardService {
          * SKIPPED_ALREADY_NEGOTIATED. If the owner proves that no real submit
          * was attempted and releases the claim, those rows must become
          * DISCOVERED again; otherwise a harmless quota/preparation failure in
-         * the temporary owner could permanently hide the listing from every
-         * bot that lost the race during that short window.
+         * the temporary owner could permanently hide the listing.
+         *
+         * A competitor can concurrently hold its own listing row lock while
+         * waiting for this claim deletion to commit. Locking that same row here
+         * would form a deadlock cycle. The CTE therefore reopens only currently
+         * unlocked skipped rows with SKIP LOCKED. A concurrently racing
+         * DISCOVERED row is intentionally skipped; after this transaction
+         * commits, that competitor can acquire the now-free marketplace claim
+         * itself.
          *
          * Durable/ambiguous claims never reach this method, so reopening here
          * cannot revive a listing after a real or potentially-real offer.
          */
         int reopenedListings = jdbcTemplate.update(
                 """
+                WITH reopenable AS (
+                    SELECT losing_listing.id
+                    FROM listing AS losing_listing
+                    JOIN bot_configuration AS configuration
+                      ON losing_listing.bot_id = configuration.bot_id
+                    WHERE configuration.marketplace = ?
+                      AND losing_listing.listing_id = ?
+                      AND losing_listing.status = ?
+                    FOR UPDATE OF losing_listing SKIP LOCKED
+                )
                 UPDATE listing AS losing_listing
                 SET status = ?,
                     decision_at = NULL
-                FROM bot_configuration AS configuration
-                WHERE losing_listing.bot_id = configuration.bot_id
-                  AND configuration.marketplace = ?
-                  AND losing_listing.listing_id = ?
-                  AND losing_listing.status = ?
+                FROM reopenable
+                WHERE losing_listing.id = reopenable.id
                 """,
-                ListingStatus.DISCOVERED.name(),
                 marketplace,
                 listing.getListingId(),
-                ListingStatus.SKIPPED_ALREADY_NEGOTIATED.name()
+                ListingStatus.SKIPPED_ALREADY_NEGOTIATED.name(),
+                ListingStatus.DISCOVERED.name()
         );
 
         log.info(
-                "[MARKETPLACE CLAIM] RELEASED pre-submit {}:{} for bot {}, backend listing {}, requestId={}. Reopened {} competing per-bot listing row(s) that had been skipped only because of this temporary claim.",
+                "[MARKETPLACE CLAIM] RELEASED pre-submit {}:{} for bot {}, backend listing {}, requestId={}. Reopened {} unlocked competing per-bot listing row(s) that had been skipped only because of this temporary claim.",
                 marketplace,
                 listing.getListingId(),
                 listing.getBot().getId(),
