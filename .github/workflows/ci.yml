@@ -66,8 +66,9 @@ jobs:
       SPRING_DATASOURCE_PASSWORD: postgres
       # Historical Flyway migrations start from an already-existing Hibernate
       # schema, so a clean CI database cannot replay V1 safely. For the context
-      # test we let Hibernate build an isolated schema. A true Flyway baseline
-      # should be introduced separately before switching production to validate.
+      # test we let Hibernate build an isolated schema. Audit migrations that
+      # must alter an existing installation are exercised explicitly below in
+      # a dedicated PostgreSQL schema that models the pre-V30 contract.
       SPRING_FLYWAY_ENABLED: "false"
       SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
 
@@ -89,6 +90,179 @@ jobs:
           # deterministic non-secret value only for this disposable CI process.
           export FLIPBOT_ENCRYPTION_KEY="$(printf '00000000000000000000000000000000' | base64 -w0)"
           bash ./mvnw -B test
+
+      - name: Smoke-test V30 and V31 Flyway migrations
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d flipbot -v ON_ERROR_STOP=1 <<'SQL'
+          DROP SCHEMA IF EXISTS migration_smoke CASCADE;
+          CREATE SCHEMA migration_smoke;
+          SET search_path TO migration_smoke;
+
+          CREATE TABLE bot (
+              id BIGINT PRIMARY KEY
+          );
+
+          CREATE TABLE bot_configuration (
+              bot_id BIGINT PRIMARY KEY,
+              marketplace VARCHAR(64) NOT NULL
+          );
+
+          CREATE TABLE listing (
+              id BIGINT PRIMARY KEY,
+              listing_id VARCHAR(255) NOT NULL,
+              bot_id BIGINT NOT NULL,
+              status VARCHAR(64) NOT NULL,
+              current_step INTEGER,
+              conversation_id VARCHAR(255),
+              current_step_started_at TIMESTAMP WITHOUT TIME ZONE,
+              decision_at TIMESTAMP WITHOUT TIME ZONE,
+              CONSTRAINT listing_status_check
+                  CHECK (
+                      status IN (
+                          'DISCOVERED',
+                          'NEGOTIATING',
+                          'ACTION_REQUIRED',
+                          'SKIPPED_OFFER_TOO_LOW',
+                          'SKIPPED_OUTSIDE_PRICE_RANGE',
+                          'SKIPPED_CANNOT_NEGOTIATE',
+                          'SKIPPED_TARGET_MISMATCH',
+                          'SKIPPED_BY_USER',
+                          'UNAVAILABLE',
+                          'CONTACT_UNAVAILABLE',
+                          'REJECTED',
+                          'EXPIRED',
+                          'PURCHASED',
+                          'FINISHED'
+                      )
+                  )
+          );
+
+          CREATE TABLE real_action_guard (
+              id BIGSERIAL PRIMARY KEY,
+              listing_id BIGINT NOT NULL,
+              request_id UUID NOT NULL,
+              action_type VARCHAR(64) NOT NULL,
+              created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL
+          );
+
+          CREATE TABLE bot_command (
+              id BIGINT PRIMARY KEY,
+              bot_id BIGINT NOT NULL,
+              listing_id BIGINT NOT NULL,
+              CONSTRAINT fk_bot_command_bot
+                  FOREIGN KEY (bot_id) REFERENCES bot (id),
+              CONSTRAINT fk_bot_command_listing
+                  FOREIGN KEY (listing_id) REFERENCES listing (id)
+          );
+
+          CREATE TABLE negotiation_step (
+              id BIGINT PRIMARY KEY
+          );
+
+          INSERT INTO bot (id) VALUES (1), (2);
+          INSERT INTO bot_configuration (bot_id, marketplace)
+          VALUES (1, 'VINTED'), (2, 'VINTED');
+
+          INSERT INTO listing (
+              id, listing_id, bot_id, status, current_step,
+              conversation_id, current_step_started_at, decision_at
+          ) VALUES
+              (11, '9717432736', 1, 'NEGOTIATING', 1, 'conv-11', CURRENT_TIMESTAMP, NULL),
+              (22, '9800000000', 2, 'DISCOVERED', 0, NULL, NULL, NULL);
+
+          INSERT INTO bot_command (id, bot_id, listing_id)
+          VALUES (101, 1, 11), (102, 2, 22);
+
+          INSERT INTO negotiation_step (id) VALUES (1);
+
+          \i src/main/resources/db/migration/V30__protect_cross_bot_negotiations_and_bot_deletion.sql
+          \i src/main/resources/db/migration/V31__configure_read_and_unread_follow_up_delays.sql
+
+          DO $$
+          BEGIN
+              IF (SELECT COUNT(*) FROM marketplace_negotiation_claim
+                  WHERE marketplace = 'VINTED'
+                    AND marketplace_listing_id = '9717432736'
+                    AND owner_bot_id = 1
+                    AND owner_listing_id = 11) <> 1 THEN
+                  RAISE EXCEPTION 'V30 did not backfill the known active negotiation claim';
+              END IF;
+
+              UPDATE listing
+              SET status = 'SKIPPED_ALREADY_NEGOTIATED'
+              WHERE id = 22;
+
+              IF (SELECT status FROM listing WHERE id = 22) <> 'SKIPPED_ALREADY_NEGOTIATED' THEN
+                  RAISE EXCEPTION 'V30 listing status constraint did not accept SKIPPED_ALREADY_NEGOTIATED';
+              END IF;
+
+              IF (SELECT read_wait_hours FROM negotiation_step WHERE id = 1) <> 3
+                 OR (SELECT unread_wait_hours FROM negotiation_step WHERE id = 1) <> 48 THEN
+                  RAISE EXCEPTION 'V31 did not backfill 3h/48h defaults on an existing negotiation step';
+              END IF;
+          END
+          $$;
+
+          INSERT INTO negotiation_step (id) VALUES (2);
+
+          DO $$
+          BEGIN
+              IF (SELECT read_wait_hours FROM negotiation_step WHERE id = 2) <> 3
+                 OR (SELECT unread_wait_hours FROM negotiation_step WHERE id = 2) <> 48 THEN
+                  RAISE EXCEPTION 'V31 defaults are not applied to newly inserted negotiation steps';
+              END IF;
+
+              BEGIN
+                  INSERT INTO negotiation_step (id, read_wait_hours, unread_wait_hours)
+                  VALUES (3, 0, 48);
+                  RAISE EXCEPTION 'V31 read_wait_hours CHECK did not reject zero';
+              EXCEPTION
+                  WHEN check_violation THEN NULL;
+              END;
+
+              BEGIN
+                  INSERT INTO negotiation_step (id, read_wait_hours, unread_wait_hours)
+                  VALUES (4, 3, 721);
+                  RAISE EXCEPTION 'V31 unread_wait_hours CHECK did not reject 721';
+              EXCEPTION
+                  WHEN check_violation THEN NULL;
+              END;
+          END
+          $$;
+
+          DELETE FROM listing WHERE id = 11;
+
+          DO $$
+          BEGIN
+              IF EXISTS (SELECT 1 FROM bot_command WHERE id = 101) THEN
+                  RAISE EXCEPTION 'V30 listing FK did not cascade bot_command deletion';
+              END IF;
+
+              IF NOT EXISTS (
+                  SELECT 1 FROM marketplace_negotiation_claim
+                  WHERE marketplace = 'VINTED'
+                    AND marketplace_listing_id = '9717432736'
+              ) THEN
+                  RAISE EXCEPTION 'Durable marketplace claim was incorrectly deleted with its listing';
+              END IF;
+          END
+          $$;
+
+          DELETE FROM bot WHERE id = 2;
+
+          DO $$
+          BEGIN
+              IF EXISTS (SELECT 1 FROM bot_command WHERE id = 102) THEN
+                  RAISE EXCEPTION 'V30 bot FK did not cascade bot_command deletion';
+              END IF;
+          END
+          $$;
+
+          DROP SCHEMA migration_smoke CASCADE;
+          SQL
 
   playwright-unit:
     name: Playwright unit tests
