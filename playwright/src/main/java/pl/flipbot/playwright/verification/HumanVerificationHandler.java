@@ -1,5 +1,6 @@
 package pl.flipbot.playwright.verification;
 
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +21,13 @@ public class HumanVerificationHandler {
     private static final double LOG_INTERVAL_MS =
             15_000;
 
-    private static final List<String> VERIFICATION_TEXTS =
+    /*
+     * These phrases are specific enough to count as visible-page evidence.
+     * Deliberately do not put generic strings such as "security check" or
+     * "just a moment" here: Vinted/third-party widgets may contain them in
+     * ordinary hidden markup and that must never freeze a normal offer flow.
+     */
+    private static final List<String> STRONG_VERIFICATION_TEXTS =
             List.of(
                     "sprawdzanie, czy jesteś człowiekiem",
                     "sprawdzanie czy jesteś człowiekiem",
@@ -29,10 +36,21 @@ public class HumanVerificationHandler {
                     "verify you are human",
                     "verify that you are human",
                     "checking if you are human",
-                    "checking your browser",
-                    "security check",
-                    "just a moment"
+                    "checking your browser"
             );
+
+    private static final List<String> VERIFICATION_TITLE_TEXTS =
+            List.of(
+                    "just a moment",
+                    "security check"
+            );
+
+    private static final String VERIFICATION_IFRAME_SELECTOR =
+            "iframe[src*='challenges.cloudflare.com'], "
+                    + "iframe[src*='challenge-platform'], "
+                    + "iframe[src*='hcaptcha.com'], "
+                    + "iframe[src*='recaptcha'], "
+                    + "iframe[src*='turnstile']";
 
     public void waitUntilVerified(
             Page page
@@ -42,18 +60,23 @@ public class HumanVerificationHandler {
                 "Page cannot be null"
         );
 
-        if (!isHumanVerificationVisible(page)) {
+        String evidence = verificationEvidence(page);
+
+        if (evidence == null) {
             return;
         }
 
         log.warn(
-                "Human verification detected from positive page evidence. "
-                        + "Bot actions are paused. Complete the verification manually if required."
+                "Human verification detected from visible positive page evidence. "
+                        + "evidence={}. Bot actions are paused. "
+                        + "Complete the verification manually if required.",
+                evidence
         );
 
         double startedAt = System.currentTimeMillis();
         double deadline = startedAt + VERIFICATION_TIMEOUT_MS;
         double nextLogTime = startedAt + LOG_INTERVAL_MS;
+        String latestEvidence = evidence;
 
         while (System.currentTimeMillis() < deadline) {
             if (page.isClosed()) {
@@ -64,7 +87,9 @@ public class HumanVerificationHandler {
 
             page.waitForTimeout(POLL_INTERVAL_MS);
 
-            if (!isHumanVerificationVisible(page)) {
+            latestEvidence = verificationEvidence(page);
+
+            if (latestEvidence == null) {
                 log.info(
                         "Human verification evidence disappeared. Bot may continue."
                 );
@@ -79,8 +104,9 @@ public class HumanVerificationHandler {
                 );
 
                 log.warn(
-                        "Still waiting for human verification. Elapsed time: {} seconds",
-                        elapsedSeconds
+                        "Still waiting for human verification. Elapsed time: {} seconds, evidence={}.",
+                        elapsedSeconds,
+                        latestEvidence
                 );
 
                 nextLogTime = currentTime + LOG_INTERVAL_MS;
@@ -90,7 +116,8 @@ public class HumanVerificationHandler {
         throw new IllegalStateException(
                 "Human verification was not completed within "
                         + Math.round(VERIFICATION_TIMEOUT_MS / 1_000)
-                        + " seconds"
+                        + " seconds. Last evidence: "
+                        + latestEvidence
         );
     }
 
@@ -102,69 +129,169 @@ public class HumanVerificationHandler {
                 "Page cannot be null"
         );
 
+        return verificationEvidence(page) != null;
+    }
+
+    String verificationEvidence(
+            Page page
+    ) {
         if (page.isClosed()) {
-            return false;
+            return null;
         }
 
         try {
-            if (containsVerificationIframe(page)) {
-                return true;
+            String iframeEvidence = renderedVerificationIframeEvidence(page);
+
+            if (iframeEvidence != null) {
+                return iframeEvidence;
             }
 
             String title = safeLower(page.title());
+            String titleMatch = matchingStrongText(title);
+
+            if (titleMatch != null) {
+                return "page title contains '" + titleMatch + "'";
+            }
+
+            String genericTitleMatch = matchingTitleOnlyText(title);
+
+            if (genericTitleMatch != null) {
+                return "page title contains challenge marker '"
+                        + genericTitleMatch
+                        + "'";
+            }
+
+            /*
+             * innerText() represents rendered text, unlike textContent() which
+             * would also include hidden challenge templates/widgets.
+             */
             String bodyText = safeLower(
                     page.locator("body").innerText()
             );
+            String bodyMatch = matchingStrongText(bodyText);
 
-            return containsVerificationText(title)
-                    || containsVerificationText(bodyText);
+            if (bodyMatch != null) {
+                return "visible body text contains '" + bodyMatch + "'";
+            }
+
+            return null;
 
         } catch (PlaywrightException exception) {
             /*
              * A DOM read failing while Chromium is navigating is NOT evidence
-             * of a CAPTCHA/challenge. The previous implementation returned
-             * true here, which could produce false "human verification"
-             * diagnoses during ordinary page transitions.
+             * of a CAPTCHA/challenge. Fail open for the probe only; the normal
+             * offer/navigation guards still decide whether an action is safe.
              */
             log.debug(
-                    "Page changed while probing for human verification. Probe is inconclusive; no verification is reported without positive evidence."
+                    "Page changed while probing for human verification. "
+                            + "Probe is inconclusive; no verification is reported without positive evidence."
             );
-            return false;
+            return null;
         }
     }
 
-    private boolean containsVerificationIframe(
+    private String renderedVerificationIframeEvidence(
             Page page
     ) {
-        return page.locator(
-                        "iframe[src*='challenges.cloudflare.com'], "
-                                + "iframe[src*='challenge-platform'], "
-                                + "iframe[src*='hcaptcha.com'], "
-                                + "iframe[src*='recaptcha'], "
-                                + "iframe[src*='turnstile']"
-                )
-                .count() > 0;
-    }
+        Locator iframes = page.locator(VERIFICATION_IFRAME_SELECTOR);
+        int count = iframes.count();
 
-    private boolean containsVerificationText(
-            String text
-    ) {
-        if (text == null || text.isBlank()) {
-            return false;
-        }
+        for (int index = 0; index < count; index++) {
+            Locator iframe = iframes.nth(index);
 
-        for (String verificationText : VERIFICATION_TEXTS) {
-            if (text.contains(verificationText)) {
-                return true;
+            try {
+                if (!iframe.isVisible()) {
+                    continue;
+                }
+
+                Object result = iframe.evaluate(
+                        """
+                        element => {
+                          const rect = element.getBoundingClientRect();
+                          const style = window.getComputedStyle(element);
+                          return rect.width >= 100
+                              && rect.height >= 40
+                              && style.display !== 'none'
+                              && style.visibility !== 'hidden'
+                              && Number(style.opacity || '1') > 0;
+                        }
+                        """
+                );
+
+                if (!(result instanceof Boolean rendered) || !rendered) {
+                    continue;
+                }
+
+                String src = iframe.getAttribute("src");
+                String safeSrc = src == null || src.isBlank()
+                        ? "unknown-src"
+                        : abbreviate(src, 180);
+
+                return "rendered challenge iframe " + safeSrc;
+
+            } catch (PlaywrightException exception) {
+                log.debug(
+                        "Verification iframe changed while its visibility was being inspected."
+                );
             }
         }
 
-        return false;
+        return null;
     }
 
-    private String safeLower(String text) {
+    static String matchingStrongText(
+            String text
+    ) {
+        return matchingText(
+                safeLowerStatic(text),
+                STRONG_VERIFICATION_TEXTS
+        );
+    }
+
+    static String matchingTitleOnlyText(
+            String text
+    ) {
+        return matchingText(
+                safeLowerStatic(text),
+                VERIFICATION_TITLE_TEXTS
+        );
+    }
+
+    private static String matchingText(
+            String normalizedText,
+            List<String> candidates
+    ) {
+        if (normalizedText == null || normalizedText.isBlank()) {
+            return null;
+        }
+
+        for (String candidate : candidates) {
+            if (normalizedText.contains(candidate)) {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static String safeLowerStatic(String text) {
         return text == null
                 ? ""
                 : text.toLowerCase(Locale.ROOT);
+    }
+
+    private String safeLower(String text) {
+        return safeLowerStatic(text);
+    }
+
+    private String abbreviate(
+            String text,
+            int maxLength
+    ) {
+        if (text.length() <= maxLength) {
+            return text;
+        }
+
+        return text.substring(0, maxLength) + "...";
     }
 }
