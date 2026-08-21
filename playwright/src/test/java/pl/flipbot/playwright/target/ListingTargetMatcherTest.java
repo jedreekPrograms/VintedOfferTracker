@@ -62,6 +62,56 @@ public class ListingTargetMatcherTest {
     }
 
     @Test
+    public void searchQueryGalaxyTabS11UltraAcceptsExactVariant() {
+        assertTrue(
+                matcher.matchesFullTitle(
+                        "Samsung Galaxy Tab S11 Ultra 5G 256GB",
+                        samsungSearchQuery("Galaxy Tab S11 Ultra")
+                )
+        );
+    }
+
+    @Test
+    public void searchQueryGalaxyTabS11UltraAcceptsCompactUltraSpelling() {
+        assertTrue(
+                matcher.matchesFullTitle(
+                        "Samsung Tab S11Ultra 256GB",
+                        samsungSearchQuery("Galaxy Tab S11 Ultra")
+                )
+        );
+    }
+
+    @Test
+    public void searchQueryGalaxyTabS11UltraRejectsPreviousGeneration() {
+        assertFalse(
+                matcher.matchesFullTitle(
+                        "Samsung Galaxy Tab S10 Ultra 5G 256GB",
+                        samsungSearchQuery("Galaxy Tab S11 Ultra")
+                )
+        );
+    }
+
+    @Test
+    public void searchQueryGalaxyTabS11UltraRejectsFeVariant() {
+        assertFalse(
+                matcher.matchesFullTitle(
+                        "Samsung Galaxy Tab S11 FE 5G",
+                        samsungSearchQuery("Galaxy Tab S11 Ultra")
+                )
+        );
+    }
+
+    @Test
+    public void searchQueryGalaxyTabS11UltraRejectsPlainS11() {
+        assertFalse(
+                matcher.matchesFullTitle(
+                        "Samsung Galaxy Tab S11 5G 256GB",
+                        samsungSearchQuery("Galaxy Tab S11 Ultra")
+                )
+        );
+    }
+
+    @Test
     public void vintedModelDoesNotReinterpretListingsAfterExactFilterSelection() {
         BotConfigurationDto configuration = samsungVintedModel("Galaxy S25");
 
