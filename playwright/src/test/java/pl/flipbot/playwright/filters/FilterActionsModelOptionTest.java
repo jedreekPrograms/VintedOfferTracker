@@ -48,10 +48,22 @@ public class FilterActionsModelOptionTest {
                         "selectable-item-brand_collection-9976"
                 )
         );
+        assertEquals(
+                "9976",
+                FilterActions.modelCollectionIdFromTestId(
+                        "selectable-item-brand_collection-9976--title"
+                )
+        );
+
         assertNull(FilterActions.modelCollectionIdFromTestId("9976"));
         assertNull(
                 FilterActions.modelCollectionIdFromTestId(
                         "selectable-item-brand_collection-Galaxy-S25"
+                )
+        );
+        assertNull(
+                FilterActions.modelCollectionIdFromTestId(
+                        "selectable-item-brand_collection-9976--unexpected-child"
                 )
         );
     }
