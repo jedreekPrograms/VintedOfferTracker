@@ -11,17 +11,21 @@ import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.marketplace.Marketplace;
 import pl.flipbot.negotiation.audit.RealActionAuditService;
 import pl.flipbot.negotiation.guard.dto.AcquireRealActionGuardRequest;
+import pl.flipbot.negotiation.guard.dto.ReleaseRealActionGuardRequest;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,7 +65,7 @@ class RealActionGuardCrossBotClaimTest {
                         "owner_bot_id", 1L,
                         "owner_listing_id", 11L,
                         "request_id", UUID.randomUUID(),
-                        "claimed_at", java.time.LocalDateTime.now()
+                        "claimed_at", LocalDateTime.now()
                 )
         );
 
@@ -79,6 +83,40 @@ class RealActionGuardCrossBotClaimTest {
         assertEquals(ListingStatus.SKIPPED_ALREADY_NEGOTIATED, listing.getStatus());
         verify(listingRepository).saveAndFlush(listing);
         verify(guardRepository, never()).saveAndFlush(any(RealActionGuard.class));
+    }
+
+    @Test
+    void preSubmitClaimReleaseReopensRowsSkippedOnlyByTemporaryOwnership() {
+        Listing ownerListing = listing(11L, 1L, "9717432736");
+        UUID requestId = UUID.randomUUID();
+        RealActionGuard guard = RealActionGuard.builder()
+                .listing(ownerListing)
+                .requestId(requestId)
+                .actionType(RealActionType.FIRST_OFFER)
+                .stepNumber(1)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        when(listingRepository.findByIdAndBotIdForUpdate(11L, 1L))
+                .thenReturn(Optional.of(ownerListing));
+        when(guardRepository.findByListing_Id(11L))
+                .thenReturn(Optional.of(guard));
+
+        /* First update deletes the exact owner claim, second reopens two losers. */
+        when(jdbcTemplate.update(anyString(), any(Object[].class)))
+                .thenReturn(1, 2);
+
+        var response = service.release(
+                1L,
+                11L,
+                new ReleaseRealActionGuardRequest(requestId)
+        );
+
+        assertTrue(response.released());
+        assertFalse(response.alreadyAbsent());
+        verify(jdbcTemplate, times(2)).update(anyString(), any(Object[].class));
+        verify(guardRepository).delete(guard);
+        verify(guardRepository).flush();
     }
 
     private Listing listing(Long listingId, Long botId, String marketplaceListingId) {
