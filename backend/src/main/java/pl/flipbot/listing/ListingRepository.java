@@ -13,11 +13,13 @@ import java.util.Optional;
 public interface ListingRepository
         extends JpaRepository<Listing, Long> {
 
-    boolean existsByListingId(
+    boolean existsByBotIdAndListingId(
+            Long botId,
             String listingId
     );
 
-    Optional<Listing> findByListingId(
+    Optional<Listing> findByBotIdAndListingId(
+            Long botId,
             String listingId
     );
 
@@ -47,7 +49,8 @@ public interface ListingRepository
             ListingStatus status
     );
 
-    List<Listing> findAllByListingIdIn(
+    List<Listing> findAllByBotIdAndListingIdIn(
+            Long botId,
             Collection<String> listingIds
     );
 
