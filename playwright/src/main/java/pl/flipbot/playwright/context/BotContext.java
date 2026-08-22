@@ -18,6 +18,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Getter
 public class BotContext implements AutoCloseable {
 
+    private static final String ANONYMOUS_MARKET_OBSERVER_NAME =
+            "Anonymous Market Observer";
+
     /*
      * FlipBot is intentionally a single-page browser application. None of the
      * supported production flows needs window.open(), target=_blank links or a
@@ -99,8 +102,16 @@ public class BotContext implements AutoCloseable {
 
         Path sessionFile = null;
 
-        if (sessionManager.sessionExists(bot.getId())) {
+        if (shouldRestoreStoredSession(bot)
+                && sessionManager.sessionExists(bot.getId())) {
             sessionFile = sessionManager.sessionFile(bot.getId());
+        } else if (isAnonymousMarketObserver(bot)) {
+            log.info(
+                    "[SESSION] Anonymous market observer {} will not restore any stored Vinted session. "
+                            + "Collection stays account-free even if an old sessions/bot-{}.json file still exists locally.",
+                    bot.getId(),
+                    bot.getId()
+            );
         }
 
         BrowserContext createdContext;
@@ -131,6 +142,28 @@ public class BotContext implements AutoCloseable {
 
         closeExistingExtraPages();
         registerSinglePageGuard();
+    }
+
+    static boolean shouldRestoreStoredSession(
+            BotDetailsDto bot
+    ) {
+        return !isAnonymousMarketObserver(bot);
+    }
+
+    private static boolean isAnonymousMarketObserver(
+            BotDetailsDto bot
+    ) {
+        if (bot == null) {
+            return false;
+        }
+
+        return ANONYMOUS_MARKET_OBSERVER_NAME.equals(bot.getName())
+                && isBlank(bot.getEmail())
+                && isBlank(bot.getPassword());
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private void installPreemptivePopupSuppression() {
@@ -326,6 +359,14 @@ public class BotContext implements AutoCloseable {
     }
 
     public void saveSession() {
+        if (isAnonymousMarketObserver(bot)) {
+            log.info(
+                    "[SESSION] Skipping session save for anonymous market observer {}.",
+                    bot.getId()
+            );
+            return;
+        }
+
         sessionManager.saveSession(
                 bot.getId(),
                 browserContext
