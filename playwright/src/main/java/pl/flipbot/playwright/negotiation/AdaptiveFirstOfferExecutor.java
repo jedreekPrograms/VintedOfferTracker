@@ -30,9 +30,15 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     private static final double CANNOT_NEGOTIATE_RETRY_DELAY_MS = 1_500;
     private static final double CANNOT_NEGOTIATE_RELOAD_TIMEOUT_MS = 30_000;
 
+    /*
+     * Playwright Java serializes Java Pattern flags to JavaScript RegExp flags.
+     * UNICODE_CASE is not supported by that bridge and caused the sold-state
+     * probe to fail before it could inspect the page. CASE_INSENSITIVE is both
+     * sufficient for these two ASCII/Polish labels and Playwright-supported.
+     */
     private static final Pattern SOLD_STATUS_TEXT = Pattern.compile(
             "^(Sprzedane|Sold)$",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+            Pattern.CASE_INSENSITIVE
     );
 
     private final BotContext context;
@@ -42,6 +48,10 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
         super(context);
         this.context = context;
         this.pricingService = new AdaptiveNegotiationPricingService();
+    }
+
+    static Pattern soldStatusPattern() {
+        return SOLD_STATUS_TEXT;
     }
 
     @Override

@@ -57,6 +57,27 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
+    public void modelCollectionIdAcceptsOnlyTheKnownVintedTitleChildSuffix() {
+        assertEquals(
+                "10632",
+                FilterActions.modelCollectionIdFromTestId(
+                        "selectable-item-brand_collection-10632--title"
+                )
+        );
+
+        assertNull(
+                FilterActions.modelCollectionIdFromTestId(
+                        "selectable-item-brand_collection-10632--description"
+                )
+        );
+        assertNull(
+                FilterActions.modelCollectionIdFromTestId(
+                        "selectable-item-brand_collection-10632--title--extra"
+                )
+        );
+    }
+
+    @Test
     public void visibleModelMatcherAcceptsExactLabelWithCountMetadata() {
         assertTrue(
                 FilterActions.exactVisibleModelLabelMatches(

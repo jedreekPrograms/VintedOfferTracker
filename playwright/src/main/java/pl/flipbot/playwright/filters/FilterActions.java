@@ -40,6 +40,8 @@ public class FilterActions {
     private static final double MODEL_PANEL_SETTLE_MS = 350;
     private static final String MODEL_TEST_ID_PREFIX =
             "selectable-item-brand_collection-";
+    private static final String MODEL_TITLE_TEST_ID_SUFFIX =
+            "--title";
 
     private final Page page;
 
@@ -458,12 +460,20 @@ public class FilterActions {
             return null;
         }
 
-        String collectionId = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
-        if (!collectionId.matches("^\\d+$")) {
+        String candidate = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
+
+        if (candidate.endsWith(MODEL_TITLE_TEST_ID_SUFFIX)) {
+            candidate = candidate.substring(
+                    0,
+                    candidate.length() - MODEL_TITLE_TEST_ID_SUFFIX.length()
+            );
+        }
+
+        if (!candidate.matches("^\\d+$")) {
             return null;
         }
 
-        return collectionId;
+        return candidate;
     }
 
     static Pattern exactModelOptionPattern(String model) {
