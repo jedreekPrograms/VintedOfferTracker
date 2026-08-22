@@ -19,6 +19,20 @@ public class BotContextPopupPolicyTest {
     }
 
     @Test
+    public void anonymousObserverUiScriptAcceptsOneTrustAndNormalizesModelRows() {
+        String script = BotContext.anonymousObserverUiStabilityScript();
+
+        assertTrue(script.contains("#onetrust-accept-btn-handler"));
+        assertTrue(script.contains("zgoda na wszystkie"));
+        assertTrue(script.contains("accept all"));
+        assertTrue(script.contains("MutationObserver"));
+        assertTrue(script.contains("selectable-item-brand_collection-"));
+        assertTrue(script.contains("ids.size === 1 && ids.has(collectionId)"));
+        assertTrue(script.contains("candidate.setAttribute(\"title\", associatedText)"));
+        assertTrue(script.contains("pokaż wyniki"));
+    }
+
+    @Test
     public void anonymousMarketObserverNeverRestoresStoredAccountSession() {
         BotDetailsDto observer = new BotDetailsDto();
         observer.setId(5L);
