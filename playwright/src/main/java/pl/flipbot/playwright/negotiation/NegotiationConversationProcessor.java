@@ -157,8 +157,18 @@ public class NegotiationConversationProcessor {
                             page
                     );
 
+            /*
+             * A stable, visible own-offer status is useful evidence even when
+             * we do not yet know its business semantics. Returning that raw
+             * status immediately lets the later availability detector inspect
+             * the page instead of logging the same unsupported label every
+             * 500 ms for the full 20-second timeout. UNKNOWN remains fail-safe:
+             * the decision layer sends no follow-up action for it.
+             */
             if (snapshot.result()
-                    != NegotiationConversationResult.UNKNOWN) {
+                    != NegotiationConversationResult.UNKNOWN
+                    || (snapshot.rawStatus() != null
+                    && !snapshot.rawStatus().isBlank())) {
 
                 return snapshot;
 
@@ -359,11 +369,13 @@ public class NegotiationConversationProcessor {
         }
 
         log.warn(
-                "[CONVERSATION] Unrecognized own-offer status: {}",
+                "[CONVERSATION] Unsupported own-offer status: {}. Returning UNKNOWN without polling the same stable label for 20 seconds; availability checks will still run and no follow-up offer will be sent from UNKNOWN state.",
                 rawStatus
         );
 
-        return NegotiationConversationSnapshot.unknown();
+        return NegotiationConversationSnapshot.unknown(
+                rawStatus
+        );
 
     }
 
