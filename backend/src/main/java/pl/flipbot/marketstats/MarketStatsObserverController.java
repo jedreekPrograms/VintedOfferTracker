@@ -1,13 +1,12 @@
 package pl.flipbot.marketstats;
 
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import pl.flipbot.marketstats.dto.CreateMarketStatsObserverRequest;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import pl.flipbot.marketstats.dto.MarketStatsObserverPlaywrightResponse;
 import pl.flipbot.marketstats.dto.MarketStatsObserverResponse;
-import pl.flipbot.marketstats.dto.UpdateMarketStatsObserverRequest;
 
 @RestController
 @RequestMapping("/api/market-stats/observer")
@@ -23,25 +22,6 @@ public class MarketStatsObserverController {
                 .orElseGet(
                         () -> ResponseEntity.noContent().build()
                 );
-    }
-
-    @PostMapping
-    public MarketStatsObserverResponse createObserver(
-            @Valid @RequestBody CreateMarketStatsObserverRequest request
-    ) {
-        return observerService.createObserver(request);
-    }
-
-    @PatchMapping
-    public MarketStatsObserverResponse updateObserver(
-            @Valid @RequestBody UpdateMarketStatsObserverRequest request
-    ) {
-        return observerService.updateObserver(request);
-    }
-
-    @DeleteMapping
-    public void deleteObserver() {
-        observerService.deleteObserver();
     }
 
     @GetMapping("/playwright")
