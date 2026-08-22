@@ -61,11 +61,17 @@ public record NegotiationConversationSnapshot(
     }
 
     public static NegotiationConversationSnapshot unknown() {
+        return unknown(null);
+    }
+
+    public static NegotiationConversationSnapshot unknown(
+            String rawStatus
+    ) {
 
         return new NegotiationConversationSnapshot(
                 NegotiationConversationResult.UNKNOWN,
                 null,
-                null
+                rawStatus
         );
 
     }
