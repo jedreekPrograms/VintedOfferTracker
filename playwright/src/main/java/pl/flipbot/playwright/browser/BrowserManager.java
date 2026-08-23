@@ -67,7 +67,14 @@ public class BrowserManager implements AutoCloseable {
             options.setStorageStatePath(storageState);
         }
 
-        return browser.newContext(options);
+        BrowserContext context = browser.newContext(options);
+        context.addInitScript(VintedInformationalDialogGuard.script());
+
+        log.debug(
+                "[BROWSER UI] Vinted informational-dialog guard installed for new browser context."
+        );
+
+        return context;
     }
 
     @Override
