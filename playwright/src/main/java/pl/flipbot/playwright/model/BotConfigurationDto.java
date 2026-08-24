@@ -18,9 +18,6 @@ public class BotConfigurationDto {
 
     /*
      * VINTED_MODEL albo SEARCH_QUERY.
-     *
-     * Na etapie 3A Playwright tylko odbiera tę wartość.
-     * Obsługę SEARCH_QUERY dodamy w kolejnym etapie.
      */
     private String targetMode;
 
@@ -39,4 +36,11 @@ public class BotConfigurationDto {
     private Integer dailyNegotiationBudget;
 
     private List<NegotiationStepDto> negotiationSteps;
+
+    /**
+     * Runtime-only negotiation semantic resolved from the per-listing snapshot.
+     * Live bot responses may leave this null because the first offer does not
+     * need it; active conversations resolve it before making another action.
+     */
+    private String negotiationPricingMode;
 }
