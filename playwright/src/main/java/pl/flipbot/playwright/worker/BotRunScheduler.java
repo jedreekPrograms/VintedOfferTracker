@@ -2,13 +2,13 @@ package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
+import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.DelayQueue;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class BotRunScheduler {
@@ -19,6 +19,9 @@ public class BotRunScheduler {
     }
 
     private static final long NEVER = Long.MAX_VALUE;
+
+    private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
+            PriceProbeRuntimeConfig.fromEnvironment();
 
     private final DelayQueue<ScheduledBotTask> queue =
             new DelayQueue<>();
@@ -130,12 +133,6 @@ public class BotRunScheduler {
         if (!schedule.enabled) {
             schedules.remove(botId);
             telemetryReporter.idle(botId);
-
-            log.info(
-                    "[SCHEDULER] Bot {} finished {} after being stopped. No next job scheduled.",
-                    botId,
-                    jobType
-            );
             return;
         }
 
@@ -144,40 +141,42 @@ public class BotRunScheduler {
         long readyAt = safeAdd(now, safeDelayMillis);
 
         if (delayAllJobs) {
-            schedule.nextCatalogAtEpochMs =
-                    Math.max(
-                            schedule.nextCatalogAtEpochMs,
-                            readyAt
-                    );
+            schedule.nextCatalogAtEpochMs = Math.max(
+                    schedule.nextCatalogAtEpochMs,
+                    readyAt
+            );
 
-            if (schedule.hasActiveNegotiations) {
-                schedule.nextNegotiationAtEpochMs =
-                        Math.max(
-                                schedule.nextNegotiationAtEpochMs,
-                                readyAt
-                        );
-            } else {
-                schedule.nextNegotiationAtEpochMs = NEVER;
-            }
+            schedule.nextNegotiationAtEpochMs =
+                    schedule.hasActiveNegotiations
+                            ? Math.max(schedule.nextNegotiationAtEpochMs, readyAt)
+                            : NEVER;
 
-        } else if (jobType == ScheduledJobType.CATALOG_SCAN) {
-            schedule.nextCatalogAtEpochMs = readyAt;
-
-        } else if (schedule.hasActiveNegotiations) {
-            schedule.nextNegotiationAtEpochMs = readyAt;
+            schedule.nextPriceProbeAtEpochMs =
+                    PRICE_PROBE_CONFIG.enabled()
+                            ? Math.max(schedule.nextPriceProbeAtEpochMs, readyAt)
+                            : NEVER;
 
         } else {
-            schedule.nextNegotiationAtEpochMs = NEVER;
+            switch (jobType) {
+                case CATALOG_SCAN ->
+                        schedule.nextCatalogAtEpochMs = readyAt;
+                case NEGOTIATION_CHECK ->
+                        schedule.nextNegotiationAtEpochMs =
+                                schedule.hasActiveNegotiations
+                                        ? readyAt
+                                        : NEVER;
+                case PRICE_PROBE ->
+                        schedule.nextPriceProbeAtEpochMs =
+                                PRICE_PROBE_CONFIG.enabled()
+                                        ? readyAt
+                                        : NEVER;
+            }
         }
 
         schedule.reportQueuedStatus = reportQueued;
         schedule.state = null;
 
-        enqueueEarliestJob(
-                botId,
-                schedule,
-                now
-        );
+        enqueueEarliestJob(botId, schedule, now);
     }
 
     public synchronized void shutdown() {
@@ -216,18 +215,6 @@ public class BotRunScheduler {
             removeQueuedTask(botId);
             schedules.remove(botId);
             telemetryReporter.idle(botId);
-
-            log.info(
-                    "[SCHEDULER] Removed queued work for stopped bot {}.",
-                    botId
-            );
-
-        } else if (schedule.state == RunState.WORKING) {
-            log.info(
-                    "[SCHEDULER] Bot {} was stopped while WORKING. "
-                            + "The current job may finish, but no next job will be scheduled.",
-                    botId
-            );
         }
     }
 
@@ -245,57 +232,35 @@ public class BotRunScheduler {
             newSchedule.hasActiveNegotiations = hasActiveNegotiations;
             newSchedule.nextCatalogAtEpochMs = now;
             newSchedule.nextNegotiationAtEpochMs =
-                    hasActiveNegotiations
-                            ? now
-                            : NEVER;
+                    hasActiveNegotiations ? now : NEVER;
+            newSchedule.nextPriceProbeAtEpochMs =
+                    PRICE_PROBE_CONFIG.enabled() ? now : NEVER;
             newSchedule.reportQueuedStatus = true;
 
             schedules.put(botId, newSchedule);
-
-            enqueueEarliestJob(
-                    botId,
-                    newSchedule,
-                    now
-            );
-
-            log.info(
-                    "[SCHEDULER] Enabled bot {}. Active negotiations={}.",
-                    botId,
-                    hasActiveNegotiations
-            );
+            enqueueEarliestJob(botId, newSchedule, now);
             return;
         }
 
         boolean negotiationsChanged =
-                schedule.hasActiveNegotiations
-                        != hasActiveNegotiations;
+                schedule.hasActiveNegotiations != hasActiveNegotiations;
 
         schedule.enabled = true;
         schedule.hasActiveNegotiations = hasActiveNegotiations;
 
+        if (!PRICE_PROBE_CONFIG.enabled()) {
+            schedule.nextPriceProbeAtEpochMs = NEVER;
+        }
+
         if (negotiationsChanged) {
-            if (hasActiveNegotiations) {
-                schedule.nextNegotiationAtEpochMs = now;
-            } else {
-                schedule.nextNegotiationAtEpochMs = NEVER;
-            }
+            schedule.nextNegotiationAtEpochMs =
+                    hasActiveNegotiations ? now : NEVER;
 
             if (schedule.state == RunState.QUEUED) {
                 removeQueuedTask(botId);
                 schedule.state = null;
-
-                enqueueEarliestJob(
-                        botId,
-                        schedule,
-                        now
-                );
+                enqueueEarliestJob(botId, schedule, now);
             }
-
-            log.info(
-                    "[SCHEDULER] Bot {} active-negotiation flag changed to {}.",
-                    botId,
-                    hasActiveNegotiations
-            );
         }
     }
 
@@ -309,33 +274,28 @@ public class BotRunScheduler {
             return;
         }
 
-        ScheduledJobType jobType;
-        long runAtEpochMs;
+        ScheduledJobType jobType = ScheduledJobType.CATALOG_SCAN;
+        long runAtEpochMs = schedule.nextCatalogAtEpochMs;
 
         if (schedule.hasActiveNegotiations
-                && schedule.nextNegotiationAtEpochMs
-                <= schedule.nextCatalogAtEpochMs) {
-
+                && schedule.nextNegotiationAtEpochMs <= runAtEpochMs) {
             jobType = ScheduledJobType.NEGOTIATION_CHECK;
             runAtEpochMs = schedule.nextNegotiationAtEpochMs;
-
-        } else {
-            jobType = ScheduledJobType.CATALOG_SCAN;
-            runAtEpochMs = schedule.nextCatalogAtEpochMs;
         }
 
-        long delayMillis =
-                Math.max(
-                        0L,
-                        runAtEpochMs - now
-                );
+        if (PRICE_PROBE_CONFIG.enabled()
+                && schedule.nextPriceProbeAtEpochMs < runAtEpochMs) {
+            jobType = ScheduledJobType.PRICE_PROBE;
+            runAtEpochMs = schedule.nextPriceProbeAtEpochMs;
+        }
 
-        ScheduledBotTask task =
-                ScheduledBotTask.afterDelay(
-                        botId,
-                        jobType,
-                        delayMillis
-                );
+        long delayMillis = Math.max(0L, runAtEpochMs - now);
+
+        ScheduledBotTask task = ScheduledBotTask.afterDelay(
+                botId,
+                jobType,
+                delayMillis
+        );
 
         queue.offer(task);
 
@@ -344,31 +304,15 @@ public class BotRunScheduler {
         schedule.queuedRunAtNanos = task.runAtNanos();
 
         if (schedule.reportQueuedStatus) {
-            telemetryReporter.queued(
-                    botId,
-                    runAtEpochMs
-            );
+            telemetryReporter.queued(botId, runAtEpochMs);
         }
-
-        log.info(
-                "[SCHEDULER] Bot {} queued {} in {} ms. Queue size: {}.",
-                botId,
-                jobType,
-                delayMillis,
-                queue.size()
-        );
     }
 
     private void removeQueuedTask(Long botId) {
-        queue.removeIf(
-                task -> botId.equals(task.botId())
-        );
+        queue.removeIf(task -> botId.equals(task.botId()));
     }
 
-    private long safeAdd(
-            long base,
-            long increment
-    ) {
+    private long safeAdd(long base, long increment) {
         if (increment > Long.MAX_VALUE - base) {
             return Long.MAX_VALUE;
         }
@@ -382,6 +326,7 @@ public class BotRunScheduler {
         private RunState state;
         private long nextCatalogAtEpochMs;
         private long nextNegotiationAtEpochMs = NEVER;
+        private long nextPriceProbeAtEpochMs = NEVER;
         private ScheduledJobType queuedJobType;
         private long queuedRunAtNanos;
         private boolean reportQueuedStatus;
