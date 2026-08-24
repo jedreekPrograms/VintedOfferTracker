@@ -2,13 +2,13 @@ package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
+import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.DelayQueue;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class BotRunScheduler {
@@ -19,6 +19,9 @@ public class BotRunScheduler {
     }
 
     private static final long NEVER = Long.MAX_VALUE;
+
+    private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
+            PriceProbeRuntimeConfig.fromEnvironment();
 
     private final DelayQueue<ScheduledBotTask> queue =
             new DelayQueue<>();
@@ -160,14 +163,33 @@ public class BotRunScheduler {
                 schedule.nextNegotiationAtEpochMs = NEVER;
             }
 
-        } else if (jobType == ScheduledJobType.CATALOG_SCAN) {
-            schedule.nextCatalogAtEpochMs = readyAt;
-
-        } else if (schedule.hasActiveNegotiations) {
-            schedule.nextNegotiationAtEpochMs = readyAt;
+            if (PRICE_PROBE_CONFIG.enabled()) {
+                schedule.nextPriceProbeAtEpochMs =
+                        Math.max(
+                                schedule.nextPriceProbeAtEpochMs,
+                                readyAt
+                        );
+            } else {
+                schedule.nextPriceProbeAtEpochMs = NEVER;
+            }
 
         } else {
-            schedule.nextNegotiationAtEpochMs = NEVER;
+            switch (jobType) {
+                case CATALOG_SCAN ->
+                        schedule.nextCatalogAtEpochMs = readyAt;
+                case NEGOTIATION_CHECK -> {
+                    if (schedule.hasActiveNegotiations) {
+                        schedule.nextNegotiationAtEpochMs = readyAt;
+                    } else {
+                        schedule.nextNegotiationAtEpochMs = NEVER;
+                    }
+                }
+                case PRICE_PROBE ->
+                        schedule.nextPriceProbeAtEpochMs =
+                                PRICE_PROBE_CONFIG.enabled()
+                                        ? readyAt
+                                        : NEVER;
+            }
         }
 
         schedule.reportQueuedStatus = reportQueued;
@@ -248,6 +270,10 @@ public class BotRunScheduler {
                     hasActiveNegotiations
                             ? now
                             : NEVER;
+            newSchedule.nextPriceProbeAtEpochMs =
+                    PRICE_PROBE_CONFIG.enabled()
+                            ? now
+                            : NEVER;
             newSchedule.reportQueuedStatus = true;
 
             schedules.put(botId, newSchedule);
@@ -259,9 +285,10 @@ public class BotRunScheduler {
             );
 
             log.info(
-                    "[SCHEDULER] Enabled bot {}. Active negotiations={}.",
+                    "[SCHEDULER] Enabled bot {}. Active negotiations={}, sandboxPriceProbes={}.",
                     botId,
-                    hasActiveNegotiations
+                    hasActiveNegotiations,
+                    PRICE_PROBE_CONFIG.enabled()
             );
             return;
         }
@@ -272,6 +299,10 @@ public class BotRunScheduler {
 
         schedule.enabled = true;
         schedule.hasActiveNegotiations = hasActiveNegotiations;
+
+        if (!PRICE_PROBE_CONFIG.enabled()) {
+            schedule.nextPriceProbeAtEpochMs = NEVER;
+        }
 
         if (negotiationsChanged) {
             if (hasActiveNegotiations) {
@@ -309,19 +340,19 @@ public class BotRunScheduler {
             return;
         }
 
-        ScheduledJobType jobType;
-        long runAtEpochMs;
+        ScheduledJobType jobType = ScheduledJobType.CATALOG_SCAN;
+        long runAtEpochMs = schedule.nextCatalogAtEpochMs;
 
         if (schedule.hasActiveNegotiations
-                && schedule.nextNegotiationAtEpochMs
-                <= schedule.nextCatalogAtEpochMs) {
-
+                && schedule.nextNegotiationAtEpochMs <= runAtEpochMs) {
             jobType = ScheduledJobType.NEGOTIATION_CHECK;
             runAtEpochMs = schedule.nextNegotiationAtEpochMs;
+        }
 
-        } else {
-            jobType = ScheduledJobType.CATALOG_SCAN;
-            runAtEpochMs = schedule.nextCatalogAtEpochMs;
+        if (PRICE_PROBE_CONFIG.enabled()
+                && schedule.nextPriceProbeAtEpochMs < runAtEpochMs) {
+            jobType = ScheduledJobType.PRICE_PROBE;
+            runAtEpochMs = schedule.nextPriceProbeAtEpochMs;
         }
 
         long delayMillis =
@@ -382,6 +413,7 @@ public class BotRunScheduler {
         private RunState state;
         private long nextCatalogAtEpochMs;
         private long nextNegotiationAtEpochMs = NEVER;
+        private long nextPriceProbeAtEpochMs = NEVER;
         private ScheduledJobType queuedJobType;
         private long queuedRunAtNanos;
         private boolean reportQueuedStatus;
