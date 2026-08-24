@@ -19,7 +19,8 @@ public record ListingResponseDto(
         String sellerActivityAt,
         String readDetectedAt,
         String formalResponseFingerprint,
-        String formalResponseDetectedAt
+        String formalResponseDetectedAt,
+        String negotiationStrategySnapshot
 ) {
 
     /* Backward-compatible constructor used by older tests/helpers. */
@@ -50,6 +51,7 @@ public record ListingResponseDto(
                 conversationUrl,
                 status,
                 decisionAt,
+                null,
                 null,
                 null,
                 null,
@@ -94,6 +96,48 @@ public record ListingResponseDto(
                 sellerActivityAt,
                 readDetectedAt,
                 null,
+                null,
+                null
+        );
+    }
+
+    public ListingResponseDto(
+            Long id,
+            String listingId,
+            String title,
+            String url,
+            BigDecimal originalPrice,
+            BigDecimal currentPrice,
+            Integer currentStep,
+            Boolean awaitingSellerResponse,
+            String conversationId,
+            String conversationUrl,
+            String status,
+            String decisionAt,
+            String currentStepStartedAt,
+            String sellerActivityAt,
+            String readDetectedAt,
+            String formalResponseFingerprint,
+            String formalResponseDetectedAt
+    ) {
+        this(
+                id,
+                listingId,
+                title,
+                url,
+                originalPrice,
+                currentPrice,
+                currentStep,
+                awaitingSellerResponse,
+                conversationId,
+                conversationUrl,
+                status,
+                decisionAt,
+                currentStepStartedAt,
+                sellerActivityAt,
+                readDetectedAt,
+                formalResponseFingerprint,
+                formalResponseDetectedAt,
                 null
         );
     }
