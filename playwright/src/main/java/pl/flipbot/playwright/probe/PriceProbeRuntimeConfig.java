@@ -3,6 +3,7 @@ package pl.flipbot.playwright.probe;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Locale;
 
 @Slf4j
@@ -68,6 +69,68 @@ public record PriceProbeRuntimeConfig(
                     && isAllowedScheme(candidate);
         } catch (RuntimeException exception) {
             return false;
+        }
+    }
+
+    /**
+     * Reuses only path/query from a source listing URL and places them on the
+     * configured clone host. The source host is never navigated by PRICE_PROBE.
+     * This lets a 1:1 sandbox reuse production-shaped listing records while the
+     * browser remains physically scoped to the sandbox endpoint.
+     */
+    public String sandboxListingUrl(String sourceListingUrl) {
+        if (!enabled || baseUri == null) {
+            throw new IllegalStateException(
+                    "Sandbox price probes are not enabled."
+            );
+        }
+
+        if (sourceListingUrl == null || sourceListingUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Source listing URL cannot be blank."
+            );
+        }
+
+        URI source;
+        try {
+            source = URI.create(sourceListingUrl.trim());
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException(
+                    "Source listing URL is invalid.",
+                    exception
+            );
+        }
+
+        String path = source.getRawPath();
+        if (path == null || path.isBlank() || !path.startsWith("/")) {
+            throw new IllegalArgumentException(
+                    "Source listing URL must contain an absolute path."
+            );
+        }
+
+        try {
+            URI mapped = new URI(
+                    baseUri.getScheme(),
+                    null,
+                    baseUri.getHost(),
+                    baseUri.getPort(),
+                    path,
+                    source.getRawQuery(),
+                    null
+            );
+
+            if (!isAllowedUrl(mapped.toString())) {
+                throw new IllegalStateException(
+                        "Mapped listing URL is outside the configured sandbox marketplace."
+                );
+            }
+
+            return mapped.toString();
+        } catch (URISyntaxException exception) {
+            throw new IllegalArgumentException(
+                    "Could not map source listing path onto sandbox host.",
+                    exception
+            );
         }
     }
 
