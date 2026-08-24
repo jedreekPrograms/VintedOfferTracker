@@ -24,6 +24,7 @@ public class ExistingNegotiationProcessor {
     private final ConsecutiveContactUnavailableTracker contactUnavailableTracker;
     private final NegotiationDecisionService decisionService;
     private final PendingNegotiationPolicy pendingPolicy;
+    private final NegotiationStrategyResolver strategyResolver;
     private final NextNegotiationStepExecutor nextStepExecutor;
     private final PreparedNextStepCoordinator preparedNextStepCoordinator;
     private final ExistingNegotiationSupport support;
@@ -50,6 +51,7 @@ public class ExistingNegotiationProcessor {
                 new ConsecutiveContactUnavailableTracker();
         this.decisionService = new NegotiationDecisionService();
         this.pendingPolicy = new PendingNegotiationPolicy();
+        this.strategyResolver = new NegotiationStrategyResolver();
         this.nextStepExecutor = new NextNegotiationStepExecutor(context);
         this.preparedNextStepCoordinator =
                 new PreparedNextStepCoordinator(context, offerQuotaClient);
@@ -77,8 +79,8 @@ public class ExistingNegotiationProcessor {
             return false;
         }
 
-        BotConfigurationDto configuration = context.getBot().getConfiguration();
-        if (configuration == null) {
+        BotConfigurationDto liveConfiguration = context.getBot().getConfiguration();
+        if (liveConfiguration == null) {
             throw new IllegalStateException("Bot configuration is missing");
         }
 
@@ -104,7 +106,12 @@ public class ExistingNegotiationProcessor {
                         listing.currentStep()
                 );
 
-                if (!support.matchesConfiguredTarget(listing, configuration)) {
+                /*
+                 * Target identity remains live and locked while negotiations
+                 * exist. Pricing/messages/policies are resolved separately from
+                 * the immutable per-listing snapshot below.
+                 */
+                if (!support.matchesConfiguredTarget(listing, liveConfiguration)) {
                     ListingResponseDto finished = support.finishWrongTargetNegotiation(listing);
                     clearContactUnavailableSuspicion(listing);
                     log.error(
@@ -114,6 +121,9 @@ public class ExistingNegotiationProcessor {
                     );
                     continue;
                 }
+
+                BotConfigurationDto negotiationConfiguration =
+                        strategyResolver.resolve(listing, liveConfiguration);
 
                 NegotiationConversationSnapshot snapshot =
                         conversationProcessor.inspectSnapshot(listing);
@@ -136,7 +146,11 @@ public class ExistingNegotiationProcessor {
                 boolean stepSent;
                 if (snapshot.result() == NegotiationConversationResult.PENDING) {
                     PendingNegotiationDecision pending =
-                            pendingPolicy.decide(listing, activity, configuration);
+                            pendingPolicy.decide(
+                                    listing,
+                                    activity,
+                                    negotiationConfiguration
+                            );
 
                     if (pending.action() == PendingNegotiationDecision.Action.WAIT) {
                         log.info(
@@ -180,7 +194,7 @@ public class ExistingNegotiationProcessor {
                             decisionService.decide(
                                     listing,
                                     snapshot,
-                                    configuration
+                                    negotiationConfiguration
                             )
                     );
                 }
