@@ -7,6 +7,7 @@ import {
     updateHistoryPurchasePrice,
     type ListingHistoryResponse,
 } from "../../api/historyApi";
+import "./HistoryCard.css";
 import {
     calculateDiscountPercentage,
     calculateSavings,
