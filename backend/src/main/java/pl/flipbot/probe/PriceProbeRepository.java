@@ -1,24 +1,30 @@
 package pl.flipbot.probe;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface PriceProbeRepository extends JpaRepository<PriceProbe, Long> {
 
     boolean existsByProbeBot_IdAndSourceListing_Id(Long probeBotId, Long sourceListingId);
 
-    @Query("""
-            select count(probe)
-            from PriceProbe probe
-            where probe.sourceListing.id = :sourceListingId
-              and probe.status in (pl.flipbot.probe.PriceProbeStatus.CLAIMED,
-                                   pl.flipbot.probe.PriceProbeStatus.SENT,
-                                   pl.flipbot.probe.PriceProbeStatus.UNKNOWN)
-            """)
-    long countReservedSlots(@Param("sourceListingId") Long sourceListingId);
+    long countBySourceListing_IdAndStatusIn(
+            Long sourceListingId,
+            Collection<PriceProbeStatus> statuses
+    );
+
+    default long countReservedSlots(Long sourceListingId) {
+        return countBySourceListing_IdAndStatusIn(
+                sourceListingId,
+                List.of(
+                        PriceProbeStatus.CLAIMED,
+                        PriceProbeStatus.SENT,
+                        PriceProbeStatus.UNKNOWN
+                )
+        );
+    }
 
     Optional<PriceProbe> findByIdAndProbeBot_Id(Long probeId, Long probeBotId);
 }
