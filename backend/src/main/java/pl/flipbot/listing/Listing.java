@@ -103,6 +103,15 @@ public class Listing {
     @Column(name = "formal_response_detected_at")
     private LocalDateTime formalResponseDetectedAt;
 
+    /**
+     * Immutable JSON snapshot of the negotiation semantics used by this
+     * conversation. It freezes prices, messages, acceptance thresholds and
+     * response policies so the bot configuration can be edited for future
+     * conversations without changing an already-running negotiation.
+     */
+    @Column(name = "negotiation_strategy_snapshot", columnDefinition = "TEXT")
+    private String negotiationStrategySnapshot;
+
     @ManyToOne
     @JoinColumn(
             name = "bot_id",
