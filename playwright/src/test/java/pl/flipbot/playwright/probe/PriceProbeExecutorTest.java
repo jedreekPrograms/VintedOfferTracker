@@ -24,12 +24,12 @@ public class PriceProbeExecutorTest {
     }
 
     @Test
-    public void recognizesContactLikeTestIdsButRejectsSendAndHeaderControls() {
-        assertTrue(PriceProbeExecutor.isContactActionTestId(
-                "item-buyer-message-button"
-        ));
+    public void recognizesSemanticContactTestIdsButRejectsSendAndHeaderControls() {
         assertTrue(PriceProbeExecutor.isContactActionTestId(
                 "item-contact-seller-button"
+        ));
+        assertTrue(PriceProbeExecutor.isContactActionTestId(
+                "item-chat-button"
         ));
 
         assertFalse(PriceProbeExecutor.isContactActionTestId(
