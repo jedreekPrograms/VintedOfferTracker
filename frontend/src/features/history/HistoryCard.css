@@ -1,0 +1,90 @@
+.history-card-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.history-price-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 4px;
+}
+
+.history-price-input-wrap {
+    display: flex;
+    align-items: center;
+    width: min(170px, 100%);
+    border: 1px solid #dfe4eb;
+    border-radius: 9px;
+    background: #ffffff;
+    overflow: hidden;
+}
+
+.history-price-input-wrap:focus-within {
+    border-color: #7fc9b1;
+    box-shadow: 0 0 0 3px rgba(49, 157, 122, 0.1);
+}
+
+.history-price-input-wrap input {
+    min-width: 0;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #1e7b5d;
+    font: inherit;
+    font-weight: 750;
+}
+
+.history-price-input-wrap span {
+    padding-right: 10px;
+    color: #7c8594;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: none;
+}
+
+.history-price-editor-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.history-compact-button {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 11px;
+}
+
+.history-remove-button {
+    min-height: 38px;
+    padding: 0 13px;
+    border: 1px solid #efc7c7;
+    border-radius: 9px;
+    background: #fff7f7;
+    color: #b34545;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.history-remove-button:hover:not(:disabled) {
+    border-color: #df9f9f;
+    background: #fff0f0;
+}
+
+.history-remove-button:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.history-action-error {
+    margin-top: 14px;
+    padding: 9px 11px;
+    border: 1px solid #f0cccc;
+    border-radius: 9px;
+    background: #fff6f6;
+    color: #a93f3f;
+    font-size: 12px;
+}
