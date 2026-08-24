@@ -49,6 +49,10 @@ public interface ListingRepository
             ListingStatus status
     );
 
+    List<Listing> findByStatusOrderByIdAsc(
+            ListingStatus status
+    );
+
     List<Listing> findAllByBotIdAndListingIdIn(
             Long botId,
             Collection<String> listingIds
