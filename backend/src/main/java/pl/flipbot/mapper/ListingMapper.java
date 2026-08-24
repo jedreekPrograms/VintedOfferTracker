@@ -63,6 +63,9 @@ public class ListingMapper {
                 .formalResponseDetectedAt(
                         listing.getFormalResponseDetectedAt()
                 )
+                .negotiationStrategySnapshot(
+                        listing.getNegotiationStrategySnapshot()
+                )
                 .build();
     }
 }
