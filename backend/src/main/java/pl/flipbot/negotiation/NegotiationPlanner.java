@@ -8,6 +8,7 @@ import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
+import pl.flipbot.negotiation.snapshot.NegotiationStrategySnapshotService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,20 +19,17 @@ import java.util.List;
 public class NegotiationPlanner {
 
     private final ListingRepository listingRepository;
+    private final NegotiationStrategySnapshotService snapshotService;
 
     /**
      * Calculates how many NEW conversations may be started without spending
      * action slots already needed by active conversations.
      *
-     * The daily quota counts actions actually sent today. Separately, every
-     * active NEGOTIATING/ACTION_REQUIRED conversation reserves one slot for
-     * each configured step that has not been sent yet. Starting a new
-     * conversation therefore requires room for the whole configured ladder.
-     *
-     * Example: limit=25, five configured steps, three active conversations at
-     * currentStep=3 at the beginning of a new day. Each conversation reserves
-     * two future steps, so 6 slots are reserved. 19 slots remain and at most
-     * floor(19/5)=3 new conversations may be started.
+     * New conversations reserve the CURRENT live ladder size. Active
+     * conversations reserve the ladder size frozen in their per-listing
+     * strategy snapshot. This distinction is critical when the user changes,
+     * for example, a five-step future strategy to three steps while old
+     * five-step conversations are still running.
      */
     public int calculateNewNegotiations(
             Bot bot,
@@ -43,30 +41,32 @@ public class NegotiationPlanner {
             return 0;
         }
 
-        int maxSteps = configuration.getNegotiationSteps().size();
-        if (maxSteps <= 0 || remainingDailyActions <= 0) {
+        int stepsRequiredPerNewConversation =
+                configuration.getNegotiationSteps().size();
+        if (stepsRequiredPerNewConversation <= 0 || remainingDailyActions <= 0) {
             return 0;
         }
 
         int reservedFutureSteps = calculateReservedFutureSteps(
                 bot.getId(),
-                maxSteps
+                stepsRequiredPerNewConversation
         );
 
         int actionsAvailableForNewConversations =
                 remainingDailyActions - reservedFutureSteps;
 
         int allowedNewNegotiations =
-                actionsAvailableForNewConversations < maxSteps
+                actionsAvailableForNewConversations < stepsRequiredPerNewConversation
                         ? 0
-                        : actionsAvailableForNewConversations / maxSteps;
+                        : actionsAvailableForNewConversations
+                        / stepsRequiredPerNewConversation;
 
         log.info(
                 "[NEGOTIATION CAPACITY] Bot {}: remainingDailyActions={}, reservedFutureSteps={}, stepsRequiredPerNewConversation={}, actionsLeftAfterReservations={}, allowedNewNegotiations={}.",
                 bot.getId(),
                 remainingDailyActions,
                 reservedFutureSteps,
-                maxSteps,
+                stepsRequiredPerNewConversation,
                 Math.max(actionsAvailableForNewConversations, 0),
                 allowedNewNegotiations
         );
@@ -76,9 +76,9 @@ public class NegotiationPlanner {
 
     int calculateReservedFutureSteps(
             Long botId,
-            int maxSteps
+            int liveFallbackStepCount
     ) {
-        if (botId == null || maxSteps <= 0) {
+        if (botId == null || liveFallbackStepCount <= 0) {
             return 0;
         }
 
@@ -99,19 +99,21 @@ public class NegotiationPlanner {
 
         for (Listing listing : activeListings) {
             Integer currentStep = listing.getCurrentStep();
+            int frozenStepCount = snapshotService.stepCountForActiveListing(
+                    listing,
+                    liveFallbackStepCount
+            );
 
             /*
-             * Once a listing is active, currentStep denotes the last step that
-             * has already been sent. Therefore only maxSteps-currentStep future
-             * actions need reservation. Missing/invalid step state fails safe
-             * by reserving the entire ladder for that conversation.
+             * currentStep is the last already-sent step. Invalid state fails
+             * safe by reserving the whole frozen ladder.
              */
             int remainingSteps;
             if (currentStep == null || currentStep < 1) {
-                remainingSteps = maxSteps;
+                remainingSteps = frozenStepCount;
             } else {
                 remainingSteps = Math.max(
-                        maxSteps - currentStep,
+                        frozenStepCount - currentStep,
                         0
                 );
             }
@@ -119,12 +121,13 @@ public class NegotiationPlanner {
             reservedFutureSteps += remainingSteps;
 
             log.info(
-                    "[NEGOTIATION CAPACITY] Bot {} active listing backendId={}, marketplaceId={}, status={}, currentStep={} reserves {} future action(s).",
+                    "[NEGOTIATION CAPACITY] Bot {} active listing backendId={}, marketplaceId={}, status={}, currentStep={}, frozenStepCount={} reserves {} future action(s).",
                     botId,
                     listing.getId(),
                     listing.getListingId(),
                     listing.getStatus(),
                     currentStep,
+                    frozenStepCount,
                     remainingSteps
             );
         }
