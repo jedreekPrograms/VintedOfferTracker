@@ -10,6 +10,9 @@ import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
+import pl.flipbot.playwright.probe.PriceProbeProcessor;
+import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
+import pl.flipbot.playwright.probe.SandboxCloneLoginService;
 
 @Slf4j
 public class ScheduledBotRunExecutor {
@@ -19,6 +22,9 @@ public class ScheduledBotRunExecutor {
 
     private static final ScheduledActionLimitConfig ACTION_LIMIT_CONFIG =
             ScheduledActionLimitConfig.fromEnvironment();
+
+    private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
+            PriceProbeRuntimeConfig.fromEnvironment();
 
     private final BotDetailsDto bot;
     private final BrowserManager browserManager;
@@ -39,10 +45,6 @@ public class ScheduledBotRunExecutor {
         this.browserManager = browserManager;
     }
 
-    /**
-     * Compatibility helper preserving the old full-run lifecycle.
-     * Real actions are intentionally NEVER enabled through this helper.
-     */
     public void executeOneRun() {
         executeInternal(null);
     }
@@ -59,40 +61,61 @@ public class ScheduledBotRunExecutor {
 
     private void executeInternal(ScheduledJobType jobType) {
         Long botId = bot.getId();
-
-        boolean firstOfferRequested =
-                jobType == ScheduledJobType.CATALOG_SCAN
-                        && REAL_ACTION_CONFIG.realOffersRequestedFor(botId);
-
-        boolean nextStepRequested =
-                jobType == ScheduledJobType.NEGOTIATION_CHECK
-                        && REAL_ACTION_CONFIG.realNextStepsRequestedFor(botId);
-
-        boolean realOffersEnabled =
-                jobType == ScheduledJobType.CATALOG_SCAN
-                        && REAL_ACTION_CONFIG.realOffersEnabledFor(botId);
-
-        boolean realNextStepsEnabled =
-                jobType == ScheduledJobType.NEGOTIATION_CHECK
-                        && REAL_ACTION_CONFIG.realNextStepsEnabledFor(botId);
-
-        boolean productionModeEnabled =
-                REAL_ACTION_CONFIG.productionModeEnabled();
-
-        int maxRealOffersPerRun =
-                ACTION_LIMIT_CONFIG.effectiveMaxRealOffers(
-                        productionModeEnabled
-                );
-
-        int maxRealNextStepsPerRun =
-                ACTION_LIMIT_CONFIG.effectiveMaxRealNextSteps(
-                        productionModeEnabled
-                );
-
         BotContext context = new BotContext(bot, browserManager);
         boolean loginReady = false;
 
         try {
+            if (jobType == ScheduledJobType.PRICE_PROBE) {
+                if (!PRICE_PROBE_CONFIG.enabled()) {
+                    log.info(
+                            "[PRICE PROBE] Job for bot {} skipped because FLIPBOT_PRICE_PROBE_ENABLED=false.",
+                            botId
+                    );
+                    return;
+                }
+
+                new SandboxCloneLoginService(
+                        context,
+                        PRICE_PROBE_CONFIG
+                ).login();
+                loginReady = true;
+
+                new PriceProbeProcessor(
+                        context,
+                        PRICE_PROBE_CONFIG
+                ).processOne();
+                return;
+            }
+
+            boolean firstOfferRequested =
+                    jobType == ScheduledJobType.CATALOG_SCAN
+                            && REAL_ACTION_CONFIG.realOffersRequestedFor(botId);
+
+            boolean nextStepRequested =
+                    jobType == ScheduledJobType.NEGOTIATION_CHECK
+                            && REAL_ACTION_CONFIG.realNextStepsRequestedFor(botId);
+
+            boolean realOffersEnabled =
+                    jobType == ScheduledJobType.CATALOG_SCAN
+                            && REAL_ACTION_CONFIG.realOffersEnabledFor(botId);
+
+            boolean realNextStepsEnabled =
+                    jobType == ScheduledJobType.NEGOTIATION_CHECK
+                            && REAL_ACTION_CONFIG.realNextStepsEnabledFor(botId);
+
+            boolean productionModeEnabled =
+                    REAL_ACTION_CONFIG.productionModeEnabled();
+
+            int maxRealOffersPerRun =
+                    ACTION_LIMIT_CONFIG.effectiveMaxRealOffers(
+                            productionModeEnabled
+                    );
+
+            int maxRealNextStepsPerRun =
+                    ACTION_LIMIT_CONFIG.effectiveMaxRealNextSteps(
+                            productionModeEnabled
+                    );
+
             LoginService loginService = new LoginService(context);
             ListingClient listingClient = new ListingClient();
             OfferQuotaClient offerQuotaClient = new OfferQuotaClient();
@@ -133,8 +156,7 @@ public class ScheduledBotRunExecutor {
                 realNextStepsEnabled = false;
 
                 log.warn(
-                        "[REAL ACTION PREFLIGHT] PREFLIGHT ONLY is active for bot {} / {}. "
-                                + "Validation may report READY, but real submit remains disabled.",
+                        "[REAL ACTION PREFLIGHT] PREFLIGHT ONLY is active for bot {} / {}. Validation may report READY, but real submit remains disabled.",
                         botId,
                         jobType
                 );
@@ -197,6 +219,9 @@ public class ScheduledBotRunExecutor {
                             botRunExecutor.executeNegotiationCheck();
                     case CATALOG_SCAN ->
                             botRunExecutor.executeCatalogScan();
+                    case PRICE_PROBE -> throw new IllegalStateException(
+                            "PRICE_PROBE must use the isolated probe execution path."
+                    );
                 }
             }
 
@@ -214,7 +239,7 @@ public class ScheduledBotRunExecutor {
             }
 
             log.info(
-                    "[BROWSER LIFECYCLE] Bot {} {} job is finished. Closing only this job's isolated browser context/page. The reusable worker-slot browser runtime stays alive for later jobs. With scheduler headless=false the visible window may disappear between jobs; this is expected.",
+                    "[BROWSER LIFECYCLE] Bot {} {} job is finished. Closing only this job's isolated browser context/page.",
                     botId,
                     jobType == null ? "FULL_RUN" : jobType
             );
@@ -249,8 +274,7 @@ public class ScheduledBotRunExecutor {
         if (REAL_ACTION_CONFIG.preflightOnly()
                 && (firstOfferRequested || nextStepRequested)) {
             log.warn(
-                    "[SCHEDULED JOB] Preparing {} for bot {} in PREFLIGHT ONLY / DRY RUN mode. "
-                            + "requestedFirstOffer={}, requestedNextStep={}, realOffers=false, realNextSteps=false.",
+                    "[SCHEDULED JOB] Preparing {} for bot {} in PREFLIGHT ONLY / DRY RUN mode. requestedFirstOffer={}, requestedNextStep={}, realOffers=false, realNextSteps=false.",
                     jobLabel,
                     botId,
                     firstOfferRequested,
@@ -261,8 +285,7 @@ public class ScheduledBotRunExecutor {
 
         if (!realOffersEnabled && !realNextStepsEnabled) {
             log.info(
-                    "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN / NO REAL SUBMIT mode. "
-                            + "Discovery, verification and read-only checks may still run; realOffers=false, realNextSteps=false.",
+                    "[SCHEDULED JOB] Preparing {} for bot {} in DRY RUN / NO REAL SUBMIT mode.",
                     jobLabel,
                     botId
             );
@@ -275,9 +298,7 @@ public class ScheduledBotRunExecutor {
                         : "CONTROLLED REAL ACTION MODE";
 
         log.info(
-                "[SCHEDULED JOB] {} for {} / bot {}. "
-                        + "realOffers={}, realNextSteps={}, firstOfferOneShotTestMode={}, "
-                        + "maxRealOffersPerRun={}, maxRealNextStepsPerRun={}.",
+                "[SCHEDULED JOB] {} for {} / bot {}. realOffers={}, realNextSteps={}, firstOfferOneShotTestMode={}, maxRealOffersPerRun={}, maxRealNextStepsPerRun={}.",
                 modeLabel,
                 jobLabel,
                 botId,
