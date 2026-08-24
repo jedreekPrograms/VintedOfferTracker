@@ -1,5 +1,11 @@
-import type {
-    ListingHistoryResponse,
+import {
+    useState,
+} from "react";
+
+import {
+    removeHistoryEntry,
+    updateHistoryPurchasePrice,
+    type ListingHistoryResponse,
 } from "../../api/historyApi";
 import {
     calculateDiscountPercentage,
@@ -12,9 +18,23 @@ import {
 
 interface HistoryCardProps {
     listing: ListingHistoryResponse;
+    onUpdated: (listing: ListingHistoryResponse) => void;
+    onRemoved: (listingId: number) => void;
 }
 
-function HistoryCard({ listing }: HistoryCardProps) {
+function HistoryCard({
+    listing,
+    onUpdated,
+    onRemoved,
+}: HistoryCardProps) {
+    const [editingPurchasePrice, setEditingPurchasePrice] = useState(false);
+    const [purchasePriceDraft, setPurchasePriceDraft] = useState(
+        String(listing.currentPrice),
+    );
+    const [isSaving, setIsSaving] = useState(false);
+    const [isRemoving, setIsRemoving] = useState(false);
+    const [actionError, setActionError] = useState<string | null>(null);
+
     const savings = calculateSavings(
         listing.originalPrice,
         listing.currentPrice,
@@ -24,6 +44,70 @@ function HistoryCard({ listing }: HistoryCardProps) {
         listing.currentPrice,
     );
     const purchased = listing.status === "PURCHASED";
+
+    async function savePurchasePrice() {
+        const normalizedDraft = purchasePriceDraft.replace(",", ".").trim();
+        const purchasePrice = Number(normalizedDraft);
+
+        if (!Number.isFinite(purchasePrice) || purchasePrice <= 0) {
+            setActionError("Podaj prawidłową cenę zakupu większą od 0 zł.");
+            return;
+        }
+
+        setIsSaving(true);
+        setActionError(null);
+
+        try {
+            const updatedListing = await updateHistoryPurchasePrice(
+                listing.id,
+                purchasePrice,
+            );
+
+            onUpdated(updatedListing);
+            setPurchasePriceDraft(String(updatedListing.currentPrice));
+            setEditingPurchasePrice(false);
+        } catch (error) {
+            setActionError(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się zmienić ceny zakupu.",
+            );
+        } finally {
+            setIsSaving(false);
+        }
+    }
+
+    async function removeFromHistory() {
+        const confirmed = window.confirm(
+            `Usunąć „${listing.title}” z historii? `
+            + "Oferta pozostanie zapisana technicznie, żeby bot nie potraktował jej ponownie jako nowej.",
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        setIsRemoving(true);
+        setActionError(null);
+
+        try {
+            await removeHistoryEntry(listing.id);
+            onRemoved(listing.id);
+        } catch (error) {
+            setActionError(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się usunąć wpisu z historii.",
+            );
+            setIsRemoving(false);
+        }
+    }
+
+    function cancelPurchasePriceEdit() {
+        setPurchasePriceDraft(String(listing.currentPrice));
+        setEditingPurchasePrice(false);
+        setActionError(null);
+    }
 
     return (
         <article className="history-card">
@@ -57,10 +141,54 @@ function HistoryCard({ listing }: HistoryCardProps) {
                     <div className="history-price-arrow">→</div>
 
                     <div>
-                        <span>Cena po negocjacji</span>
-                        <strong className="history-current-price">
-                            {formatHistoryPrice(listing.currentPrice)}
-                        </strong>
+                        <span>{purchased ? "Cena zakupu" : "Cena po negocjacji"}</span>
+
+                        {purchased && editingPurchasePrice ? (
+                            <form
+                                className="history-price-editor"
+                                onSubmit={event => {
+                                    event.preventDefault();
+                                    void savePurchasePrice();
+                                }}
+                            >
+                                <div className="history-price-input-wrap">
+                                    <input
+                                        autoFocus
+                                        aria-label="Cena zakupu"
+                                        type="number"
+                                        min="0.01"
+                                        step="0.01"
+                                        inputMode="decimal"
+                                        value={purchasePriceDraft}
+                                        disabled={isSaving}
+                                        onChange={event => setPurchasePriceDraft(event.target.value)}
+                                    />
+                                    <span>zł</span>
+                                </div>
+
+                                <div className="history-price-editor-actions">
+                                    <button
+                                        className="primary-button history-compact-button"
+                                        type="submit"
+                                        disabled={isSaving}
+                                    >
+                                        {isSaving ? "Zapis..." : "Zapisz"}
+                                    </button>
+                                    <button
+                                        className="secondary-button history-compact-button"
+                                        type="button"
+                                        disabled={isSaving}
+                                        onClick={cancelPurchasePriceEdit}
+                                    >
+                                        Anuluj
+                                    </button>
+                                </div>
+                            </form>
+                        ) : (
+                            <strong className="history-current-price">
+                                {formatHistoryPrice(listing.currentPrice)}
+                            </strong>
+                        )}
                     </div>
 
                     <div className="history-saving">
@@ -89,6 +217,12 @@ function HistoryCard({ listing }: HistoryCardProps) {
                         value={listing.status}
                     />
                 </div>
+
+                {actionError !== null && (
+                    <div className="history-action-error" role="alert">
+                        {actionError}
+                    </div>
+                )}
             </div>
 
             <div className="history-card-actions">
@@ -100,6 +234,30 @@ function HistoryCard({ listing }: HistoryCardProps) {
                 >
                     Otwórz ofertę
                 </a>
+
+                {purchased && !editingPurchasePrice && (
+                    <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={isRemoving}
+                        onClick={() => {
+                            setPurchasePriceDraft(String(listing.currentPrice));
+                            setActionError(null);
+                            setEditingPurchasePrice(true);
+                        }}
+                    >
+                        Zmień cenę
+                    </button>
+                )}
+
+                <button
+                    className="history-remove-button"
+                    type="button"
+                    disabled={isRemoving || isSaving}
+                    onClick={() => void removeFromHistory()}
+                >
+                    {isRemoving ? "Usuwanie..." : "Usuń z historii"}
+                </button>
             </div>
         </article>
     );
