@@ -8,6 +8,7 @@ public record WorkerRuntimeConfig(
         long syncIntervalSeconds,
         long negotiationCheckIntervalSeconds,
         long catalogScanIntervalSeconds,
+        long priceProbeIntervalSeconds,
         long failureDelaySeconds,
         long rateLimitDelaySeconds,
         long shutdownTimeoutSeconds,
@@ -20,6 +21,7 @@ public record WorkerRuntimeConfig(
     private static final long DEFAULT_SYNC_INTERVAL_SECONDS = 5L;
     private static final long DEFAULT_NEGOTIATION_CHECK_INTERVAL_SECONDS = 120L;
     private static final long DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS = 15L * 60L;
+    private static final long DEFAULT_PRICE_PROBE_INTERVAL_SECONDS = 5L * 60L;
     private static final long DEFAULT_FAILURE_DELAY_SECONDS = 60L;
     private static final long DEFAULT_RATE_LIMIT_DELAY_SECONDS = 10L * 60L;
     private static final long DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 30L;
@@ -49,6 +51,12 @@ public record WorkerRuntimeConfig(
                 readLong(
                         "FLIPBOT_CATALOG_SCAN_INTERVAL_SECONDS",
                         DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS,
+                        60L,
+                        24L * 60L * 60L
+                ),
+                readLong(
+                        "FLIPBOT_PRICE_PROBE_INTERVAL_SECONDS",
+                        DEFAULT_PRICE_PROBE_INTERVAL_SECONDS,
                         60L,
                         24L * 60L * 60L
                 ),
@@ -83,6 +91,7 @@ public record WorkerRuntimeConfig(
         return switch (jobType) {
             case NEGOTIATION_CHECK -> negotiationCheckIntervalSeconds;
             case CATALOG_SCAN -> catalogScanIntervalSeconds;
+            case PRICE_PROBE -> priceProbeIntervalSeconds;
         };
     }
 
