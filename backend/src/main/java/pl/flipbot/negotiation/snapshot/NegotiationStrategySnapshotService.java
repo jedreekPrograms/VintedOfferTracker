@@ -43,6 +43,48 @@ public class NegotiationStrategySnapshotService {
         }
     }
 
+    /**
+     * Returns the immutable number of steps reserved by an active conversation.
+     * A malformed or missing snapshot fails safe by returning the supplied live
+     * ladder size, so budget capacity can never be increased by a parse error.
+     */
+    public int stepCountForActiveListing(Listing listing, int liveFallbackStepCount) {
+        int safeFallback = Math.max(liveFallbackStepCount, 0);
+        if (listing == null
+                || listing.getNegotiationStrategySnapshot() == null
+                || listing.getNegotiationStrategySnapshot().isBlank()) {
+            return safeFallback;
+        }
+
+        try {
+            NegotiationStrategySnapshot snapshot = objectMapper.readValue(
+                    listing.getNegotiationStrategySnapshot(),
+                    NegotiationStrategySnapshot.class
+            );
+
+            if (snapshot.schemaVersion() != CURRENT_SCHEMA_VERSION
+                    || snapshot.steps() == null
+                    || snapshot.steps().isEmpty()) {
+                log.warn(
+                        "[NEGOTIATION STRATEGY] Listing {} has an unusable strategy snapshot for quota reservation. Falling back to live step count {}.",
+                        listing.getId(),
+                        safeFallback
+                );
+                return safeFallback;
+            }
+
+            return snapshot.steps().size();
+        } catch (Exception exception) {
+            log.error(
+                    "[NEGOTIATION STRATEGY] Could not parse strategy snapshot for active listing {} while calculating reserved quota. Failing safe with live step count {}.",
+                    listing.getId(),
+                    safeFallback,
+                    exception
+            );
+            return safeFallback;
+        }
+    }
+
     @Transactional
     public int backfillExistingActiveNegotiations() {
         List<Listing> active = new ArrayList<>();
