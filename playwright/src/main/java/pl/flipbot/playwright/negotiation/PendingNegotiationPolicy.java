@@ -3,23 +3,21 @@ package pl.flipbot.playwright.negotiation;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
-import pl.flipbot.playwright.model.NegotiationStepDto;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
+/**
+ * A read receipt or a non-price seller message is engagement, not a
+ * concession. PENDING therefore never raises our own price. Price movement is
+ * reserved for a formal rejection or a concrete seller counteroffer.
+ */
 @Slf4j
 public class PendingNegotiationPolicy {
 
-    private static final long ENGAGED_WAIT_HOURS = 3L;
     private static final long NO_ENGAGEMENT_EXPIRY_HOURS = 48L;
-
-    private final AdaptiveNegotiationPricingService pricingService =
-            new AdaptiveNegotiationPricingService();
+    private static final long SELLER_MESSAGE_GRACE_HOURS = 24L;
 
     public PendingNegotiationDecision decide(
             ListingResponseDto listing,
@@ -31,140 +29,69 @@ public class PendingNegotiationPolicy {
         Objects.requireNonNull(configuration, "Bot configuration cannot be null");
 
         LocalDateTime now = LocalDateTime.now();
-
         LocalDateTime currentStepStartedAt = parseDateTime(
-                listing.currentStepStartedAt(),
-                "currentStepStartedAt",
-                listing
+                listing.currentStepStartedAt(), "currentStepStartedAt", listing
         );
 
+        if (currentStepStartedAt == null) {
+            return PendingNegotiationDecision.waitForSeller(
+                    "The latest offer is pending and currentStepStartedAt is missing, so inactivity cannot be evaluated safely. The bot will not raise its own price."
+            );
+        }
+
+        LocalDateTime baseExpiry = currentStepStartedAt.plusHours(
+                NO_ENGAGEMENT_EXPIRY_HOURS
+        );
         LocalDateTime sellerActivityAt = resolveSellerActivityAt(
-                listing,
-                activitySnapshot,
-                currentStepStartedAt
+                listing, activitySnapshot, currentStepStartedAt
         );
 
         if (sellerActivityAt != null) {
-            LocalDateTime nextActionAt = sellerActivityAt.plusHours(
-                    ENGAGED_WAIT_HOURS
+            LocalDateTime messageGraceExpiry = sellerActivityAt.plusHours(
+                    SELLER_MESSAGE_GRACE_HOURS
             );
+            LocalDateTime expiryAt = messageGraceExpiry.isAfter(baseExpiry)
+                    ? messageGraceExpiry
+                    : baseExpiry;
 
-            if (now.isBefore(nextActionAt)) {
+            if (now.isBefore(expiryAt)) {
                 return PendingNegotiationDecision.waitForSeller(
-                        "The seller sent a normal message at "
-                                + sellerActivityAt
-                                + ". The bot will wait until "
-                                + nextActionAt
-                                + " before continuing the negotiation."
+                        "The seller sent a normal message at " + sellerActivityAt
+                                + ", but did not reject, accept or name a price. The bot will not bid against itself. Conversation expiry is "
+                                + expiryAt + "."
                 );
             }
-
-            return continueOrExpire(
-                    listing,
-                    configuration,
-                    "The seller sent a normal message at "
-                            + sellerActivityAt
-                            + " and at least "
-                            + ENGAGED_WAIT_HOURS
-                            + " hours have passed without a formal acceptance, rejection or counteroffer."
+            return PendingNegotiationDecision.expire(
+                    "The seller engaged without a formal price response, and the later of the 48h offer window and 24h message grace period elapsed. No self-concession was sent."
             );
         }
 
         LocalDateTime readDetectedAt = resolveReadDetectedAt(
-                listing,
-                activitySnapshot,
-                currentStepStartedAt,
-                now
+                listing, activitySnapshot, currentStepStartedAt, now
         );
-
         if (readDetectedAt != null) {
-            LocalDateTime nextActionAt = readDetectedAt.plusHours(
-                    ENGAGED_WAIT_HOURS
-            );
-
-            if (now.isBefore(nextActionAt)) {
+            if (now.isBefore(baseExpiry)) {
                 return PendingNegotiationDecision.waitForSeller(
-                        "The latest offer has been read. The read timer started at "
-                                + readDetectedAt
-                                + ". The bot will wait until "
-                                + nextActionAt
-                                + " before continuing the negotiation."
+                        "The latest offer was read at " + readDetectedAt
+                                + ", but the seller did not make a price move. The bot keeps the same offer instead of rewarding silence. Inactivity expiry is "
+                                + baseExpiry + "."
                 );
             }
-
-            return continueOrExpire(
-                    listing,
-                    configuration,
-                    "The latest offer has been read and at least "
-                            + ENGAGED_WAIT_HOURS
-                            + " hours have passed without a formal acceptance, rejection or counteroffer."
+            return PendingNegotiationDecision.expire(
+                    "The latest offer was read but received no acceptance, rejection or counteroffer for 48 hours. No self-concession was sent."
             );
         }
 
-        if (currentStepStartedAt == null) {
-            return PendingNegotiationDecision.waitForSeller(
-                    "The latest offer is pending and the backend has no currentStepStartedAt timestamp, so the 48-hour inactivity timer cannot be evaluated safely."
-            );
-        }
-
-        LocalDateTime expiryAt = currentStepStartedAt.plusHours(
-                NO_ENGAGEMENT_EXPIRY_HOURS
-        );
-
-        if (now.isBefore(expiryAt)) {
+        if (now.isBefore(baseExpiry)) {
             return PendingNegotiationDecision.waitForSeller(
                     "The latest offer is pending with no seller message and no read indicator. The inactivity timeout is "
-                            + expiryAt
-                            + "."
+                            + baseExpiry + "."
             );
         }
 
         return PendingNegotiationDecision.expire(
                 "The latest offer received no seller message, no read indicator and no formal response for at least "
-                        + NO_ENGAGEMENT_EXPIRY_HOURS
-                        + " hours."
-        );
-    }
-
-    private PendingNegotiationDecision continueOrExpire(
-            ListingResponseDto listing,
-            BotConfigurationDto configuration,
-            String activityReason
-    ) {
-        Optional<NegotiationStepDto> configuredNextStep = findNextStep(
-                listing.currentStep(),
-                configuration.getNegotiationSteps()
-        );
-
-        if (configuredNextStep.isEmpty()) {
-            return PendingNegotiationDecision.expire(
-                    activityReason
-                            + " There are no more automated negotiation steps, so the conversation will be closed as EXPIRED."
-            );
-        }
-
-        Optional<NegotiationStepDto> effectiveNextStep =
-                pricingService.adaptNextStep(
-                        listing,
-                        configuredNextStep.get(),
-                        configuration
-                );
-
-        if (effectiveNextStep.isPresent()) {
-            return PendingNegotiationDecision.sendNextStep(
-                    effectiveNextStep.get(),
-                    activityReason
-                            + " Another negotiation step is available. Effective next offer: "
-                            + effectiveNextStep.get().getOfferPrice()
-                            + "."
-            );
-        }
-
-        return PendingNegotiationDecision.expire(
-                activityReason
-                        + " Another configured step exists, but its adaptive price would exceed the global negotiation cap "
-                        + configuration.getMaxAutomaticOffer()
-                        + ", so no higher automatic offer will be sent and the conversation will be closed as EXPIRED."
+                        + NO_ENGAGEMENT_EXPIRY_HOURS + " hours."
         );
     }
 
@@ -173,42 +100,23 @@ public class PendingNegotiationPolicy {
             ConversationActivitySnapshot activitySnapshot,
             LocalDateTime currentStepStartedAt
     ) {
-        LocalDateTime persistedSellerActivityAt = parseDateTime(
-                listing.sellerActivityAt(),
-                "sellerActivityAt",
-                listing
+        LocalDateTime persisted = parseDateTime(
+                listing.sellerActivityAt(), "sellerActivityAt", listing
+        );
+        LocalDateTime detected = activitySnapshot.sellerMessageAfterLatestOwnOffer()
+                ? activitySnapshot.latestSellerMessageAt()
+                : null;
+
+        persisted = ignoreIfOlderThanCurrentStep(
+                persisted, currentStepStartedAt, "persisted seller activity", listing
+        );
+        detected = ignoreIfOlderThanCurrentStep(
+                detected, currentStepStartedAt, "detected seller message", listing
         );
 
-        LocalDateTime detectedSellerActivityAt =
-                activitySnapshot.sellerMessageAfterLatestOwnOffer()
-                        ? activitySnapshot.latestSellerMessageAt()
-                        : null;
-
-        persistedSellerActivityAt = ignoreIfOlderThanCurrentStep(
-                persistedSellerActivityAt,
-                currentStepStartedAt,
-                "persisted seller activity",
-                listing
-        );
-
-        detectedSellerActivityAt = ignoreIfOlderThanCurrentStep(
-                detectedSellerActivityAt,
-                currentStepStartedAt,
-                "detected seller message",
-                listing
-        );
-
-        if (persistedSellerActivityAt == null) {
-            return detectedSellerActivityAt;
-        }
-
-        if (detectedSellerActivityAt == null) {
-            return persistedSellerActivityAt;
-        }
-
-        return detectedSellerActivityAt.isAfter(persistedSellerActivityAt)
-                ? detectedSellerActivityAt
-                : persistedSellerActivityAt;
+        if (persisted == null) return detected;
+        if (detected == null) return persisted;
+        return detected.isAfter(persisted) ? detected : persisted;
     }
 
     private LocalDateTime resolveReadDetectedAt(
@@ -217,28 +125,14 @@ public class PendingNegotiationPolicy {
             LocalDateTime currentStepStartedAt,
             LocalDateTime now
     ) {
-        LocalDateTime persistedReadDetectedAt = parseDateTime(
-                listing.readDetectedAt(),
-                "readDetectedAt",
-                listing
+        LocalDateTime persisted = parseDateTime(
+                listing.readDetectedAt(), "readDetectedAt", listing
         );
-
-        persistedReadDetectedAt = ignoreIfOlderThanCurrentStep(
-                persistedReadDetectedAt,
-                currentStepStartedAt,
-                "persisted read detection",
-                listing
+        persisted = ignoreIfOlderThanCurrentStep(
+                persisted, currentStepStartedAt, "persisted read detection", listing
         );
-
-        if (persistedReadDetectedAt != null) {
-            return persistedReadDetectedAt;
-        }
-
-        if (activitySnapshot.readIndicatorAfterLatestOwnOffer()) {
-            return now;
-        }
-
-        return null;
+        if (persisted != null) return persisted;
+        return activitySnapshot.readIndicatorAfterLatestOwnOffer() ? now : null;
     }
 
     private LocalDateTime ignoreIfOlderThanCurrentStep(
@@ -247,64 +141,16 @@ public class PendingNegotiationPolicy {
             String activityName,
             ListingResponseDto listing
     ) {
-        if (activityAt == null || currentStepStartedAt == null) {
-            return activityAt;
-        }
-
+        if (activityAt == null || currentStepStartedAt == null) return activityAt;
         if (activityAt.isBefore(currentStepStartedAt)) {
             log.debug(
                     "[PENDING POLICY] Ignoring {} at {} for marketplace listing {} because current step {} started at {}.",
-                    activityName,
-                    activityAt,
-                    listing.listingId(),
-                    listing.currentStep(),
-                    currentStepStartedAt
+                    activityName, activityAt, listing.listingId(),
+                    listing.currentStep(), currentStepStartedAt
             );
             return null;
         }
-
         return activityAt;
-    }
-
-    private Optional<NegotiationStepDto> findNextStep(
-            Integer currentStepNumber,
-            List<NegotiationStepDto> negotiationSteps
-    ) {
-        if (currentStepNumber == null) {
-            throw new IllegalStateException("Negotiating listing has no current step");
-        }
-
-        if (negotiationSteps == null || negotiationSteps.isEmpty()) {
-            throw new IllegalStateException("Bot configuration has no negotiation steps");
-        }
-
-        return negotiationSteps.stream()
-                .filter(Objects::nonNull)
-                .filter(step -> step.getStepNumber() != null)
-                .filter(step -> step.getStepNumber() > currentStepNumber)
-                .min(Comparator.comparing(NegotiationStepDto::getStepNumber))
-                .map(this::validateNextStep);
-    }
-
-    private NegotiationStepDto validateNextStep(NegotiationStepDto nextStep) {
-        if (nextStep.getOfferPrice() == null) {
-            throw new IllegalStateException(
-                    "Negotiation step "
-                            + nextStep.getStepNumber()
-                            + " has no offer price"
-            );
-        }
-
-        if (nextStep.getOfferPrice().signum() <= 0) {
-            throw new IllegalStateException(
-                    "Negotiation step "
-                            + nextStep.getStepNumber()
-                            + " has an invalid offer price: "
-                            + nextStep.getOfferPrice()
-            );
-        }
-
-        return nextStep;
     }
 
     private LocalDateTime parseDateTime(
@@ -312,23 +158,13 @@ public class PendingNegotiationPolicy {
             String fieldName,
             ListingResponseDto listing
     ) {
-        if (rawValue == null || rawValue.isBlank()) {
-            return null;
-        }
-
+        if (rawValue == null || rawValue.isBlank()) return null;
         try {
             return LocalDateTime.parse(rawValue);
         } catch (DateTimeParseException exception) {
             log.warn(
                     "[PENDING POLICY] Could not parse {}={} for backend listing {}, marketplace listing {}. This timestamp will be ignored.",
-                    fieldName,
-                    rawValue,
-                    listing.id(),
-                    listing.listingId()
-            );
-            log.trace(
-                    "[PENDING POLICY] Full timestamp parse exception.",
-                    exception
+                    fieldName, rawValue, listing.id(), listing.listingId()
             );
             return null;
         }
