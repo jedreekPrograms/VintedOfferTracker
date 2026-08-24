@@ -72,11 +72,17 @@ public class DashboardStatsService {
 
         /*
          * Historia decyzji jest filtrowana
-         * według wybranego okresu.
+         * według wybranego okresu. Wpisy ręcznie usunięte z historii
+         * pozostają w bazie jako zabezpieczenie przed ponownym odkryciem
+         * tej samej oferty, ale nie wpływają już na statystyki historyczne.
          */
 
         List<Listing> listingsInPeriod =
                 listings.stream()
+                        .filter(
+                                listing ->
+                                        !listing.isHistoryHidden()
+                        )
                         .filter(
                                 listing ->
                                         isInPeriod(
