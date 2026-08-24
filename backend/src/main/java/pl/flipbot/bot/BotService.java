@@ -24,6 +24,7 @@ import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.SellerCounterOfferRule;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 import pl.flipbot.negotiation.dto.SellerCounterOfferRuleRequest;
+import pl.flipbot.negotiation.snapshot.NegotiationStrategySnapshotService;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ public class BotService {
     private final BotConfigurationRepository botConfigurationRepository;
     private final ListingRepository listingRepository;
     private final BotMapper botMapper;
+    private final NegotiationStrategySnapshotService negotiationStrategySnapshotService;
 
     public List<BotResponse> getAllBots() {
         return botRepository.findAll().stream().map(botMapper::map).toList();
@@ -56,7 +58,6 @@ public class BotService {
     public BotEditCapabilitiesResponse getEditCapabilities(Long botId) {
         Bot bot = getBotEntity(botId);
         List<Listing> activeListings = getActiveNegotiationListings(botId);
-
         return BotEditCapabilitiesResponse.builder()
                 .hasActiveNegotiations(!activeListings.isEmpty())
                 .minimumNegotiationCap(minimumNegotiationCap(bot))
@@ -71,7 +72,6 @@ public class BotService {
 
         CreateBotConfigurationRequest configurationRequest = request.getConfiguration();
         validateConfiguration(configurationRequest);
-
         TargetMode targetMode = resolveTargetMode(configurationRequest);
         boolean adaptiveMode = Boolean.TRUE.equals(
                 configurationRequest.getAutoRaiseOfferToVintedMinimum()
@@ -83,7 +83,6 @@ public class BotService {
                 .password(request.getPassword())
                 .status(BotStatus.STOPPED)
                 .build();
-
         Bot savedBot = botRepository.save(bot);
 
         BotConfiguration configuration = BotConfiguration.builder()
@@ -92,17 +91,14 @@ public class BotService {
                 .brand(normalizeRequiredText(configurationRequest.getBrand()))
                 .targetMode(targetMode)
                 .model(targetMode == TargetMode.VINTED_MODEL
-                        ? normalizeRequiredText(configurationRequest.getModel())
-                        : null)
+                        ? normalizeRequiredText(configurationRequest.getModel()) : null)
                 .searchQuery(targetMode == TargetMode.SEARCH_QUERY
-                        ? normalizeRequiredText(configurationRequest.getSearchQuery())
-                        : null)
+                        ? normalizeRequiredText(configurationRequest.getSearchQuery()) : null)
                 .minPrice(configurationRequest.getMinPrice())
                 .maxPrice(configurationRequest.getMaxPrice())
                 .autoRaiseOfferToVintedMinimum(adaptiveMode)
                 .maxAutomaticOffer(adaptiveMode
-                        ? configurationRequest.getMaxAutomaticOffer()
-                        : null)
+                        ? configurationRequest.getMaxAutomaticOffer() : null)
                 .dailyNegotiationBudget(configurationRequest.getDailyNegotiationBudget())
                 .bot(savedBot)
                 .build();
@@ -110,14 +106,12 @@ public class BotService {
         savedBot.setConfiguration(configuration);
         replaceNegotiationSteps(configuration, configurationRequest.getNegotiationSteps());
         botConfigurationRepository.save(configuration);
-
         return botMapper.map(savedBot);
     }
 
     @Transactional
     public BotResponse updateBot(Long botId, UpdateBotRequest request) {
         Bot bot = getBotEntity(botId);
-
         if (bot.getStatus() != BotStatus.STOPPED) {
             throw new IllegalStateException(
                     "Only a stopped bot can be edited. Stop the bot first."
@@ -139,40 +133,38 @@ public class BotService {
         String normalizedEmail = normalizeRequiredText(request.getEmail());
 
         boolean stepDefinitionChanged = negotiationStepDefinitionChanged(
-                configuration,
-                requestedConfiguration.getNegotiationSteps()
+                configuration, requestedConfiguration.getNegotiationSteps()
         );
         boolean responsePoliciesChanged = negotiationResponsePoliciesChanged(
-                configuration,
-                requestedConfiguration.getNegotiationSteps()
+                configuration, requestedConfiguration.getNegotiationSteps()
         );
         boolean priceRangeChanged = !sameDecimal(
-                configuration.getMinPrice(),
-                requestedConfiguration.getMinPrice()
+                configuration.getMinPrice(), requestedConfiguration.getMinPrice()
         ) || !sameDecimal(
-                configuration.getMaxPrice(),
-                requestedConfiguration.getMaxPrice()
+                configuration.getMaxPrice(), requestedConfiguration.getMaxPrice()
         );
         boolean adaptiveModeChanged = Boolean.TRUE.equals(
                 configuration.getAutoRaiseOfferToVintedMinimum()
         ) != requestedAdaptiveMode;
         boolean globalCapIncreased = isGlobalCapIncreased(
                 configuration.getMaxAutomaticOffer(),
-                requestedAdaptiveMode
-                        ? requestedConfiguration.getMaxAutomaticOffer()
-                        : null
+                requestedAdaptiveMode ? requestedConfiguration.getMaxAutomaticOffer() : null
         );
         boolean targetDefinitionChanged = targetDefinitionChanged(
-                configuration,
-                requestedConfiguration,
-                requestedTargetMode
+                configuration, requestedConfiguration, requestedTargetMode
         );
         boolean accountIdentityChanged = !sameNormalizedText(
-                bot.getEmail(),
-                normalizedEmail
+                bot.getEmail(), normalizedEmail
         ) || (request.getPassword() != null && !request.getPassword().isBlank());
 
         List<Listing> activeListings = getActiveNegotiationListings(botId);
+
+        /*
+         * Before any live strategy mutation, freeze legacy conversations that
+         * may have been created before V31. Once frozen, price/message/step
+         * edits can safely redefine only future conversations.
+         */
+        negotiationStrategySnapshotService.ensureLegacySnapshots(activeListings);
 
         validateActiveNegotiationEdit(
                 bot,
@@ -180,9 +172,7 @@ public class BotService {
                 request,
                 requestedConfiguration,
                 requestedTargetMode,
-                requestedAdaptiveMode,
                 normalizedEmail,
-                stepDefinitionChanged,
                 activeListings
         );
 
@@ -201,17 +191,14 @@ public class BotService {
         configuration.setBrand(normalizeRequiredText(requestedConfiguration.getBrand()));
         configuration.setTargetMode(requestedTargetMode);
         configuration.setModel(requestedTargetMode == TargetMode.VINTED_MODEL
-                ? normalizeRequiredText(requestedConfiguration.getModel())
-                : null);
+                ? normalizeRequiredText(requestedConfiguration.getModel()) : null);
         configuration.setSearchQuery(requestedTargetMode == TargetMode.SEARCH_QUERY
-                ? normalizeRequiredText(requestedConfiguration.getSearchQuery())
-                : null);
+                ? normalizeRequiredText(requestedConfiguration.getSearchQuery()) : null);
         configuration.setMinPrice(requestedConfiguration.getMinPrice());
         configuration.setMaxPrice(requestedConfiguration.getMaxPrice());
         configuration.setAutoRaiseOfferToVintedMinimum(requestedAdaptiveMode);
         configuration.setMaxAutomaticOffer(requestedAdaptiveMode
-                ? requestedConfiguration.getMaxAutomaticOffer()
-                : null);
+                ? requestedConfiguration.getMaxAutomaticOffer() : null);
         configuration.setDailyNegotiationBudget(requestedConfiguration.getDailyNegotiationBudget());
 
         if (stepDefinitionChanged) {
@@ -220,11 +207,6 @@ public class BotService {
                     requestedConfiguration.getNegotiationSteps()
             );
         } else if (responsePoliciesChanged) {
-            /*
-             * Policy-only edits are safe during active negotiations because
-             * they do not change what currentStep means. Update the existing
-             * step entities in place instead of recreating them.
-             */
             applyResponsePolicies(
                     configuration,
                     requestedConfiguration.getNegotiationSteps()
@@ -234,25 +216,12 @@ public class BotService {
         if (stepDefinitionChanged || adaptiveModeChanged || globalCapIncreased) {
             resetSkippedOfferTooLowListings(botId);
         }
-
         if (priceRangeChanged) {
             resetSkippedOutsidePriceRangeListings(botId);
         }
-
-        /*
-         * A target mismatch is only valid for the target that classified it.
-         * If category/brand/model/query/marketplace changes, historical
-         * mismatches must become DISCOVERED so the new target can evaluate
-         * them again instead of inheriting stale decisions forever.
-         */
         if (targetDefinitionChanged) {
             resetSkippedTargetMismatchListings(botId);
         }
-
-        /*
-         * CANNOT_NEGOTIATE can be account-specific (permissions, seller block,
-         * account state). A new Vinted identity deserves one fresh check.
-         */
         if (accountIdentityChanged) {
             resetSkippedCannotNegotiateListings(botId);
         }
@@ -293,14 +262,12 @@ public class BotService {
     private List<Listing> getActiveNegotiationListings(Long botId) {
         List<Listing> activeListings = new ArrayList<>(
                 listingRepository.findByBotIdAndStatusOrderByIdAsc(
-                        botId,
-                        ListingStatus.NEGOTIATING
+                        botId, ListingStatus.NEGOTIATING
                 )
         );
         activeListings.addAll(
                 listingRepository.findByBotIdAndStatusOrderByIdAsc(
-                        botId,
-                        ListingStatus.ACTION_REQUIRED
+                        botId, ListingStatus.ACTION_REQUIRED
                 )
         );
         return activeListings;
@@ -312,7 +279,6 @@ public class BotService {
                 || !Boolean.TRUE.equals(configuration.getAutoRaiseOfferToVintedMinimum())) {
             return null;
         }
-
         return configuration.getNegotiationSteps().stream()
                 .filter(Objects::nonNull)
                 .filter(step -> step.getStepNumber() != null)
@@ -321,15 +287,19 @@ public class BotService {
                 .orElse(null);
     }
 
+    /**
+     * Active conversations now freeze negotiation semantics per listing. Only
+     * identity/target changes remain locked because they would disconnect the
+     * stored Vinted conversation from the account or change what product the
+     * conversation is supposed to represent.
+     */
     private void validateActiveNegotiationEdit(
             Bot bot,
             BotConfiguration configuration,
             UpdateBotRequest request,
             CreateBotConfigurationRequest requestedConfiguration,
             TargetMode requestedTargetMode,
-            boolean requestedAdaptiveMode,
             String normalizedEmail,
-            boolean stepDefinitionChanged,
             List<Listing> activeListings
     ) {
         if (activeListings.isEmpty()) {
@@ -337,7 +307,6 @@ public class BotService {
         }
 
         List<String> lockedChanges = new ArrayList<>();
-
         if (!sameNormalizedText(bot.getEmail(), normalizedEmail)) {
             lockedChanges.add("Vinted e-mail");
         }
@@ -355,40 +324,25 @@ public class BotService {
         }
 
         TargetMode currentTargetMode = configuration.getTargetMode() == null
-                ? TargetMode.VINTED_MODEL
-                : configuration.getTargetMode();
+                ? TargetMode.VINTED_MODEL : configuration.getTargetMode();
         if (currentTargetMode != requestedTargetMode) {
             lockedChanges.add("target mode");
         }
-
         if (requestedTargetMode == TargetMode.VINTED_MODEL) {
             if (!sameNormalizedText(configuration.getModel(), requestedConfiguration.getModel())) {
                 lockedChanges.add("model");
             }
         } else if (!sameNormalizedText(
-                configuration.getSearchQuery(),
-                requestedConfiguration.getSearchQuery()
+                configuration.getSearchQuery(), requestedConfiguration.getSearchQuery()
         )) {
             lockedChanges.add("search query");
         }
 
-        boolean currentAdaptiveMode = Boolean.TRUE.equals(
-                configuration.getAutoRaiseOfferToVintedMinimum()
-        );
-        if (currentAdaptiveMode != requestedAdaptiveMode) {
-            lockedChanges.add("adaptive pricing mode");
-        }
-
-        if (stepDefinitionChanged) {
-            lockedChanges.add("negotiation step prices/messages/structure");
-        }
-
         if (!lockedChanges.isEmpty()) {
             throw new IllegalStateException(
-                    "Bot has active negotiations. These fields cannot be changed until all active negotiations are finished: "
+                    "Bot has active negotiations. These identity/target fields cannot be changed until all active negotiations are finished: "
                             + String.join(", ", lockedChanges)
-                            + ". Allowed while active: bot name, listing min/max price, daily negotiation budget, "
-                            + "global negotiation cap and per-step rejection/counteroffer response policies."
+                            + ". Negotiation prices, thresholds, messages, step count, adaptive mode, timers and response rules may be edited now; active conversations keep their frozen snapshots and changes apply to future conversations."
             );
         }
     }
@@ -401,22 +355,16 @@ public class BotService {
         if (requestedSteps == null || existingSteps.size() != requestedSteps.size()) {
             return true;
         }
-
         for (int index = 0; index < existingSteps.size(); index++) {
             NegotiationStep existing = existingSteps.get(index);
             CreateNegotiationStepRequest requested = requestedSteps.get(index);
-
             if (!Objects.equals(existing.getStepNumber(), index + 1)
                     || !sameDecimal(existing.getOfferPrice(), requested.getOfferPrice())
-                    || !sameDecimal(
-                    existing.getMaxAcceptedCounterOffer(),
-                    requested.getMaxAcceptedCounterOffer()
-            )
+                    || !sameDecimal(existing.getMaxAcceptedCounterOffer(), requested.getMaxAcceptedCounterOffer())
                     || !Objects.equals(existing.getMessage(), requested.getMessage())) {
                 return true;
             }
         }
-
         return false;
     }
 
@@ -428,7 +376,6 @@ public class BotService {
         if (requestedSteps == null || existingSteps.size() != requestedSteps.size()) {
             return true;
         }
-
         for (int index = 0; index < existingSteps.size(); index++) {
             if (!samePolicy(
                     existingSteps.get(index),
@@ -444,8 +391,7 @@ public class BotService {
         return configuration.getNegotiationSteps().stream()
                 .sorted(Comparator.comparing(
                         step -> step.getStepNumber() == null
-                                ? Integer.MAX_VALUE
-                                : step.getStepNumber()
+                                ? Integer.MAX_VALUE : step.getStepNumber()
                 ))
                 .toList();
     }
@@ -454,22 +400,16 @@ public class BotService {
         if (existing.getRejectionAction() != requested.rejectionAction()
                 || !Objects.equals(existing.getRejectionWaitHours(), requested.rejectionWaitHours())
                 || existing.getCounterOfferDefaultAction() != requested.counterDefaultAction()
-                || !Objects.equals(
-                existing.getCounterOfferDefaultWaitHours(),
-                requested.counterDefaultWaitHours()
-        )) {
+                || !Objects.equals(existing.getCounterOfferDefaultWaitHours(), requested.counterDefaultWaitHours())) {
             return false;
         }
 
         List<CounterRuleValue> existingRules = existing.getCounterOfferRules().stream()
                 .map(rule -> new CounterRuleValue(
-                        rule.getMinimumDiscountPercent(),
-                        rule.getAction(),
-                        rule.getWaitHours()
+                        rule.getMinimumDiscountPercent(), rule.getAction(), rule.getWaitHours()
                 ))
                 .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent))
                 .toList();
-
         List<CounterRuleValue> requestedRules = requested.rules().stream()
                 .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent))
                 .toList();
@@ -477,7 +417,6 @@ public class BotService {
         if (existingRules.size() != requestedRules.size()) {
             return false;
         }
-
         for (int index = 0; index < existingRules.size(); index++) {
             CounterRuleValue left = existingRules.get(index);
             CounterRuleValue right = requestedRules.get(index);
@@ -500,79 +439,50 @@ public class BotService {
                 || !sameNormalizedText(current.getBrand(), requested.getBrand())) {
             return true;
         }
-
         TargetMode currentTargetMode = current.getTargetMode() == null
-                ? TargetMode.VINTED_MODEL
-                : current.getTargetMode();
-
+                ? TargetMode.VINTED_MODEL : current.getTargetMode();
         if (currentTargetMode != requestedTargetMode) {
             return true;
         }
-
         if (requestedTargetMode == TargetMode.VINTED_MODEL) {
             return !sameNormalizedText(current.getModel(), requested.getModel());
         }
-
         return !sameNormalizedText(current.getSearchQuery(), requested.getSearchQuery());
     }
 
     private boolean isGlobalCapIncreased(BigDecimal currentCap, BigDecimal requestedCap) {
-        if (requestedCap == null) {
-            return false;
-        }
+        if (requestedCap == null) return false;
         return currentCap == null || requestedCap.compareTo(currentCap) > 0;
     }
 
     private boolean sameDecimal(BigDecimal left, BigDecimal right) {
-        if (left == null || right == null) {
-            return left == right;
-        }
+        if (left == null || right == null) return left == right;
         return left.compareTo(right) == 0;
     }
 
     private boolean sameNormalizedText(String left, String right) {
-        if (left == null || right == null) {
-            return left == right;
-        }
+        if (left == null || right == null) return left == right;
         return normalizeRequiredText(left).equals(normalizeRequiredText(right));
     }
 
     private void resetSkippedOfferTooLowListings(Long botId) {
-        resetListingsWithStatus(
-                botId,
-                ListingStatus.SKIPPED_OFFER_TOO_LOW
-        );
+        resetListingsWithStatus(botId, ListingStatus.SKIPPED_OFFER_TOO_LOW);
     }
 
     private void resetSkippedOutsidePriceRangeListings(Long botId) {
-        resetListingsWithStatus(
-                botId,
-                ListingStatus.SKIPPED_OUTSIDE_PRICE_RANGE
-        );
+        resetListingsWithStatus(botId, ListingStatus.SKIPPED_OUTSIDE_PRICE_RANGE);
     }
 
     private void resetSkippedTargetMismatchListings(Long botId) {
-        resetListingsWithStatus(
-                botId,
-                ListingStatus.SKIPPED_TARGET_MISMATCH
-        );
+        resetListingsWithStatus(botId, ListingStatus.SKIPPED_TARGET_MISMATCH);
     }
 
     private void resetSkippedCannotNegotiateListings(Long botId) {
-        resetListingsWithStatus(
-                botId,
-                ListingStatus.SKIPPED_CANNOT_NEGOTIATE
-        );
+        resetListingsWithStatus(botId, ListingStatus.SKIPPED_CANNOT_NEGOTIATE);
     }
 
-    private void resetListingsWithStatus(
-            Long botId,
-            ListingStatus status
-    ) {
-        for (Listing listing : listingRepository.findByBotIdAndStatusOrderByIdAsc(
-                botId,
-                status
-        )) {
+    private void resetListingsWithStatus(Long botId, ListingStatus status) {
+        for (Listing listing : listingRepository.findByBotIdAndStatusOrderByIdAsc(botId, status)) {
             listing.setStatus(ListingStatus.DISCOVERED);
         }
     }
@@ -582,7 +492,6 @@ public class BotService {
             List<CreateNegotiationStepRequest> stepRequests
     ) {
         configuration.getNegotiationSteps().clear();
-
         for (int index = 0; index < stepRequests.size(); index++) {
             CreateNegotiationStepRequest request = stepRequests.get(index);
             int stepNumber = index + 1;
@@ -600,7 +509,6 @@ public class BotService {
                     .counterOfferRules(toRuleEntities(policy.rules()))
                     .configuration(configuration)
                     .build();
-
             configuration.getNegotiationSteps().add(step);
         }
     }
@@ -615,11 +523,9 @@ public class BotService {
                     "Cannot apply response policies because negotiation step structure changed."
             );
         }
-
         for (int index = 0; index < existingSteps.size(); index++) {
             NegotiationStep step = existingSteps.get(index);
             ResolvedStepPolicy policy = resolvePolicy(stepRequests.get(index), index + 1);
-
             step.setRejectionAction(policy.rejectionAction());
             step.setRejectionWaitHours(policy.rejectionWaitHours());
             step.setCounterOfferDefaultAction(policy.counterDefaultAction());
@@ -646,33 +552,19 @@ public class BotService {
 
         if (request.getDailyNegotiationBudget() == null
                 || request.getDailyNegotiationBudget() <= 0) {
-            throw new IllegalArgumentException(
-                    "Daily negotiation budget must be greater than 0."
-            );
+            throw new IllegalArgumentException("Daily negotiation budget must be greater than 0.");
         }
-
         if (request.getNegotiationSteps() == null
                 || request.getNegotiationSteps().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "At least one negotiation step is required."
-            );
+            throw new IllegalArgumentException("At least one negotiation step is required.");
         }
-
         if (targetMode == TargetMode.VINTED_MODEL) {
-            requireNonBlank(
-                    request.getModel(),
-                    "Model is required for target mode VINTED_MODEL."
-            );
+            requireNonBlank(request.getModel(), "Model is required for target mode VINTED_MODEL.");
         } else if (targetMode == TargetMode.SEARCH_QUERY) {
-            requireNonBlank(
-                    request.getSearchQuery(),
-                    "Search query is required for target mode SEARCH_QUERY."
-            );
+            requireNonBlank(request.getSearchQuery(), "Search query is required for target mode SEARCH_QUERY.");
         }
 
-        boolean adaptiveMode = Boolean.TRUE.equals(
-                request.getAutoRaiseOfferToVintedMinimum()
-        );
+        boolean adaptiveMode = Boolean.TRUE.equals(request.getAutoRaiseOfferToVintedMinimum());
         if (adaptiveMode) {
             BigDecimal maxAutomaticOffer = request.getMaxAutomaticOffer();
             if (maxAutomaticOffer == null || maxAutomaticOffer.signum() <= 0) {
@@ -698,13 +590,11 @@ public class BotService {
 
     private void validateResolvedPolicy(ResolvedStepPolicy policy, int stepNumber) {
         validateReaction(
-                policy.rejectionAction(),
-                policy.rejectionWaitHours(),
+                policy.rejectionAction(), policy.rejectionWaitHours(),
                 "Step " + stepNumber + " rejection policy"
         );
         validateReaction(
-                policy.counterDefaultAction(),
-                policy.counterDefaultWaitHours(),
+                policy.counterDefaultAction(), policy.counterDefaultWaitHours(),
                 "Step " + stepNumber + " counteroffer fallback"
         );
 
@@ -718,10 +608,8 @@ public class BotService {
                                 + " counteroffer discount threshold must be greater than 0 and at most 100%."
                 );
             }
-
             String normalizedThreshold = rule.minimumDiscountPercent()
-                    .stripTrailingZeros()
-                    .toPlainString();
+                    .stripTrailingZeros().toPlainString();
             if (!thresholds.add(normalizedThreshold)) {
                 throw new IllegalArgumentException(
                         "Step " + stepNumber
@@ -729,10 +617,8 @@ public class BotService {
                                 + normalizedThreshold + "%."
                 );
             }
-
             validateReaction(
-                    rule.action(),
-                    rule.waitHours(),
+                    rule.action(), rule.waitHours(),
                     "Step " + stepNumber + " counteroffer rule " + normalizedThreshold + "%"
             );
         }
@@ -746,11 +632,8 @@ public class BotService {
         if (action == null) {
             throw new IllegalArgumentException(label + " has no action.");
         }
-
         if (action == NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
-                && (waitHours == null
-                || waitHours < 1
-                || waitHours > MAX_RESPONSE_WAIT_HOURS)) {
+                && (waitHours == null || waitHours < 1 || waitHours > MAX_RESPONSE_WAIT_HOURS)) {
             throw new IllegalArgumentException(
                     label + " wait time must be between 1 and "
                             + MAX_RESPONSE_WAIT_HOURS + " hours."
@@ -764,7 +647,6 @@ public class BotService {
     ) {
         NegotiationReactionAction rejectionAction = request.getRejectionAction();
         Integer rejectionWaitHours = request.getRejectionWaitHours();
-
         if (rejectionAction == null) {
             if (stepNumber == 1) {
                 rejectionAction = NegotiationReactionAction.NEXT_STEP_NOW;
@@ -778,8 +660,7 @@ public class BotService {
             rejectionWaitHours = null;
         }
 
-        NegotiationReactionAction counterDefaultAction =
-                request.getCounterOfferDefaultAction();
+        NegotiationReactionAction counterDefaultAction = request.getCounterOfferDefaultAction();
         Integer counterDefaultWaitHours = request.getCounterOfferDefaultWaitHours();
         if (counterDefaultAction == null) {
             counterDefaultAction = NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP;
@@ -798,7 +679,6 @@ public class BotService {
                     .map(this::toRuleValue)
                     .toList();
         }
-
         return new ResolvedStepPolicy(
                 rejectionAction,
                 rejectionWaitHours,
@@ -815,19 +695,13 @@ public class BotService {
             waitHours = null;
         }
         return new CounterRuleValue(
-                request.getMinimumDiscountPercent(),
-                action,
-                waitHours
+                request.getMinimumDiscountPercent(), action, waitHours
         );
     }
 
     private int defaultRejectionWaitHours(int stepNumber) {
-        if (stepNumber == 2) {
-            return 6;
-        }
-        if (stepNumber == 3) {
-            return 12;
-        }
+        if (stepNumber == 2) return 6;
+        if (stepNumber == 3) return 12;
         return 24;
     }
 
@@ -848,14 +722,11 @@ public class BotService {
 
     private TargetMode resolveTargetMode(CreateBotConfigurationRequest request) {
         return request.getTargetMode() == null
-                ? TargetMode.VINTED_MODEL
-                : request.getTargetMode();
+                ? TargetMode.VINTED_MODEL : request.getTargetMode();
     }
 
     private void validatePriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
-        if (minPrice == null || maxPrice == null) {
-            return;
-        }
+        if (minPrice == null || maxPrice == null) return;
         if (minPrice.signum() < 0 || maxPrice.signum() < 0) {
             throw new IllegalArgumentException("Listing prices cannot be negative.");
         }
