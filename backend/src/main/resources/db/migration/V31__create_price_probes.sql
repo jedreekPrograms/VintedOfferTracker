@@ -10,9 +10,9 @@ CREATE TABLE IF NOT EXISTS price_probe (
     completed_at TIMESTAMP NULL,
     failure_reason VARCHAR(1000) NULL,
     CONSTRAINT fk_price_probe_bot
-        FOREIGN KEY (probe_bot_id) REFERENCES bot(id),
+        FOREIGN KEY (probe_bot_id) REFERENCES bot(id) ON DELETE CASCADE,
     CONSTRAINT fk_price_probe_source_listing
-        FOREIGN KEY (source_listing_id) REFERENCES listing(id),
+        FOREIGN KEY (source_listing_id) REFERENCES listing(id) ON DELETE CASCADE,
     CONSTRAINT uk_price_probe_bot_listing
         UNIQUE (probe_bot_id, source_listing_id),
     CONSTRAINT chk_price_probe_status
