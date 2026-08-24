@@ -233,11 +233,9 @@ public class PriceProbeService {
     private void cancelStaleClaims() {
         LocalDateTime now = LocalDateTime.now();
 
-        for (PriceProbe probe : priceProbeRepository.findAll()) {
-            if (probe.getStatus() != PriceProbeStatus.CLAIMED) {
-                continue;
-            }
-
+        for (PriceProbe probe : priceProbeRepository.findByStatus(
+                PriceProbeStatus.CLAIMED
+        )) {
             Listing source = probe.getSourceListing();
             if (source != null && ACTIVE_SOURCE_STATUSES.contains(source.getStatus())) {
                 continue;
