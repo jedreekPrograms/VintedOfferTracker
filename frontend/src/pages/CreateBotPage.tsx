@@ -41,6 +41,7 @@ function CreateBotPage() {
         setMaxAutomaticOffer,
         setDailyNegotiationBudget,
         addNegotiationStep,
+        applyResearchNegotiationPreset,
         removeNegotiationStep,
         updateNegotiationStep,
         updateNegotiationStepPolicy,
@@ -72,13 +73,21 @@ function CreateBotPage() {
         (model) => String(model.id) === form.selectedModelId,
     ) ?? null;
 
-    function clearMessages() {
-        setErrorMessage(null);
-    }
+    function clearMessages() { setErrorMessage(null); }
 
     function handleAddNegotiationStep() {
         if (!addNegotiationStep()) {
             setErrorMessage("Nie możesz dodać więcej niż 25 kroków negocjacji.");
+            return;
+        }
+        clearMessages();
+    }
+
+    function handleResearchPreset() {
+        if (!applyResearchNegotiationPreset()) {
+            setErrorMessage(
+                "Najpierw wpisz dodatnią cenę kroku 1 i wyższy globalny limit negocjacji. Dla 5 kroków potrzebujemy co najmniej 40 zł przestrzeni.",
+            );
             return;
         }
         clearMessages();
@@ -130,9 +139,7 @@ function CreateBotPage() {
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (isSubmitting) {
-            return;
-        }
+        if (isSubmitting) return;
 
         clearMessages();
         const validationResult = validateCreateBotForm({
@@ -141,7 +148,6 @@ function CreateBotPage() {
             selectedBrand,
             selectedModel,
         });
-
         if (!validationResult.valid) {
             setErrorMessage(validationResult.errorMessage);
             return;
@@ -152,9 +158,7 @@ function CreateBotPage() {
             await createBot(buildCreateBotRequest(validationResult.data));
             navigate("/bots");
         } catch (error) {
-            setErrorMessage(
-                getErrorMessage(error, "Nie udało się utworzyć bota."),
-            );
+            setErrorMessage(getErrorMessage(error, "Nie udało się utworzyć bota."));
         } finally {
             setIsSubmitting(false);
         }
@@ -250,13 +254,9 @@ function CreateBotPage() {
                     />
 
                     <OfferStrategySection
-                        autoRaiseOfferToVintedMinimum={
-                            form.autoRaiseOfferToVintedMinimum
-                        }
+                        autoRaiseOfferToVintedMinimum={form.autoRaiseOfferToVintedMinimum}
                         maxAutomaticOffer={form.maxAutomaticOffer}
-                        firstConfiguredOffer={
-                            form.negotiationSteps[0]?.offerPrice ?? ""
-                        }
+                        firstConfiguredOffer={form.negotiationSteps[0]?.offerPrice ?? ""}
                         onAutoRaiseChange={(value) => {
                             setAutoRaiseOfferToVintedMinimum(value);
                             clearMessages();
@@ -266,6 +266,24 @@ function CreateBotPage() {
                             clearMessages();
                         }}
                     />
+
+                    <div className="information-box">
+                        <strong>Preset negocjacyjny oparty na badaniach.</strong>{" "}
+                        Ustaw cenę kroku 1 oraz globalny limit, a preset zbuduje
+                        5 malejących ustępstw, krótkie uprzejme wiadomości,
+                        rosnące pauzy po odrzuceniu oraz szybszą reakcję na
+                        realne ustępstwa sprzedającego. Po zastosowaniu nadal
+                        możesz ręcznie zmienić każdy element.
+                        <div style={{ marginTop: "0.8rem" }}>
+                            <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={handleResearchPreset}
+                            >
+                                Zastosuj preset negocjacyjny
+                            </button>
+                        </div>
+                    </div>
 
                     <NegotiationStepsSection
                         negotiationSteps={form.negotiationSteps}
@@ -288,7 +306,6 @@ function CreateBotPage() {
                         {dictionaryErrorMessage}
                     </div>
                 )}
-
                 {errorMessage !== null && (
                     <div className="form-message form-message-error" role="alert">
                         {errorMessage}
