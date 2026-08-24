@@ -15,6 +15,7 @@ import pl.flipbot.listing.dto.NegotiationActivityRequest;
 import pl.flipbot.listing.dto.NegotiationActivityResponse;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
+import pl.flipbot.negotiation.snapshot.NegotiationStrategySnapshotService;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -38,6 +39,7 @@ public class ListingService {
     private final BotRepository botRepository;
     private final ListingMapper listingMapper;
     private final ListingClaimService listingClaimService;
+    private final NegotiationStrategySnapshotService negotiationStrategySnapshotService;
 
     public List<ListingResponse> getDiscoveredListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.DISCOVERED);
@@ -168,6 +170,8 @@ public class ListingService {
                 .bot(bot)
                 .build();
 
+        negotiationStrategySnapshotService.captureForNewNegotiationIfMissing(listing);
+
         return listingMapper.map(listingRepository.save(listing));
     }
 
@@ -190,12 +194,26 @@ public class ListingService {
                         && (previousStatus != ListingStatus.NEGOTIATING
                         || !Objects.equals(previousStep, request.getCurrentStep()));
 
+        boolean negotiationStartedNow =
+                request.getStatus() == ListingStatus.NEGOTIATING
+                        && previousStatus != ListingStatus.NEGOTIATING;
+
         listing.setCurrentPrice(request.getCurrentPrice());
         listing.setCurrentStep(request.getCurrentStep());
         listing.setAwaitingSellerResponse(request.getAwaitingSellerResponse());
         listing.setConversationId(request.getConversationId());
         listing.setConversationUrl(request.getConversationUrl());
         listing.setStatus(request.getStatus());
+
+        if (negotiationStartedNow) {
+            /*
+             * Capture before any later bot configuration edit can redefine
+             * prices/messages. The bot must be STOPPED to edit configuration,
+             * so the strategy at this transition is the strategy that actually
+             * produced the first offer.
+             */
+            negotiationStrategySnapshotService.captureForNewNegotiationIfMissing(listing);
+        }
 
         if (request.getStatus() == ListingStatus.EXPIRED) {
             listing.setDecisionAt(LocalDateTime.now());
