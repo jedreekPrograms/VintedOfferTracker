@@ -89,6 +89,20 @@ function HistoryPage() {
         setSort(DEFAULT_SORT);
     }
 
+    function updateListing(updatedListing: ListingHistoryResponse) {
+        setListings(currentListings => currentListings.map(listing => (
+            listing.id === updatedListing.id
+                ? updatedListing
+                : listing
+        )));
+    }
+
+    function removeListing(listingId: number) {
+        setListings(currentListings => currentListings.filter(
+            listing => listing.id !== listingId,
+        ));
+    }
+
     return (
         <section className="page">
             <header className="page-header">
@@ -158,6 +172,8 @@ function HistoryPage() {
                         <HistoryCard
                             key={listing.id}
                             listing={listing}
+                            onUpdated={updateListing}
+                            onRemoved={removeListing}
                         />
                     ))}
                 </div>
