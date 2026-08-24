@@ -13,6 +13,7 @@ import pl.flipbot.playwright.negotiation.NegotiationSelectors;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -21,19 +22,30 @@ public class PriceProbeExecutor {
 
     private static final double NAVIGATION_TIMEOUT_MS = 30_000;
     private static final double ELEMENT_TIMEOUT_MS = 15_000;
+    private static final double CONTACT_DISCOVERY_TIMEOUT_MS = 20_000;
     private static final double COMPOSER_TIMEOUT_MS = 20_000;
     private static final double CONFIRMATION_TIMEOUT_MS = 5_000;
     private static final double POLL_INTERVAL_MS = 250;
+    private static final int MAX_DIAGNOSTIC_ACTIONS = 24;
 
     private static final List<String> MESSAGE_BUTTON_TEST_IDS = List.of(
             "item-buyer-message-button",
             "item-message-seller-button",
             "item-buyer-contact-button",
-            "item-message-button"
+            "item-message-button",
+            "item-contact-seller-button",
+            "item-buyer-contact-seller-button",
+            "item-contact-button"
     );
 
     private static final Pattern MESSAGE_BUTTON_LABEL = Pattern.compile(
-            "^(Napisz wiadomość|Napisz wiadomosc|Wyślij wiadomość|Wyslij wiadomosc|Wiadomość|Wiadomosc|Message|Message seller|Contact seller|Ask seller)$",
+            "^(Napisz|Napisz wiadomość|Napisz wiadomosc|Wyślij wiadomość|Wyslij wiadomosc|"
+                    + "Napisz do sprzedającego|Napisz do sprzedajacego|Napisz do sprzedawcy|"
+                    + "Napisz do użytkownika|Napisz do uzytkownika|Zapytaj sprzedającego|"
+                    + "Zapytaj sprzedajacego|Zapytaj o przedmiot|Skontaktuj się ze sprzedającym|"
+                    + "Skontaktuj sie ze sprzedajacym|Skontaktuj się ze sprzedawcą|"
+                    + "Skontaktuj sie ze sprzedawca|Wiadomość|Wiadomosc|Message|Message seller|"
+                    + "Contact seller|Ask seller|Send message)$",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -77,6 +89,14 @@ public class PriceProbeExecutor {
         boolean sendClickAttempted = false;
 
         try {
+            log.info(
+                    "[PRICE PROBE] Opening source listing {} for probe {} / bot {}: {}",
+                    assignment.marketplaceListingId(),
+                    assignment.probeId(),
+                    context.getBot().getId(),
+                    listingUrl
+            );
+
             page.navigate(
                     listingUrl,
                     new Page.NavigateOptions()
@@ -93,24 +113,46 @@ public class PriceProbeExecutor {
 
             humanVerificationHandler.waitUntilVerified(page);
 
-            Locator composer = visibleComposer(page);
+            MessageEntryPoint entryPoint = waitForMessageEntryPoint(page);
+            Locator composer = entryPoint.composer();
 
             if (composer == null) {
-                Locator messageButton = findMessageButton(page);
+                Locator messageAction = entryPoint.action();
 
-                if (messageButton == null) {
+                if (messageAction == null) {
+                    String diagnostics = describeVisibleActions(page);
+                    log.warn(
+                            "[PRICE PROBE] No message-seller entry point became usable within {} seconds. url={}. Visible actions: {}",
+                            Math.round(CONTACT_DISCOVERY_TIMEOUT_MS / 1_000),
+                            safeUrl(page),
+                            diagnostics
+                    );
+
                     return PriceProbeExecutionResult.failed(
-                            "Listing exposes no supported message-seller action."
+                            "Listing exposes no supported message-seller action after "
+                                    + Math.round(CONTACT_DISCOVERY_TIMEOUT_MS / 1_000)
+                                    + "s."
                     );
                 }
 
-                messageButton.click(
+                log.info(
+                        "[PRICE PROBE] Opening seller message flow for probe {}. action={}",
+                        assignment.probeId(),
+                        describeAction(messageAction)
+                );
+
+                messageAction.click(
                         new Locator.ClickOptions()
                                 .setTimeout(ELEMENT_TIMEOUT_MS)
                 );
 
                 humanVerificationHandler.waitUntilVerified(page);
                 composer = waitForComposer(page);
+            } else {
+                log.info(
+                        "[PRICE PROBE] Message composer is already visible for probe {}; no listing action click is needed.",
+                        assignment.probeId()
+                );
             }
 
             if (!config.isAllowedUrl(page.url())) {
@@ -137,6 +179,11 @@ public class PriceProbeExecutor {
             Locator sendButton = resolveSendButton(page, composer);
 
             if (sendButton == null) {
+                log.warn(
+                        "[PRICE PROBE] Composer is visible but no supported send button was found. url={}. Visible actions: {}",
+                        safeUrl(page),
+                        describeVisibleActions(page)
+                );
                 return PriceProbeExecutionResult.failed(
                         "Conversation exposes no supported send button."
                 );
@@ -199,18 +246,48 @@ public class PriceProbeExecutor {
                 && assignment.message().contains("PLN");
     }
 
-    private Locator findMessageButton(Page page) {
+    private MessageEntryPoint waitForMessageEntryPoint(Page page) {
+        long deadline = System.currentTimeMillis()
+                + (long) CONTACT_DISCOVERY_TIMEOUT_MS;
+
+        while (System.currentTimeMillis() < deadline) {
+            humanVerificationHandler.waitUntilVerified(page);
+
+            if (!config.isAllowedUrl(page.url())) {
+                return MessageEntryPoint.none();
+            }
+
+            Locator composer = visibleComposer(page);
+            if (composer != null) {
+                return MessageEntryPoint.composer(composer);
+            }
+
+            Locator action = findMessageAction(page);
+            if (action != null) {
+                return MessageEntryPoint.action(action);
+            }
+
+            page.waitForTimeout(POLL_INTERVAL_MS);
+        }
+
+        return MessageEntryPoint.none();
+    }
+
+    private Locator findMessageAction(Page page) {
         for (String testId : MESSAGE_BUTTON_TEST_IDS) {
             try {
                 Locator candidate = page.getByTestId(testId).first();
-                if (candidate.count() > 0
-                        && candidate.isVisible()
-                        && candidate.isEnabled()) {
+                if (isUsable(candidate)) {
                     return candidate;
                 }
             } catch (RuntimeException ignored) {
-                // Continue with strict fallbacks.
+                // Continue with semantic fallbacks.
             }
+        }
+
+        Locator directConversationLink = findDirectConversationLink(page);
+        if (directConversationLink != null) {
+            return directConversationLink;
         }
 
         Locator roleButton = page.getByRole(
@@ -227,7 +304,107 @@ public class PriceProbeExecutor {
                 new Page.GetByRoleOptions().setName(MESSAGE_BUTTON_LABEL)
         ).first();
 
-        return isUsable(roleLink) ? roleLink : null;
+        if (isUsable(roleLink)) {
+            return roleLink;
+        }
+
+        return findSemanticActionFallback(page);
+    }
+
+    private Locator findDirectConversationLink(Page page) {
+        try {
+            Locator links = page.locator("a[href*='/inbox/']");
+            int count = Math.min(links.count(), 20);
+
+            for (int index = 0; index < count; index++) {
+                Locator link = links.nth(index);
+                if (!isUsable(link)) {
+                    continue;
+                }
+
+                String href = safeAttribute(link, "href");
+                if (href != null && href.matches(".*?/inbox/[^/?#]+.*")) {
+                    return link;
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Continue with other fallbacks.
+        }
+
+        return null;
+    }
+
+    private Locator findSemanticActionFallback(Page page) {
+        try {
+            Locator actions = page.locator("button:visible, a:visible");
+            int count = Math.min(actions.count(), 80);
+
+            for (int index = 0; index < count; index++) {
+                Locator candidate = actions.nth(index);
+                if (!isUsable(candidate)) {
+                    continue;
+                }
+
+                String testId = safeAttribute(candidate, "data-testid");
+                if (isContactActionTestId(testId)) {
+                    return candidate;
+                }
+
+                String ariaLabel = safeAttribute(candidate, "aria-label");
+                if (isContactActionLabel(ariaLabel)) {
+                    return candidate;
+                }
+
+                String text = safeInnerText(candidate);
+                if (isContactActionLabel(text)) {
+                    return candidate;
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // No semantic fallback available.
+        }
+
+        return null;
+    }
+
+    static boolean isContactActionLabel(String rawLabel) {
+        if (rawLabel == null || rawLabel.isBlank()) {
+            return false;
+        }
+
+        String normalized = rawLabel
+                .replace('\u00A0', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        return MESSAGE_BUTTON_LABEL.matcher(normalized).matches();
+    }
+
+    static boolean isContactActionTestId(String rawTestId) {
+        if (rawTestId == null || rawTestId.isBlank()) {
+            return false;
+        }
+
+        String testId = rawTestId.trim().toLowerCase(Locale.ROOT);
+        boolean contactLike = testId.contains("message")
+                || testId.contains("contact")
+                || testId.contains("chat");
+
+        if (!contactLike) {
+            return false;
+        }
+
+        return !testId.contains("send")
+                && !testId.contains("composer")
+                && !testId.contains("conversation")
+                && !testId.contains("offer")
+                && !testId.contains("buy")
+                && !testId.contains("favorite")
+                && !testId.contains("favourite")
+                && !testId.contains("share")
+                && !testId.contains("login")
+                && !testId.contains("register")
+                && !testId.contains("header");
     }
 
     private Locator waitForComposer(Page page) {
@@ -243,7 +420,9 @@ public class PriceProbeExecutor {
             );
             return primary;
         } catch (TimeoutError exception) {
-            Locator fallback = page.locator("textarea:visible").first();
+            Locator fallback = page.locator(
+                    "textarea:visible, [contenteditable='true']:visible"
+            ).first();
             fallback.waitFor(
                     new Locator.WaitForOptions()
                             .setState(WaitForSelectorState.VISIBLE)
@@ -259,14 +438,21 @@ public class PriceProbeExecutor {
                     NegotiationSelectors.MESSAGE_INPUT
             ).first();
 
-            if (primary.count() > 0 && primary.isVisible()) {
+            if (isUsable(primary)) {
                 return primary;
             }
         } catch (RuntimeException ignored) {
             // Fall through.
         }
 
-        return null;
+        try {
+            Locator fallback = page.locator(
+                    "textarea:visible, [contenteditable='true']:visible"
+            ).first();
+            return isUsable(fallback) ? fallback : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private Locator resolveSendButton(Page page, Locator composer) {
@@ -324,6 +510,80 @@ public class PriceProbeExecutor {
         }
     }
 
+    private String describeVisibleActions(Page page) {
+        try {
+            Locator actions = page.locator("button:visible, a:visible");
+            int count = Math.min(actions.count(), MAX_DIAGNOSTIC_ACTIONS);
+            StringBuilder result = new StringBuilder();
+
+            for (int index = 0; index < count; index++) {
+                Locator action = actions.nth(index);
+                String description = describeAction(action);
+
+                if (description.isBlank()) {
+                    continue;
+                }
+
+                if (!result.isEmpty()) {
+                    result.append(" | ");
+                }
+                result.append(description);
+            }
+
+            return result.isEmpty() ? "<none>" : result.toString();
+        } catch (RuntimeException exception) {
+            return "<diagnostics unavailable: " + friendlyMessage(exception) + ">";
+        }
+    }
+
+    private String describeAction(Locator action) {
+        if (action == null) {
+            return "<null>";
+        }
+
+        String testId = safeAttribute(action, "data-testid");
+        String ariaLabel = safeAttribute(action, "aria-label");
+        String href = safeAttribute(action, "href");
+        String text = safeInnerText(action);
+
+        return "{testId=" + compact(testId)
+                + ", aria=" + compact(ariaLabel)
+                + ", text=" + compact(text)
+                + ", href=" + compact(href)
+                + "}";
+    }
+
+    private String safeAttribute(Locator locator, String name) {
+        try {
+            return locator.getAttribute(name);
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private String safeInnerText(Locator locator) {
+        try {
+            return locator.innerText();
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private String compact(String value) {
+        if (value == null || value.isBlank()) {
+            return "-";
+        }
+
+        String normalized = value
+                .replace('\u00A0', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        return normalized.length() <= 100
+                ? normalized
+                : normalized.substring(0, 100) + "…";
+    }
+
     private String safeUrl(Page page) {
         try {
             return page == null || page.isClosed()
@@ -345,5 +605,22 @@ public class PriceProbeExecutor {
         }
 
         return message.lines().findFirst().orElse(message).trim();
+    }
+
+    private record MessageEntryPoint(
+            Locator composer,
+            Locator action
+    ) {
+        private static MessageEntryPoint composer(Locator composer) {
+            return new MessageEntryPoint(composer, null);
+        }
+
+        private static MessageEntryPoint action(Locator action) {
+            return new MessageEntryPoint(null, action);
+        }
+
+        private static MessageEntryPoint none() {
+            return new MessageEntryPoint(null, null);
+        }
     }
 }

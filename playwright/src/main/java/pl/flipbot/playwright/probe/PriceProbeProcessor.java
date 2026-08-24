@@ -41,6 +41,18 @@ public class PriceProbeProcessor {
 
         PriceProbeAssignmentDto probe = assignment.get();
 
+        log.info(
+                "[PRICE PROBE] Bot {} received probe {} for source listing {} / marketplace listing {}. probe={}/{} referencePrice={} probePrice={} PLN.",
+                botId,
+                probe.probeId(),
+                probe.sourceListingBackendId(),
+                probe.marketplaceListingId(),
+                probe.probeNumber(),
+                probe.maximumProbeCount(),
+                probe.referenceOfferPrice(),
+                probe.probePrice()
+        );
+
         if (!config.enabled()) {
             apiClient.complete(
                     botId,
@@ -56,6 +68,24 @@ public class PriceProbeProcessor {
             case FAILED -> PriceProbeOutcomeDto.failed(result.details());
             case UNKNOWN -> PriceProbeOutcomeDto.unknown(result.details());
         };
+
+        if (result.state() == PriceProbeExecutionResult.State.SENT) {
+            log.info(
+                    "[PRICE PROBE] Probe {} / bot {} / marketplace listing {} finished SENT.",
+                    probe.probeId(),
+                    botId,
+                    probe.marketplaceListingId()
+            );
+        } else {
+            log.warn(
+                    "[PRICE PROBE] Probe {} / bot {} / marketplace listing {} finished {}. reason={}",
+                    probe.probeId(),
+                    botId,
+                    probe.marketplaceListingId(),
+                    result.state(),
+                    result.details()
+            );
+        }
 
         try {
             apiClient.complete(botId, probe.probeId(), outcome);
