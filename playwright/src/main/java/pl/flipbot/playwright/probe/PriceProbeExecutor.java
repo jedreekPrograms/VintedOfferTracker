@@ -71,9 +71,15 @@ public class PriceProbeExecutor {
             );
         }
 
-        if (!config.isAllowedUrl(assignment.listingUrl())) {
+        String sandboxListingUrl;
+        try {
+            sandboxListingUrl = config.sandboxListingUrl(
+                    assignment.listingUrl()
+            );
+        } catch (RuntimeException exception) {
             return PriceProbeExecutionResult.failed(
-                    "Assignment URL is outside the configured sandbox marketplace."
+                    "Could not map source listing onto the configured sandbox marketplace: "
+                            + friendlyMessage(exception)
             );
         }
 
@@ -82,18 +88,19 @@ public class PriceProbeExecutor {
 
         try {
             log.info(
-                    "[PRICE PROBE] Bot {} opening sandbox listing {} for probe {} ({}/{}). referencePrice={}, probePrice={}.",
+                    "[PRICE PROBE] Bot {} opening sandbox listing {} for probe {} ({}/{}). referencePrice={}, probePrice={}, sandboxUrl={}.",
                     context.getBot().getId(),
                     assignment.marketplaceListingId(),
                     assignment.probeId(),
                     assignment.probeNumber(),
                     assignment.maximumProbeCount(),
                     assignment.referenceOfferPrice(),
-                    assignment.probePrice()
+                    assignment.probePrice(),
+                    sandboxListingUrl
             );
 
             page.navigate(
-                    assignment.listingUrl(),
+                    sandboxListingUrl,
                     new Page.NavigateOptions()
                             .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
                             .setTimeout(NAVIGATION_TIMEOUT_MS)
