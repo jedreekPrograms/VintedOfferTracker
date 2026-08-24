@@ -4,6 +4,7 @@ import org.junit.Test;
 
 import java.net.URI;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -38,17 +39,19 @@ public class PriceProbeRuntimeConfigTest {
                 "https://marketplace-test.example"
         );
 
-        assertTrue(
-                uri.toString().equals("https://marketplace-test.example")
+        assertEquals(
+                "https://marketplace-test.example",
+                uri.toString()
         );
     }
 
     @Test
     public void acceptsHttpOnlyForLocalDevelopment() {
-        assertTrue(
+        assertEquals(
+                "http://localhost:4173",
                 PriceProbeRuntimeConfig.validateSandboxBaseUrl(
                         "http://localhost:4173"
-                ).toString().equals("http://localhost:4173")
+                ).toString()
         );
 
         assertThrows(
@@ -80,13 +83,31 @@ public class PriceProbeRuntimeConfigTest {
     }
 
     @Test
+    public void productionShapedSourcePathIsRebasedOntoCloneHost() {
+        PriceProbeRuntimeConfig config =
+                new PriceProbeRuntimeConfig(
+                        true,
+                        URI.create("https://clone.example"),
+                        1
+                );
+
+        assertEquals(
+                "https://clone.example/items/123-samsung?referrer=catalog",
+                config.sandboxListingUrl(
+                        "https://www.vinted.pl/items/123-samsung?referrer=catalog"
+                )
+        );
+    }
+
+    @Test
     public void lookalikeDomainIsNotMistakenForRealVinted() {
         URI uri = PriceProbeRuntimeConfig.validateSandboxBaseUrl(
                 "https://vinted.pl.example.test"
         );
 
-        assertTrue(
-                uri.toString().equals("https://vinted.pl.example.test")
+        assertEquals(
+                "https://vinted.pl.example.test",
+                uri.toString()
         );
     }
 }
