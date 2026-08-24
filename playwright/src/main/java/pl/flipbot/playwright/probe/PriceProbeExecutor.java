@@ -51,6 +51,7 @@ public class PriceProbeExecutor {
 
     private final BotContext context;
     private final PriceProbeRuntimeConfig config;
+    private final PriceProbeTestHumanPacing humanPacing;
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
 
@@ -60,6 +61,7 @@ public class PriceProbeExecutor {
     ) {
         this.context = context;
         this.config = config;
+        this.humanPacing = PriceProbeTestHumanPacing.fromEnvironment(config);
     }
 
     public PriceProbeExecutionResult execute(PriceProbeAssignmentDto assignment) {
@@ -111,6 +113,7 @@ public class PriceProbeExecutor {
                 );
             }
 
+            humanPacing.afterNavigation(page);
             humanVerificationHandler.waitUntilVerified(page);
 
             MessageEntryPoint entryPoint = waitForMessageEntryPoint(page);
@@ -141,10 +144,12 @@ public class PriceProbeExecutor {
                         describeAction(messageAction)
                 );
 
+                humanPacing.beforeClick(page, messageAction);
                 messageAction.click(
                         new Locator.ClickOptions()
                                 .setTimeout(ELEMENT_TIMEOUT_MS)
                 );
+                humanPacing.afterClick(page);
 
                 humanVerificationHandler.waitUntilVerified(page);
                 composer = waitForComposer(page);
@@ -168,7 +173,11 @@ public class PriceProbeExecutor {
                 );
             }
 
-            composer.fill(assignment.message());
+            humanPacing.typeText(
+                    page,
+                    composer,
+                    assignment.message()
+            );
 
             if (!assignment.message().equals(composer.inputValue())) {
                 return PriceProbeExecutionResult.failed(
@@ -204,11 +213,13 @@ public class PriceProbeExecutor {
                     assignment.probePrice()
             );
 
+            humanPacing.beforeClick(page, sendButton);
             sendClickAttempted = true;
             sendButton.click(
                     new Locator.ClickOptions()
                             .setTimeout(ELEMENT_TIMEOUT_MS)
             );
+            humanPacing.afterClick(page);
 
             if (!waitForComposerToClear(page, composer)) {
                 return PriceProbeExecutionResult.unknown(
