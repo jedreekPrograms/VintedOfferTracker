@@ -1,0 +1,2 @@
+ALTER TABLE listing
+    ADD COLUMN history_hidden BOOLEAN NOT NULL DEFAULT FALSE;
