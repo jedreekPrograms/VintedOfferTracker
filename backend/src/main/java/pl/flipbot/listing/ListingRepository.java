@@ -40,6 +40,16 @@ public interface ListingRepository
             @Param("botId") Long botId
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select listing
+            from Listing listing
+            where listing.id = :listingId
+            """)
+    Optional<Listing> findByIdForUpdate(
+            @Param("listingId") Long listingId
+    );
+
     List<Listing> findByBotId(
             Long botId
     );
@@ -47,6 +57,10 @@ public interface ListingRepository
     List<Listing> findByBotIdAndStatusOrderByIdAsc(
             Long botId,
             ListingStatus status
+    );
+
+    List<Listing> findByStatusInOrderByIdAsc(
+            Collection<ListingStatus> statuses
     );
 
     List<Listing> findAllByBotIdAndListingIdIn(
