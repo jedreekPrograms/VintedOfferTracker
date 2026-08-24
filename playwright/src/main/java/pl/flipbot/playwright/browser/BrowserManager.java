@@ -4,6 +4,7 @@ import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Playwright;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.probe.PriceProbeTestStealthProfile;
 
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -74,6 +75,7 @@ public class BrowserManager implements AutoCloseable {
         BrowserContext context = browser.newContext(options);
 
         installAdTechNetworkBlocker(context);
+        PriceProbeTestStealthProfile.installIfEnabled(context);
         context.addInitScript(VintedInformationalDialogGuard.script());
 
         log.debug(
