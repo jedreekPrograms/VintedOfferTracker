@@ -12,6 +12,7 @@ import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
+import pl.flipbot.playwright.probe.PriceProbeTestStealthProfile;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
 
 @Slf4j
@@ -73,6 +74,10 @@ public class ScheduledBotRunExecutor {
                     );
                     return;
                 }
+
+                PriceProbeTestStealthProfile.installIfEnabled(
+                        context.getBrowserContext()
+                );
 
                 new SandboxCloneLoginService(
                         context,
