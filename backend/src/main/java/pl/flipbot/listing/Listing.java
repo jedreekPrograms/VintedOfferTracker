@@ -77,6 +77,9 @@ public class Listing {
     @Column(name = "decision_at")
     private LocalDateTime decisionAt;
 
+    @Column(name = "history_hidden", nullable = false)
+    private boolean historyHidden;
+
     @Column(name = "current_step_started_at")
     private LocalDateTime currentStepStartedAt;
 
