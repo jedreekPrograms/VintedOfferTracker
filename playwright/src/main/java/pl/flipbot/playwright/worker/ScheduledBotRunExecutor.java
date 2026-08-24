@@ -10,6 +10,9 @@ import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
+import pl.flipbot.playwright.probe.PriceProbeProcessor;
+import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
+import pl.flipbot.playwright.probe.SandboxCloneLoginService;
 
 @Slf4j
 public class ScheduledBotRunExecutor {
@@ -19,6 +22,9 @@ public class ScheduledBotRunExecutor {
 
     private static final ScheduledActionLimitConfig ACTION_LIMIT_CONFIG =
             ScheduledActionLimitConfig.fromEnvironment();
+
+    private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
+            PriceProbeRuntimeConfig.fromEnvironment();
 
     private final BotDetailsDto bot;
     private final BrowserManager browserManager;
@@ -59,40 +65,74 @@ public class ScheduledBotRunExecutor {
 
     private void executeInternal(ScheduledJobType jobType) {
         Long botId = bot.getId();
-
-        boolean firstOfferRequested =
-                jobType == ScheduledJobType.CATALOG_SCAN
-                        && REAL_ACTION_CONFIG.realOffersRequestedFor(botId);
-
-        boolean nextStepRequested =
-                jobType == ScheduledJobType.NEGOTIATION_CHECK
-                        && REAL_ACTION_CONFIG.realNextStepsRequestedFor(botId);
-
-        boolean realOffersEnabled =
-                jobType == ScheduledJobType.CATALOG_SCAN
-                        && REAL_ACTION_CONFIG.realOffersEnabledFor(botId);
-
-        boolean realNextStepsEnabled =
-                jobType == ScheduledJobType.NEGOTIATION_CHECK
-                        && REAL_ACTION_CONFIG.realNextStepsEnabledFor(botId);
-
-        boolean productionModeEnabled =
-                REAL_ACTION_CONFIG.productionModeEnabled();
-
-        int maxRealOffersPerRun =
-                ACTION_LIMIT_CONFIG.effectiveMaxRealOffers(
-                        productionModeEnabled
-                );
-
-        int maxRealNextStepsPerRun =
-                ACTION_LIMIT_CONFIG.effectiveMaxRealNextSteps(
-                        productionModeEnabled
-                );
-
         BotContext context = new BotContext(bot, browserManager);
         boolean loginReady = false;
 
         try {
+            /*
+             * PRICE_PROBE is intentionally isolated from every production
+             * Vinted action path. It logs into the separately configured clone
+             * host, never invokes normal LoginService/RealActionPreflight and
+             * the probe runtime itself hard-blocks vinted.pl.
+             */
+            if (jobType == ScheduledJobType.PRICE_PROBE) {
+                if (!PRICE_PROBE_CONFIG.enabled()) {
+                    log.info(
+                            "[PRICE PROBE] Scheduled sandbox probe job for bot {} was skipped because the module is disabled.",
+                            botId
+                    );
+                    return;
+                }
+
+                log.warn(
+                        "[PRICE PROBE] Preparing SANDBOX text-only probe job for bot {}. cloneBaseUrl={}, maxPerJob={}. Real vinted.pl is not an allowed target for this module.",
+                        botId,
+                        PRICE_PROBE_CONFIG.baseUri(),
+                        PRICE_PROBE_CONFIG.maxPerJob()
+                );
+
+                new SandboxCloneLoginService(
+                        context,
+                        PRICE_PROBE_CONFIG
+                ).login();
+                loginReady = true;
+
+                new PriceProbeProcessor(
+                        context,
+                        PRICE_PROBE_CONFIG
+                ).process();
+                return;
+            }
+
+            boolean firstOfferRequested =
+                    jobType == ScheduledJobType.CATALOG_SCAN
+                            && REAL_ACTION_CONFIG.realOffersRequestedFor(botId);
+
+            boolean nextStepRequested =
+                    jobType == ScheduledJobType.NEGOTIATION_CHECK
+                            && REAL_ACTION_CONFIG.realNextStepsRequestedFor(botId);
+
+            boolean realOffersEnabled =
+                    jobType == ScheduledJobType.CATALOG_SCAN
+                            && REAL_ACTION_CONFIG.realOffersEnabledFor(botId);
+
+            boolean realNextStepsEnabled =
+                    jobType == ScheduledJobType.NEGOTIATION_CHECK
+                            && REAL_ACTION_CONFIG.realNextStepsEnabledFor(botId);
+
+            boolean productionModeEnabled =
+                    REAL_ACTION_CONFIG.productionModeEnabled();
+
+            int maxRealOffersPerRun =
+                    ACTION_LIMIT_CONFIG.effectiveMaxRealOffers(
+                            productionModeEnabled
+                    );
+
+            int maxRealNextStepsPerRun =
+                    ACTION_LIMIT_CONFIG.effectiveMaxRealNextSteps(
+                            productionModeEnabled
+                    );
+
             LoginService loginService = new LoginService(context);
             ListingClient listingClient = new ListingClient();
             OfferQuotaClient offerQuotaClient = new OfferQuotaClient();
@@ -197,6 +237,9 @@ public class ScheduledBotRunExecutor {
                             botRunExecutor.executeNegotiationCheck();
                     case CATALOG_SCAN ->
                             botRunExecutor.executeCatalogScan();
+                    case PRICE_PROBE -> throw new IllegalStateException(
+                            "PRICE_PROBE must be handled by the isolated sandbox path."
+                    );
                 }
             }
 
