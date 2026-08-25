@@ -12,206 +12,154 @@ import java.net.http.HttpResponse;
 
 public abstract class ApiClient {
 
-    private static final String BASE_URL = "http://localhost:8080";
+    private static final URI BASE_URI = BackendApiEndpoint.fromEnvironment();
 
     protected final HttpClient httpClient;
 
     protected final ObjectMapper objectMapper;
 
     protected ApiClient() {
-
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
-
     }
 
     protected HttpResponse<String> get(String path) {
-
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + path))
+                .uri(resolvePath(path))
                 .GET()
                 .build();
 
-        try {
-
-            return httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-        } catch (IOException | InterruptedException e) {
-
-            throw new ApiException(
-                    "GET request failed.",
-                    e
-            );
-
-        }
-
+        return send(request, "GET");
     }
 
     protected HttpResponse<String> post(String path, Object body) {
-
+        final String json;
         try {
-
-            String json = objectMapper.writeValueAsString(body);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BASE_URL + path))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
-
-            return httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-        } catch (IOException | InterruptedException e) {
-
+            json = objectMapper.writeValueAsString(body);
+        } catch (IOException exception) {
             throw new ApiException(
-                    "POST request failed.",
-                    e
+                    "Could not serialize POST request body.",
+                    exception
             );
-
         }
 
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(resolvePath(path))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+
+        return send(request, "POST");
     }
 
     protected HttpResponse<String> patch(String path, Object body) {
-
+        final String json;
         try {
-
-            String json = objectMapper.writeValueAsString(body);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BASE_URL + path))
-                    .header("Content-Type", "application/json")
-                    .method(
-                            "PATCH",
-                            HttpRequest.BodyPublishers.ofString(json)
-                    )
-                    .build();
-
-            return httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-        } catch (IOException | InterruptedException e) {
-
+            json = objectMapper.writeValueAsString(body);
+        } catch (IOException exception) {
             throw new ApiException(
-                    "PATCH request failed.",
-                    e
+                    "Could not serialize PATCH request body.",
+                    exception
             );
-
         }
 
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(resolvePath(path))
+                .header("Content-Type", "application/json")
+                .method(
+                        "PATCH",
+                        HttpRequest.BodyPublishers.ofString(json)
+                )
+                .build();
+
+        return send(request, "PATCH");
     }
 
     protected <T> T readBody(
             HttpResponse<String> response,
             Class<T> clazz
     ) {
-
         try {
-
             return objectMapper.readValue(
                     response.body(),
                     clazz
             );
-
-        } catch (IOException e) {
-
+        } catch (IOException exception) {
             throw new ApiException(
                     "Cannot parse response.",
-                    e
+                    exception
             );
-
         }
-
     }
 
     protected <T> T readBody(
             HttpResponse<String> response,
             TypeReference<T> typeReference
     ) {
-
         try {
-
             return objectMapper.readValue(
                     response.body(),
                     typeReference
             );
-
-        } catch (IOException e) {
-
+        } catch (IOException exception) {
             throw new ApiException(
                     "Cannot parse response.",
-                    e
+                    exception
             );
-
         }
-
     }
 
     protected HttpResponse<String> post(String path) {
-
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + path))
-                .POST(
-                        HttpRequest.BodyPublishers.noBody()
-                )
+                .uri(resolvePath(path))
+                .POST(HttpRequest.BodyPublishers.noBody())
                 .build();
 
-        try {
-
-            return httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-        } catch (IOException | InterruptedException e) {
-
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-
-            throw new ApiException(
-                    "POST request failed.",
-                    e
-            );
-        }
+        return send(request, "POST");
     }
 
     protected HttpResponse<String> patch(String path) {
-
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + path))
+                .uri(resolvePath(path))
                 .method(
                         "PATCH",
                         HttpRequest.BodyPublishers.noBody()
                 )
                 .build();
 
-        try {
+        return send(request, "PATCH");
+    }
 
+    private URI resolvePath(String path) {
+        if (path == null || path.isBlank() || !path.startsWith("/")) {
+            throw new IllegalArgumentException(
+                    "Backend API path must be an absolute path beginning with '/'"
+            );
+        }
+
+        return BASE_URI.resolve(path);
+    }
+
+    private HttpResponse<String> send(
+            HttpRequest request,
+            String method
+    ) {
+        try {
             return httpClient.send(
                     request,
                     HttpResponse.BodyHandlers.ofString()
             );
-
-        } catch (IOException | InterruptedException e) {
-
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
             throw new ApiException(
-                    "PATCH request failed.",
-                    e
+                    method + " request was interrupted.",
+                    exception
+            );
+        } catch (IOException exception) {
+            throw new ApiException(
+                    method + " request failed.",
+                    exception
             );
         }
     }
-
 }
