@@ -1,10 +1,24 @@
 # IntelliJ
 **/.idea/
 
-# Playwright
+# Playwright session/cookie material
 /playwright/sessions/
 /playwright/example.png
 
-# Environment variables
-/frontend/.env
-/frontend/.env.*
+# Environment / secret files
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local secret/key material
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime logs / crash dumps
+*.log
+hs_err_pid*
