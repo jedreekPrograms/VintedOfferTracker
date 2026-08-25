@@ -67,7 +67,7 @@ class FlywayBaselineCompatibilityTest {
                     migrations
             );
 
-            assertDoesNotThrow(afterBaseline::validate);
+            assertDoesNotThrow(() -> afterBaseline.validate());
 
             MigrateResult rolloutMigration = afterBaseline.migrate();
             assertEquals(0, rolloutMigration.migrationsExecuted);
@@ -77,12 +77,16 @@ class FlywayBaselineCompatibilityTest {
                     username,
                     password
             ); Statement statement = connection.createStatement()) {
+                // Flyway may also persist a technical SCHEMA row when it creates
+                // the isolated test schema. Count only actual versioned SQL
+                // migrations when proving V1/V2 history stayed unchanged.
                 assertEquals(
                         2,
                         scalarCount(
                                 statement,
                                 "SELECT COUNT(*) FROM " + schema
-                                        + ".flyway_schema_history WHERE success = TRUE"
+                                        + ".flyway_schema_history "
+                                        + "WHERE success = TRUE AND type = 'SQL'"
                         )
                 );
                 assertEquals(
