@@ -1,17 +1,17 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:17
     container_name: flipbot-postgres
 
     environment:
-      POSTGRES_DB: flipbot
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: "${POSTGRES_DB:-flipbot}"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
 
+    # Never expose the development database on all host interfaces by default.
+    # The backend connects through the host loopback port.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
