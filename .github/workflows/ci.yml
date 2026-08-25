@@ -91,7 +91,7 @@ jobs:
           export FLIPBOT_ENCRYPTION_KEY="$(printf '00000000000000000000000000000000' | base64 -w0)"
           bash ./mvnw -B test
 
-      - name: Smoke-test V33/V34 and cross-bot release SQL
+      - name: Smoke-test V33/V34/V35 claim lifecycle
         shell: bash
         env:
           PGPASSWORD: postgres
@@ -181,14 +181,33 @@ jobs:
           \i src/main/resources/db/migration/V33__protect_cross_bot_negotiations_and_bot_deletion.sql
           \i src/main/resources/db/migration/V34__configure_read_and_unread_follow_up_delays.sql
 
+          -- Model a pre-V35 orphaned historical claim. Its outcome cannot be
+          -- reconstructed, so V35 must migrate it fail-closed as confirmed.
+          INSERT INTO marketplace_negotiation_claim (
+              marketplace, marketplace_listing_id, owner_bot_id,
+              owner_listing_id, request_id, claimed_at
+          ) VALUES (
+              'VINTED', 'orphaned-historical-claim', 999, 999,
+              '00000000-0000-0000-0000-000000000999', CURRENT_TIMESTAMP
+          );
+
+          \i src/main/resources/db/migration/V35__separate_pre_submit_and_confirmed_marketplace_claims.sql
+
           DO $$
           BEGIN
               IF (SELECT COUNT(*) FROM marketplace_negotiation_claim
                   WHERE marketplace = 'VINTED'
                     AND marketplace_listing_id = '9717432736'
                     AND owner_bot_id = 1
-                    AND owner_listing_id = 11) <> 1 THEN
-                  RAISE EXCEPTION 'V33 did not backfill the known active negotiation claim';
+                    AND owner_listing_id = 11
+                    AND confirmed_at IS NOT NULL) <> 1 THEN
+                  RAISE EXCEPTION 'V35 did not confirm the known active negotiation claim';
+              END IF;
+
+              IF (SELECT COUNT(*) FROM marketplace_negotiation_claim
+                  WHERE marketplace_listing_id = 'orphaned-historical-claim'
+                    AND confirmed_at IS NOT NULL) <> 1 THEN
+                  RAISE EXCEPTION 'V35 did not fail-closed an orphaned historical claim';
               END IF;
 
               UPDATE listing
@@ -233,10 +252,10 @@ jobs:
           END
           $$;
 
-          -- Exercise the exact SQL shape used when a temporary FIRST_OFFER
-          -- owner proves that no submit happened and releases its claim. The
-          -- losing per-bot tombstone must be reopened without weakening durable
-          -- claims used after confirmed or ambiguous submit attempts.
+          -- A PRE-SUBMIT claim blocks another bot in the current attempt but
+          -- must not make that bot's listing row terminal. Releasing the claim
+          -- therefore needs only an ownership-checked DELETE; there is no
+          -- SKIP LOCKED reopen pass and no race that can strand the loser.
           INSERT INTO bot (id) VALUES (3), (4);
           INSERT INTO bot_configuration (bot_id, marketplace)
           VALUES (3, 'VINTED'), (4, 'VINTED');
@@ -246,14 +265,61 @@ jobs:
               conversation_id, current_step_started_at, decision_at
           ) VALUES
               (33, '9900000000', 3, 'DISCOVERED', 0, NULL, NULL, NULL),
-              (44, '9900000000', 4, 'SKIPPED_ALREADY_NEGOTIATED', 0, NULL, NULL, CURRENT_TIMESTAMP);
+              (44, '9900000000', 4, 'DISCOVERED', 0, NULL, NULL, NULL);
 
           INSERT INTO marketplace_negotiation_claim (
               marketplace, marketplace_listing_id, owner_bot_id,
-              owner_listing_id, request_id, claimed_at
+              owner_listing_id, request_id, claimed_at, confirmed_at
           ) VALUES (
               'VINTED', '9900000000', 3, 33,
-              '00000000-0000-0000-0000-000000000033', CURRENT_TIMESTAMP
+              '00000000-0000-0000-0000-000000000033', CURRENT_TIMESTAMP, NULL
+          );
+
+          DO $$
+          BEGIN
+              IF (SELECT confirmed_at FROM marketplace_negotiation_claim
+                  WHERE marketplace_listing_id = '9900000000') IS NOT NULL THEN
+                  RAISE EXCEPTION 'Fresh marketplace claim was not PRE-SUBMIT';
+              END IF;
+
+              IF (SELECT status FROM listing WHERE id = 44) <> 'DISCOVERED' THEN
+                  RAISE EXCEPTION 'Temporary marketplace claim made competitor terminal';
+              END IF;
+          END
+          $$;
+
+          DELETE FROM marketplace_negotiation_claim
+          WHERE marketplace = 'VINTED'
+            AND marketplace_listing_id = '9900000000'
+            AND owner_bot_id = 3
+            AND owner_listing_id = 33
+            AND request_id = '00000000-0000-0000-0000-000000000033'
+            AND confirmed_at IS NULL;
+
+          DO $$
+          BEGIN
+              IF EXISTS (
+                  SELECT 1 FROM marketplace_negotiation_claim
+                  WHERE marketplace_listing_id = '9900000000'
+              ) THEN
+                  RAISE EXCEPTION 'Pre-submit marketplace claim was not released';
+              END IF;
+
+              IF (SELECT status FROM listing WHERE id = 44) <> 'DISCOVERED' THEN
+                  RAISE EXCEPTION 'Pre-submit release unexpectedly changed competitor state';
+              END IF;
+          END
+          $$;
+
+          -- Once confirmed, the same global claim becomes a durable tombstone
+          -- and cannot be removed through the pre-submit release path.
+          INSERT INTO marketplace_negotiation_claim (
+              marketplace, marketplace_listing_id, owner_bot_id,
+              owner_listing_id, request_id, claimed_at, confirmed_at
+          ) VALUES (
+              'VINTED', '9900000000', 3, 33,
+              '00000000-0000-0000-0000-000000000033',
+              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
           );
 
           DELETE FROM marketplace_negotiation_claim
@@ -261,29 +327,17 @@ jobs:
             AND marketplace_listing_id = '9900000000'
             AND owner_bot_id = 3
             AND owner_listing_id = 33
-            AND request_id = '00000000-0000-0000-0000-000000000033';
-
-          WITH reopenable AS (
-              SELECT losing_listing.id
-              FROM listing AS losing_listing
-              JOIN bot_configuration AS configuration
-                ON losing_listing.bot_id = configuration.bot_id
-              WHERE configuration.marketplace = 'VINTED'
-                AND losing_listing.listing_id = '9900000000'
-                AND losing_listing.status = 'SKIPPED_ALREADY_NEGOTIATED'
-              FOR UPDATE OF losing_listing SKIP LOCKED
-          )
-          UPDATE listing AS losing_listing
-          SET status = 'DISCOVERED',
-              decision_at = NULL
-          FROM reopenable
-          WHERE losing_listing.id = reopenable.id;
+            AND request_id = '00000000-0000-0000-0000-000000000033'
+            AND confirmed_at IS NULL;
 
           DO $$
           BEGIN
-              IF (SELECT status FROM listing WHERE id = 44) <> 'DISCOVERED'
-                 OR (SELECT decision_at FROM listing WHERE id = 44) IS NOT NULL THEN
-                  RAISE EXCEPTION 'Pre-submit claim release SQL did not reopen the competing listing';
+              IF NOT EXISTS (
+                  SELECT 1 FROM marketplace_negotiation_claim
+                  WHERE marketplace_listing_id = '9900000000'
+                    AND confirmed_at IS NOT NULL
+              ) THEN
+                  RAISE EXCEPTION 'Confirmed marketplace claim was incorrectly released';
               END IF;
           END
           $$;
@@ -300,6 +354,7 @@ jobs:
                   SELECT 1 FROM marketplace_negotiation_claim
                   WHERE marketplace = 'VINTED'
                     AND marketplace_listing_id = '9717432736'
+                    AND confirmed_at IS NOT NULL
               ) THEN
                   RAISE EXCEPTION 'Durable marketplace claim was incorrectly deleted with its listing';
               END IF;
