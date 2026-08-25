@@ -1,16 +1,16 @@
 package pl.flipbot.playwright.api;
 
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 
 import java.net.URI;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
-class BackendApiEndpointTest {
+public class BackendApiEndpointTest {
 
     @Test
-    void acceptsPlainHttpForIpv4Loopback() {
+    public void acceptsPlainHttpForIpv4Loopback() {
         assertEquals(
                 URI.create("http://127.0.0.1:8080"),
                 BackendApiEndpoint.resolve("http://127.0.0.1:8080/")
@@ -18,7 +18,7 @@ class BackendApiEndpointTest {
     }
 
     @Test
-    void acceptsPlainHttpForLocalhost() {
+    public void acceptsPlainHttpForLocalhost() {
         assertEquals(
                 URI.create("http://localhost:8080"),
                 BackendApiEndpoint.resolve("http://localhost:8080")
@@ -26,7 +26,7 @@ class BackendApiEndpointTest {
     }
 
     @Test
-    void acceptsHttpsForRemoteBackend() {
+    public void acceptsHttpsForRemoteBackend() {
         assertEquals(
                 URI.create("https://flipbot.example:8443"),
                 BackendApiEndpoint.resolve("https://flipbot.example:8443")
@@ -34,34 +34,39 @@ class BackendApiEndpointTest {
     }
 
     @Test
-    void rejectsPlainHttpForRemoteBackend() {
-        assertThrows(
-                IllegalArgumentException.class,
+    public void rejectsPlainHttpForRemoteBackend() {
+        assertIllegalArgument(
                 () -> BackendApiEndpoint.resolve("http://flipbot.example:8080")
         );
     }
 
     @Test
-    void rejectsCredentialsEmbeddedInBackendUrl() {
-        assertThrows(
-                IllegalArgumentException.class,
+    public void rejectsCredentialsEmbeddedInBackendUrl() {
+        assertIllegalArgument(
                 () -> BackendApiEndpoint.resolve("https://user:secret@flipbot.example")
         );
     }
 
     @Test
-    void rejectsBackendUrlWithPath() {
-        assertThrows(
-                IllegalArgumentException.class,
+    public void rejectsBackendUrlWithPath() {
+        assertIllegalArgument(
                 () -> BackendApiEndpoint.resolve("https://flipbot.example/internal")
         );
     }
 
     @Test
-    void rejectsUnsupportedScheme() {
-        assertThrows(
-                IllegalArgumentException.class,
+    public void rejectsUnsupportedScheme() {
+        assertIllegalArgument(
                 () -> BackendApiEndpoint.resolve("ftp://127.0.0.1:8080")
         );
+    }
+
+    private void assertIllegalArgument(Runnable action) {
+        try {
+            action.run();
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
     }
 }
