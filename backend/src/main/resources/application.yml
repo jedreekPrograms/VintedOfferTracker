@@ -7,12 +7,10 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      # Transitional until the schema-baseline stage of the audit: historical
-      # installations were bootstrapped by Hibernate before Flyway migrations
-      # existed. Stage 3 replaces this mixed ownership with a reproducible
-      # Flyway baseline; changing this to validate before that would break a
-      # fresh local database.
-      ddl-auto: update
+      # Flyway owns the schema. Hibernate must never create, update or silently
+      # repair production tables; startup fails if the mapped model and the
+      # migrated database disagree.
+      ddl-auto: validate
     properties:
       hibernate:
         format_sql: true
