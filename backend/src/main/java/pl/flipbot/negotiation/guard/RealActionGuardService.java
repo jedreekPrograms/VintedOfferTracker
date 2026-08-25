@@ -2,6 +2,7 @@ package pl.flipbot.negotiation.guard;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.listing.Listing;
@@ -14,6 +15,7 @@ import pl.flipbot.negotiation.guard.dto.ReleaseRealActionGuardRequest;
 import pl.flipbot.negotiation.guard.dto.ReleaseRealActionGuardResponse;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
@@ -25,6 +27,7 @@ public class RealActionGuardService {
     private final ListingRepository listingRepository;
     private final RealActionGuardRepository realActionGuardRepository;
     private final RealActionAuditService realActionAuditService;
+    private final JdbcTemplate jdbcTemplate;
 
     @Transactional
     public RealActionGuardResponse acquire(
@@ -143,6 +146,31 @@ public class RealActionGuardService {
 
         validateActionAgainstListing(listing, request);
 
+        if (request.actionType() == RealActionType.FIRST_OFFER
+                && !acquireMarketplaceNegotiationClaim(listing, request)) {
+            listing.setStatus(ListingStatus.SKIPPED_ALREADY_NEGOTIATED);
+            listing.setDecisionAt(LocalDateTime.now());
+            listingRepository.saveAndFlush(listing);
+
+            log.warn(
+                    "[MARKETPLACE CLAIM] FIRST_OFFER blocked for bot {}, backend listing {}, marketplace listing {}. "
+                            + "Another bot already owns this marketplace negotiation. The losing per-bot row is now SKIPPED_ALREADY_NEGOTIATED; no quota or real submit is allowed. "
+                            + "If the owner later releases its claim before submit, rows skipped solely by that temporary claim are reopened automatically.",
+                    botId,
+                    listingId,
+                    listing.getListingId()
+            );
+
+            return new RealActionGuardResponse(
+                    false,
+                    false,
+                    null,
+                    RealActionType.FIRST_OFFER,
+                    1,
+                    LocalDateTime.now()
+            );
+        }
+
         RealActionGuard guard =
                 RealActionGuard.builder()
                         .listing(listing)
@@ -172,7 +200,7 @@ public class RealActionGuardService {
             Long listingId,
             ReleaseRealActionGuardRequest request
     ) {
-        lockListing(botId, listingId);
+        Listing listing = lockListing(botId, listingId);
 
         RealActionGuard guard =
                 realActionGuardRepository.findByListing_Id(listingId)
@@ -193,6 +221,19 @@ public class RealActionGuardService {
             );
         }
 
+        if (guard.getActionType() == RealActionType.FIRST_OFFER) {
+            if (firstOfferWasConfirmed(listing)) {
+                log.info(
+                        "[MARKETPLACE CLAIM] Keeping durable marketplace claim for backend listing {} / marketplace listing {} because currentStep={} proves the first offer was sent.",
+                        listing.getId(),
+                        listing.getListingId(),
+                        listing.getCurrentStep()
+                );
+            } else {
+                releaseMarketplaceNegotiationClaim(listing, guard.getRequestId());
+            }
+        }
+
         realActionGuardRepository.delete(guard);
         realActionGuardRepository.flush();
 
@@ -209,6 +250,174 @@ public class RealActionGuardService {
                 true,
                 false
         );
+    }
+
+    private boolean acquireMarketplaceNegotiationClaim(
+            Listing listing,
+            AcquireRealActionGuardRequest request
+    ) {
+        String marketplace = resolveMarketplace(listing);
+
+        int inserted = jdbcTemplate.update(
+                """
+                INSERT INTO marketplace_negotiation_claim (
+                    marketplace,
+                    marketplace_listing_id,
+                    owner_bot_id,
+                    owner_listing_id,
+                    request_id,
+                    claimed_at
+                )
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (marketplace, marketplace_listing_id) DO NOTHING
+                """,
+                marketplace,
+                listing.getListingId(),
+                listing.getBot().getId(),
+                listing.getId(),
+                request.requestId()
+        );
+
+        if (inserted == 1) {
+            log.warn(
+                    "[MARKETPLACE CLAIM] ACQUIRED {}:{} for bot {}, backend listing {}, requestId={}",
+                    marketplace,
+                    listing.getListingId(),
+                    listing.getBot().getId(),
+                    listing.getId(),
+                    request.requestId()
+            );
+            return true;
+        }
+
+        Map<String, Object> owner = jdbcTemplate.queryForMap(
+                """
+                SELECT owner_bot_id, owner_listing_id, request_id, claimed_at
+                FROM marketplace_negotiation_claim
+                WHERE marketplace = ?
+                  AND marketplace_listing_id = ?
+                """,
+                marketplace,
+                listing.getListingId()
+        );
+
+        log.warn(
+                "[MARKETPLACE CLAIM] CONFLICT for {}:{} requested by bot {}, backend listing {}. Existing owner bot={}, backend listing={}, requestId={}, claimedAt={}.",
+                marketplace,
+                listing.getListingId(),
+                listing.getBot().getId(),
+                listing.getId(),
+                owner.get("owner_bot_id"),
+                owner.get("owner_listing_id"),
+                owner.get("request_id"),
+                owner.get("claimed_at")
+        );
+        return false;
+    }
+
+    private void releaseMarketplaceNegotiationClaim(
+            Listing listing,
+            java.util.UUID requestId
+    ) {
+        String marketplace = resolveMarketplace(listing);
+
+        int deleted = jdbcTemplate.update(
+                """
+                DELETE FROM marketplace_negotiation_claim
+                WHERE marketplace = ?
+                  AND marketplace_listing_id = ?
+                  AND owner_bot_id = ?
+                  AND owner_listing_id = ?
+                  AND request_id = ?
+                """,
+                marketplace,
+                listing.getListingId(),
+                listing.getBot().getId(),
+                listing.getId(),
+                requestId
+        );
+
+        if (deleted != 1) {
+            throw new IllegalStateException(
+                    "Could not release pre-submit marketplace negotiation claim for "
+                            + marketplace
+                            + ":"
+                            + listing.getListingId()
+                            + ". Ownership/requestId no longer matches. Failing closed."
+            );
+        }
+
+        /*
+         * A competing bot may have observed this claim while it was only a
+         * pre-submit reservation and marked its own per-bot row as
+         * SKIPPED_ALREADY_NEGOTIATED. If the owner proves that no real submit
+         * was attempted and releases the claim, those rows must become
+         * DISCOVERED again; otherwise a harmless quota/preparation failure in
+         * the temporary owner could permanently hide the listing.
+         *
+         * A competitor can concurrently hold its own listing row lock while
+         * waiting for this claim deletion to commit. Locking that same row here
+         * would form a deadlock cycle. The CTE therefore reopens only currently
+         * unlocked skipped rows with SKIP LOCKED. A concurrently racing
+         * DISCOVERED row is intentionally skipped; after this transaction
+         * commits, that competitor can acquire the now-free marketplace claim
+         * itself.
+         *
+         * Durable/ambiguous claims never reach this method, so reopening here
+         * cannot revive a listing after a real or potentially-real offer.
+         */
+        int reopenedListings = jdbcTemplate.update(
+                """
+                WITH reopenable AS (
+                    SELECT losing_listing.id
+                    FROM listing AS losing_listing
+                    JOIN bot_configuration AS configuration
+                      ON losing_listing.bot_id = configuration.bot_id
+                    WHERE configuration.marketplace = ?
+                      AND losing_listing.listing_id = ?
+                      AND losing_listing.status = ?
+                    FOR UPDATE OF losing_listing SKIP LOCKED
+                )
+                UPDATE listing AS losing_listing
+                SET status = ?,
+                    decision_at = NULL
+                FROM reopenable
+                WHERE losing_listing.id = reopenable.id
+                """,
+                marketplace,
+                listing.getListingId(),
+                ListingStatus.SKIPPED_ALREADY_NEGOTIATED.name(),
+                ListingStatus.DISCOVERED.name()
+        );
+
+        log.info(
+                "[MARKETPLACE CLAIM] RELEASED pre-submit {}:{} for bot {}, backend listing {}, requestId={}. Reopened {} unlocked competing per-bot listing row(s) that had been skipped only because of this temporary claim.",
+                marketplace,
+                listing.getListingId(),
+                listing.getBot().getId(),
+                listing.getId(),
+                requestId,
+                reopenedListings
+        );
+    }
+
+    private String resolveMarketplace(Listing listing) {
+        if (listing.getBot() == null
+                || listing.getBot().getConfiguration() == null
+                || listing.getBot().getConfiguration().getMarketplace() == null) {
+            throw new IllegalStateException(
+                    "Cannot protect marketplace negotiation for backend listing "
+                            + listing.getId()
+                            + " because marketplace configuration is missing"
+            );
+        }
+
+        return listing.getBot().getConfiguration().getMarketplace().name();
+    }
+
+    private boolean firstOfferWasConfirmed(Listing listing) {
+        return listing.getCurrentStep() != null
+                && listing.getCurrentStep() >= 1;
     }
 
     private Listing lockListing(
@@ -294,10 +503,6 @@ public class RealActionGuardService {
             RealActionGuard guard,
             Listing listing
     ) {
-        if (listing.getStatus() != ListingStatus.NEGOTIATING) {
-            return false;
-        }
-
         Integer currentStep = listing.getCurrentStep();
 
         if (currentStep == null) {
@@ -306,7 +511,8 @@ public class RealActionGuardService {
 
         return switch (guard.getActionType()) {
             case FIRST_OFFER -> currentStep >= 1;
-            case NEXT_STEP -> currentStep >= guard.getStepNumber();
+            case NEXT_STEP -> listing.getStatus() == ListingStatus.NEGOTIATING
+                    && currentStep >= guard.getStepNumber();
         };
     }
 

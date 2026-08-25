@@ -7,7 +7,7 @@ import static org.junit.Assert.assertEquals;
 public class ScheduledActionLimitConfigTest {
 
     @Test
-    public void productionUsesConfiguredThroughput() {
+    public void productionUsesConfiguredOperatorThrottle() {
         ScheduledActionLimitConfig config =
                 new ScheduledActionLimitConfig(4, 2);
 
@@ -16,46 +16,55 @@ public class ScheduledActionLimitConfigTest {
     }
 
     @Test
+    public void productionCanBeUnboundedAtRuntimeLayer() {
+        ScheduledActionLimitConfig config =
+                new ScheduledActionLimitConfig(Integer.MAX_VALUE, Integer.MAX_VALUE);
+
+        assertEquals(Integer.MAX_VALUE, config.effectiveMaxRealOffers(true));
+        assertEquals(Integer.MAX_VALUE, config.effectiveMaxRealNextSteps(true));
+    }
+
+    @Test
     public void controlledModeAlwaysStaysAtOneAction() {
         ScheduledActionLimitConfig config =
-                new ScheduledActionLimitConfig(5, 5);
+                new ScheduledActionLimitConfig(Integer.MAX_VALUE, Integer.MAX_VALUE);
 
         assertEquals(1, config.effectiveMaxRealOffers(false));
         assertEquals(1, config.effectiveMaxRealNextSteps(false));
     }
 
     @Test
-    public void missingFirstOfferLimitDefaultsToThree() {
+    public void missingLimitUsesProvidedBackendControlledDefault() {
         assertEquals(
-                3,
+                Integer.MAX_VALUE,
                 ScheduledActionLimitConfig.parseLimit(
                         ScheduledActionLimitConfig.MAX_REAL_OFFERS_ENV,
                         null,
-                        3
+                        Integer.MAX_VALUE
                 )
         );
     }
 
     @Test
-    public void invalidLimitFallsBackToDefault() {
+    public void invalidNonPositiveLimitFallsBackToDefault() {
         assertEquals(
-                3,
+                Integer.MAX_VALUE,
+                ScheduledActionLimitConfig.parseLimit(
+                        ScheduledActionLimitConfig.MAX_REAL_OFFERS_ENV,
+                        "0",
+                        Integer.MAX_VALUE
+                )
+        );
+    }
+
+    @Test
+    public void explicitLargePositiveThrottleIsAccepted() {
+        assertEquals(
+                100,
                 ScheduledActionLimitConfig.parseLimit(
                         ScheduledActionLimitConfig.MAX_REAL_OFFERS_ENV,
                         "100",
-                        3
-                )
-        );
-    }
-
-    @Test
-    public void upperBoundaryFiveIsAccepted() {
-        assertEquals(
-                5,
-                ScheduledActionLimitConfig.parseLimit(
-                        ScheduledActionLimitConfig.MAX_REAL_OFFERS_ENV,
-                        "5",
-                        3
+                        Integer.MAX_VALUE
                 )
         );
     }
