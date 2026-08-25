@@ -20,14 +20,12 @@ spring:
   flyway:
     enabled: true
 
-  web:
-    error:
-      include-stacktrace: never
-      include-exception: false
-
 server:
   # Credential-bearing endpoints are intentionally local-only until the
   # application has an end-user authentication layer. Override deliberately
   # only behind a trusted reverse proxy/auth boundary.
   address: "${FLIPBOT_SERVER_ADDRESS:127.0.0.1}"
   port: "${SERVER_PORT:8080}"
+  error:
+    include-stacktrace: never
+    include-exception: false
