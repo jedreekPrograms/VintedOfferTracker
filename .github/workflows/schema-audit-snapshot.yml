@@ -3,7 +3,8 @@ name: Database Baseline Verification
 on:
   push:
     branches:
-      - audit/database-baseline-stage-3
+      - main
+  pull_request:
 
 permissions:
   contents: read
@@ -219,8 +220,6 @@ jobs:
           END
           $$;
 
-          -- Prove important CHECK constraints actually reject invalid data, not
-          -- merely that a similarly named constraint exists.
           DO $$
           DECLARE
               observer_id bigint;
