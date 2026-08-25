@@ -5,7 +5,6 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Playwright;
 import lombok.extern.slf4j.Slf4j;
 
-import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -60,15 +59,20 @@ public class BrowserManager implements AutoCloseable {
         this.browser = createdBrowser;
     }
 
-    public BrowserContext createContext(Path storageState) {
+    public BrowserContext createContext(String storageState) {
         assertOwnerThread("create browser context");
         assertOpen();
 
         Browser.NewContextOptions options =
                 new Browser.NewContextOptions();
 
-        if (storageState != null) {
-            options.setStorageStatePath(storageState);
+        /*
+         * Storage state is supplied as an in-memory JSON string. SessionManager
+         * is responsible for authenticated encryption at rest, so BrowserManager
+         * must never point Playwright at a persistent plaintext cookie file.
+         */
+        if (storageState != null && !storageState.isBlank()) {
+            options.setStorageState(storageState);
         }
 
         BrowserContext context = browser.newContext(options);
