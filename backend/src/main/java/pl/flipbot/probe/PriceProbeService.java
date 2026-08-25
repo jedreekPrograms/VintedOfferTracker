@@ -17,6 +17,7 @@ import pl.flipbot.probe.dto.PriceProbeOutcomeResponse;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
@@ -29,6 +30,12 @@ import java.util.concurrent.ThreadLocalRandom;
 public class PriceProbeService {
 
     public static final int MAX_PROBES_PER_LISTING = 15;
+
+    private static final Duration CLAIM_OUTCOME_TIMEOUT = Duration.ofMinutes(30);
+    private static final String STALE_CLAIM_FAILURE_REASON =
+            "Probe outcome was not reported within 30 minutes. "
+                    + "The marketplace message may already have been sent; "
+                    + "automatic retry is forbidden.";
 
     private static final BigDecimal MIN_PROBE_RATIO = new BigDecimal("0.65");
     private static final BigDecimal MAX_PROBE_RATIO = new BigDecimal("0.85");
@@ -70,7 +77,7 @@ public class PriceProbeService {
             return Optional.empty();
         }
 
-        cancelStaleClaims();
+        recoverUnreportedClaims();
 
         List<Listing> candidates = listingRepository
                 .findByStatusInOrderByIdAsc(ACTIVE_SOURCE_STATUSES);
@@ -230,21 +237,27 @@ public class PriceProbeService {
                 && !Boolean.TRUE.equals(bot.getMarketStatsObserver());
     }
 
-    private void cancelStaleClaims() {
-        LocalDateTime now = LocalDateTime.now();
+    private void recoverUnreportedClaims() {
+        LocalDateTime completedAt = LocalDateTime.now();
+        LocalDateTime claimedBefore = completedAt.minus(CLAIM_OUTCOME_TIMEOUT);
 
-        for (PriceProbe probe : priceProbeRepository.findByStatus(
-                PriceProbeStatus.CLAIMED
-        )) {
-            Listing source = probe.getSourceListing();
-            if (source != null && ACTIVE_SOURCE_STATUSES.contains(source.getStatus())) {
-                continue;
-            }
+        int recovered = priceProbeRepository.transitionStaleClaimsToUnknown(
+                PriceProbeStatus.CLAIMED,
+                PriceProbeStatus.UNKNOWN,
+                claimedBefore,
+                completedAt,
+                STALE_CLAIM_FAILURE_REASON
+        );
 
-            probe.setStatus(PriceProbeStatus.CANCELLED);
-            probe.setCompletedAt(now);
-            probe.setFailureReason("Source real negotiation is no longer active.");
-            priceProbeRepository.save(probe);
+        if (recovered > 0) {
+            log.warn(
+                    "[PRICE PROBE] Recovered {} stale CLAIMED probe(s) as UNKNOWN. "
+                            + "Claims at or before {} had no reported outcome after {} minutes. "
+                            + "Their slots remain reserved and no automatic message retry is allowed.",
+                    recovered,
+                    claimedBefore,
+                    CLAIM_OUTCOME_TIMEOUT.toMinutes()
+            );
         }
     }
 
