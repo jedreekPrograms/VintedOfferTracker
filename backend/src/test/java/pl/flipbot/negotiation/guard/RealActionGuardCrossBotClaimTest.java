@@ -51,8 +51,8 @@ class RealActionGuardCrossBotClaimTest {
     }
 
     @Test
-    void firstOfferIsBlockedBeforeGuardWhenAnotherBotOwnsMarketplaceListing() {
-        Listing listing = listing(22L, 2L, "9717432736");
+    void temporaryClaimBlocksAttemptWithoutMakingLosingListingTerminal() {
+        Listing listing = listing(22L, 2L, "9717432736", 0);
         UUID requestId = UUID.randomUUID();
 
         when(listingRepository.findByIdAndBotIdForUpdate(22L, 2L))
@@ -80,14 +80,50 @@ class RealActionGuardCrossBotClaimTest {
         );
 
         assertFalse(response.acquired());
+        assertEquals(ListingStatus.DISCOVERED, listing.getStatus());
+        verify(listingRepository, never()).saveAndFlush(listing);
+        verify(guardRepository, never()).saveAndFlush(any(RealActionGuard.class));
+    }
+
+    @Test
+    void confirmedClaimMakesLosingListingTerminal() {
+        Listing listing = listing(22L, 2L, "9717432736", 0);
+        UUID requestId = UUID.randomUUID();
+
+        when(listingRepository.findByIdAndBotIdForUpdate(22L, 2L))
+                .thenReturn(Optional.of(listing));
+        when(guardRepository.findByRequestId(requestId)).thenReturn(Optional.empty());
+        when(guardRepository.findByListing_Id(22L)).thenReturn(Optional.empty());
+        when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(0);
+        when(jdbcTemplate.queryForMap(anyString(), any(Object[].class))).thenReturn(
+                Map.of(
+                        "owner_bot_id", 1L,
+                        "owner_listing_id", 11L,
+                        "request_id", UUID.randomUUID(),
+                        "claimed_at", LocalDateTime.now(),
+                        "confirmed_at", LocalDateTime.now()
+                )
+        );
+
+        var response = service.acquire(
+                2L,
+                22L,
+                new AcquireRealActionGuardRequest(
+                        requestId,
+                        RealActionType.FIRST_OFFER,
+                        1
+                )
+        );
+
+        assertFalse(response.acquired());
         assertEquals(ListingStatus.SKIPPED_ALREADY_NEGOTIATED, listing.getStatus());
         verify(listingRepository).saveAndFlush(listing);
         verify(guardRepository, never()).saveAndFlush(any(RealActionGuard.class));
     }
 
     @Test
-    void preSubmitClaimReleaseReopensRowsSkippedOnlyByTemporaryOwnership() {
-        Listing ownerListing = listing(11L, 1L, "9717432736");
+    void preSubmitClaimReleaseOnlyDeletesReservationAndNeedsNoReopenPass() {
+        Listing ownerListing = listing(11L, 1L, "9717432736", 0);
         UUID requestId = UUID.randomUUID();
         RealActionGuard guard = RealActionGuard.builder()
                 .listing(ownerListing)
@@ -101,10 +137,7 @@ class RealActionGuardCrossBotClaimTest {
                 .thenReturn(Optional.of(ownerListing));
         when(guardRepository.findByListing_Id(11L))
                 .thenReturn(Optional.of(guard));
-
-        /* First update deletes the exact owner claim, second reopens two losers. */
-        when(jdbcTemplate.update(anyString(), any(Object[].class)))
-                .thenReturn(1, 2);
+        when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
 
         var response = service.release(
                 1L,
@@ -114,12 +147,47 @@ class RealActionGuardCrossBotClaimTest {
 
         assertTrue(response.released());
         assertFalse(response.alreadyAbsent());
-        verify(jdbcTemplate, times(2)).update(anyString(), any(Object[].class));
+        verify(jdbcTemplate, times(1)).update(anyString(), any(Object[].class));
         verify(guardRepository).delete(guard);
         verify(guardRepository).flush();
     }
 
-    private Listing listing(Long listingId, Long botId, String marketplaceListingId) {
+    @Test
+    void confirmedFirstOfferMarksMarketplaceClaimDurableBeforeGuardCleanup() {
+        Listing ownerListing = listing(11L, 1L, "9717432736", 1);
+        UUID requestId = UUID.randomUUID();
+        RealActionGuard guard = RealActionGuard.builder()
+                .listing(ownerListing)
+                .requestId(requestId)
+                .actionType(RealActionType.FIRST_OFFER)
+                .stepNumber(1)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        when(listingRepository.findByIdAndBotIdForUpdate(11L, 1L))
+                .thenReturn(Optional.of(ownerListing));
+        when(guardRepository.findByListing_Id(11L))
+                .thenReturn(Optional.of(guard));
+        when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+        var response = service.release(
+                1L,
+                11L,
+                new ReleaseRealActionGuardRequest(requestId)
+        );
+
+        assertTrue(response.released());
+        verify(jdbcTemplate, times(1)).update(anyString(), any(Object[].class));
+        verify(guardRepository).delete(guard);
+        verify(guardRepository).flush();
+    }
+
+    private Listing listing(
+            Long listingId,
+            Long botId,
+            String marketplaceListingId,
+            int currentStep
+    ) {
         BotConfiguration configuration = BotConfiguration.builder()
                 .marketplace(Marketplace.VINTED)
                 .build();
@@ -129,7 +197,7 @@ class RealActionGuardCrossBotClaimTest {
                 .id(listingId)
                 .listingId(marketplaceListingId)
                 .status(ListingStatus.DISCOVERED)
-                .currentStep(0)
+                .currentStep(currentStep)
                 .bot(bot)
                 .build();
     }
