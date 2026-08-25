@@ -97,8 +97,8 @@ class FlywayBaselineCompatibilityTest {
                         0,
                         scalarCount(
                                 statement,
-                                "SELECT COUNT(*) FROM " + schema
-                                        + ".pg_catalog.pg_class WHERE relname = 'baseline_only_marker'"
+                                "SELECT CASE WHEN to_regclass('" + schema
+                                        + ".baseline_only_marker') IS NULL THEN 0 ELSE 1 END"
                         )
                 );
             }
