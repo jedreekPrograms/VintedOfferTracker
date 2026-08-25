@@ -1,13 +1,18 @@
 spring:
   datasource:
-    url: "jdbc:postgresql://localhost:5433/flipbot"
-    username: postgres
-    password: postgres
+    url: "${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5433/flipbot}"
+    username: "${SPRING_DATASOURCE_USERNAME:postgres}"
+    password: "${SPRING_DATASOURCE_PASSWORD:postgres}"
 
   jpa:
+    open-in-view: false
     hibernate:
+      # Transitional until the schema-baseline stage of the audit: historical
+      # installations were bootstrapped by Hibernate before Flyway migrations
+      # existed. Stage 3 replaces this mixed ownership with a reproducible
+      # Flyway baseline; changing this to validate before that would break a
+      # fresh local database.
       ddl-auto: update
-
     properties:
       hibernate:
         format_sql: true
@@ -21,4 +26,8 @@ spring:
       include-exception: false
 
 server:
-  port: 8080
+  # Credential-bearing endpoints are intentionally local-only until the
+  # application has an end-user authentication layer. Override deliberately
+  # only behind a trusted reverse proxy/auth boundary.
+  address: "${FLIPBOT_SERVER_ADDRESS:127.0.0.1}"
+  port: "${SERVER_PORT:8080}"
