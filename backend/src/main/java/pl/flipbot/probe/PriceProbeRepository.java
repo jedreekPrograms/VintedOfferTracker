@@ -30,8 +30,6 @@ public interface PriceProbeRepository extends JpaRepository<PriceProbe, Long> {
         );
     }
 
-    List<PriceProbe> findByStatus(PriceProbeStatus status);
-
     Optional<PriceProbe> findByIdAndProbeBot_Id(Long probeId, Long probeBotId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
