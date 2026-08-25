@@ -111,6 +111,72 @@ public class SessionManager {
     }
 
     /**
+     * Compatibility contract used by BotContext. The returned Path is only a
+     * logical reference to stored session material. BrowserManager must resolve
+     * it through readStorageStateFromReference() and pass the resulting JSON to
+     * Playwright in memory; the path itself is never given to Playwright.
+     */
+    public Path sessionFile(Long botId) {
+        validateBotId(botId);
+
+        Path encrypted = encryptedSessionFile(botId);
+        if (Files.exists(encrypted)) {
+            return encrypted;
+        }
+
+        return legacySessionFile(botId);
+    }
+
+    /**
+     * Resolves an encrypted/legacy session reference into plaintext JSON in
+     * memory. Legacy .json state is migrated to encrypted storage before this
+     * method returns.
+     */
+    public static String readStorageStateFromReference(Path sessionReference) {
+        if (sessionReference == null
+                || sessionReference.getFileName() == null) {
+            throw new IllegalArgumentException(
+                    "Session reference is required."
+            );
+        }
+
+        Matcher matcher = SESSION_FILE_PATTERN.matcher(
+                sessionReference.getFileName().toString()
+        );
+
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException(
+                    "Unsupported Playwright session reference: "
+                            + sessionReference
+            );
+        }
+
+        Long botId;
+        try {
+            botId = Long.valueOf(matcher.group(1));
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(
+                    "Invalid bot ID in Playwright session reference: "
+                            + sessionReference,
+                    exception
+            );
+        }
+
+        Path parent = sessionReference.getParent();
+        if (parent == null) {
+            parent = Path.of(".");
+        }
+
+        return new SessionManager(parent, null)
+                .loadSessionState(botId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Playwright session disappeared before it could be restored for bot "
+                                + botId
+                                + "."
+                ));
+    }
+
+    /**
      * Loads a storage-state JSON document into memory. Persistent state is
      * encrypted with AES-256-GCM and authenticated against the owning bot ID.
      *
