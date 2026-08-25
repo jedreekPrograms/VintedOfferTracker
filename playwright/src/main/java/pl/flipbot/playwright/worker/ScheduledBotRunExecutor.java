@@ -1,5 +1,6 @@
 package pl.flipbot.playwright.worker;
 
+import com.microsoft.playwright.TimeoutError;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
@@ -12,6 +13,7 @@ import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
+import pl.flipbot.playwright.probe.PriceProbeTestStealthProfile;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
 
 @Slf4j
@@ -25,6 +27,9 @@ public class ScheduledBotRunExecutor {
 
     private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
             PriceProbeRuntimeConfig.fromEnvironment();
+
+    private static final int LOGIN_MAX_ATTEMPTS = 2;
+    private static final double LOGIN_RETRY_DELAY_MS = 1_500;
 
     private final BotDetailsDto bot;
     private final BrowserManager browserManager;
@@ -73,6 +78,10 @@ public class ScheduledBotRunExecutor {
                     );
                     return;
                 }
+
+                PriceProbeTestStealthProfile.installIfEnabled(
+                        context.getBrowserContext()
+                );
 
                 new SandboxCloneLoginService(
                         context,
@@ -208,7 +217,7 @@ public class ScheduledBotRunExecutor {
                     maxRealNextStepsPerRun
             );
 
-            loginService.login();
+            loginWithTransientRetry(loginService, context, botId);
             loginReady = true;
 
             if (jobType == null) {
@@ -254,6 +263,50 @@ public class ScheduledBotRunExecutor {
                 );
             }
         }
+    }
+
+    private void loginWithTransientRetry(
+            LoginService loginService,
+            BotContext context,
+            Long botId
+    ) {
+        for (int attempt = 1; attempt <= LOGIN_MAX_ATTEMPTS; attempt++) {
+            try {
+                loginService.login();
+                return;
+            } catch (TimeoutError exception) {
+                if (attempt == LOGIN_MAX_ATTEMPTS) {
+                    throw exception;
+                }
+
+                log.warn(
+                        "[LOGIN] Transient Playwright timeout for bot {} on attempt {}/{}. Retrying the normal login/session check in {}ms. reason={}",
+                        botId,
+                        attempt,
+                        LOGIN_MAX_ATTEMPTS,
+                        (int) LOGIN_RETRY_DELAY_MS,
+                        firstLine(exception)
+                );
+
+                context.getPage().waitForTimeout(LOGIN_RETRY_DELAY_MS);
+            }
+        }
+    }
+
+    private String firstLine(Throwable throwable) {
+        if (throwable == null
+                || throwable.getMessage() == null
+                || throwable.getMessage().isBlank()) {
+            return throwable == null
+                    ? "unknown error"
+                    : throwable.getClass().getSimpleName();
+        }
+
+        return throwable.getMessage()
+                .lines()
+                .findFirst()
+                .orElse(throwable.getMessage())
+                .trim();
     }
 
     private void logExecutionMode(
