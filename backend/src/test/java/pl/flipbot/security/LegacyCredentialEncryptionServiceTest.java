@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -106,6 +107,28 @@ class LegacyCredentialEncryptionServiceTest {
 
         assertDoesNotThrow(
                 () -> service.run(mock(ApplicationArguments.class))
+        );
+    }
+
+    @Test
+    void invalidPrefixedCiphertextFailsClosedInsteadOfBeingDoubleEncrypted() {
+        when(jdbcTemplate.queryForList(anyString())).thenReturn(
+                List.of(Map.of("id", 10L, "password", "enc:v1:wrong-key-or-corrupt"))
+        );
+        when(converter.isEncryptedDatabaseValue("enc:v1:wrong-key-or-corrupt"))
+                .thenThrow(new IllegalStateException("Could not decrypt password"));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service.run(mock(ApplicationArguments.class))
+        );
+
+        verify(converter, never()).convertToDatabaseColumn("enc:v1:wrong-key-or-corrupt");
+        verify(jdbcTemplate, never()).update(
+                anyString(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
         );
     }
 }
