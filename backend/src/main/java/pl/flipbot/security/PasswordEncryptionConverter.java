@@ -98,10 +98,10 @@ public class PasswordEncryptionConverter
             return null;
         }
 
-        // Backward compatibility is intentionally kept for one reason only:
-        // LegacyCredentialEncryptionService migrates old raw values before the
-        // application is considered ready. Keeping the fallback makes upgrades
-        // recoverable if an old database contains an unexpected legacy row.
+        // Legacy non-prefixed plaintext can still be read for the duration of
+        // the startup migration. Prefixed values are never treated as legacy:
+        // if AES-GCM authentication fails, the configured key is wrong or the
+        // stored ciphertext is corrupted and startup must fail closed.
         if (!databaseValue.startsWith(PREFIX)) {
             return databaseValue;
         }
@@ -110,22 +110,18 @@ public class PasswordEncryptionConverter
     }
 
     /**
-     * Returns true only when the value is a valid AES-GCM payload encrypted by
-     * the currently configured key. Checking the textual prefix alone is not
-     * sufficient because an old legitimate plaintext password may itself begin
-     * with "enc:v1:".
+     * Returns false only for an unambiguously legacy, non-prefixed value.
+     * A prefixed value must authenticate successfully with AES-GCM; otherwise
+     * an exception is deliberately propagated so a wrong key can never cause
+     * destructive double-encryption during the legacy migration.
      */
     public boolean isEncryptedDatabaseValue(String databaseValue) {
         if (databaseValue == null || !databaseValue.startsWith(PREFIX)) {
             return false;
         }
 
-        try {
-            decryptEncryptedValue(databaseValue);
-            return true;
-        } catch (IllegalStateException exception) {
-            return false;
-        }
+        decryptEncryptedValue(databaseValue);
+        return true;
     }
 
     private String decryptEncryptedValue(String databaseValue) {
@@ -163,7 +159,7 @@ public class PasswordEncryptionConverter
             throw exception;
         } catch (Exception exception) {
             throw new IllegalStateException(
-                    "Could not decrypt password.",
+                    "Could not decrypt password. Check FLIPBOT_ENCRYPTION_KEY and stored credential integrity.",
                     exception
             );
         }
