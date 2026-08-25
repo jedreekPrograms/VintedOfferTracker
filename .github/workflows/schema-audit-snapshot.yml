@@ -101,14 +101,20 @@ jobs:
             exit 1
           fi
 
-          pg_dump \
-            -h localhost \
-            -U postgres \
-            -d flipbot_schema_audit \
-            --schema-only \
-            --no-owner \
-            --no-privileges \
-            --schema=public \
+          # GitHub's Ubuntu image may ship an older pg_dump than the PostgreSQL
+          # service. Use the exact postgres:17 toolchain so schema extraction
+          # cannot fail because of a client/server major-version mismatch.
+          docker run --rm --network host \
+            -e PGPASSWORD=postgres \
+            postgres:17 \
+            pg_dump \
+              -h 127.0.0.1 \
+              -U postgres \
+              -d flipbot_schema_audit \
+              --schema-only \
+              --no-owner \
+              --no-privileges \
+              --schema=public \
             > target/hibernate-schema.sql
 
           echo '===== HIBERNATE_SCHEMA_BEGIN ====='
@@ -116,10 +122,11 @@ jobs:
           echo '===== HIBERNATE_SCHEMA_END ====='
 
       - name: Upload schema evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hibernate-postgres-schema
           path: |
             backend/target/hibernate-schema.sql
             backend/target/schema-audit-app.log
-          if-no-files-found: error
+          if-no-files-found: warn
