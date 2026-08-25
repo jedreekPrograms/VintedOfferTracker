@@ -12,5 +12,7 @@ public interface RealActionGuardRepository
 
     Optional<RealActionGuard> findByRequestId(UUID requestId);
 
+    boolean existsByListing_Bot_Id(Long botId);
+
     void deleteByListing_Id(Long listingId);
 }
