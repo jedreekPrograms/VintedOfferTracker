@@ -26,6 +26,9 @@ export interface CreateNegotiationStepRequest {
     rejectionAction: NegotiationReactionAction;
     rejectionWaitHours: number | null;
 
+    readWaitHours: number;
+    unreadWaitHours: number;
+
     counterOfferDefaultAction: NegotiationReactionAction;
     counterOfferDefaultWaitHours: number | null;
 
@@ -91,6 +94,9 @@ export interface BotNegotiationStep {
 
     rejectionAction: NegotiationReactionAction;
     rejectionWaitHours: number | null;
+
+    readWaitHours: number;
+    unreadWaitHours: number;
 
     counterOfferDefaultAction: NegotiationReactionAction;
     counterOfferDefaultWaitHours: number | null;

@@ -15,8 +15,9 @@ import java.util.Optional;
 @Slf4j
 public class PendingNegotiationPolicy {
 
-    private static final long ENGAGED_WAIT_HOURS = 3L;
-    private static final long NO_ENGAGEMENT_EXPIRY_HOURS = 48L;
+    private static final long SELLER_MESSAGE_WAIT_HOURS = 3L;
+    private static final int DEFAULT_READ_WAIT_HOURS = 3;
+    private static final int DEFAULT_UNREAD_WAIT_HOURS = 48;
 
     private final AdaptiveNegotiationPricingService pricingService =
             new AdaptiveNegotiationPricingService();
@@ -38,6 +39,24 @@ public class PendingNegotiationPolicy {
                 listing
         );
 
+        NegotiationStepDto currentStep = findCurrentStep(
+                listing.currentStep(),
+                configuration.getNegotiationSteps()
+        ).orElse(null);
+
+        int readWaitHours = configuredDelay(
+                currentStep == null ? null : currentStep.getReadWaitHours(),
+                DEFAULT_READ_WAIT_HOURS,
+                "readWaitHours",
+                listing
+        );
+        int unreadWaitHours = configuredDelay(
+                currentStep == null ? null : currentStep.getUnreadWaitHours(),
+                DEFAULT_UNREAD_WAIT_HOURS,
+                "unreadWaitHours",
+                listing
+        );
+
         LocalDateTime sellerActivityAt = resolveSellerActivityAt(
                 listing,
                 activitySnapshot,
@@ -46,7 +65,7 @@ public class PendingNegotiationPolicy {
 
         if (sellerActivityAt != null) {
             LocalDateTime nextActionAt = sellerActivityAt.plusHours(
-                    ENGAGED_WAIT_HOURS
+                    SELLER_MESSAGE_WAIT_HOURS
             );
 
             if (now.isBefore(nextActionAt)) {
@@ -65,7 +84,7 @@ public class PendingNegotiationPolicy {
                     "The seller sent a normal message at "
                             + sellerActivityAt
                             + " and at least "
-                            + ENGAGED_WAIT_HOURS
+                            + SELLER_MESSAGE_WAIT_HOURS
                             + " hours have passed without a formal acceptance, rejection or counteroffer."
             );
         }
@@ -78,15 +97,17 @@ public class PendingNegotiationPolicy {
         );
 
         if (readDetectedAt != null) {
-            LocalDateTime nextActionAt = readDetectedAt.plusHours(
-                    ENGAGED_WAIT_HOURS
-            );
+            LocalDateTime nextActionAt = readDetectedAt.plusHours(readWaitHours);
 
             if (now.isBefore(nextActionAt)) {
                 return PendingNegotiationDecision.waitForSeller(
                         "The latest offer has been read. The read timer started at "
                                 + readDetectedAt
-                                + ". The bot will wait until "
+                                + ". Step "
+                                + listing.currentStep()
+                                + " is configured to wait "
+                                + readWaitHours
+                                + " hour(s), so the bot will wait until "
                                 + nextActionAt
                                 + " before continuing the negotiation."
                 );
@@ -95,34 +116,46 @@ public class PendingNegotiationPolicy {
             return continueOrExpire(
                     listing,
                     configuration,
-                    "The latest offer has been read and at least "
-                            + ENGAGED_WAIT_HOURS
-                            + " hours have passed without a formal acceptance, rejection or counteroffer."
+                    "The latest offer has been read and the configured "
+                            + readWaitHours
+                            + " hour read follow-up delay for step "
+                            + listing.currentStep()
+                            + " has elapsed without a formal acceptance, rejection or counteroffer."
             );
         }
 
         if (currentStepStartedAt == null) {
             return PendingNegotiationDecision.waitForSeller(
-                    "The latest offer is pending and the backend has no currentStepStartedAt timestamp, so the 48-hour inactivity timer cannot be evaluated safely."
+                    "The latest offer is pending and the backend has no currentStepStartedAt timestamp, so the configured "
+                            + unreadWaitHours
+                            + " hour unread timer cannot be evaluated safely."
             );
         }
 
-        LocalDateTime expiryAt = currentStepStartedAt.plusHours(
-                NO_ENGAGEMENT_EXPIRY_HOURS
+        LocalDateTime nextUnreadActionAt = currentStepStartedAt.plusHours(
+                unreadWaitHours
         );
 
-        if (now.isBefore(expiryAt)) {
+        if (now.isBefore(nextUnreadActionAt)) {
             return PendingNegotiationDecision.waitForSeller(
-                    "The latest offer is pending with no seller message and no read indicator. The inactivity timeout is "
-                            + expiryAt
+                    "The latest offer is pending with no seller message and no read indicator. Step "
+                            + listing.currentStep()
+                            + " is configured to wait "
+                            + unreadWaitHours
+                            + " hour(s); the next action may happen at "
+                            + nextUnreadActionAt
                             + "."
             );
         }
 
-        return PendingNegotiationDecision.expire(
-                "The latest offer received no seller message, no read indicator and no formal response for at least "
-                        + NO_ENGAGEMENT_EXPIRY_HOURS
-                        + " hours."
+        return continueOrExpire(
+                listing,
+                configuration,
+                "The latest offer received no seller message, no read indicator and no formal response for the configured "
+                        + unreadWaitHours
+                        + " hour unread delay on step "
+                        + listing.currentStep()
+                        + "."
         );
     }
 
@@ -166,6 +199,44 @@ public class PendingNegotiationPolicy {
                         + configuration.getMaxAutomaticOffer()
                         + ", so no higher automatic offer will be sent and the conversation will be closed as EXPIRED."
         );
+    }
+
+    private Optional<NegotiationStepDto> findCurrentStep(
+            Integer currentStepNumber,
+            List<NegotiationStepDto> negotiationSteps
+    ) {
+        if (currentStepNumber == null || negotiationSteps == null) {
+            return Optional.empty();
+        }
+        return negotiationSteps.stream()
+                .filter(Objects::nonNull)
+                .filter(step -> Objects.equals(step.getStepNumber(), currentStepNumber))
+                .findFirst();
+    }
+
+    private int configuredDelay(
+            Integer configured,
+            int fallback,
+            String fieldName,
+            ListingResponseDto listing
+    ) {
+        if (configured == null) {
+            log.debug(
+                    "[PENDING POLICY] Step {} has no {} in the transport payload for marketplace listing {}. Using backward-compatible default {}h.",
+                    listing.currentStep(),
+                    fieldName,
+                    listing.listingId(),
+                    fallback
+            );
+            return fallback;
+        }
+        if (configured < 1) {
+            throw new IllegalStateException(
+                    "Negotiation step " + listing.currentStep()
+                            + " has invalid " + fieldName + "=" + configured
+            );
+        }
+        return configured;
     }
 
     private LocalDateTime resolveSellerActivityAt(

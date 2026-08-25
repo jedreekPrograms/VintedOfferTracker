@@ -17,6 +17,8 @@ export type NegotiationStepField =
 export type NegotiationStepPolicyField =
     | "rejectionAction"
     | "rejectionWaitHours"
+    | "readWaitHours"
+    | "unreadWaitHours"
     | "counterOfferDefaultAction"
     | "counterOfferDefaultWaitHours";
 
@@ -40,6 +42,9 @@ export interface NegotiationStepForm {
 
     rejectionAction: NegotiationReactionAction;
     rejectionWaitHours: string;
+
+    readWaitHours: string;
+    unreadWaitHours: string;
 
     counterOfferDefaultAction: NegotiationReactionAction;
     counterOfferDefaultWaitHours: string;
@@ -87,6 +92,9 @@ export interface ValidatedNegotiationStep {
 
     rejectionAction: NegotiationReactionAction;
     rejectionWaitHours: number | null;
+
+    readWaitHours: number;
+    unreadWaitHours: number;
 
     counterOfferDefaultAction: NegotiationReactionAction;
     counterOfferDefaultWaitHours: number | null;
