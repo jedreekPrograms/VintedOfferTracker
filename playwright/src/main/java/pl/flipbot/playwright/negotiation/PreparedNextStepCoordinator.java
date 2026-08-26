@@ -95,10 +95,11 @@ public class PreparedNextStepCoordinator {
             );
 
             log.error(
-                    "Prepared next-step finalization failed for listing {}. State is kept fail-closed.",
+                    "Prepared next-step finalization failed for listing {}. State is kept fail-closed and this real-action job must stop.",
                     listing.listingId()
             );
-            throw exception;
+
+            throw ambiguousFailure(listing, exception);
         }
 
         if (result != NextStepExecutionResult.SENT) {
@@ -113,7 +114,8 @@ public class PreparedNextStepCoordinator {
                     requestId,
                     exception
             );
-            throw exception;
+
+            throw ambiguousFailure(listing, exception);
         }
 
         audit.recordConfirmedRequired(
@@ -129,6 +131,19 @@ public class PreparedNextStepCoordinator {
                 requestId
         );
         return true;
+    }
+
+    private AmbiguousRealActionException ambiguousFailure(
+            ListingResponseDto listing,
+            Throwable cause
+    ) {
+        return new AmbiguousRealActionException(
+                "NEXT_STEP submit for marketplace listing "
+                        + listing.listingId()
+                        + " may already have reached Vinted. "
+                        + "Abort this real-action job and do not continue with another listing.",
+                cause
+        );
     }
 
     private void releaseQuota(Long botId) {
