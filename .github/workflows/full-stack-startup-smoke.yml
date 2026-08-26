@@ -1,0 +1,236 @@
+name: Full Stack Startup Smoke
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-startup-smoke:
+    name: Backend + Playwright startup
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: flipbot
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d flipbot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: |
+            backend/pom.xml
+            playwright/pom.xml
+
+      - name: Build backend and Playwright runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          bash ./mvnw -B -DskipTests package
+          cd ../playwright
+          mvn -B -DskipTests package dependency:build-classpath \
+            -Dmdep.outputFile=target/runtime-classpath.txt
+
+      - name: Start real backend from clean PostgreSQL
+        shell: bash
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/flipbot
+          SPRING_DATASOURCE_USERNAME: postgres
+          SPRING_DATASOURCE_PASSWORD: postgres
+          SERVER_PORT: "8080"
+          FLIPBOT_SERVER_ADDRESS: 127.0.0.1
+        run: |
+          set -euo pipefail
+
+          export FLIPBOT_ENCRYPTION_KEY="$(printf '00000000000000000000000000000000' | base64 -w0)"
+
+          BACKEND_JAR="$(find backend/target -maxdepth 1 -type f -name 'backend-*.jar' ! -name '*.original' | head -1)"
+          test -n "$BACKEND_JAR"
+
+          java -jar "$BACKEND_JAR" > "$RUNNER_TEMP/flipbot-backend.log" 2>&1 &
+          BACKEND_PID=$!
+          echo "$BACKEND_PID" > "$RUNNER_TEMP/flipbot-backend.pid"
+
+          healthy=false
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent --show-error \
+                http://127.0.0.1:8080/actuator/health \
+                | grep -q '"status":"UP"'; then
+              healthy=true
+              break
+            fi
+
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              echo "Backend process exited before becoming healthy."
+              cat "$RUNNER_TEMP/flipbot-backend.log"
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          if [ "$healthy" != true ]; then
+            echo "Backend did not become healthy."
+            cat "$RUNNER_TEMP/flipbot-backend.log"
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/api/scheduler/bots/running \
+            > "$RUNNER_TEMP/running-bots.json"
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/api/bots \
+            > "$RUNNER_TEMP/all-bots.json"
+
+          python3 - <<'PY'
+          import json
+          import os
+
+          for name in ("running-bots.json", "all-bots.json"):
+              path = os.path.join(os.environ["RUNNER_TEMP"], name)
+              with open(path, encoding="utf-8") as handle:
+                  payload = json.load(handle)
+              if not isinstance(payload, list):
+                  raise SystemExit(f"{name} is not a JSON array")
+          PY
+
+      - name: Start real Playwright scheduler against backend
+        shell: bash
+        env:
+          FLIPBOT_BACKEND_URL: http://127.0.0.1:8080
+          FLIPBOT_MARKET_STATS_ENABLED: "false"
+          FLIPBOT_SYNC_INTERVAL_SECONDS: "1"
+          FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS: "5"
+          FLIPBOT_SCHEDULER_HEADLESS: "true"
+        run: |
+          set -euo pipefail
+
+          export FLIPBOT_ENCRYPTION_KEY="$(printf '00000000000000000000000000000000' | base64 -w0)"
+
+          cd playwright
+          CLASSPATH="target/classes:$(cat target/runtime-classpath.txt)"
+
+          java -cp "$CLASSPATH" \
+            pl.flipbot.playwright.FlipBotPlaywrightApplication \
+            > "$RUNNER_TEMP/flipbot-playwright.log" 2>&1 &
+          PLAYWRIGHT_PID=$!
+          echo "$PLAYWRIGHT_PID" > "$RUNNER_TEMP/flipbot-playwright.pid"
+
+          synchronized=false
+          for attempt in $(seq 1 30); do
+            if grep -Fq '[SCHEDULER] Sync complete.' \
+                "$RUNNER_TEMP/flipbot-playwright.log"; then
+              synchronized=true
+              break
+            fi
+
+            if ! kill -0 "$PLAYWRIGHT_PID" 2>/dev/null; then
+              echo "Playwright scheduler exited before its first backend sync."
+              cat "$RUNNER_TEMP/flipbot-playwright.log"
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          if [ "$synchronized" != true ]; then
+            echo "Playwright scheduler never completed a backend sync."
+            cat "$RUNNER_TEMP/flipbot-playwright.log"
+            exit 1
+          fi
+
+          if grep -Fq 'Failed to synchronize RUNNING bots with scheduler.' \
+              "$RUNNER_TEMP/flipbot-playwright.log"; then
+            echo "Scheduler reported backend synchronization failure."
+            cat "$RUNNER_TEMP/flipbot-playwright.log"
+            exit 1
+          fi
+
+          if grep -Fq '[SESSION] Could not reconcile stored session retention' \
+              "$RUNNER_TEMP/flipbot-playwright.log"; then
+            echo "Session retention could not communicate with the backend."
+            cat "$RUNNER_TEMP/flipbot-playwright.log"
+            exit 1
+          fi
+
+          kill -TERM "$PLAYWRIGHT_PID"
+
+          stopped=false
+          for attempt in $(seq 1 20); do
+            if ! kill -0 "$PLAYWRIGHT_PID" 2>/dev/null; then
+              stopped=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$stopped" != true ]; then
+            echo "Playwright scheduler did not stop cleanly after SIGTERM."
+            cat "$RUNNER_TEMP/flipbot-playwright.log"
+            kill -KILL "$PLAYWRIGHT_PID" || true
+            exit 1
+          fi
+
+          if ! grep -Fq 'Scheduler runtime stopped.' \
+              "$RUNNER_TEMP/flipbot-playwright.log"; then
+            echo "Playwright process exited without completing scheduler shutdown."
+            cat "$RUNNER_TEMP/flipbot-playwright.log"
+            exit 1
+          fi
+
+      - name: Show runtime evidence
+        if: always()
+        shell: bash
+        run: |
+          echo '=== BACKEND LOG (tail) ==='
+          tail -n 120 "$RUNNER_TEMP/flipbot-backend.log" 2>/dev/null || true
+          echo
+          echo '=== PLAYWRIGHT LOG ==='
+          cat "$RUNNER_TEMP/flipbot-playwright.log" 2>/dev/null || true
+
+      - name: Stop remaining processes
+        if: always()
+        shell: bash
+        run: |
+          for pid_file in \
+              "$RUNNER_TEMP/flipbot-playwright.pid" \
+              "$RUNNER_TEMP/flipbot-backend.pid"; do
+            if [ ! -f "$pid_file" ]; then
+              continue
+            fi
+
+            pid="$(cat "$pid_file")"
+            if kill -0 "$pid" 2>/dev/null; then
+              kill -TERM "$pid" 2>/dev/null || true
+              for attempt in $(seq 1 10); do
+                if ! kill -0 "$pid" 2>/dev/null; then
+                  break
+                fi
+                sleep 1
+              done
+              kill -KILL "$pid" 2>/dev/null || true
+            fi
+          done
