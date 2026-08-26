@@ -1,6 +1,6 @@
 # FlipBot Fingerprint Defense Lab
 
-This module is a **local defensive laboratory** for studying browser fingerprinting and tamper detection. It is intentionally separate from FlipBot's marketplace runtime and is not wired into `BrowserManager`, `BotContext`, login, scanning or negotiation flows.
+This module is a **local defensive laboratory** for studying browser fingerprinting and tamper detection. It has its own standalone launcher and also exposes an explicitly gated bridge into FlipBot's regular `BrowserManager` pipeline for testing the same browser-context path against laboratory URLs. Login, scanning, negotiation, workers and marketplace navigation are otherwise unchanged.
 
 ## Safety boundary
 
@@ -93,12 +93,49 @@ mvn -DskipTests compile org.codehaus.mojo:exec-maven-plugin:3.6.3:java `
 
 Assets and API calls to another allowed loopback / `*.test` URL are allowed. Production CDNs, analytics endpoints and external WebSockets are blocked by the lab network boundary.
 
-## Important separation from FlipBot production automation
+## Guarded integration with FlipBot BrowserManager
 
-The lab code lives under:
+The regular `BrowserManager.createContext(...)` path can use the same laboratory profile, but only when all three conditions are present:
+
+```text
+FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION=true
+FLIPBOT_FINGERPRINT_LAB=true
+FLIPBOT_FINGERPRINT_LAB_URL=<allowed laboratory URL>
+```
+
+For example, a local test target may be configured as:
+
+```powershell
+$env:FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION="true"
+$env:FLIPBOT_FINGERPRINT_LAB="true"
+$env:FLIPBOT_FINGERPRINT_LAB_URL="http://127.0.0.1:18091/"
+```
+
+When the runtime bridge is active:
+
+- `BrowserManager` applies the laboratory locale/timezone/viewport/DPR context options before context creation;
+- Service Workers are blocked;
+- the existing laboratory HTTP(S) and WebSocket safety boundary is installed;
+- the synthetic fingerprint init script is installed before documents load;
+- the existing Vinted informational-dialog guard and normal session logic remain in place;
+- the context is still unable to reach Vinted or arbitrary production hosts because the allowlist/network boundary is unchanged.
+
+If the runtime-integration flag is absent, normal FlipBot behavior is unchanged. If integration is requested but the lab feature flag is missing, the target is missing, or the target is not on the laboratory allowlist, context creation fails closed.
+
+The bridge does **not** change `MarketplaceNavigator` or redirect production flows to a test site. It only makes the regular browser-context creation path laboratory-capable when explicitly configured.
+
+## Code layout
+
+Laboratory code lives under:
 
 ```text
 pl.flipbot.playwright.lab.fingerprint
 ```
 
-No production browser class imports it. Do not move the simulator into `BrowserManager`, `BotContext`, marketplace login or worker code. The laboratory is designed to be useful precisely because it can be run and inspected without changing the behavior of real marketplace bots.
+The guarded integration entry point is:
+
+```text
+FingerprintLabRuntimeIntegration
+```
+
+`BrowserManager` calls that bridge while the rest of the production marketplace workflow remains unchanged. Keep the allowlist and network boundary intact when extending the laboratory.
