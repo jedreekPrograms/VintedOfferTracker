@@ -57,4 +57,20 @@ public class PriceProbeTestHumanPacingTest {
                 )
         );
     }
+
+    @Test
+    public void pacingScopeRejectsDnsEquivalentVintedEndpointEvenWhenConstructedDirectly() {
+        PriceProbeRuntimeConfig dottedVintedConfig =
+                new PriceProbeRuntimeConfig(
+                        true,
+                        URI.create("https://www.vinted.pl.")
+                );
+
+        assertFalse(
+                PriceProbeTestHumanPacing.allowedFor(
+                        dottedVintedConfig,
+                        "https://www.vinted.pl./items/123"
+                )
+        );
+    }
 }
