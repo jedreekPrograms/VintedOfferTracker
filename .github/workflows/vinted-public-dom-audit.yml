@@ -57,6 +57,22 @@ jobs:
             if (!condition) throw new Error(message);
           }
 
+          async function visibleButtons(page) {
+            const buttons = page.getByRole('button');
+            const result = [];
+            for (let i = 0; i < Math.min(await buttons.count(), 80); i++) {
+              const button = buttons.nth(i);
+              if (!(await button.isVisible().catch(() => false))) continue;
+              result.push({
+                text: (await button.innerText().catch(() => '')).replace(/\s+/g, ' ').trim(),
+                aria: await button.getAttribute('aria-label'),
+                testId: await button.getAttribute('data-testid'),
+                id: await button.getAttribute('id')
+              });
+            }
+            return result;
+          }
+
           const browser = await chromium.launch({ headless: true });
           const context = await browser.newContext({
             locale: 'pl-PL',
@@ -97,16 +113,28 @@ jobs:
               requireCondition(count > 0, `Current Vinted phone catalog is missing expected filter trigger ${id}`);
             }
 
-            console.log('=== BRAND PANEL ===');
+            console.log('=== BRAND PANEL + LIVE PERSISTENCE ===');
             await page.getByTestId('catalog--brand-filter--trigger').click();
             await page.waitForTimeout(500);
-            const applyCount = await page.locator("[data-testid='filter-selection-button']").count();
-            console.log('filter-selection-button=' + applyCount);
-            requireCondition(applyCount > 0, 'Current Vinted brand panel is missing filter-selection-button');
-            await page.keyboard.press('Escape').catch(() => {});
+            console.log('brand.filter-selection-button=' + await page.locator("[data-testid='filter-selection-button']").count());
+            console.log('brand.visibleButtons=' + JSON.stringify(await visibleButtons(page)));
 
-            console.log('=== SAMSUNG MODEL PANEL ===');
-            await page.goto(SAMSUNG_PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            const samsungButton = page.getByRole('button', { name: 'Samsung', exact: true }).first();
+            await samsungButton.waitFor({ state: 'visible', timeout: 15000 });
+            const brandUrlBefore = page.url();
+            await samsungButton.click();
+            await page.waitForTimeout(1600);
+            const brandUrlAfter = page.url();
+            console.log('brandUrlBefore=' + brandUrlBefore);
+            console.log('brandUrlAfter=' + brandUrlAfter);
+            console.log('brand.persistedAutomatically=' + (brandUrlAfter !== brandUrlBefore));
+            console.log('brand.postClick.filter-selection-button=' + await page.locator("[data-testid='filter-selection-button']").count());
+            console.log('brand.postClick.visibleButtons=' + JSON.stringify(await visibleButtons(page)));
+
+            console.log('=== SAMSUNG MODEL PANEL + LIVE PERSISTENCE ===');
+            if (!/\/brand\/109048-samsung(?:[/?#]|$)/.test(page.url())) {
+              await page.goto(SAMSUNG_PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            }
             await page.locator(core.card).first().waitFor({ state: 'attached', timeout: 30000 });
             const modelTrigger = page.getByTestId('catalog--brand_collection-filter--trigger');
             await modelTrigger.waitFor({ state: 'visible', timeout: 15000 });
@@ -120,33 +148,58 @@ jobs:
             await modelSearch.fill('Galaxy S25');
             await page.waitForTimeout(1200);
 
-            const modelRows = page.locator("[data-testid^='selectable-item-brand_collection-']");
+            const modelRows = page.locator("[data-testid^='selectable-item-brand_collection-']:not([data-testid$='--title'])");
             const modelRowCount = await modelRows.count();
             console.log('modelRowCount=' + modelRowCount);
             requireCondition(modelRowCount > 0,
               'Current Vinted model search returned no selectable-item-brand_collection-* rows');
 
             const modelEvidence = [];
-            for (let i = 0; i < Math.min(modelRowCount, 12); i++) {
+            let exactModelRow = null;
+            for (let i = 0; i < Math.min(modelRowCount, 30); i++) {
               const row = modelRows.nth(i);
-              if (!(await row.isVisible())) continue;
-              modelEvidence.push({
-                testId: await row.getAttribute('data-testid'),
-                text: (await row.innerText()).replace(/\s+/g, ' ').trim()
-              });
+              if (!(await row.isVisible().catch(() => false))) continue;
+              const text = (await row.innerText()).replace(/\s+/g, ' ').trim();
+              const testId = await row.getAttribute('data-testid');
+              modelEvidence.push({ testId, text });
+              if (exactModelRow === null && /^Galaxy S25(?:\s+\d[\d\s.,]*)?$/i.test(text)) {
+                exactModelRow = row;
+              }
             }
             console.log('modelEvidence=' + JSON.stringify(modelEvidence));
             requireCondition(modelEvidence.some(row => /Galaxy S25/i.test(row.text)),
               'Current Vinted model panel does not expose Galaxy S25 in visible model row text');
 
+            if (exactModelRow === null) {
+              exactModelRow = modelRows.filter({ hasText: 'Galaxy S25' }).first();
+            }
+            await exactModelRow.waitFor({ state: 'visible', timeout: 10000 });
+            const exactModelTestId = await exactModelRow.getAttribute('data-testid');
+            const modelUrlBefore = page.url();
+            console.log('exactModelTestId=' + exactModelTestId);
+            console.log('model.preClick.filter-selection-button=' + await page.locator("[data-testid='filter-selection-button']").count());
+            console.log('model.preClick.visibleButtons=' + JSON.stringify(await visibleButtons(page)));
+            await exactModelRow.click();
+            await page.waitForTimeout(1600);
+            const modelUrlAfter = page.url();
+            console.log('modelUrlBefore=' + modelUrlBefore);
+            console.log('modelUrlAfter=' + modelUrlAfter);
+            console.log('model.persistedAutomatically=' + (modelUrlAfter !== modelUrlBefore));
+            console.log('model.postClick.filter-selection-button=' + await page.locator("[data-testid='filter-selection-button']").count());
+            console.log('model.postClick.visibleButtons=' + JSON.stringify(await visibleButtons(page)));
+
             console.log('=== SORT PANEL ===');
-            await page.keyboard.press('Escape').catch(() => {});
+            if (await page.getByTestId('catalog--sort-filter--trigger').count() === 0) {
+              await page.goto(SAMSUNG_PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
+              await page.locator(core.card).first().waitFor({ state: 'attached', timeout: 30000 });
+            }
             await page.getByTestId('catalog--sort-filter--trigger').click();
             await page.waitForTimeout(400);
             const newestCount = await page.locator('#sort_by-list-item-newest_first').count();
             console.log('sortNewest=' + newestCount);
             requireCondition(newestCount > 0,
               'Current Vinted sort panel is missing #sort_by-list-item-newest_first');
+            await page.keyboard.press('Escape').catch(() => {});
 
             console.log('=== PUBLIC ITEM DETAIL ===');
             await page.goto(PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
