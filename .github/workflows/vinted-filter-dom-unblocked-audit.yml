@@ -1,0 +1,138 @@
+name: Vinted Filter DOM Unblocked Audit
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  current-vinted-filters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/vinted-filter-audit
+          cd /tmp/vinted-filter-audit
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.54.0
+          npx playwright install --with-deps chromium
+      - name: Probe filters after choosing Poland
+        working-directory: /tmp/vinted-filter-audit
+        run: |
+          cat > audit.mjs <<'EOF'
+          import { chromium } from 'playwright';
+
+          const PHONE = 'https://www.vinted.pl/catalog/3661-mobilie-talruni';
+          const SAMSUNG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni/brand/109048-samsung';
+          const CARD = "[data-testid^='product-item-id-']:not([data-testid*='--'])";
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({ locale: 'pl-PL', timezoneId: 'Europe/Warsaw', viewport: { width: 1440, height: 1000 } });
+          const page = await context.newPage();
+
+          const norm = v => (v || '').replace(/\s+/g, ' ').trim();
+          async function evidence(locator, limit = 60) {
+            const out = [];
+            for (let i = 0; i < Math.min(await locator.count(), limit); i++) {
+              const el = locator.nth(i);
+              if (!(await el.isVisible().catch(() => false))) continue;
+              out.push({
+                tag: await el.evaluate(n => n.tagName.toLowerCase()).catch(() => null),
+                text: norm(await el.innerText().catch(() => '')).slice(0, 220),
+                role: await el.getAttribute('role'),
+                testId: await el.getAttribute('data-testid'),
+                id: await el.getAttribute('id'),
+                type: await el.getAttribute('type'),
+                aria: await el.getAttribute('aria-label')
+              });
+            }
+            return out;
+          }
+          async function choosePolandIfNeeded() {
+            const modal = page.locator("[data-testid='domain-select-modal']:visible");
+            if (await modal.count() === 0) {
+              console.log('countryModal=absent');
+              return;
+            }
+            console.log('countryModal=present');
+            const poland = modal.getByText('Polska', { exact: true });
+            console.log('countryModal.Polska=' + await poland.count());
+            if (await poland.count() === 0) throw new Error('Country modal is visible but Polska option is missing');
+            await poland.first().scrollIntoViewIfNeeded();
+            await poland.first().click();
+            await modal.waitFor({ state: 'hidden', timeout: 15000 });
+            console.log('countryModal=resolved url=' + page.url());
+            if (!/^https:\/\/([a-z0-9-]+\.)*vinted\.pl(?:[/:?#]|$)/i.test(page.url())) {
+              throw new Error('Country selection navigated outside vinted.pl: ' + page.url());
+            }
+          }
+          async function gotoCatalog(url) {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await choosePolandIfNeeded();
+            await page.locator(CARD).first().waitFor({ state: 'attached', timeout: 30000 });
+          }
+          async function openFilter(testId) {
+            const trigger = page.getByTestId(testId);
+            await trigger.waitFor({ state: 'visible', timeout: 15000 });
+            console.log(testId + '.before.ariaExpanded=' + await trigger.getAttribute('aria-expanded'));
+            await trigger.click();
+            await page.waitForTimeout(1200);
+            console.log(testId + '.after.ariaExpanded=' + await trigger.getAttribute('aria-expanded'));
+          }
+          async function dump(label) {
+            console.log(label + '.visibleInputs=' + JSON.stringify(await evidence(page.locator('input:visible'))));
+            console.log(label + '.visibleButtons=' + JSON.stringify(await evidence(page.locator("button:visible, [role='button']:visible"), 100)));
+            console.log(label + '.filterTestIds=' + JSON.stringify(await evidence(page.locator("[data-testid*='filter']:visible, [data-testid*='selectable']:visible, [data-testid='show-all-items']:visible"), 120)));
+          }
+
+          try {
+            console.log('=== BRAND ===');
+            await gotoCatalog(PHONE);
+            await openFilter('catalog--brand-filter--trigger');
+            await dump('brand');
+            console.log('brand.oldConfirm=' + await page.locator("[data-testid='filter-selection-button']:visible").count());
+            console.log('brand.showAll=' + await page.locator("[data-testid='show-all-items']:visible").count());
+            console.log('brand.SamsungButton=' + await page.getByRole('button', { name: 'Samsung', exact: true }).count());
+            console.log('brand.SamsungExact=' + JSON.stringify(await evidence(page.getByText('Samsung', { exact: true }), 20)));
+
+            console.log('=== MODEL ===');
+            await gotoCatalog(SAMSUNG);
+            await openFilter('catalog--brand_collection-filter--trigger');
+            await dump('model');
+            const modelSearch = page.locator('#brand_collection_filter_search:visible');
+            console.log('model.search=' + await modelSearch.count());
+            if (await modelSearch.count() > 0) {
+              await modelSearch.fill('Galaxy S25');
+              await page.waitForTimeout(1200);
+              const rows = page.locator("[data-testid^='selectable-item-brand_collection-']:visible");
+              console.log('model.rows=' + await rows.count());
+              console.log('model.rowsEvidence=' + JSON.stringify(await evidence(rows, 40)));
+            }
+            console.log('model.oldConfirm=' + await page.locator("[data-testid='filter-selection-button']:visible").count());
+            console.log('model.showAll=' + await page.locator("[data-testid='show-all-items']:visible").count());
+
+            console.log('=== PRICE ===');
+            await gotoCatalog(PHONE);
+            await openFilter('catalog--price-filter--trigger');
+            await dump('price');
+            console.log('price.from=' + await page.locator('#price_from:visible').count());
+            console.log('price.to=' + await page.locator('#price_to:visible').count());
+            console.log('price.oldConfirm=' + await page.locator("[data-testid='filter-selection-button']:visible").count());
+            console.log('price.showAll=' + await page.locator("[data-testid='show-all-items']:visible").count());
+
+            console.log('=== SORT ===');
+            await gotoCatalog(PHONE);
+            await openFilter('catalog--sort-filter--trigger');
+            await dump('sort');
+            console.log('sort.newest=' + await page.locator('#sort_by-list-item-newest_first:visible').count());
+
+            console.log('VINTED_FILTER_UNBLOCKED_AUDIT_OK');
+          } finally {
+            await context.close();
+            await browser.close();
+          }
+          EOF
+          node audit.mjs
