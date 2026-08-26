@@ -228,6 +228,24 @@ public class BrowserManager implements AutoCloseable {
                 || eventNumber % AD_TECH_LOG_INTERVAL == 0;
     }
 
+    public boolean isHealthy() {
+        assertOwnerThread("check browser runtime health");
+
+        if (closed) {
+            return false;
+        }
+
+        try {
+            return browser.isConnected();
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[BROWSER] Could not verify browser connection health. The runtime will be treated as disconnected.",
+                    exception
+            );
+            return false;
+        }
+    }
+
     @Override
     public void close() {
         assertOwnerThread("close Playwright runtime");

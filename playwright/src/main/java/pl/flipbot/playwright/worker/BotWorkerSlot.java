@@ -73,9 +73,35 @@ public class BotWorkerSlot implements Runnable {
                             scheduler.workingCount()
                     );
 
+                    if (browserManager != null && !browserManager.isHealthy()) {
+                        log.warn(
+                                "[SLOT {}] Reusable Playwright browser runtime is disconnected. Closing stale runtime and launching a fresh browser before {} for bot {}.",
+                                slotNumber,
+                                jobType,
+                                botId
+                        );
+
+                        try {
+                            browserManager.close();
+                        } catch (Exception exception) {
+                            log.warn(
+                                    "[SLOT {}] Could not close disconnected Playwright runtime cleanly. A fresh runtime will still be created. reason={}",
+                                    slotNumber,
+                                    errorMessage(exception)
+                            );
+                            log.debug(
+                                    "[SLOT {}] Full disconnected-runtime close error.",
+                                    slotNumber,
+                                    exception
+                            );
+                        }
+
+                        browserManager = null;
+                    }
+
                     if (browserManager == null) {
                         log.info(
-                                "[SLOT {}] Launching reusable Playwright browser runtime for the first claimed job. headless={}",
+                                "[SLOT {}] Launching reusable Playwright browser runtime for claimed job. headless={}",
                                 slotNumber,
                                 config.schedulerHeadless()
                         );

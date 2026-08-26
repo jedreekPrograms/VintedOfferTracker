@@ -43,6 +43,8 @@ public class EncryptedSessionBrowserSmokeTest {
         SessionManager sessionManager = new SessionManager(sessions, KEY);
 
         try (BrowserManager browserManager = new BrowserManager(true)) {
+            assertTrue(browserManager.isHealthy());
+
             BrowserContext firstContext = browserManager.createContext(null);
 
             try {
@@ -87,6 +89,8 @@ public class EncryptedSessionBrowserSmokeTest {
             } finally {
                 restoredContext.close();
             }
+
+            assertTrue(browserManager.isHealthy());
         }
     }
 }
