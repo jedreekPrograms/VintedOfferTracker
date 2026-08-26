@@ -133,6 +133,36 @@ public class SessionManagerTest {
     }
 
     @Test
+    public void wrongKeyCannotOverwritePreviouslyValidCiphertext()
+            throws Exception {
+        Path sessions = temporaryFolder.newFolder("sessions-overwrite-guard").toPath();
+        SessionManager originalWriter = new SessionManager(sessions, KEY_ONE);
+        originalWriter.saveSessionState(18L, STORAGE_STATE);
+
+        Path encrypted = originalWriter.encryptedSessionFile(18L);
+        String before = Files.readString(encrypted);
+
+        SessionManager accidentalWriter = new SessionManager(sessions, KEY_TWO);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> accidentalWriter.saveSessionState(
+                        18L,
+                        STORAGE_STATE.replace(
+                                "super-secret-cookie",
+                                "new-login-cookie"
+                        )
+                )
+        );
+
+        assertEquals(before, Files.readString(encrypted));
+        assertEquals(
+                STORAGE_STATE,
+                originalWriter.loadSessionState(18L).orElseThrow()
+        );
+    }
+
+    @Test
     public void ciphertextIsBoundToBotIdAndCannotBeSwappedBetweenAccounts()
             throws Exception {
         Path sessions = temporaryFolder.newFolder("sessions-aad").toPath();
