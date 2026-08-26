@@ -24,6 +24,23 @@ public class FingerprintLabPolicyTest {
     }
 
     @Test
+    public void allowsLaboratoryWebSocketsOnly() {
+        assertTrue(FingerprintLabPolicy.isAllowedWebSocketUrl(
+                "ws://localhost:3000/socket"
+        ));
+        assertTrue(FingerprintLabPolicy.isAllowedWebSocketUrl(
+                "wss://events.fingerprint.test/socket"
+        ));
+
+        assertFalse(FingerprintLabPolicy.isAllowedWebSocketUrl(
+                "wss://www.vinted.pl/socket"
+        ));
+        assertFalse(FingerprintLabPolicy.isAllowedWebSocketUrl(
+                "wss://example.com/socket"
+        ));
+    }
+
+    @Test
     public void rejectsMarketplaceAndArbitraryProductionHosts() {
         assertFalse(FingerprintLabPolicy.isAllowedUrl(
                 "https://www.vinted.pl/"
