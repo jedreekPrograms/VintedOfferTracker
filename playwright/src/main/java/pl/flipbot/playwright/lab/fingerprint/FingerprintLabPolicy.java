@@ -38,6 +38,18 @@ public final class FingerprintLabPolicy {
         return isAllowedNetworkUrl(rawUrl, Set.of("ws", "wss"));
     }
 
+    /**
+     * Optional proxy endpoints are laboratory-only as well. This allows a
+     * controlled local proxy harness without providing a path to production
+     * residential/mobile proxy infrastructure.
+     */
+    public static boolean isAllowedProxyUrl(String rawUrl) {
+        return isAllowedNetworkUrl(
+                rawUrl,
+                Set.of("http", "https", "socks5")
+        );
+    }
+
     public static void requireAllowed(String rawUrl) {
         if (!isEnabled()) {
             throw new IllegalStateException(
@@ -52,6 +64,28 @@ public final class FingerprintLabPolicy {
                     "Fingerprint lab refuses non-laboratory URL: "
                             + rawUrl
                             + ". Allowed hosts are loopback, *.localhost and *.test only."
+            );
+        }
+    }
+
+    public static void requireAllowedProxy(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return;
+        }
+
+        if (!isEnabled()) {
+            throw new IllegalStateException(
+                    "Fingerprint lab proxy configuration requires "
+                            + ENABLE_ENV
+                            + "=true."
+            );
+        }
+
+        if (!isAllowedProxyUrl(rawUrl)) {
+            throw new IllegalStateException(
+                    "Fingerprint lab refuses non-laboratory proxy URL: "
+                            + rawUrl
+                            + ". Proxy hosts are restricted to loopback, *.localhost and *.test."
             );
         }
     }
@@ -73,14 +107,18 @@ public final class FingerprintLabPolicy {
                 return false;
             }
 
-            return LOOPBACK_HOSTS.contains(host)
-                    || host.endsWith(".localhost")
-                    || host.equals("test")
-                    || host.endsWith(".test");
+            return isLaboratoryHost(host);
 
         } catch (IllegalArgumentException exception) {
             return false;
         }
+    }
+
+    private static boolean isLaboratoryHost(String host) {
+        return LOOPBACK_HOSTS.contains(host)
+                || host.endsWith(".localhost")
+                || host.equals("test")
+                || host.endsWith(".test");
     }
 
     private static String normalize(String value) {
