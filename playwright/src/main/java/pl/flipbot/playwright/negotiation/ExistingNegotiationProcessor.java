@@ -196,9 +196,9 @@ public class ExistingNegotiationProcessor {
                         break;
                     }
                 }
-            } catch (AmbiguousRealActionException exception) {
+            } catch (RealActionJobAbortException exception) {
                 log.error(
-                        "[CONVERSATION] Ambiguous real action for backend listing {}, marketplace listing {}, conversation {}. "
+                        "[CONVERSATION] Post-submit real-action failure for backend listing {}, marketplace listing {}, conversation {}. "
                                 + "Stopping this negotiation-check job immediately; no other real next step will be attempted in this run. reason={}",
                         listing.id(),
                         listing.listingId(),
