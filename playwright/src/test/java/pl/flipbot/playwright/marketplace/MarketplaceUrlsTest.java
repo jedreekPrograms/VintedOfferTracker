@@ -2,7 +2,9 @@ package pl.flipbot.playwright.marketplace;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class MarketplaceUrlsTest {
@@ -34,5 +36,74 @@ public class MarketplaceUrlsTest {
         assertFalse(MarketplaceUrls.isCatalogUrl("https://www.vinted.pl/inbox"));
         assertFalse(MarketplaceUrls.isCatalogUrl("https://www.sos-accessoire.com/catalog"));
         assertFalse(MarketplaceUrls.isCatalogUrl("https://www.vinted.pl.evil.example/catalog"));
+    }
+
+    @Test
+    public void resolvesOnlyTheExpectedVintedListing() {
+        assertEquals(
+                "https://www.vinted.pl/items/9784253019-samsung-galaxy-s25",
+                MarketplaceUrls.resolveVintedListingUrl(
+                        "/items/9784253019-samsung-galaxy-s25",
+                        "9784253019"
+                )
+        );
+        assertEquals(
+                "https://www.vinted.pl/items/9784253019?referrer=catalog",
+                MarketplaceUrls.resolveVintedListingUrl(
+                        "https://www.vinted.pl/items/9784253019?referrer=catalog",
+                        "9784253019"
+                )
+        );
+
+        assertTrue(MarketplaceUrls.isVintedListingUrl(
+                "https://www.vinted.pl/items/9784253019-samsung-galaxy-s25",
+                "9784253019"
+        ));
+    }
+
+    @Test
+    public void rejectsWrongListingIdExternalHostsAndUnsafeSchemes() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedListingUrl(
+                        "https://www.vinted.pl/items/111-other-item",
+                        "9784253019"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedListingUrl(
+                        "https://evil.example/items/9784253019",
+                        "9784253019"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedListingUrl(
+                        "https://www.vinted.pl.evil.example/items/9784253019",
+                        "9784253019"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedListingUrl(
+                        "http://www.vinted.pl/items/9784253019",
+                        "9784253019"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedListingUrl(
+                        "//evil.example/items/9784253019",
+                        "9784253019"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedListingUrl(
+                        "/items/97842530190-lookalike-prefix",
+                        "9784253019"
+                )
+        );
     }
 }
