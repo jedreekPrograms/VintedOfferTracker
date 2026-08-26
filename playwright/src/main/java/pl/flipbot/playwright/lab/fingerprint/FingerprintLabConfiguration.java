@@ -68,7 +68,7 @@ public record FingerprintLabConfiguration(
         return Path.of(
                 "sessions",
                 "fingerprint-lab",
-                profileId + ".json"
+                profileId + ".state.enc"
         );
     }
 
