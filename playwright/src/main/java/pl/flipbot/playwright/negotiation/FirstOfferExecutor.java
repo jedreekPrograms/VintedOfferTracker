@@ -477,6 +477,12 @@ public class FirstOfferExecutor {
                 listing
         );
 
+        SubmittedOfferConfirmationVerifier.requireExactOwnOffer(
+                page,
+                listing.listingId(),
+                offer.offerPrice()
+        );
+
         ListingResponseDto updatedListing =
                 markNegotiationStarted(
                         listing,
@@ -496,10 +502,8 @@ public class FirstOfferExecutor {
                 updatedListing.currentPrice()
         );
 
-        verifySubmittedOfferSafely(
-                page,
-                listing,
-                offer.offerPrice()
+        logOwnOfferStatus(
+                page
         );
 
         sendFirstMessageSafely(

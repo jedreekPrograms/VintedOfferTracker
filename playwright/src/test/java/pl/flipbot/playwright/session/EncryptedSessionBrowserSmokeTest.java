@@ -1,13 +1,17 @@
 package pl.flipbot.playwright.session;
 
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.Cookie;
 import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import pl.flipbot.playwright.browser.BrowserManager;
+import pl.flipbot.playwright.negotiation.NegotiationSelectors;
+import pl.flipbot.playwright.negotiation.SubmittedOfferConfirmationVerifier;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +20,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class EncryptedSessionBrowserSmokeTest {
@@ -86,6 +91,47 @@ public class EncryptedSessionBrowserSmokeTest {
                         "restored-from-encrypted-state",
                         restoredCookie.value
                 );
+
+                Page confirmationPage = restoredContext.newPage();
+                try {
+                    confirmationPage.setContent(
+                            "<div data-testid='"
+                                    + NegotiationSelectors.OWN_OFFER_PRICE
+                                    + "'>1 234,56 zł</div>"
+                    );
+
+                    assertEquals(
+                            new BigDecimal("1234.56"),
+                            SubmittedOfferConfirmationVerifier.requireExactOwnOffer(
+                                    confirmationPage,
+                                    "987654321",
+                                    new BigDecimal("1234.56")
+                            )
+                    );
+
+                    confirmationPage.setContent(
+                            "<div data-testid='"
+                                    + NegotiationSelectors.OWN_OFFER_PRICE
+                                    + "'>1 300,00 zł</div>"
+                    );
+
+                    IllegalStateException mismatch = assertThrows(
+                            IllegalStateException.class,
+                            () -> SubmittedOfferConfirmationVerifier.requireExactOwnOffer(
+                                    confirmationPage,
+                                    "987654321",
+                                    new BigDecimal("1234.56")
+                            )
+                    );
+
+                    assertTrue(
+                            mismatch.getMessage().contains(
+                                    "do not retry automatically"
+                            )
+                    );
+                } finally {
+                    confirmationPage.close();
+                }
             } finally {
                 restoredContext.close();
             }
