@@ -1,0 +1,231 @@
+name: Temporary Vinted Target Flow Audit
+
+on:
+  push:
+    branches:
+      - audit/vinted-targeting-stage-7
+
+permissions:
+  contents: read
+
+jobs:
+  live-target-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install Playwright Chromium
+        run: |
+          mkdir -p /tmp/vinted-target-audit
+          cd /tmp/vinted-target-audit
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.54.0
+          npx playwright install --with-deps chromium
+      - name: Probe VINTED_MODEL and SEARCH_QUERY public targeting flows
+        working-directory: /tmp/vinted-target-audit
+        run: |
+          cat > audit.mjs <<'EOF'
+          import { chromium } from 'playwright';
+
+          const BASE = 'https://www.vinted.pl/catalog';
+          const CATEGORY_PATH = [
+            'Elektronika',
+            'Telefony komórkowe i komunikacja',
+            'Telefony komórkowe'
+          ];
+          const BRAND = 'Samsung';
+          const MODEL = 'Galaxy S25';
+          const SEARCH_QUERY = 'Galaxy S25';
+          const CARD = "[data-testid^='product-item-id-']:not([data-testid*='--'])";
+
+          const browser = await chromium.launch({ headless: true });
+
+          function urlValue(url, key) {
+            return new URL(url).searchParams.get(key);
+          }
+
+          async function newUsablePage(label) {
+            for (let attempt = 1; attempt <= 5; attempt++) {
+              const context = await browser.newContext({
+                locale: 'pl-PL',
+                timezoneId: 'Europe/Warsaw',
+                viewport: { width: 1440, height: 1000 }
+              });
+              const page = await context.newPage();
+              await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 45000 });
+              await page.waitForTimeout(1200);
+
+              const domainModal = page.locator("[data-testid='domain-select-modal']:visible");
+              if (await domainModal.count() > 0) {
+                console.log(`${label}.attempt${attempt}=SKIP_COUNTRY_MODAL_UNTOUCHED`);
+                await context.close();
+                continue;
+              }
+
+              const cookie = page.locator('#onetrust-accept-btn-handler:visible');
+              if (await cookie.count() > 0) {
+                await cookie.click();
+                await page.waitForTimeout(400);
+              }
+
+              console.log(`${label}.attempt${attempt}=USABLE`);
+              return { context, page };
+            }
+            throw new Error(`${label}: no usable public Vinted context without the country modal after 5 attempts`);
+          }
+
+          async function openFilter(page, testId) {
+            const trigger = page.getByTestId(testId);
+            await trigger.waitFor({ state: 'visible', timeout: 15000 });
+            await trigger.click();
+            await page.waitForTimeout(500);
+          }
+
+          async function productionOption(page, label) {
+            const option = page.getByRole('button', { name: label });
+            await option.first().waitFor({ state: 'visible', timeout: 10000 });
+            const count = await option.count();
+            const texts = [];
+            for (let i = 0; i < Math.min(count, 8); i++) {
+              const candidate = option.nth(i);
+              if (await candidate.isVisible().catch(() => false)) {
+                texts.push((await candidate.innerText().catch(() => '')).replace(/\s+/g, ' ').trim());
+              }
+            }
+            console.log(`option.${label}.count=${count} texts=${JSON.stringify(texts)}`);
+            return option.first();
+          }
+
+          async function selectCategory(page) {
+            await openFilter(page, 'catalog--catalog-filter--trigger');
+            for (const label of CATEGORY_PATH) {
+              const option = await productionOption(page, label);
+              await option.click();
+              await page.waitForTimeout(500);
+            }
+            const catalogId = urlValue(page.url(), 'catalog[]');
+            console.log(`category.url=${page.url()}`);
+            console.log(`category.catalogId=${catalogId}`);
+            if (!catalogId) throw new Error('Category path did not persist catalog[]');
+          }
+
+          async function selectBrand(page) {
+            await openFilter(page, 'catalog--brand-filter--trigger');
+            const option = await productionOption(page, BRAND);
+            await option.click();
+            await page.waitForTimeout(1200);
+
+            if (!urlValue(page.url(), 'brand_ids[]') && !page.url().includes('/brand/')) {
+              const confirm = page.locator("[data-testid='filter-selection-button']:visible");
+              console.log(`brand.confirmVisible=${await confirm.count()}`);
+              if (await confirm.count() > 0) {
+                await confirm.first().click();
+                await page.waitForTimeout(1000);
+              }
+            }
+
+            console.log(`brand.url=${page.url()}`);
+            if (!urlValue(page.url(), 'brand_ids[]') && !page.url().includes('/brand/')) {
+              throw new Error('Samsung brand did not persist through current public Vinted UI');
+            }
+          }
+
+          async function selectExactModel(page) {
+            await openFilter(page, 'catalog--brand_collection-filter--trigger');
+            const search = page.locator('#brand_collection_filter_search:visible');
+            await search.waitFor({ state: 'visible', timeout: 10000 });
+            await search.fill(MODEL);
+            await page.waitForTimeout(750);
+
+            const rows = page.locator("[data-testid^='selectable-item-brand_collection-']:visible");
+            const exact = [];
+            for (let i = 0; i < Math.min(await rows.count(), 80); i++) {
+              const row = rows.nth(i);
+              const text = (await row.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+              if (/^Galaxy S25(?:\s+\d[\d\s.,]*(?:\s*przedmiot\p{L}*)?)?$/iu.test(text)) {
+                exact.push({ row, text, testId: await row.getAttribute('data-testid') });
+              }
+            }
+            console.log(`model.exactRows=${exact.length} evidence=${JSON.stringify(exact.map(x => ({text:x.text,testId:x.testId})))}`);
+            if (exact.length === 0) throw new Error('Exact Galaxy S25 Vinted model row was not found');
+
+            const match = exact[0];
+            const id = match.testId?.match(/^selectable-item-brand_collection-(\d+)(?:--title)?$/)?.[1];
+            if (!id) throw new Error(`Unexpected exact Galaxy S25 data-testid: ${match.testId}`);
+
+            await match.row.click();
+            await page.waitForTimeout(1000);
+            let persisted = new URL(page.url()).searchParams.getAll('brand_collection_ids[]').includes(id);
+            console.log(`model.collectionId=${id}`);
+            console.log(`model.persistedBeforeConfirm=${persisted}`);
+            console.log(`model.urlBeforeConfirm=${page.url()}`);
+
+            if (!persisted) {
+              const confirm = page.locator("[data-testid='filter-selection-button']:visible");
+              console.log(`model.confirmVisible=${await confirm.count()}`);
+              if (await confirm.count() > 0) {
+                await confirm.first().click();
+                await page.waitForTimeout(1000);
+                persisted = new URL(page.url()).searchParams.getAll('brand_collection_ids[]').includes(id);
+              }
+            }
+
+            console.log(`model.persistedFinal=${persisted}`);
+            console.log(`model.finalUrl=${page.url()}`);
+            if (!persisted) throw new Error('Exact Galaxy S25 collection id did not persist through current public Vinted UI');
+          }
+
+          async function runVintedModel() {
+            const { context, page } = await newUsablePage('VINTED_MODEL');
+            try {
+              await selectCategory(page);
+              await selectBrand(page);
+              await selectExactModel(page);
+              console.log('VINTED_MODEL_FLOW_OK');
+            } finally {
+              await context.close();
+            }
+          }
+
+          async function runSearchQuery() {
+            const { context, page } = await newUsablePage('SEARCH_QUERY');
+            try {
+              const search = page.locator("form[action='/catalog'] input[name='search_text']:visible").first();
+              await search.waitFor({ state: 'visible', timeout: 10000 });
+              await search.fill(SEARCH_QUERY);
+              await search.press('Enter');
+              await page.waitForTimeout(1200);
+              if (urlValue(page.url(), 'search_text') !== SEARCH_QUERY) {
+                throw new Error(`SEARCH_QUERY did not persist after Enter: ${page.url()}`);
+              }
+              console.log(`search.afterEnter=${page.url()}`);
+
+              await selectCategory(page);
+              if (urlValue(page.url(), 'search_text') !== SEARCH_QUERY) {
+                throw new Error(`Category selection lost search_text: ${page.url()}`);
+              }
+
+              await selectBrand(page);
+              if (urlValue(page.url(), 'search_text') !== SEARCH_QUERY) {
+                throw new Error(`Brand selection lost search_text: ${page.url()}`);
+              }
+
+              console.log(`search.finalUrl=${page.url()}`);
+              console.log('SEARCH_QUERY_FLOW_OK');
+            } finally {
+              await context.close();
+            }
+          }
+
+          try {
+            await runVintedModel();
+            await runSearchQuery();
+            console.log('VINTED_TARGET_FLOW_AUDIT_OK');
+          } finally {
+            await browser.close();
+          }
+          EOF
+          node audit.mjs
