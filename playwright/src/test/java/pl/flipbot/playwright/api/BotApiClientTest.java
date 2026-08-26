@@ -34,19 +34,24 @@ public class BotApiClientTest {
     }
 
     @Test
-    public void parsesEveryPositiveBotIdWhileIgnoringOtherResponseFields() {
+    public void parsesEveryPositiveBotIdWhileIgnoringUnrelatedResponseFields() {
         BotApiClient client = new BotApiClient();
 
         Set<Long> ids = client.parseBotIds("""
                 [
                   {"id": 7, "name": "stopped bot", "status": "STOPPED"},
-                  {"id": 11, "name": "running bot", "status": "RUNNING"},
-                  {"id": 0, "name": "invalid"},
-                  {"name": "missing id"}
+                  {"id": 11, "name": "running bot", "status": "RUNNING"}
                 ]
                 """);
 
         assertEquals(Set.of(7L, 11L), ids);
+    }
+
+    @Test
+    public void acceptsAnActuallyEmptyBotList() {
+        BotApiClient client = new BotApiClient();
+
+        assertEquals(Set.of(), client.parseBotIds("[]"));
     }
 
     @Test
@@ -56,6 +61,31 @@ public class BotApiClientTest {
         assertThrows(
                 RuntimeException.class,
                 () -> client.parseBotIds("{\"id\":7}")
+        );
+    }
+
+    @Test
+    public void rejectsPartiallyMalformedBotListInsteadOfDeletingSessionsFromPartialIds() {
+        BotApiClient client = new BotApiClient();
+
+        assertThrows(
+                RuntimeException.class,
+                () -> client.parseBotIds("""
+                        [
+                          {"id": 7, "name": "valid"},
+                          {"name": "missing id"}
+                        ]
+                        """)
+        );
+    }
+
+    @Test
+    public void rejectsNonPositiveBotIdInsteadOfTreatingItAsMissing() {
+        BotApiClient client = new BotApiClient();
+
+        assertThrows(
+                RuntimeException.class,
+                () -> client.parseBotIds("[{\"id\":0}]")
         );
     }
 }
