@@ -1,4 +1,5 @@
 .negotiation-response-policy {
+    container: negotiation-response / inline-size;
     margin-top: 22px;
     border-top: 1px solid #e4e8f0;
     padding-top: 20px;
@@ -12,10 +13,15 @@
     margin-bottom: 14px;
 }
 
+.negotiation-response-policy-heading > div {
+    min-width: 0;
+}
+
 .negotiation-response-policy-heading h3 {
     margin: 4px 0 0;
     color: #202b42;
     font-size: 15px;
+    overflow-wrap: anywhere;
 }
 
 .negotiation-response-policy-eyebrow {
@@ -49,11 +55,12 @@
 
 .negotiation-policy-grid {
     display: grid;
-    grid-template-columns: minmax(250px, 0.8fr) minmax(420px, 1.5fr);
+    grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.5fr);
     gap: 12px;
 }
 
 .negotiation-policy-card {
+    container: negotiation-policy-card / inline-size;
     min-width: 0;
     border: 1px solid #dde3ed;
     border-radius: 13px;
@@ -62,6 +69,7 @@
 }
 
 .negotiation-policy-card-wide {
+    grid-column: 1 / -1;
     background: #ffffff;
 }
 
@@ -70,6 +78,10 @@
     align-items: flex-start;
     gap: 10px;
     margin-bottom: 14px;
+}
+
+.negotiation-policy-card-title > div {
+    min-width: 0;
 }
 
 .negotiation-policy-card-title strong {
@@ -83,6 +95,7 @@
     color: #8490a5;
     font-size: 11px;
     line-height: 1.55;
+    overflow-wrap: anywhere;
 }
 
 .negotiation-policy-icon {
@@ -103,16 +116,21 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
+    min-width: 0;
+}
+
+.reaction-editor > * {
+    min-width: 0;
 }
 
 .reaction-editor-compact {
-    grid-template-columns: minmax(190px, 1fr) minmax(110px, 0.45fr);
+    grid-template-columns: minmax(0, 1fr) minmax(88px, 0.42fr);
     align-items: end;
 }
 
 .counter-rule-fallback {
     display: grid;
-    grid-template-columns: minmax(150px, 0.8fr) minmax(320px, 1.4fr);
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
     align-items: end;
     gap: 14px;
     border-radius: 11px;
@@ -122,6 +140,7 @@
 
 .counter-rule-fallback > div:first-child {
     display: flex;
+    min-width: 0;
     flex-direction: column;
     gap: 4px;
 }
@@ -139,6 +158,7 @@
 
 .counter-rules-list {
     display: flex;
+    min-width: 0;
     flex-direction: column;
     gap: 9px;
     margin-top: 12px;
@@ -146,13 +166,18 @@
 
 .counter-rule-row {
     display: grid;
-    grid-template-columns: minmax(125px, 0.45fr) minmax(330px, 1.35fr) auto;
+    grid-template-columns: minmax(105px, 0.42fr) minmax(0, 1.35fr) auto;
     align-items: end;
     gap: 10px;
+    min-width: 0;
     border: 1px solid #e6eaf1;
     border-radius: 11px;
     padding: 11px;
     background: #ffffff;
+}
+
+.counter-rule-row > * {
+    min-width: 0;
 }
 
 .counter-rule-threshold {
@@ -161,6 +186,7 @@
 
 .input-with-suffix {
     display: flex;
+    min-width: 0;
     align-items: stretch;
 }
 
@@ -173,6 +199,7 @@
 .input-with-suffix > span {
     display: inline-flex;
     min-width: 38px;
+    flex: 0 0 38px;
     align-items: center;
     justify-content: center;
     border: 1px solid #d6ddea;
@@ -187,10 +214,13 @@
 .counter-rule-remove {
     min-height: 39px;
     align-self: end;
+    white-space: nowrap;
 }
 
 .counter-rule-add {
+    max-width: 100%;
     margin-top: 12px;
+    white-space: normal;
 }
 
 .negotiation-policy-footnote {
@@ -200,9 +230,53 @@
     line-height: 1.55;
 }
 
+/*
+ * The policy can be rendered inside a negotiation card that is much narrower
+ * than the browser viewport. React to the real section width, not only to the
+ * window width.
+ */
+@container negotiation-response (max-width: 860px) {
+    .negotiation-policy-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .negotiation-policy-card-wide {
+        grid-column: auto;
+    }
+}
+
+@container negotiation-policy-card (max-width: 620px) {
+    .counter-rule-fallback,
+    .counter-rule-row {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+    }
+
+    .counter-rule-remove {
+        justify-self: flex-start;
+    }
+}
+
+@container negotiation-policy-card (max-width: 430px) {
+    .reaction-editor-compact {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .counter-rule-remove,
+    .counter-rule-add {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Viewport fallbacks keep the layout safe in browsers without container queries. */
 @media (max-width: 1050px) {
     .negotiation-policy-grid {
         grid-template-columns: 1fr;
+    }
+
+    .negotiation-policy-card-wide {
+        grid-column: auto;
     }
 }
 
