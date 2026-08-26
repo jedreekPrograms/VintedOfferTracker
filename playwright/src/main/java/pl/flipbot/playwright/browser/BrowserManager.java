@@ -4,7 +4,11 @@ import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Playwright;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.session.SessionManager;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -60,15 +64,37 @@ public class BrowserManager implements AutoCloseable {
         this.browser = createdBrowser;
     }
 
-    public BrowserContext createContext(Path storageState) {
+    public BrowserContext createContext(Path sessionReference) {
         assertOwnerThread("create browser context");
         assertOpen();
 
         Browser.NewContextOptions options =
                 new Browser.NewContextOptions();
 
-        if (storageState != null) {
-            options.setStorageStatePath(storageState);
+        /*
+         * sessionReference points to SessionManager-managed encrypted material,
+         * not to a plaintext Playwright storage-state file. Resolve/decrypt it
+         * to RAM and use Playwright's String API so cookies/localStorage are
+         * never written to a temporary plaintext file.
+         *
+         * Upgrade safety matters here: if encrypted state cannot be opened
+         * because a worker process has a missing/wrong key, the stored file is
+         * left untouched and this run starts with a clean context. LoginService
+         * can then authenticate normally. SessionManager refuses to overwrite an
+         * existing encrypted file unless the current key can authenticate it,
+         * so this fallback cannot destroy a valid session under an accidental
+         * key. For a legacy plaintext .json, migration failure is allowed to
+         * fall back to that existing state for this run so an upgrade does not
+         * unexpectedly log every account out.
+         */
+        if (sessionReference != null) {
+            String storageState = resolveStorageStateForRestore(
+                    sessionReference
+            );
+
+            if (storageState != null) {
+                options.setStorageState(storageState);
+            }
         }
 
         BrowserContext context = browser.newContext(options);
@@ -81,6 +107,71 @@ public class BrowserManager implements AutoCloseable {
         );
 
         return context;
+    }
+
+    static String resolveStorageStateForRestore(Path sessionReference) {
+        try {
+            return SessionManager.readStorageStateFromReference(
+                    sessionReference
+            );
+        } catch (RuntimeException exception) {
+            if (isLegacyPlaintextReference(sessionReference)) {
+                try {
+                    String legacyStorageState = Files.readString(
+                            sessionReference,
+                            StandardCharsets.UTF_8
+                    );
+
+                    log.error(
+                            "[SESSION] Could not migrate legacy plaintext session {} to encrypted storage. "
+                                    + "Using the existing legacy state in memory for this run and leaving the file untouched. "
+                                    + "Configure FLIPBOT_SESSION_ENCRYPTION_KEY or FLIPBOT_ENCRYPTION_KEY to complete migration. reason={}",
+                            sessionReference,
+                            safeMessage(exception)
+                    );
+
+                    return legacyStorageState;
+                } catch (IOException legacyReadException) {
+                    exception.addSuppressed(legacyReadException);
+                }
+            }
+
+            log.error(
+                    "[SESSION] Stored session {} could not be safely restored. "
+                            + "The file is left untouched and this browser job will start with a clean context. "
+                            + "If credentials are valid, normal login can continue the job. reason={}",
+                    sessionReference,
+                    safeMessage(exception)
+            );
+
+            return null;
+        }
+    }
+
+    private static boolean isLegacyPlaintextReference(Path sessionReference) {
+        if (sessionReference == null || sessionReference.getFileName() == null) {
+            return false;
+        }
+
+        return sessionReference.getFileName()
+                .toString()
+                .matches("bot-\\d+\\.json");
+    }
+
+    private static String safeMessage(Throwable throwable) {
+        if (throwable == null
+                || throwable.getMessage() == null
+                || throwable.getMessage().isBlank()) {
+            return throwable == null
+                    ? "unknown error"
+                    : throwable.getClass().getSimpleName();
+        }
+
+        return throwable.getMessage()
+                .lines()
+                .findFirst()
+                .orElse(throwable.getMessage())
+                .trim();
     }
 
     private void installAdTechNetworkBlocker(BrowserContext context) {
