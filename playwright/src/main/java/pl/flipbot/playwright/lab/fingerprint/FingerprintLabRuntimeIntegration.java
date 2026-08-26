@@ -38,12 +38,48 @@ public final class FingerprintLabRuntimeIntegration {
     }
 
     public static boolean isActive() {
-        if (!isRequested()) {
+        String targetUrl = System.getenv(TARGET_URL_ENV);
+
+        return validateConfiguration(
+                isRequested(),
+                FingerprintLabPolicy.isEnabled(),
+                targetUrl
+        );
+    }
+
+    static boolean validateConfiguration(
+            boolean runtimeIntegrationRequested,
+            boolean fingerprintLabEnabled,
+            String targetUrl
+    ) {
+        if (!runtimeIntegrationRequested) {
             return false;
         }
 
-        String targetUrl = requireConfiguredTargetUrl();
-        FingerprintLabPolicy.requireAllowed(targetUrl);
+        if (!fingerprintLabEnabled) {
+            throw new IllegalStateException(
+                    "Fingerprint runtime integration requires "
+                            + FingerprintLabPolicy.ENABLE_ENV
+                            + "=true."
+            );
+        }
+
+        if (targetUrl == null || targetUrl.isBlank()) {
+            throw new IllegalStateException(
+                    "Fingerprint runtime integration requires "
+                            + TARGET_URL_ENV
+                            + " to point to an allowed laboratory URL."
+            );
+        }
+
+        if (!FingerprintLabPolicy.isAllowedUrl(targetUrl)) {
+            throw new IllegalStateException(
+                    "Fingerprint runtime integration refuses non-laboratory URL: "
+                            + targetUrl
+                            + ". Allowed hosts are loopback, *.localhost and *.test only."
+            );
+        }
+
         return true;
     }
 
@@ -77,7 +113,7 @@ public final class FingerprintLabRuntimeIntegration {
             return;
         }
 
-        String targetUrl = requireConfiguredTargetUrl();
+        String targetUrl = configuredTargetUrl();
         FingerprintLabProfile profile =
                 FingerprintLabProfile.demoDesktopProfile();
 
@@ -92,10 +128,6 @@ public final class FingerprintLabRuntimeIntegration {
     }
 
     public static String configuredTargetUrl() {
-        return requireConfiguredTargetUrl();
-    }
-
-    private static String requireConfiguredTargetUrl() {
         String targetUrl = System.getenv(TARGET_URL_ENV);
 
         if (targetUrl == null || targetUrl.isBlank()) {
