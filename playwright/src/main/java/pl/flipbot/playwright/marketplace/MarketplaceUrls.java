@@ -18,9 +18,11 @@ public final class MarketplaceUrls {
             "https://www.vinted.pl/inbox";
 
     /**
-     * Treat only HTTPS URLs on the real Polish Vinted host (or one of its
-     * subdomains) as trusted. Prefix checks are intentionally avoided because
-     * a lookalike host such as www.vinted.pl.example.com must never pass.
+     * Treat only normal HTTPS URLs on the real Polish Vinted host (or one of
+     * its subdomains) as trusted. Prefix checks are intentionally avoided
+     * because a lookalike host such as www.vinted.pl.example.com must never
+     * pass. User-info and explicit ports are not part of normal marketplace
+     * navigation and are rejected at this trust boundary as well.
      */
     public static boolean isVintedUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
@@ -32,7 +34,9 @@ public final class MarketplaceUrls {
             String scheme = normalize(uri.getScheme());
             String host = normalize(uri.getHost());
 
-            if (!"https".equals(scheme)) {
+            if (!"https".equals(scheme)
+                    || uri.getRawUserInfo() != null
+                    || uri.getPort() != -1) {
                 return false;
             }
 
@@ -149,18 +153,7 @@ public final class MarketplaceUrls {
 
         try {
             String path = URI.create(rawUrl.trim()).getPath();
-            if (path == null || path.isBlank()) {
-                return false;
-            }
-
-            String[] parts = path.split("/");
-            for (int index = 0; index < parts.length - 1; index++) {
-                if ("inbox".equals(parts[index])) {
-                    return expectedConversationId.equals(parts[index + 1]);
-                }
-            }
-
-            return false;
+            return ("/inbox/" + expectedConversationId).equals(path);
         } catch (RuntimeException exception) {
             return false;
         }
