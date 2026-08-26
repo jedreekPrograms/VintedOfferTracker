@@ -48,4 +48,18 @@ public class PriceProbeRuntimeConfigTest {
                 )
         );
     }
+
+    @Test
+    public void dnsRootDotCannotBypassVintedProbeProhibition() {
+        assertTrue(PriceProbeRuntimeConfig.isRealVintedHost("vinted.pl."));
+        assertTrue(PriceProbeRuntimeConfig.isRealVintedHost("WWW.VINTED.PL."));
+        assertTrue(PriceProbeRuntimeConfig.isRealVintedHost("sub.vinted.pl.."));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> PriceProbeRuntimeConfig.validateBaseUrl(
+                        "https://www.vinted.pl."
+                )
+        );
+    }
 }
