@@ -1,8 +1,10 @@
-# FlipBot Fingerprint Defense Lab
+# FlipBot Fingerprint Lab v2
 
-This module is a **local defensive laboratory** for studying browser fingerprinting and tamper detection. It has its own standalone launcher and also exposes an explicitly gated bridge into FlipBot's regular `BrowserManager` pipeline for testing the same browser-context path against laboratory URLs. Login, scanning, negotiation, workers and marketplace navigation are otherwise unchanged.
+This module is one consolidated **local / reserved-test laboratory** for studying browser fingerprint consistency, session isolation, first-party cookie lifecycle, bounded multi-context scale, network-path observations and human-interaction simulations.
 
-## Safety boundary
+It is built on top of the original fingerprint lab and the guarded `BrowserManager` integration. The safety boundary is intentionally stronger than a feature switch: production hosts remain unreachable from a lab-instrumented context.
+
+## Hard safety boundary
 
 The lab is disabled by default and requires:
 
@@ -10,54 +12,127 @@ The lab is disabled by default and requires:
 FLIPBOT_FINGERPRINT_LAB=true
 ```
 
-Even with the flag enabled, the target URL must be one of:
+Allowed target hosts are only:
 
-- `localhost`
-- `127.0.0.1`
-- `::1`
-- `*.localhost`
-- `*.test`
+```text
+localhost
+127.0.0.1
+::1
+*.localhost
+.test
+*.test
+```
 
-HTTP(S) requests to other hosts are aborted. Service Workers are blocked. WebSockets are routed separately and only loopback / reserved test-domain sockets are allowed to connect. This means Vinted and arbitrary production websites are rejected by policy rather than by convention.
+HTTP(S) traffic to other hosts is aborted. WebSockets are independently restricted to the same laboratory host classes. Service Workers are blocked.
 
-## What the simulator changes
+Optional proxy routing is also restricted to loopback / reserved test hosts. A production residential/mobile proxy URL is rejected even when every feature flag is enabled.
 
-The synthetic demo profile intentionally leaves obvious laboratory evidence. It demonstrates common spoofable surfaces without trying to hide that they were modified:
+Vinted and arbitrary production websites therefore fail closed by policy rather than by convention.
 
-- `navigator.platform`
-- `navigator.hardwareConcurrency`
-- `navigator.deviceMemory`
-- `navigator.language` / `navigator.languages`
-- `navigator.maxTouchPoints`
-- `screen.width` / `screen.height`
-- available screen size
-- color depth
-- `devicePixelRatio`
-- locale and timezone through a dedicated Playwright context
-- WebGL vendor / renderer surface
-- deterministic canvas-output perturbation
+## Consolidated capabilities
 
-The simulator deliberately **does not forge native function source** and installs `window.__flipbotFingerprintLab`, so defensive checks can detect that hooks exist.
+### Coherent profile catalog
 
-## What the detector observes
+Available synthetic profiles:
 
-The included page checks multiple independent signal families:
+```text
+windows-desktop-pl
+windows-laptop-pl
+windows-desktop-en
+```
 
-- legacy navigator values
-- User-Agent Client Hints when available
-- screen / DPR
-- timezone and UTC offset
-- WebGL
-- canvas repeatability and API integrity
-- `navigator.webdriver`
-- media-device surface
-- WebGPU / WebRTC / WebAssembly capability presence
-- Worker-vs-window CPU consistency
-- whether supposedly native getters/functions still look native
+Select one with:
 
-The key defensive lesson is **consistency**. A single value is weak evidence. A set of values that contradict independent browser realms, UA-CH, rendering APIs or network-level observations is much stronger evidence of tampering.
+```text
+FLIPBOT_FINGERPRINT_LAB_PROFILE
+```
 
-## Run the built-in lab on Windows PowerShell
+Each profile keeps related values together: platform, CPU count, memory, language order, touch points, screen/available screen geometry, DPR, timezone and WebGL identity.
+
+### Fingerprint surfaces
+
+The laboratory currently demonstrates:
+
+```text
+navigator.platform
+navigator.hardwareConcurrency
+navigator.deviceMemory
+navigator.language / navigator.languages
+navigator.maxTouchPoints
+screen.width / height
+screen.availWidth / availHeight
+screen.colorDepth / pixelDepth
+devicePixelRatio
+locale / timezone
+WebGL vendor / renderer
+canvas output perturbation
+```
+
+The lab intentionally does **not** forge native function source and intentionally keeps `window.__flipbotFingerprintLab`. `navigator.webdriver` is observed by the detector rather than hidden. This keeps the system useful for defensive consistency research instead of turning it into a production anti-bot bypass layer.
+
+### Detector
+
+The built-in page compares independent signal families, including legacy navigator values, UA Client Hints, screen/DPR, locale/timezone, WebGL, canvas integrity, Worker-vs-window consistency, media-device availability, WebGPU/WebRTC/WebAssembly capability and automation signals.
+
+### First-party cookie and session lifecycle
+
+The built-in loopback server creates a normal first-party `HttpOnly`, `SameSite=Lax` laboratory session cookie. The server records only whether a cookie header is present; it does not echo the cookie value.
+
+Standalone lab sessions may optionally persist cookies/local storage via Playwright storage state. Persistent state is encrypted with AES-256-GCM and stored under:
+
+```text
+sessions/fingerprint-lab/<profile>.state.enc
+```
+
+Enable persistence with:
+
+```text
+FLIPBOT_FINGERPRINT_LAB_PERSIST_SESSION=true
+```
+
+It requires either:
+
+```text
+FLIPBOT_SESSION_ENCRYPTION_KEY
+```
+
+or the fallback:
+
+```text
+FLIPBOT_ENCRYPTION_KEY
+```
+
+The configured Base64 key must decode to exactly 32 bytes. Persistence is disabled by default.
+
+The guarded `BrowserManager` integration does **not** replace FlipBot's normal per-bot session state with this profile store; regular bot sessions remain authoritative.
+
+### Human-interaction simulation
+
+Enable controlled local/test interaction pacing with:
+
+```text
+FLIPBOT_FINGERPRINT_LAB_HUMAN_BEHAVIOR=true
+```
+
+The simulator performs bounded mouse travel, pauses, scrolling and optional element interaction. Every operation re-checks the current page URL against `FingerprintLabPolicy`, so it refuses to operate after navigation to a production host.
+
+### Laboratory proxy path
+
+For network-path experiments against your controlled platform you may supply a **local or reserved-test proxy only**:
+
+```text
+FLIPBOT_FINGERPRINT_LAB_PROXY_URL=http://127.0.0.1:8888
+```
+
+or for example:
+
+```text
+FLIPBOT_FINGERPRINT_LAB_PROXY_URL=socks5://proxy.test:1080
+```
+
+The proxy endpoint itself must be loopback / `*.localhost` / `.test` / `*.test`. External proxy services are rejected.
+
+## Run standalone on Windows PowerShell
 
 From the repository:
 
@@ -65,37 +140,43 @@ From the repository:
 cd C:\Users\jedre\Desktop\flipbot\playwright
 $env:FLIPBOT_FINGERPRINT_LAB="true"
 
-mvn test
+..\backend\mvnw.cmd -f .\pom.xml test
 
-mvn -DskipTests compile org.codehaus.mojo:exec-maven-plugin:3.6.3:java `
+..\backend\mvnw.cmd -f .\pom.xml -DskipTests compile org.codehaus.mojo:exec-maven-plugin:3.6.3:java `
   "-Dexec.mainClass=pl.flipbot.playwright.lab.fingerprint.FingerprintLabApplication"
 ```
 
-With no custom URL, the application starts its own loopback detector server on:
+Without a custom target, the built-in detector starts on:
 
 ```text
 http://127.0.0.1:18091/
 ```
 
-It first records a baseline Chrome fingerprint, then opens the synthetic laboratory context and prints both snapshots to the terminal. Press Enter in the terminal to close the lab.
+## Run against your Vinted-shaped test platform
 
-## Run against your own test page
-
-Your test page must still be on an allowed laboratory host. For example:
+Use an allowed local/test hostname, for example:
 
 ```powershell
 $env:FLIPBOT_FINGERPRINT_LAB="true"
 $env:FLIPBOT_FINGERPRINT_LAB_URL="http://localhost:5173/fingerprint-test"
+$env:FLIPBOT_FINGERPRINT_LAB_PROFILE="windows-laptop-pl"
+$env:FLIPBOT_FINGERPRINT_LAB_HUMAN_BEHAVIOR="true"
 
-mvn -DskipTests compile org.codehaus.mojo:exec-maven-plugin:3.6.3:java `
+..\backend\mvnw.cmd -f .\pom.xml -DskipTests compile org.codehaus.mojo:exec-maven-plugin:3.6.3:java `
   "-Dexec.mainClass=pl.flipbot.playwright.lab.fingerprint.FingerprintLabApplication"
 ```
 
-Assets and API calls to another allowed loopback / `*.test` URL are allowed. Production CDNs, analytics endpoints and external WebSockets are blocked by the lab network boundary.
+For encrypted warm-session testing also set:
 
-## Guarded integration with FlipBot BrowserManager
+```powershell
+$env:FLIPBOT_FINGERPRINT_LAB_PERSIST_SESSION="true"
+```
 
-The regular `BrowserManager.createContext(...)` path can use the same laboratory profile, but only when all three conditions are present:
+and provide the normal session/encryption key.
+
+## Guarded integration with BrowserManager
+
+The regular `BrowserManager.createContext(...)` path can use a selected lab profile only when all required gates are set:
 
 ```text
 FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION=true
@@ -103,39 +184,60 @@ FLIPBOT_FINGERPRINT_LAB=true
 FLIPBOT_FINGERPRINT_LAB_URL=<allowed laboratory URL>
 ```
 
-For example, a local test target may be configured as:
+Optional profile and local-proxy variables are shared with the standalone lab.
+
+When active, BrowserManager applies laboratory context options, blocks Service Workers, installs the HTTP/WebSocket safety boundary and loads the synthetic fingerprint script before documents execute. Normal per-bot session logic remains unchanged.
+
+## Multi-context load / isolation harness
+
+`FingerprintLabLoadApplication` studies many isolated browser contexts on one machine without opening production targets.
+
+The harness keeps all Playwright calls on one thread and processes contexts in bounded batches instead of blindly trying to keep a thousand full pages alive at once.
+
+Configuration:
+
+```text
+FLIPBOT_FINGERPRINT_LAB_CONTEXTS=20
+FLIPBOT_FINGERPRINT_LAB_BATCH_SIZE=10
+```
+
+Hard limits:
+
+```text
+contexts: 1..1000
+batch size: 1..100
+```
+
+Example:
 
 ```powershell
-$env:FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION="true"
 $env:FLIPBOT_FINGERPRINT_LAB="true"
-$env:FLIPBOT_FINGERPRINT_LAB_URL="http://127.0.0.1:18091/"
+$env:FLIPBOT_FINGERPRINT_LAB_URL="http://localhost:5173/fingerprint-test"
+$env:FLIPBOT_FINGERPRINT_LAB_CONTEXTS="200"
+$env:FLIPBOT_FINGERPRINT_LAB_BATCH_SIZE="20"
+
+..\backend\mvnw.cmd -f .\pom.xml -DskipTests compile org.codehaus.mojo:exec-maven-plugin:3.6.3:java `
+  "-Dexec.mainClass=pl.flipbot.playwright.lab.fingerprint.FingerprintLabLoadApplication"
 ```
 
-When the runtime bridge is active:
+The load harness rotates through the profile catalog and prints progress plus JVM heap usage.
 
-- `BrowserManager` applies the laboratory locale/timezone/viewport/DPR context options before context creation;
-- Service Workers are blocked;
-- the existing laboratory HTTP(S) and WebSocket safety boundary is installed;
-- the synthetic fingerprint init script is installed before documents load;
-- the existing Vinted informational-dialog guard and normal session logic remain in place;
-- the context is still unable to reach Vinted or arbitrary production hosts because the allowlist/network boundary is unchanged.
+## Architecture
 
-If the runtime-integration flag is absent, normal FlipBot behavior is unchanged. If integration is requested but the lab feature flag is missing, the target is missing, or the target is not on the laboratory allowlist, context creation fails closed.
-
-The bridge does **not** change `MarketplaceNavigator` or redirect production flows to a test site. It only makes the regular browser-context creation path laboratory-capable when explicitly configured.
-
-## Code layout
-
-Laboratory code lives under:
+Main classes:
 
 ```text
-pl.flipbot.playwright.lab.fingerprint
+FingerprintLabPolicy                 hard URL/WebSocket/proxy boundary
+FingerprintLabConfiguration          central environment configuration
+FingerprintLabProfileCatalog         coherent named synthetic profiles
+FingerprintLabScript                 browser-surface simulator
+FingerprintLab                       fingerprint capture
+FingerprintLabServer                 loopback detector + first-party cookie
+FingerprintLabSessionStore           encrypted warm-session state
+FingerprintLabHumanBehavior          local/test-only interaction simulator
+FingerprintLabApplication            standalone consolidated launcher
+FingerprintLabRuntimeIntegration     guarded BrowserManager bridge
+FingerprintLabLoadApplication        bounded multi-context scale harness
 ```
 
-The guarded integration entry point is:
-
-```text
-FingerprintLabRuntimeIntegration
-```
-
-`BrowserManager` calls that bridge while the rest of the production marketplace workflow remains unchanged. Keep the allowlist and network boundary intact when extending the laboratory.
+Keep `FingerprintLabPolicy` and the runtime network boundary intact when extending the laboratory.
