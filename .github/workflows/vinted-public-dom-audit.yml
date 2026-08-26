@@ -1,0 +1,183 @@
+name: Vinted Public DOM Audit
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  public-vinted-dom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install audit browser
+        run: |
+          mkdir -p /tmp/vinted-dom-audit
+          cd /tmp/vinted-dom-audit
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.54.0
+          npx playwright install --with-deps chromium
+
+      - name: Probe current public Vinted DOM without account actions
+        working-directory: /tmp/vinted-dom-audit
+        run: |
+          cat > audit.cjs <<'EOF'
+          const { chromium } = require('playwright');
+
+          const PHONE_CATALOG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni';
+          const SAMSUNG_PHONE_CATALOG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni/brand/109048-samsung';
+
+          const core = {
+            card: "[data-testid^='product-item-id-']:not([data-testid*='--'])",
+            title: "[data-testid$='--description-title']",
+            subtitle: "[data-testid$='--description-subtitle']",
+            price: "[data-testid$='--price-text']",
+            image: "[data-testid$='--image--img']",
+            link: "[data-testid$='--overlay-link']",
+            favorites: "[data-testid='favourite-count-text']"
+          };
+
+          const filterTestIds = [
+            'catalog--catalog-filter--trigger',
+            'catalog--brand-filter--trigger',
+            'catalog--brand_collection-filter--trigger',
+            'catalog--price-filter--trigger',
+            'catalog--sort-filter--trigger'
+          ];
+
+          function requireCondition(condition, message) {
+            if (!condition) throw new Error(message);
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            locale: 'pl-PL',
+            timezoneId: 'Europe/Warsaw'
+          });
+          const page = await context.newPage();
+
+          try {
+            console.log('=== PUBLIC VINTED PHONE CATALOG ===');
+            await page.goto(PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await page.locator(core.card).first().waitFor({ state: 'attached', timeout: 30000 });
+            console.log('url=' + page.url());
+
+            const cardCount = await page.locator(core.card).count();
+            console.log('cardCount=' + cardCount);
+            requireCondition(cardCount > 0, 'No Vinted product cards matched the production selector');
+
+            const firstCard = page.locator(core.card).first();
+            const firstCardTestId = await firstCard.getAttribute('data-testid');
+            console.log('firstCardTestId=' + firstCardTestId);
+            requireCondition(/^product-item-id-\d+$/.test(firstCardTestId || ''),
+              'Current Vinted card data-testid no longer matches product-item-id-<digits>');
+
+            for (const key of ['title', 'subtitle', 'price', 'image', 'link']) {
+              const count = await firstCard.locator(core[key]).count();
+              console.log(`firstCard.${key}=${count}`);
+              requireCondition(count > 0, `Current Vinted first card has no ${key} matching production selector ${core[key]}`);
+            }
+            console.log('firstCard.favorites=' + await firstCard.locator(core.favorites).count());
+
+            const searchCount = await page.locator("form[action='/catalog'] input[name='search_text']").count();
+            console.log('catalogSearchInput=' + searchCount);
+            requireCondition(searchCount > 0, 'Current Vinted catalog search input no longer matches production selector');
+
+            for (const id of filterTestIds) {
+              const count = await page.getByTestId(id).count();
+              console.log(`filter.${id}=${count}`);
+              requireCondition(count > 0, `Current Vinted phone catalog is missing expected filter trigger ${id}`);
+            }
+
+            console.log('=== BRAND PANEL ===');
+            await page.getByTestId('catalog--brand-filter--trigger').click();
+            await page.waitForTimeout(500);
+            const applyCount = await page.locator("[data-testid='filter-selection-button']").count();
+            console.log('filter-selection-button=' + applyCount);
+            requireCondition(applyCount > 0, 'Current Vinted brand panel is missing filter-selection-button');
+            await page.keyboard.press('Escape').catch(() => {});
+
+            console.log('=== SAMSUNG MODEL PANEL ===');
+            await page.goto(SAMSUNG_PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await page.locator(core.card).first().waitFor({ state: 'attached', timeout: 30000 });
+            const modelTrigger = page.getByTestId('catalog--brand_collection-filter--trigger');
+            await modelTrigger.waitFor({ state: 'visible', timeout: 15000 });
+            await modelTrigger.click();
+            await page.waitForTimeout(500);
+
+            const modelSearch = page.locator('#brand_collection_filter_search');
+            console.log('modelSearchInput=' + await modelSearch.count());
+            requireCondition(await modelSearch.count() > 0,
+              'Current Vinted model panel is missing #brand_collection_filter_search');
+            await modelSearch.fill('Galaxy S25');
+            await page.waitForTimeout(1200);
+
+            const modelRows = page.locator("[data-testid^='selectable-item-brand_collection-']");
+            const modelRowCount = await modelRows.count();
+            console.log('modelRowCount=' + modelRowCount);
+            requireCondition(modelRowCount > 0,
+              'Current Vinted model search returned no selectable-item-brand_collection-* rows');
+
+            const modelEvidence = [];
+            for (let i = 0; i < Math.min(modelRowCount, 12); i++) {
+              const row = modelRows.nth(i);
+              if (!(await row.isVisible())) continue;
+              modelEvidence.push({
+                testId: await row.getAttribute('data-testid'),
+                text: (await row.innerText()).replace(/\s+/g, ' ').trim()
+              });
+            }
+            console.log('modelEvidence=' + JSON.stringify(modelEvidence));
+            requireCondition(modelEvidence.some(row => /Galaxy S25/i.test(row.text)),
+              'Current Vinted model panel does not expose Galaxy S25 in visible model row text');
+
+            console.log('=== SORT PANEL ===');
+            await page.keyboard.press('Escape').catch(() => {});
+            await page.getByTestId('catalog--sort-filter--trigger').click();
+            await page.waitForTimeout(400);
+            const newestCount = await page.locator('#sort_by-list-item-newest_first').count();
+            console.log('sortNewest=' + newestCount);
+            requireCondition(newestCount > 0,
+              'Current Vinted sort panel is missing #sort_by-list-item-newest_first');
+
+            console.log('=== PUBLIC ITEM DETAIL ===');
+            await page.goto(PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await page.locator(core.card).first().waitFor({ state: 'attached', timeout: 30000 });
+            let href = await page.locator(core.card).first().locator(core.link).getAttribute('href');
+            requireCondition(!!href, 'Could not read first current Vinted listing href');
+            if (href.startsWith('/')) href = 'https://www.vinted.pl' + href;
+            console.log('detailUrl=' + href);
+            await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 45000 });
+
+            const summaryCount = await page.locator("[data-testid='item-page-summary-plugin']").count();
+            const titleCount = await page.locator("[data-testid='item-page-summary-plugin'] h1").count();
+            console.log('item-page-summary-plugin=' + summaryCount);
+            console.log('item-page-summary-plugin h1=' + titleCount);
+            requireCondition(summaryCount > 0, 'Current Vinted item page is missing item-page-summary-plugin');
+            requireCondition(titleCount > 0, 'Current Vinted item title no longer matches item-page-summary-plugin h1');
+
+            console.log('public.item-buyer-offer-button=' + await page.getByTestId('item-buyer-offer-button').count());
+            const offerLikeTestIds = await page.locator('[data-testid]').evaluateAll(elements =>
+              [...new Set(elements
+                .map(el => el.getAttribute('data-testid'))
+                .filter(value => value && /offer|message|composer/i.test(value)))]
+                .sort()
+            );
+            console.log('publicOfferLikeTestIds=' + JSON.stringify(offerLikeTestIds));
+
+            console.log('VINTED_PUBLIC_DOM_AUDIT_OK');
+          } finally {
+            await context.close();
+            await browser.close();
+          }
+          EOF
+
+          node audit.cjs
