@@ -10,13 +10,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class BrowserManager implements AutoCloseable {
-
-    private static final int AD_TECH_LOG_FIRST_EVENTS = 3;
-    private static final int AD_TECH_LOG_INTERVAL = 100;
 
     private final long ownerThreadId;
     private final String ownerThreadName;
@@ -99,7 +95,6 @@ public class BrowserManager implements AutoCloseable {
 
         BrowserContext context = browser.newContext(options);
 
-        installAdTechNetworkBlocker(context);
         context.addInitScript(VintedInformationalDialogGuard.script());
 
         log.debug(
@@ -172,60 +167,6 @@ public class BrowserManager implements AutoCloseable {
                 .findFirst()
                 .orElse(throwable.getMessage())
                 .trim();
-    }
-
-    private void installAdTechNetworkBlocker(BrowserContext context) {
-        AtomicInteger blockedRequests = new AtomicInteger();
-
-        /*
-         * BotContext already prevents window.open(), target=_blank links/forms
-         * and immediately closes any extra Page that still reaches Chromium.
-         * This network guard sits one layer earlier for known advertising/RTB
-         * infrastructure: iframe, fetch, image, script and navigation requests
-         * are aborted before the remote ad-tech host can be contacted.
-         *
-         * The matcher is deliberately host-only and allow-by-default. We do not
-         * block arbitrary third-party/CDN traffic used by the marketplace.
-         */
-        context.route(
-                "**/*",
-                route -> {
-                    String requestUrl = route.request().url();
-
-                    if (!AdTechRequestBlocker.shouldBlock(requestUrl)) {
-                        route.resume();
-                        return;
-                    }
-
-                    int blockedNumber = blockedRequests.incrementAndGet();
-
-                    if (shouldLogBlockedAdTechRequest(blockedNumber)) {
-                        log.info(
-                                "[AD BLOCK] Aborting ad-tech request before network access. event={}, url={}",
-                                blockedNumber,
-                                requestUrl
-                        );
-                    } else {
-                        log.debug(
-                                "[AD BLOCK] Suppressed ad-tech request log. event={}, url={}",
-                                blockedNumber,
-                                requestUrl
-                        );
-                    }
-
-                    route.abort();
-                }
-        );
-
-        log.info(
-                "[AD BLOCK] Pre-network ad-tech filtering enabled for new browser context. "
-                        + "Known advertising/RTB hosts are aborted before navigation/request completion."
-        );
-    }
-
-    static boolean shouldLogBlockedAdTechRequest(int eventNumber) {
-        return eventNumber <= AD_TECH_LOG_FIRST_EVENTS
-                || eventNumber % AD_TECH_LOG_INTERVAL == 0;
     }
 
     public boolean isHealthy() {
