@@ -7,7 +7,6 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
-import com.microsoft.playwright.Route;
 
 import java.io.IOException;
 
@@ -21,7 +20,6 @@ import java.io.IOException;
 public final class FingerprintLabApplication {
 
     private static final String URL_ENV = "FLIPBOT_FINGERPRINT_LAB_URL";
-    private static final String DEFAULT_URL = "http://127.0.0.1:3000/";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
@@ -29,9 +27,34 @@ public final class FingerprintLabApplication {
     private FingerprintLabApplication() {}
 
     public static void main(String[] args) throws Exception {
-        String targetUrl = resolveTargetUrl(args);
-        FingerprintLabPolicy.requireAllowed(targetUrl);
+        String configuredUrl = configuredTargetUrl(args);
+        FingerprintLabServer localServer = null;
 
+        try {
+            String targetUrl;
+
+            if (configuredUrl == null) {
+                localServer = FingerprintLabServer.startDefault();
+                targetUrl = localServer.url();
+                System.out.println(
+                        "[FINGERPRINT LAB] Local detector server started at "
+                                + targetUrl
+                );
+            } else {
+                targetUrl = configuredUrl;
+            }
+
+            FingerprintLabPolicy.requireAllowed(targetUrl);
+            runLab(targetUrl);
+
+        } finally {
+            if (localServer != null) {
+                localServer.close();
+            }
+        }
+    }
+
+    private static void runLab(String targetUrl) throws Exception {
         FingerprintLabProfile profile =
                 FingerprintLabProfile.demoDesktopProfile();
 
@@ -159,7 +182,7 @@ public final class FingerprintLabApplication {
                 || normalized.equals("about:blank");
     }
 
-    private static String resolveTargetUrl(String[] args) {
+    private static String configuredTargetUrl(String[] args) {
         if (args != null && args.length > 0 && !args[0].isBlank()) {
             return args[0].trim();
         }
@@ -169,7 +192,7 @@ public final class FingerprintLabApplication {
             return fromEnv.trim();
         }
 
-        return DEFAULT_URL;
+        return null;
     }
 
     private static void waitForEnter() {
