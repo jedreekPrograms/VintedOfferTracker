@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Loopback-only HTTP server for the defensive fingerprint laboratory.
@@ -23,6 +24,7 @@ final class FingerprintLabServer implements AutoCloseable {
     static final int DEFAULT_PORT = 18091;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String LAB_SESSION_COOKIE = "fp_lab_session";
 
     private static final String ACCEPT_CH = String.join(
             ", ",
@@ -88,6 +90,7 @@ final class FingerprintLabServer implements AutoCloseable {
         }
 
         addCommonHeaders(exchange);
+        ensureFirstPartySessionCookie(exchange);
         exchange.getResponseHeaders().set(
                 "Content-Type",
                 "text/html; charset=utf-8"
@@ -114,11 +117,21 @@ final class FingerprintLabServer implements AutoCloseable {
             }
         });
 
+        selected.put(
+                "cookieHeaderPresent",
+                exchange.getRequestHeaders().getFirst("Cookie") != null
+        );
+        selected.put(
+                "remoteAddress",
+                exchange.getRemoteAddress().getAddress().getHostAddress()
+        );
+
         byte[] body = OBJECT_MAPPER
                 .writeValueAsString(selected)
                 .getBytes(StandardCharsets.UTF_8);
 
         addCommonHeaders(exchange);
+        ensureFirstPartySessionCookie(exchange);
         exchange.getResponseHeaders().set(
                 "Content-Type",
                 "application/json; charset=utf-8"
@@ -126,6 +139,38 @@ final class FingerprintLabServer implements AutoCloseable {
         exchange.sendResponseHeaders(200, body.length);
         exchange.getResponseBody().write(body);
         exchange.close();
+    }
+
+    private static void ensureFirstPartySessionCookie(HttpExchange exchange) {
+        String cookies = exchange.getRequestHeaders().getFirst("Cookie");
+        if (containsCookie(cookies, LAB_SESSION_COOKIE)) {
+            return;
+        }
+
+        exchange.getResponseHeaders().add(
+                "Set-Cookie",
+                LAB_SESSION_COOKIE
+                        + "="
+                        + UUID.randomUUID()
+                        + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400"
+        );
+    }
+
+    static boolean containsCookie(String cookieHeader, String cookieName) {
+        if (cookieHeader == null
+                || cookieHeader.isBlank()
+                || cookieName == null
+                || cookieName.isBlank()) {
+            return false;
+        }
+
+        String prefix = cookieName.trim() + "=";
+        for (String rawCookie : cookieHeader.split(";")) {
+            if (rawCookie.trim().startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void addCommonHeaders(HttpExchange exchange) {
