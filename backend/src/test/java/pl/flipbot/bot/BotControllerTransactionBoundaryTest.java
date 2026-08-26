@@ -12,6 +12,8 @@ class BotControllerTransactionBoundaryTest {
 
     @Test
     void botReadEndpointsKeepPersistenceContextOpenForLazyConfigurationMapping() throws Exception {
+        // OSIV is deliberately disabled, so the endpoint itself owns the
+        // read transaction while BotMapper traverses configuration/steps.
         assertReadOnlyTransaction("getAllBots");
         assertReadOnlyTransaction("getBot", Long.class);
         assertReadOnlyTransaction("getEditCapabilities", Long.class);
