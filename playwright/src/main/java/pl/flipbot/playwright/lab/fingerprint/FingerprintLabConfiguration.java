@@ -9,7 +9,8 @@ public record FingerprintLabConfiguration(
         String targetUrl,
         String profileId,
         boolean persistentSession,
-        boolean humanBehaviorSimulation
+        boolean humanBehaviorSimulation,
+        String proxyUrl
 ) {
 
     public static final String TARGET_URL_ENV = "FLIPBOT_FINGERPRINT_LAB_URL";
@@ -18,6 +19,8 @@ public record FingerprintLabConfiguration(
             "FLIPBOT_FINGERPRINT_LAB_PERSIST_SESSION";
     public static final String HUMAN_BEHAVIOR_ENV =
             "FLIPBOT_FINGERPRINT_LAB_HUMAN_BEHAVIOR";
+    public static final String PROXY_URL_ENV =
+            "FLIPBOT_FINGERPRINT_LAB_PROXY_URL";
 
     public FingerprintLabConfiguration {
         profileId = FingerprintLabProfileCatalog.normalizeId(profileId);
@@ -27,6 +30,13 @@ public record FingerprintLabConfiguration(
             targetUrl = targetUrl.trim();
             if (targetUrl.isBlank()) {
                 targetUrl = null;
+            }
+        }
+
+        if (proxyUrl != null) {
+            proxyUrl = proxyUrl.trim();
+            if (proxyUrl.isBlank()) {
+                proxyUrl = null;
             }
         }
     }
@@ -56,7 +66,8 @@ public record FingerprintLabConfiguration(
                                 HUMAN_BEHAVIOR_ENV,
                                 "false"
                         )
-                )
+                ),
+                firstNonBlank(System.getenv(PROXY_URL_ENV), null)
         );
     }
 
