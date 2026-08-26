@@ -29,8 +29,8 @@ jobs:
       - name: Probe current public Vinted DOM without account actions
         working-directory: /tmp/vinted-dom-audit
         run: |
-          cat > audit.cjs <<'EOF'
-          const { chromium } = require('playwright');
+          cat > audit.mjs <<'EOF'
+          import { chromium } from 'playwright';
 
           const PHONE_CATALOG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni';
           const SAMSUNG_PHONE_CATALOG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni/brand/109048-samsung';
@@ -180,4 +180,4 @@ jobs:
           }
           EOF
 
-          node audit.cjs
+          node audit.mjs
