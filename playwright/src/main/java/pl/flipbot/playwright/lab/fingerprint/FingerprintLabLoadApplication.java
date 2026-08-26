@@ -93,13 +93,15 @@ public final class FingerprintLabLoadApplication {
 
             try {
                 while (completed + failures < total) {
-                    int remaining = total - completed - failures;
+                    int processedBeforeBatch = completed + failures;
+                    int remaining = total - processedBeforeBatch;
                     int currentBatchSize = Math.min(batchSize, remaining);
+                    int batchSuccesses = 0;
                     List<BrowserContext> contexts = new ArrayList<>();
 
                     try {
                         for (int index = 0; index < currentBatchSize; index++) {
-                            int globalIndex = completed + failures + index;
+                            int globalIndex = processedBeforeBatch + index;
                             String profileId = profileIds.get(
                                     globalIndex % profileIds.size()
                             );
@@ -132,15 +134,11 @@ public final class FingerprintLabLoadApplication {
                                                 + globalIndex
                                 );
                             }
+
+                            batchSuccesses++;
                         }
 
-                        completed += contexts.size();
-
                     } catch (RuntimeException exception) {
-                        failures += Math.max(
-                                1,
-                                currentBatchSize - contexts.size()
-                        );
                         System.err.println(
                                 "[FINGERPRINT LAB LOAD] Batch failed: "
                                         + exception.getMessage()
@@ -155,6 +153,8 @@ public final class FingerprintLabLoadApplication {
                         }
                     }
 
+                    completed += batchSuccesses;
+                    failures += currentBatchSize - batchSuccesses;
                     printProgress(completed, failures, total);
                 }
             } finally {
