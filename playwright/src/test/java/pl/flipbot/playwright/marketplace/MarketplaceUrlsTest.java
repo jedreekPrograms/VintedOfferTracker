@@ -17,11 +17,13 @@ public class MarketplaceUrlsTest {
     }
 
     @Test
-    public void rejectsExternalLookalikeAndNonHttpsUrls() {
+    public void rejectsExternalLookalikeAndNonStandardTrustedUrlShapes() {
         assertFalse(MarketplaceUrls.isVintedUrl("https://www.sos-accessoire.com/example"));
         assertFalse(MarketplaceUrls.isVintedUrl("https://www.vinted.pl.evil.example/catalog"));
         assertFalse(MarketplaceUrls.isVintedUrl("https://evil.example/?next=https://www.vinted.pl/catalog"));
         assertFalse(MarketplaceUrls.isVintedUrl("http://www.vinted.pl/catalog"));
+        assertFalse(MarketplaceUrls.isVintedUrl("https://user@www.vinted.pl/catalog"));
+        assertFalse(MarketplaceUrls.isVintedUrl("https://www.vinted.pl:444/catalog"));
         assertFalse(MarketplaceUrls.isVintedUrl("chrome-error://chromewebdata/"));
         assertFalse(MarketplaceUrls.isVintedUrl("about:blank"));
         assertFalse(MarketplaceUrls.isVintedUrl(null));
@@ -130,7 +132,7 @@ public class MarketplaceUrlsTest {
     }
 
     @Test
-    public void rejectsWrongOrExternalConversationUrls() {
+    public void rejectsWrongExternalOrNestedConversationUrls() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> MarketplaceUrls.resolveVintedConversationUrl(
@@ -156,6 +158,13 @@ public class MarketplaceUrlsTest {
                 IllegalArgumentException.class,
                 () -> MarketplaceUrls.resolveVintedConversationUrl(
                         "//evil.example/inbox/123456789",
+                        "123456789"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedConversationUrl(
+                        "https://www.vinted.pl/foo/inbox/123456789",
                         "123456789"
                 )
         );
