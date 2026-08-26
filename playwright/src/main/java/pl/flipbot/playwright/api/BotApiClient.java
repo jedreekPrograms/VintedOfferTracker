@@ -89,18 +89,26 @@ public class BotApiClient extends ApiClient {
             }
 
             Set<Long> ids = new HashSet<>();
+            int index = 0;
 
             for (JsonNode bot : root) {
+                if (bot == null || !bot.isObject()) {
+                    throw malformedBotEntry(body, index, "entry is not a JSON object");
+                }
+
                 JsonNode idNode = bot.get("id");
 
-                if (idNode == null || !idNode.canConvertToLong()) {
-                    continue;
+                if (idNode == null || !idNode.isIntegralNumber()) {
+                    throw malformedBotEntry(body, index, "missing or non-integral id");
                 }
 
                 long id = idNode.longValue();
-                if (id > 0) {
-                    ids.add(id);
+                if (id <= 0) {
+                    throw malformedBotEntry(body, index, "id must be positive");
                 }
+
+                ids.add(id);
+                index++;
             }
 
             return Set.copyOf(ids);
@@ -114,6 +122,21 @@ public class BotApiClient extends ApiClient {
                     exception
             );
         }
+    }
+
+    private ApiException malformedBotEntry(
+            String body,
+            int index,
+            String reason
+    ) {
+        return new ApiException(
+                "Cannot parse all bot IDs safely: bot entry at index "
+                        + index
+                        + " is invalid ("
+                        + reason
+                        + "). Session cleanup is aborted. body="
+                        + summarizeResponseBody(body)
+        );
     }
 
     static String summarizeResponseBody(String body) {
