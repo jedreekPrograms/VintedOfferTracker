@@ -139,8 +139,24 @@ public record PriceProbeRuntimeConfig(
             return false;
         }
 
-        String host = rawHost.trim().toLowerCase(Locale.ROOT);
+        String host = canonicalDnsHost(rawHost);
         return "vinted.pl".equals(host) || host.endsWith(".vinted.pl");
+    }
+
+    private static String canonicalDnsHost(String rawHost) {
+        String host = rawHost.trim().toLowerCase(Locale.ROOT);
+
+        /*
+         * A trailing DNS root dot does not identify a different Internet host:
+         * www.vinted.pl. and www.vinted.pl resolve to the same FQDN. The probe
+         * blacklist must therefore compare their canonical DNS form instead of
+         * allowing a final dot to bypass the explicit Vinted prohibition.
+         */
+        while (host.endsWith(".")) {
+            host = host.substring(0, host.length() - 1);
+        }
+
+        return host;
     }
 
     private static boolean sameEndpoint(URI expected, URI candidate) {
