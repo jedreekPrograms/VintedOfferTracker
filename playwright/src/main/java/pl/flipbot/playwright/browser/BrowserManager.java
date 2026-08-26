@@ -4,6 +4,7 @@ import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Playwright;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.lab.fingerprint.FingerprintLabRuntimeIntegration;
 import pl.flipbot.playwright.session.SessionManager;
 
 import java.io.IOException;
@@ -93,7 +94,23 @@ public class BrowserManager implements AutoCloseable {
             }
         }
 
+        /*
+         * The normal runtime remains unchanged unless the dedicated fingerprint
+         * runtime-integration flag is explicitly enabled. When it is enabled,
+         * FingerprintLabRuntimeIntegration validates the laboratory feature flag
+         * and target allowlist before changing any BrowserContext option.
+         */
+        FingerprintLabRuntimeIntegration.prepareContextOptions(options);
+
         BrowserContext context = browser.newContext(options);
+
+        /*
+         * Install the lab profile only after the same guarded integration has
+         * constrained the context. Its network boundary blocks production
+         * HTTP(S)/WebSocket traffic and Service Workers are already disabled by
+         * the prepared context options.
+         */
+        FingerprintLabRuntimeIntegration.install(context);
 
         context.addInitScript(VintedInformationalDialogGuard.script());
 
