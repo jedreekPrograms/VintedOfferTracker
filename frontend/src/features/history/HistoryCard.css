@@ -1,6 +1,24 @@
+.history-card-main,
+.history-card-header > div,
+.history-price-row > div,
+.history-details > div,
+.history-card-actions {
+    min-width: 0;
+}
+
+.history-card-header h2,
+.history-details strong,
+.history-action-error {
+    overflow-wrap: anywhere;
+}
+
 .history-card-actions {
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.history-card-actions > * {
+    max-width: 100%;
 }
 
 .history-price-editor {
@@ -47,6 +65,7 @@
 
 .history-price-editor-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
 }
 
@@ -87,4 +106,17 @@
     background: #fff6f6;
     color: #a93f3f;
     font-size: 12px;
+}
+
+@container app-page (max-width: 520px) {
+    .history-card-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .history-card-actions > *,
+    .history-price-editor-actions > * {
+        width: 100%;
+        justify-content: center;
+    }
 }
