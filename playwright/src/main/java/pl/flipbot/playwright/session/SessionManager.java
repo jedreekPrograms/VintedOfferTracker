@@ -130,7 +130,7 @@ public class SessionManager {
     /**
      * Resolves an encrypted/legacy session reference into plaintext JSON in
      * memory. Legacy .json state is migrated to encrypted storage before this
-     * method returns.
+     * method returns when a valid encryption key is available.
      */
     public static String readStorageStateFromReference(Path sessionReference) {
         if (sessionReference == null
@@ -181,7 +181,7 @@ public class SessionManager {
      * encrypted with AES-256-GCM and authenticated against the owning bot ID.
      *
      * A legacy plaintext bot-{id}.json is migrated only after the encrypted
-     * replacement has been durably written. The plaintext file is then removed.
+     * replacement has been durably written and authenticated by reading it back.
      */
     public Optional<String> loadSessionState(Long botId) {
         validateBotId(botId);
@@ -248,8 +248,20 @@ public class SessionManager {
             );
         }
 
-        String encryptedValue = encrypt(botId, storageState);
         Path target = encryptedSessionFile(botId);
+
+        /*
+         * Never overwrite existing encrypted material unless the currently
+         * configured key can authenticate it first. This is essential during
+         * upgrades: a worker started with a missing/wrong key may fall back to a
+         * clean login, but it must not destroy the previous valid session by
+         * saving fresh state under the accidental key.
+         */
+        if (Files.exists(target)) {
+            decrypt(botId, readFile(target));
+        }
+
+        String encryptedValue = encrypt(botId, storageState);
         Path temporary = null;
 
         try {
@@ -298,8 +310,24 @@ public class SessionManager {
                     FILE_PERMISSIONS
             );
 
-            // The encrypted replacement is now in place. Only now is it safe
-            // to remove a legacy plaintext state file.
+            /*
+             * Read back and authenticate the final file before deleting legacy
+             * plaintext. This also proves that a non-atomic fallback move did
+             * not leave a truncated/corrupted encrypted state behind.
+             */
+            String verifiedStorageState = decrypt(
+                    botId,
+                    readFile(target)
+            );
+
+            if (!storageState.equals(verifiedStorageState)) {
+                throw new IllegalStateException(
+                        "Encrypted Playwright session verification failed for bot "
+                                + botId
+                                + ". Legacy plaintext was left untouched."
+                );
+            }
+
             deleteLegacyAfterEncryptedStateIsVerified(botId);
 
         } catch (IOException exception) {
