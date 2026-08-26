@@ -14,12 +14,10 @@ import java.util.Objects;
  * The bridge is deliberately fail-closed and requires all of the following:
  * - FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION=true
  * - FLIPBOT_FINGERPRINT_LAB=true
- * - FLIPBOT_FINGERPRINT_LAB_URL set to a URL accepted by FingerprintLabPolicy
+ * - FLIPBOT_FINGERPRINT_LAB_URL accepted by FingerprintLabPolicy
  *
- * When active, the same laboratory network boundary is installed on the
- * regular BrowserContext. This prevents the lab-instrumented context from
- * reaching production websites even if later application code attempts to
- * navigate there.
+ * Production hosts remain unreachable even when every laboratory feature is
+ * enabled.
  */
 @Slf4j
 public final class FingerprintLabRuntimeIntegration {
@@ -27,7 +25,7 @@ public final class FingerprintLabRuntimeIntegration {
     public static final String INTEGRATION_ENV =
             "FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION";
     public static final String TARGET_URL_ENV =
-            "FLIPBOT_FINGERPRINT_LAB_URL";
+            FingerprintLabConfiguration.TARGET_URL_ENV;
 
     private FingerprintLabRuntimeIntegration() {}
 
@@ -92,8 +90,11 @@ public final class FingerprintLabRuntimeIntegration {
             return;
         }
 
-        FingerprintLabProfile profile =
-                FingerprintLabProfile.demoDesktopProfile();
+        FingerprintLabConfiguration configuration = configuration();
+        FingerprintLabProfile profile = configuration.profile();
+
+        FingerprintLabSessionStore.load(configuration)
+                .ifPresent(options::setStorageState);
 
         options
                 .setLocale(profile.locale())
@@ -113,24 +114,38 @@ public final class FingerprintLabRuntimeIntegration {
             return;
         }
 
-        String targetUrl = configuredTargetUrl();
-        FingerprintLabProfile profile =
-                FingerprintLabProfile.demoDesktopProfile();
+        FingerprintLabConfiguration configuration = configuration();
+        FingerprintLabProfile profile = configuration.profile();
 
         FingerprintLabApplication.installNetworkSafetyBoundary(context);
         context.addInitScript(FingerprintLabScript.build(profile));
 
         log.warn(
-                "[FINGERPRINT LAB] Runtime integration ACTIVE for laboratory target {}. "
+                "[FINGERPRINT LAB] Runtime integration ACTIVE for laboratory target {} using profile {}. "
                         + "This BrowserContext is restricted to loopback/reserved test hosts; production HTTP(S)/WebSocket traffic is blocked.",
-                targetUrl
+                configuration.targetUrl(),
+                configuration.profileId()
         );
     }
 
-    public static String configuredTargetUrl() {
-        String targetUrl = System.getenv(TARGET_URL_ENV);
+    public static void persistSession(BrowserContext context) {
+        Objects.requireNonNull(context, "context cannot be null");
 
-        if (targetUrl == null || targetUrl.isBlank()) {
+        if (!isActive()) {
+            return;
+        }
+
+        FingerprintLabSessionStore.save(
+                configuration(),
+                context.storageState()
+        );
+    }
+
+    public static FingerprintLabConfiguration configuration() {
+        FingerprintLabConfiguration configuration =
+                FingerprintLabConfiguration.fromEnvironment(null);
+
+        if (configuration.targetUrl() == null) {
             throw new IllegalStateException(
                     "Fingerprint runtime integration requires "
                             + TARGET_URL_ENV
@@ -138,6 +153,11 @@ public final class FingerprintLabRuntimeIntegration {
             );
         }
 
-        return targetUrl.trim();
+        FingerprintLabPolicy.requireAllowed(configuration.targetUrl());
+        return configuration;
+    }
+
+    public static String configuredTargetUrl() {
+        return configuration().targetUrl();
     }
 }
