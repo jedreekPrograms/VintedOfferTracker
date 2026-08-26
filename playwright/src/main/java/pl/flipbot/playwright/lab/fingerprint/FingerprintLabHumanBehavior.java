@@ -62,7 +62,9 @@ public final class FingerprintLabHumanBehavior {
                         random.nextInt(12, 24)
                 );
                 pause(page, random.nextInt(90, 260));
+                requireLaboratoryPage(page);
                 refresh.click();
+                requireLaboratoryPage(page);
             }
         }
 
@@ -84,12 +86,18 @@ public final class FingerprintLabHumanBehavior {
 
         ThreadLocalRandom random = ThreadLocalRandom.current();
         Locator locator = page.locator(selector);
+
+        requireLaboratoryPage(page);
         locator.click();
+        requireLaboratoryPage(page);
+
         locator.pressSequentially(
                 text,
                 new Locator.PressSequentiallyOptions()
                         .setDelay(random.nextInt(55, 135))
         );
+        requireLaboratoryPage(page);
+
         pause(page, random.nextInt(160, 520));
         requireLaboratoryPage(page);
     }
@@ -106,20 +114,26 @@ public final class FingerprintLabHumanBehavior {
                 targetY,
                 new Mouse.MoveOptions().setSteps(steps)
         );
+        requireLaboratoryPage(page);
     }
 
     private static void scrollNaturally(Page page, double deltaY) {
         requireLaboratoryPage(page);
         page.mouse().wheel(0, deltaY);
+        requireLaboratoryPage(page);
     }
 
     private static void pause(Page page, int millis) {
         requireLaboratoryPage(page);
         page.waitForTimeout(millis);
+        requireLaboratoryPage(page);
     }
 
     private static double numberFromPage(Page page, String expression) {
+        requireLaboratoryPage(page);
         Object value = page.evaluate(expression);
+        requireLaboratoryPage(page);
+
         if (value instanceof Number number) {
             return number.doubleValue();
         }
