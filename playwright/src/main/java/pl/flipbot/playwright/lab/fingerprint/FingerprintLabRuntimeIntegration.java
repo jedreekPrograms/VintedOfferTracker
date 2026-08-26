@@ -18,7 +18,8 @@ import java.util.Objects;
  * - FLIPBOT_FINGERPRINT_LAB_URL accepted by FingerprintLabPolicy
  *
  * Production hosts remain unreachable even when every laboratory feature is
- * enabled.
+ * enabled. BrowserManager's normal per-bot session state remains authoritative;
+ * the standalone lab has a separate optional encrypted profile-session store.
  */
 @Slf4j
 public final class FingerprintLabRuntimeIntegration {
@@ -94,9 +95,6 @@ public final class FingerprintLabRuntimeIntegration {
         FingerprintLabConfiguration configuration = configuration();
         FingerprintLabProfile profile = configuration.profile();
 
-        FingerprintLabSessionStore.load(configuration)
-                .ifPresent(options::setStorageState);
-
         options
                 .setLocale(profile.locale())
                 .setTimezoneId(profile.timezoneId())
@@ -132,19 +130,6 @@ public final class FingerprintLabRuntimeIntegration {
                 configuration.proxyUrl() == null
                         ? ""
                         : " via laboratory proxy " + configuration.proxyUrl()
-        );
-    }
-
-    public static void persistSession(BrowserContext context) {
-        Objects.requireNonNull(context, "context cannot be null");
-
-        if (!isActive()) {
-            return;
-        }
-
-        FingerprintLabSessionStore.save(
-                configuration(),
-                context.storageState()
         );
     }
 
