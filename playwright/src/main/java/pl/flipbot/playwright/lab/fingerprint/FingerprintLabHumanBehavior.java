@@ -1,9 +1,9 @@
 package pl.flipbot.playwright.lab.fingerprint;
 
-import com.microsoft.playwright.BoundingBox;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Mouse;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.BoundingBox;
 
 import java.util.concurrent.ThreadLocalRandom;
 
