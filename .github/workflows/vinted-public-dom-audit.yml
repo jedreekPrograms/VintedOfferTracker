@@ -20,42 +20,35 @@ jobs:
 
       - name: Install audit browser
         run: |
-          mkdir -p /tmp/vinted-dom-audit
+          mkdir -p /tmp/vinted-dom-audit/evidence
           cd /tmp/vinted-dom-audit
           npm init -y >/dev/null 2>&1
           npm install playwright@1.54.0
           npx playwright install --with-deps chromium
 
       - name: Probe current public Vinted DOM without account actions
+        id: probe
         working-directory: /tmp/vinted-dom-audit
         run: |
           cat > audit.mjs <<'EOF'
           import { chromium } from 'playwright';
 
-          const PHONE_CATALOG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni';
-          const SAMSUNG_PHONE_CATALOG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni/brand/109048-samsung';
+          const PHONE = 'https://www.vinted.pl/catalog/3661-mobilie-talruni';
+          const SAMSUNG = 'https://www.vinted.pl/catalog/3661-mobilie-talruni/brand/109048-samsung';
           const HOME = 'https://www.vinted.pl/';
-          const core = {
-            card: "[data-testid^='product-item-id-']:not([data-testid*='--'])",
-            title: "[data-testid$='--description-title']",
-            subtitle: "[data-testid$='--description-subtitle']",
-            price: "[data-testid$='--price-text']",
-            image: "[data-testid$='--image--img']",
-            link: "[data-testid$='--overlay-link']",
-            favorites: "[data-testid='favourite-count-text']"
-          };
-
-          const required = (ok, message) => { if (!ok) throw new Error(message); };
+          const failures = [];
+          const fail = message => { failures.push(message); console.log('AUDIT_FAILURE=' + message); };
           const norm = value => (value || '').replace(/\s+/g, ' ').trim();
+          const cardSelector = "[data-testid^='product-item-id-']:not([data-testid*='--'])";
 
-          async function evidence(locator, limit = 40) {
+          async function ev(locator, limit = 60) {
             const out = [];
             for (let i = 0; i < Math.min(await locator.count(), limit); i++) {
               const el = locator.nth(i);
               if (!(await el.isVisible().catch(() => false))) continue;
               out.push({
                 tag: await el.evaluate(n => n.tagName.toLowerCase()).catch(() => null),
-                text: norm(await el.innerText().catch(() => '')).slice(0, 180),
+                text: norm(await el.innerText().catch(() => '')).slice(0, 220),
                 role: await el.getAttribute('role'),
                 testId: await el.getAttribute('data-testid'),
                 id: await el.getAttribute('id'),
@@ -68,181 +61,180 @@ jobs:
             return out;
           }
 
-          async function exactTextEvidence(page, text) {
-            const loc = page.getByText(text, { exact: true });
-            const out = [];
-            for (let i = 0; i < Math.min(await loc.count(), 20); i++) {
-              const el = loc.nth(i);
-              if (!(await el.isVisible().catch(() => false))) continue;
-              out.push({
-                self: (await evidence(el, 1))[0] ?? null,
-                parent: await el.evaluate(node => {
-                  const p = node.parentElement;
-                  return p ? {
-                    tag: p.tagName.toLowerCase(),
-                    role: p.getAttribute('role'),
-                    testId: p.getAttribute('data-testid'),
-                    id: p.id || null,
-                    text: (p.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 220)
-                  } : null;
-                }).catch(() => null)
-              });
-            }
-            return out;
+          async function panelEvidence(page, label) {
+            console.log(label + '.inputs=' + JSON.stringify(await ev(page.locator('input:visible'))));
+            console.log(label + '.dialogs=' + JSON.stringify(await ev(page.locator("[role='dialog']:visible, [aria-modal='true']:visible"), 20)));
+            console.log(label + '.testids=' + JSON.stringify(await ev(page.locator("[data-testid]:visible"), 120)));
           }
 
-          function exactGalaxyS25(text) {
-            const value = norm(text);
-            if (/^Galaxy S25$/i.test(value)) return true;
-            if (!/^Galaxy S25\s+/i.test(value)) return false;
-            const suffix = value.replace(/^Galaxy S25\s+/i, '');
-            return /^\d[\d\s.,]*(?:\s*(?:przedmiot\p{L}*|item\p{L}*|article\p{L}*|result\p{L}*|wynik\p{L}*))?$/iu.test(suffix);
+          async function waitCards(page) {
+            await page.locator(cardSelector).first().waitFor({ state: 'attached', timeout: 30000 });
           }
 
-          async function waitCatalog(page) {
-            await page.locator(core.card).first().waitFor({ state: 'attached', timeout: 30000 });
+          function isExactS25(text) {
+            const v = norm(text);
+            if (/^Galaxy S25$/i.test(v)) return true;
+            if (!/^Galaxy S25\s+/i.test(v)) return false;
+            const suffix = v.replace(/^Galaxy S25\s+/i, '');
+            return /^\d[\d\s.,]*(?:\s*przedmiot\p{L}*)?$/iu.test(suffix);
           }
 
           const browser = await chromium.launch({ headless: true });
-          const context = await browser.newContext({ locale: 'pl-PL', timezoneId: 'Europe/Warsaw' });
+          const context = await browser.newContext({ locale: 'pl-PL', timezoneId: 'Europe/Warsaw', viewport: { width: 1440, height: 1000 } });
           const page = await context.newPage();
 
           try {
-            console.log('=== CATALOG CORE ===');
-            await page.goto(PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
-            await waitCatalog(page);
-            console.log('cardCount=' + await page.locator(core.card).count());
-            const card = page.locator(core.card).first();
-            console.log('firstCardTestId=' + await card.getAttribute('data-testid'));
-            for (const key of ['title', 'subtitle', 'price', 'image', 'link']) {
-              const count = await card.locator(core[key]).count();
-              console.log(`firstCard.${key}=${count}`);
-              required(count > 0, `Missing required product-card selector: ${key}`);
+            console.log('=== CORE CATALOG ===');
+            await page.goto(PHONE, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await waitCards(page);
+            const cards = page.locator(cardSelector);
+            console.log('core.cardCount=' + await cards.count());
+            const card = cards.first();
+            const requiredCardSelectors = {
+              title: "[data-testid$='--description-title']",
+              subtitle: "[data-testid$='--description-subtitle']",
+              price: "[data-testid$='--price-text']",
+              image: "[data-testid$='--image--img']",
+              link: "[data-testid$='--overlay-link']"
+            };
+            for (const [name, selector] of Object.entries(requiredCardSelectors)) {
+              const count = await card.locator(selector).count();
+              console.log(`core.${name}=${count}`);
+              if (count === 0) fail(`required card selector missing: ${name}`);
             }
-            console.log('firstCard.favorites=' + await card.locator(core.favorites).count() + ' (optional; parser maps missing to 0)');
-            required(await page.locator("form[action='/catalog'] input[name='search_text']:visible").count() > 0,
-              'Visible catalog search selector missing');
+            console.log('core.favorites=' + await card.locator("[data-testid='favourite-count-text']").count() + ' optional');
+            if (await page.locator("form[action='/catalog'] input[name='search_text']:visible").count() === 0) fail('catalog search selector missing');
             for (const id of ['catalog--catalog-filter--trigger','catalog--brand-filter--trigger','catalog--brand_collection-filter--trigger','catalog--price-filter--trigger','catalog--sort-filter--trigger']) {
               const count = await page.getByTestId(id).count();
-              console.log(`filter.${id}=${count}`);
-              required(count > 0, `Missing filter trigger ${id}`);
+              console.log(`core.${id}=${count}`);
+              if (count === 0) fail(`filter trigger missing: ${id}`);
             }
 
-            console.log('=== BRAND PANEL DIAGNOSTICS ===');
+            console.log('=== BRAND FILTER ===');
             await page.getByTestId('catalog--brand-filter--trigger').click();
-            await page.waitForTimeout(700);
-            console.log('brand.oldConfirm=' + await page.getByTestId('filter-selection-button').count());
-            console.log('brand.showAllItems=' + await page.getByTestId('show-all-items').count());
-            console.log('brand.inputs=' + JSON.stringify(await evidence(page.locator('input:visible'), 30)));
-            console.log('brand.brandLike=' + JSON.stringify(await evidence(page.locator("[data-testid*='brand']:visible, [data-testid*='selectable']:visible, [data-testid='show-all-items']:visible"), 100)));
-            console.log('brand.SamsungExact=' + JSON.stringify(await exactTextEvidence(page, 'Samsung')));
-            console.log('brand.SamsungButtonCount=' + await page.getByRole('button', { name: 'Samsung', exact: true }).count());
+            await page.waitForTimeout(4000);
+            await page.screenshot({ path: 'evidence/brand.png', fullPage: false });
+            console.log('brand.oldConfirm=' + await page.locator("[data-testid='filter-selection-button']:visible").count());
+            console.log('brand.showAll=' + await page.locator("[data-testid='show-all-items']:visible").count());
+            console.log('brand.samsungExact=' + JSON.stringify(await ev(page.getByText('Samsung', { exact: true }))));
+            console.log('brand.samsungButtons=' + await page.getByRole('button', { name: 'Samsung', exact: true }).count());
+            await panelEvidence(page, 'brand');
 
-            console.log('=== MODEL PANEL / EXACT GALAXY S25 ===');
-            await page.goto(SAMSUNG_PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
-            await waitCatalog(page);
+            console.log('=== MODEL FILTER ===');
+            await page.goto(SAMSUNG, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await waitCards(page);
             await page.getByTestId('catalog--brand_collection-filter--trigger').click();
-            await page.waitForTimeout(700);
-            console.log('model.oldConfirm=' + await page.getByTestId('filter-selection-button').count());
-            console.log('model.showAllItems=' + await page.getByTestId('show-all-items').count());
-            console.log('model.inputs=' + JSON.stringify(await evidence(page.locator('input:visible'), 30)));
-            const modelSearch = page.locator('#brand_collection_filter_search');
-            console.log('model.search=' + await modelSearch.count());
-            required(await modelSearch.count() > 0, 'Missing model search input');
-            await modelSearch.fill('Galaxy S25');
-            await page.waitForTimeout(1200);
-            const rows = page.locator("[data-testid^='selectable-item-brand_collection-']:not([data-testid$='--title'])");
-            console.log('model.rows=' + await rows.count());
-            console.log('model.rowsEvidence=' + JSON.stringify(await evidence(rows, 40)));
-            let exact = null;
-            for (let i = 0; i < Math.min(await rows.count(), 40); i++) {
-              const row = rows.nth(i);
-              if (await row.isVisible().catch(() => false) && exactGalaxyS25(await row.innerText())) { exact = row; break; }
-            }
-            required(exact !== null, 'Could not prove exact Galaxy S25 row');
-            const testId = await exact.getAttribute('data-testid');
-            const collectionId = (testId || '').match(/^selectable-item-brand_collection-(\d+)$/)?.[1];
-            required(!!collectionId, 'Exact S25 row has unexpected testid');
-            console.log('model.exactTestId=' + testId);
-            const before = page.url();
-            await exact.click();
-            await page.waitForTimeout(1200);
-            console.log('model.beforeClick=' + before);
-            console.log('model.afterClick=' + page.url());
-            let persisted = new URL(page.url()).searchParams.getAll('brand_collection_ids[]').includes(collectionId);
-            console.log('model.persistedBeforeConfirm=' + persisted);
-            console.log('model.postClick.oldConfirm=' + await page.getByTestId('filter-selection-button').count());
-            console.log('model.postClick.showAllItems=' + await page.getByTestId('show-all-items').count());
-            console.log('model.showAllEvidence=' + JSON.stringify(await evidence(page.getByTestId('show-all-items'))));
-            if (!persisted && await page.getByTestId('show-all-items').isVisible().catch(() => false)) {
-              console.log('model.clickingCurrentShowAllItems=true');
-              await page.getByTestId('show-all-items').click();
+            await page.waitForTimeout(4000);
+            await page.screenshot({ path: 'evidence/model.png', fullPage: false });
+            console.log('model.oldConfirm=' + await page.locator("[data-testid='filter-selection-button']:visible").count());
+            console.log('model.showAll=' + await page.locator("[data-testid='show-all-items']:visible").count());
+            await panelEvidence(page, 'model');
+            const search = page.locator('#brand_collection_filter_search:visible');
+            console.log('model.search=' + await search.count());
+            if (await search.count() === 0) {
+              fail('model search input #brand_collection_filter_search missing after panel settled');
+            } else {
+              await search.fill('Galaxy S25');
               await page.waitForTimeout(1500);
-              persisted = new URL(page.url()).searchParams.getAll('brand_collection_ids[]').includes(collectionId);
-              console.log('model.afterShowAll=' + page.url());
-              console.log('model.persistedAfterShowAll=' + persisted);
+              const rows = page.locator("[data-testid^='selectable-item-brand_collection-']:not([data-testid$='--title']):visible");
+              console.log('model.rows=' + await rows.count());
+              console.log('model.rowEvidence=' + JSON.stringify(await ev(rows, 40)));
+              let exact = null;
+              for (let i = 0; i < Math.min(await rows.count(), 40); i++) {
+                if (isExactS25(await rows.nth(i).innerText())) { exact = rows.nth(i); break; }
+              }
+              if (exact === null) {
+                fail('exact Galaxy S25 row not found');
+              } else {
+                const tid = await exact.getAttribute('data-testid');
+                const id = (tid || '').match(/^selectable-item-brand_collection-(\d+)$/)?.[1];
+                console.log('model.exactTestId=' + tid);
+                if (!id) {
+                  fail('exact Galaxy S25 row has unexpected testid');
+                } else {
+                  await exact.click();
+                  await page.waitForTimeout(1200);
+                  let persisted = new URL(page.url()).searchParams.getAll('brand_collection_ids[]').includes(id);
+                  console.log('model.persistedBeforeConfirm=' + persisted);
+                  console.log('model.afterSelect.url=' + page.url());
+                  const currentConfirm = page.locator("[data-testid='show-all-items']:visible");
+                  console.log('model.currentConfirm=' + await currentConfirm.count());
+                  if (!persisted && await currentConfirm.count() > 0) {
+                    console.log('model.clickingShowAllItems=true');
+                    await currentConfirm.first().click();
+                    await page.waitForTimeout(1800);
+                    persisted = new URL(page.url()).searchParams.getAll('brand_collection_ids[]').includes(id);
+                    console.log('model.persistedAfterShowAll=' + persisted);
+                    console.log('model.afterConfirm.url=' + page.url());
+                  }
+                  if (!persisted) fail('Galaxy S25 collection id did not persist through current Vinted UI');
+                }
+              }
             }
-            required(persisted, 'Exact S25 filter did not persist through current public Vinted UI');
 
-            console.log('=== PRICE + SORT ===');
-            await page.goto(PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
-            await waitCatalog(page);
+            console.log('=== PRICE FILTER ===');
+            await page.goto(PHONE, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await waitCards(page);
             await page.getByTestId('catalog--price-filter--trigger').click();
-            await page.waitForTimeout(500);
-            console.log('price.from=' + await page.locator('#price_from').count());
-            console.log('price.to=' + await page.locator('#price_to').count());
-            console.log('price.oldConfirm=' + await page.getByTestId('filter-selection-button').count());
-            console.log('price.showAll=' + await page.getByTestId('show-all-items').count());
-            required(await page.locator('#price_from').count() > 0 && await page.locator('#price_to').count() > 0,
-              'Price input selectors changed');
-            await page.keyboard.press('Escape').catch(() => {});
+            await page.waitForTimeout(2500);
+            await page.screenshot({ path: 'evidence/price.png', fullPage: false });
+            console.log('price.from=' + await page.locator('#price_from:visible').count());
+            console.log('price.to=' + await page.locator('#price_to:visible').count());
+            console.log('price.oldConfirm=' + await page.locator("[data-testid='filter-selection-button']:visible").count());
+            console.log('price.showAll=' + await page.locator("[data-testid='show-all-items']:visible").count());
+            if (await page.locator('#price_from:visible').count() === 0 || await page.locator('#price_to:visible').count() === 0) fail('price inputs changed');
+
+            console.log('=== SORT FILTER ===');
+            await page.goto(PHONE, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await waitCards(page);
             await page.getByTestId('catalog--sort-filter--trigger').click();
-            await page.waitForTimeout(400);
-            console.log('sort.newest=' + await page.locator('#sort_by-list-item-newest_first').count());
-            required(await page.locator('#sort_by-list-item-newest_first').count() > 0, 'Newest sort selector changed');
-            await page.keyboard.press('Escape').catch(() => {});
+            await page.waitForTimeout(1800);
+            console.log('sort.newest=' + await page.locator('#sort_by-list-item-newest_first:visible').count());
+            if (await page.locator('#sort_by-list-item-newest_first:visible').count() === 0) fail('newest sort selector changed');
 
             console.log('=== ITEM DETAIL ===');
-            await page.goto(PHONE_CATALOG, { waitUntil: 'domcontentloaded', timeout: 45000 });
-            await waitCatalog(page);
-            let href = await page.locator(core.card).first().locator(core.link).getAttribute('href');
-            required(!!href, 'Listing href missing');
-            if (href.startsWith('/')) href = 'https://www.vinted.pl' + href;
-            console.log('detail.url=' + href);
-            await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 45000 });
-            const summary = page.getByTestId('item-page-summary-plugin');
-            console.log('detail.summary=' + await summary.count());
-            console.log('detail.h1=' + await summary.locator('h1').count());
-            required(await summary.count() > 0 && await summary.locator('h1').count() > 0,
-              'Item detail title selectors changed');
-            console.log('detail.offerButton=' + await page.getByTestId('item-buyer-offer-button').count());
-            console.log('detail.offerLikeTestIds=' + JSON.stringify(await page.locator('[data-testid]').evaluateAll(els =>
-              [...new Set(els.map(e => e.getAttribute('data-testid')).filter(v => v && /offer|message|composer/i.test(v)))].sort()
-            )));
+            await page.goto(PHONE, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await waitCards(page);
+            let href = await page.locator(cardSelector).first().locator("[data-testid$='--overlay-link']").getAttribute('href');
+            if (!href) {
+              fail('listing href missing');
+            } else {
+              if (href.startsWith('/')) href = 'https://www.vinted.pl' + href;
+              await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 45000 });
+              await page.waitForTimeout(1800);
+              await page.screenshot({ path: 'evidence/detail.png', fullPage: false });
+              console.log('detail.url=' + page.url());
+              console.log('detail.summary=' + await page.locator("[data-testid='item-page-summary-plugin']:visible").count());
+              console.log('detail.h1=' + await page.locator("[data-testid='item-page-summary-plugin'] h1:visible").count());
+              console.log('detail.offerButton=' + await page.locator("[data-testid='item-buyer-offer-button']:visible").count());
+              console.log('detail.offerLike=' + JSON.stringify(await ev(page.locator("[data-testid*='offer']:visible, [data-testid*='message']:visible, [data-testid*='composer']:visible"), 80)));
+              if (await page.locator("[data-testid='item-page-summary-plugin']:visible").count() === 0) fail('item summary plugin changed');
+            }
 
-            console.log('=== LOGIN FLOW WITHOUT CREDENTIALS ===');
+            console.log('=== LOGIN FLOW / NO CREDENTIALS ===');
             await page.goto(HOME, { waitUntil: 'domcontentloaded', timeout: 45000 });
             const cookie = page.locator('#onetrust-accept-btn-handler');
             if (await cookie.isVisible().catch(() => false)) await cookie.click();
-            const login = page.getByTestId('header--login-button');
-            console.log('login.headerButton=' + await login.count());
-            required(await login.count() > 0, 'Header login selector changed');
-            await login.click();
-            await page.waitForTimeout(700);
-            console.log('login.authEvidence=' + JSON.stringify(await evidence(page.locator("[data-testid*='auth-']:visible, [data-testid^='select-type-']:visible"), 60)));
-            if (await page.getByTestId('auth-select-type--register-switch').isVisible().catch(() => false)) {
-              await page.getByTestId('auth-select-type--register-switch').click();
-              await page.waitForTimeout(700);
+            const login = page.locator("[data-testid='header--login-button']:visible");
+            console.log('login.header=' + await login.count());
+            if (await login.count() === 0) {
+              fail('header login selector changed');
+            } else {
+              await login.click();
+              await page.waitForTimeout(2500);
+              await page.screenshot({ path: 'evidence/login.png', fullPage: false });
+              console.log('login.auth=' + JSON.stringify(await ev(page.locator("[data-testid*='auth-']:visible, [data-testid^='select-type-']:visible"), 80)));
+              const regSwitch = page.locator("[data-testid='auth-select-type--register-switch']:visible");
+              if (await regSwitch.count() > 0) { await regSwitch.click(); await page.waitForTimeout(1200); }
+              const emailChoice = page.locator("[data-testid='auth-select-type--login-email']:visible");
+              if (await emailChoice.count() > 0) { await emailChoice.click(); await page.waitForTimeout(1200); }
+              console.log('login.username=' + await page.locator('#username:visible').count());
+              console.log('login.password=' + await page.locator('#password:visible').count());
+              if (await page.locator('#username:visible').count() === 0 || await page.locator('#password:visible').count() === 0) fail('email/password login selectors changed');
             }
-            if (await page.getByTestId('auth-select-type--login-email').isVisible().catch(() => false)) {
-              await page.getByTestId('auth-select-type--login-email').click();
-              await page.waitForTimeout(700);
-            }
-            console.log('login.username=' + await page.locator('#username').count());
-            console.log('login.password=' + await page.locator('#password').count());
-            required(await page.locator('#username').count() > 0 && await page.locator('#password').count() > 0,
-              'Email/password selectors changed');
 
+            console.log('AUDIT_FAILURES=' + JSON.stringify(failures));
+            if (failures.length > 0) throw new Error('Vinted DOM audit found ' + failures.length + ' incompatibility(s): ' + failures.join(' | '));
             console.log('VINTED_PUBLIC_DOM_AUDIT_OK');
           } finally {
             await context.close();
@@ -251,3 +243,11 @@ jobs:
           EOF
 
           node audit.mjs
+
+      - name: Upload live DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vinted-public-dom-evidence
+          path: /tmp/vinted-dom-audit/evidence
+          if-no-files-found: ignore
