@@ -41,6 +41,26 @@ public class FingerprintLabPolicyTest {
     }
 
     @Test
+    public void allowsOnlyLaboratoryProxyEndpoints() {
+        assertTrue(FingerprintLabPolicy.isAllowedProxyUrl(
+                "http://127.0.0.1:8888"
+        ));
+        assertTrue(FingerprintLabPolicy.isAllowedProxyUrl(
+                "socks5://proxy.test:1080"
+        ));
+
+        assertFalse(FingerprintLabPolicy.isAllowedProxyUrl(
+                "http://residential.example.com:3128"
+        ));
+        assertFalse(FingerprintLabPolicy.isAllowedProxyUrl(
+                "socks5://proxy.vinted.pl:1080"
+        ));
+        assertFalse(FingerprintLabPolicy.isAllowedProxyUrl(
+                "file:///tmp/proxy"
+        ));
+    }
+
+    @Test
     public void rejectsMarketplaceAndArbitraryProductionHosts() {
         assertFalse(FingerprintLabPolicy.isAllowedUrl(
                 "https://www.vinted.pl/"
@@ -53,6 +73,9 @@ public class FingerprintLabPolicyTest {
         ));
         assertFalse(FingerprintLabPolicy.isAllowedUrl(
                 "https://fingerprint.test.example.com/"
+        ));
+        assertFalse(FingerprintLabPolicy.isAllowedUrl(
+                "https://www.vinted.pl./"
         ));
     }
 
