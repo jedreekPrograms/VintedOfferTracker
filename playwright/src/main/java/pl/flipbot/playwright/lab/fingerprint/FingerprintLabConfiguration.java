@@ -58,7 +58,7 @@ public record FingerprintLabConfiguration(
                 Boolean.parseBoolean(
                         System.getenv().getOrDefault(
                                 PERSIST_SESSION_ENV,
-                                "true"
+                                "false"
                         )
                 ),
                 Boolean.parseBoolean(
