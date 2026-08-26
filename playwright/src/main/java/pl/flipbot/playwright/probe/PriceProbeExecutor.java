@@ -501,7 +501,13 @@ public class PriceProbeExecutor {
                     return true;
                 }
             } catch (PlaywrightException exception) {
-                return true;
+                /*
+                 * Losing the ability to inspect the composer after the click
+                 * is not positive delivery evidence. The caller maps false to
+                 * UNKNOWN, whose backend slot remains reserved and is never
+                 * retried automatically.
+                 */
+                return false;
             }
 
             page.waitForTimeout(POLL_INTERVAL_MS);
