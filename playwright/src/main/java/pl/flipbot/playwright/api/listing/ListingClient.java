@@ -7,6 +7,7 @@ import pl.flipbot.playwright.api.listing.dto.DiscoverListingsRequestDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.NegotiationCapacityResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
+import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 
 import java.net.http.HttpResponse;
 import java.util.List;
@@ -74,6 +75,11 @@ public class ListingClient extends ApiClient {
                         response
                 );
 
+        validateTrustedListings(
+                claimedListings,
+                "discover listings response for bot " + botId
+        );
+
         log.info(
                 "Backend assigned {} new listings to bot {}",
                 claimedListings.size(),
@@ -118,6 +124,11 @@ public class ListingClient extends ApiClient {
                         response
                 );
 
+        validateTrustedListings(
+                listings,
+                "discovered listings response for bot " + botId
+        );
+
         log.info(
                 "Loaded {} discovered listings for bot {}",
                 listings.size(),
@@ -161,6 +172,11 @@ public class ListingClient extends ApiClient {
                 readListingList(
                         response
                 );
+
+        validateTrustedListings(
+                listings,
+                "negotiating listings response for bot " + botId
+        );
 
         log.info(
                 "Loaded {} negotiating listings for bot {}",
@@ -266,6 +282,12 @@ public class ListingClient extends ApiClient {
                         ListingResponseDto.class
                 );
 
+        validateTrustedListing(
+                updatedListing,
+                "update listing response for backend listing "
+                        + backendListingId
+        );
+
         log.info(
                 "Updated backend listing {}. Status: {}, step: {}, price: {}",
                 updatedListing.id(),
@@ -290,6 +312,53 @@ public class ListingClient extends ApiClient {
                 }
         );
 
+    }
+
+    private void validateTrustedListings(
+            List<ListingResponseDto> listings,
+            String operation
+    ) {
+        if (listings == null) {
+            throw new IllegalStateException(
+                    "Backend returned null listing list while attempting to "
+                            + operation
+            );
+        }
+
+        for (ListingResponseDto listing : listings) {
+            validateTrustedListing(listing, operation);
+        }
+    }
+
+    private void validateTrustedListing(
+            ListingResponseDto listing,
+            String operation
+    ) {
+        if (listing == null) {
+            throw new IllegalStateException(
+                    "Backend returned a null listing while attempting to "
+                            + operation
+            );
+        }
+
+        try {
+            MarketplaceUrls.resolveVintedListingUrl(
+                    listing.url(),
+                    listing.listingId()
+            );
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException(
+                    "Backend returned an untrusted or mismatched marketplace listing while attempting to "
+                            + operation
+                            + ". backendListingId="
+                            + listing.id()
+                            + ", marketplaceListingId="
+                            + listing.listingId()
+                            + ", url="
+                            + listing.url(),
+                    exception
+            );
+        }
     }
 
     private boolean isEmptyBody(
