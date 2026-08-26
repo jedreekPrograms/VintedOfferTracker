@@ -9,7 +9,7 @@ package pl.flipbot.playwright.negotiation;
  * another listing, because automatic follow-up work after an ambiguous submit
  * would weaken the fail-closed guarantee.
  */
-public class AmbiguousRealActionException extends RuntimeException {
+public class AmbiguousRealActionException extends RealActionJobAbortException {
 
     public AmbiguousRealActionException(
             String message,
