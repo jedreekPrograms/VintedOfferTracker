@@ -11,7 +11,24 @@ public record FingerprintSnapshot(
         Integer deviceMemoryGb,
         String language,
         List<String> languages,
+        int maxTouchPoints,
+        int screenWidth,
+        int screenHeight,
+        int availWidth,
+        int availHeight,
+        int colorDepth,
+        double devicePixelRatio,
+        String timezone,
         String userAgent,
-        boolean labMarkerPresent
+        boolean webdriver,
+        boolean userAgentDataPresent,
+        String userAgentDataPlatform,
+        boolean userAgentDataMobile,
+        String webglVendor,
+        String webglRenderer,
+        boolean labMarkerPresent,
+        boolean navigatorPlatformGetterLooksNative,
+        boolean webglGetParameterLooksNative,
+        boolean canvasToDataUrlLooksNative
 ) {
 }
