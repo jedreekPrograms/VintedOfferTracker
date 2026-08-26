@@ -7,6 +7,7 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.options.ServiceWorkerPolicy;
 
 import java.io.IOException;
 
@@ -96,7 +97,7 @@ public final class FingerprintLabApplication {
                             "Fingerprint lab is running on: " + targetUrl
                     );
                     System.out.println(
-                            "External network requests are blocked. "
+                            "HTTP(S), WebSocket and Service Worker escape paths are constrained. "
                                     + "Press ENTER to close the laboratory browser."
                     );
 
@@ -123,6 +124,7 @@ public final class FingerprintLabApplication {
                         .setDeviceScaleFactor(
                                 profile.deviceScaleFactor()
                         )
+                        .setServiceWorkers(ServiceWorkerPolicy.BLOCK)
         );
 
         installNetworkSafetyBoundary(context);
@@ -134,7 +136,10 @@ public final class FingerprintLabApplication {
             Browser browser,
             String targetUrl
     ) {
-        try (BrowserContext context = browser.newContext()) {
+        try (BrowserContext context = browser.newContext(
+                new Browser.NewContextOptions()
+                        .setServiceWorkers(ServiceWorkerPolicy.BLOCK)
+        )) {
             installNetworkSafetyBoundary(context);
 
             Page page = context.newPage();
@@ -161,6 +166,24 @@ public final class FingerprintLabApplication {
                                     + abbreviate(url, 220)
                     );
                     route.abort();
+                }
+        );
+
+        context.routeWebSocket(
+                "**/*",
+                webSocket -> {
+                    String url = webSocket.url();
+
+                    if (FingerprintLabPolicy.isAllowedWebSocketUrl(url)) {
+                        webSocket.connectToServer();
+                        return;
+                    }
+
+                    System.err.println(
+                            "[FINGERPRINT LAB] Blocked external WebSocket: "
+                                    + abbreviate(url, 220)
+                    );
+                    webSocket.close();
                 }
         );
     }
