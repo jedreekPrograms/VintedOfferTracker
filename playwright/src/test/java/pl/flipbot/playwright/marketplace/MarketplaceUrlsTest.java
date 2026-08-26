@@ -106,4 +106,65 @@ public class MarketplaceUrlsTest {
                 )
         );
     }
+
+    @Test
+    public void resolvesOnlyTheExpectedVintedConversation() {
+        assertEquals(
+                "https://www.vinted.pl/inbox/123456789",
+                MarketplaceUrls.resolveVintedConversationUrl(
+                        "/inbox/123456789",
+                        "123456789"
+                )
+        );
+        assertEquals(
+                "https://www.vinted.pl/inbox/123456789?referrer=item",
+                MarketplaceUrls.resolveVintedConversationUrl(
+                        "https://www.vinted.pl/inbox/123456789?referrer=item",
+                        "123456789"
+                )
+        );
+        assertTrue(MarketplaceUrls.isVintedConversationUrl(
+                "https://www.vinted.pl/inbox/123456789?referrer=item",
+                "123456789"
+        ));
+    }
+
+    @Test
+    public void rejectsWrongOrExternalConversationUrls() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedConversationUrl(
+                        "https://www.vinted.pl/inbox/999",
+                        "123456789"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedConversationUrl(
+                        "https://evil.example/inbox/123456789",
+                        "123456789"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedConversationUrl(
+                        "http://www.vinted.pl/inbox/123456789",
+                        "123456789"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedConversationUrl(
+                        "//evil.example/inbox/123456789",
+                        "123456789"
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MarketplaceUrls.resolveVintedConversationUrl(
+                        "/inbox/123456789",
+                        "../123456789"
+                )
+        );
+    }
 }
