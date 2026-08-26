@@ -2,6 +2,7 @@ package pl.flipbot.playwright.lab.fingerprint;
 
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.options.Proxy;
 import com.microsoft.playwright.options.ServiceWorkerPolicy;
 import lombok.extern.slf4j.Slf4j;
 
@@ -105,6 +106,10 @@ public final class FingerprintLabRuntimeIntegration {
                 )
                 .setDeviceScaleFactor(profile.deviceScaleFactor())
                 .setServiceWorkers(ServiceWorkerPolicy.BLOCK);
+
+        if (configuration.proxyUrl() != null) {
+            options.setProxy(new Proxy(configuration.proxyUrl()));
+        }
     }
 
     public static void install(BrowserContext context) {
@@ -121,10 +126,12 @@ public final class FingerprintLabRuntimeIntegration {
         context.addInitScript(FingerprintLabScript.build(profile));
 
         log.warn(
-                "[FINGERPRINT LAB] Runtime integration ACTIVE for laboratory target {} using profile {}. "
-                        + "This BrowserContext is restricted to loopback/reserved test hosts; production HTTP(S)/WebSocket traffic is blocked.",
+                "[FINGERPRINT LAB] Runtime integration ACTIVE for laboratory target {} using profile {}{}; production HTTP(S)/WebSocket traffic is blocked.",
                 configuration.targetUrl(),
-                configuration.profileId()
+                configuration.profileId(),
+                configuration.proxyUrl() == null
+                        ? ""
+                        : " via laboratory proxy " + configuration.proxyUrl()
         );
     }
 
@@ -154,6 +161,7 @@ public final class FingerprintLabRuntimeIntegration {
         }
 
         FingerprintLabPolicy.requireAllowed(configuration.targetUrl());
+        FingerprintLabPolicy.requireAllowedProxy(configuration.proxyUrl());
         return configuration;
     }
 
