@@ -144,7 +144,9 @@ public final class PriceProbeTestHumanPacing {
     }
 
     public void beforeClick(Page page, Locator locator) {
-        if (!isActiveFor(page) || locator == null) {
+        requireAllowedInteractionPage(page, "click");
+
+        if (!enabled || locator == null) {
             return;
         }
 
@@ -155,6 +157,7 @@ public final class PriceProbeTestHumanPacing {
         }
 
         pause(page, actionPause);
+        requireAllowedInteractionPage(page, "click after pacing delay");
 
         try {
             locator.hover();
@@ -165,6 +168,8 @@ public final class PriceProbeTestHumanPacing {
         } catch (RuntimeException ignored) {
             // Hover is optional on the controlled test UI.
         }
+
+        requireAllowedInteractionPage(page, "click after hover pacing");
     }
 
     public void afterClick(Page page) {
@@ -175,15 +180,20 @@ public final class PriceProbeTestHumanPacing {
     }
 
     public void typeText(Page page, Locator input, String value) {
-        if (!isActiveFor(page)) {
+        requireAllowedInteractionPage(page, "text entry");
+
+        if (!enabled) {
             input.fill(value);
             return;
         }
 
         input.fill("");
         pause(page, new Range(120, 320));
+        requireAllowedInteractionPage(page, "text entry after initial pacing");
 
         for (int index = 0; index < value.length(); index++) {
+            requireAllowedInteractionPage(page, "paced text entry");
+
             String character = String.valueOf(value.charAt(index));
             input.pressSequentially(
                     character,
@@ -215,6 +225,36 @@ public final class PriceProbeTestHumanPacing {
                 && !PriceProbeRuntimeConfig.isRealVintedHost(
                         config.baseUri().getHost()
                 );
+    }
+
+    private void requireAllowedInteractionPage(
+            Page page,
+            String action
+    ) {
+        if (page == null || page.isClosed()) {
+            throw new IllegalStateException(
+                    "PRICE_PROBE cannot perform " + action + " on a closed page."
+            );
+        }
+
+        String currentUrl;
+        try {
+            currentUrl = page.url();
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException(
+                    "PRICE_PROBE could not verify the page origin before "
+                            + action + ".",
+                    exception
+            );
+        }
+
+        if (!allowedFor(config, currentUrl)) {
+            throw new IllegalStateException(
+                    "PRICE_PROBE refused " + action
+                            + " because the page is outside the configured non-Vinted test endpoint: "
+                            + currentUrl
+            );
+        }
     }
 
     private boolean isActiveFor(Page page) {
@@ -252,8 +292,7 @@ public final class PriceProbeTestHumanPacing {
         }
 
         return ThreadLocalRandom.current().nextInt(
-                range.min(),
-                range.max() + 1
+                range.min(), range.max() + 1
         );
     }
 
