@@ -61,20 +61,11 @@ public final class MarketplaceUrls {
     /**
      * Resolve a listing URL supplied by the scanner/backend and prove that it
      * still points to the expected item on trusted Polish Vinted.
-     *
-     * Relative item links are normal Vinted output and are resolved against
-     * {@link #HOME}. Absolute URLs are accepted only when they already satisfy
-     * the same HTTPS/host/item-id contract. Protocol-relative URLs are rejected
-     * rather than inheriting a host implicitly.
      */
     public static String resolveVintedListingUrl(
             String rawUrl,
             String expectedListingId
     ) {
-        if (rawUrl == null || rawUrl.isBlank()) {
-            throw new IllegalArgumentException("Listing URL cannot be empty");
-        }
-
         if (expectedListingId == null
                 || expectedListingId.isBlank()
                 || !expectedListingId.trim().matches("^\\d+$")) {
@@ -83,31 +74,7 @@ public final class MarketplaceUrls {
             );
         }
 
-        String trimmedUrl = rawUrl.trim();
-        if (trimmedUrl.startsWith("//")) {
-            throw new IllegalArgumentException(
-                    "Protocol-relative listing URLs are not trusted: "
-                            + rawUrl
-            );
-        }
-
-        final String resolved;
-        try {
-            URI candidate = URI.create(trimmedUrl);
-
-            if (candidate.isAbsolute()) {
-                resolved = candidate.toString();
-            } else {
-                resolved = URI.create(HOME)
-                        .resolve(candidate)
-                        .toString();
-            }
-        } catch (RuntimeException exception) {
-            throw new IllegalArgumentException(
-                    "Invalid marketplace listing URL: " + rawUrl,
-                    exception
-            );
-        }
+        String resolved = resolveTrustedVintedUrl(rawUrl, "listing");
 
         if (!isVintedListingUrl(resolved, expectedListingId)) {
             throw new IllegalArgumentException(
@@ -144,6 +111,118 @@ public final class MarketplaceUrls {
         } catch (RuntimeException exception) {
             return false;
         }
+    }
+
+    public static String resolveVintedConversationUrl(
+            String rawUrl,
+            String expectedConversationId
+    ) {
+        if (!isSafePathSegment(expectedConversationId)) {
+            throw new IllegalArgumentException(
+                    "Conversation id must be a non-blank URL path segment"
+            );
+        }
+
+        String resolved = resolveTrustedVintedUrl(rawUrl, "conversation");
+
+        if (!isVintedConversationUrl(resolved, expectedConversationId)) {
+            throw new IllegalArgumentException(
+                    "Refusing conversation URL that is not the expected trusted Vinted inbox conversation. "
+                            + "conversationId="
+                            + expectedConversationId
+                            + ", url="
+                            + rawUrl
+            );
+        }
+
+        return resolved;
+    }
+
+    public static boolean isVintedConversationUrl(
+            String rawUrl,
+            String expectedConversationId
+    ) {
+        if (!isVintedUrl(rawUrl)
+                || !isSafePathSegment(expectedConversationId)) {
+            return false;
+        }
+
+        try {
+            String path = URI.create(rawUrl.trim()).getPath();
+            if (path == null || path.isBlank()) {
+                return false;
+            }
+
+            String[] parts = path.split("/");
+            for (int index = 0; index < parts.length - 1; index++) {
+                if ("inbox".equals(parts[index])) {
+                    return expectedConversationId.equals(parts[index + 1]);
+                }
+            }
+
+            return false;
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private static String resolveTrustedVintedUrl(
+            String rawUrl,
+            String label
+    ) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                    capitalize(label) + " URL cannot be empty"
+            );
+        }
+
+        String trimmedUrl = rawUrl.trim();
+        if (trimmedUrl.startsWith("//")) {
+            throw new IllegalArgumentException(
+                    "Protocol-relative " + label + " URLs are not trusted: "
+                            + rawUrl
+            );
+        }
+
+        final String resolved;
+        try {
+            URI candidate = URI.create(trimmedUrl);
+            resolved = candidate.isAbsolute()
+                    ? candidate.toString()
+                    : URI.create(HOME).resolve(candidate).toString();
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException(
+                    "Invalid marketplace " + label + " URL: " + rawUrl,
+                    exception
+            );
+        }
+
+        if (!isVintedUrl(resolved)) {
+            throw new IllegalArgumentException(
+                    "Refusing non-Vinted " + label + " URL: " + rawUrl
+            );
+        }
+
+        return resolved;
+    }
+
+    private static boolean isSafePathSegment(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+
+        String trimmed = value.trim();
+        return !trimmed.contains("/")
+                && !trimmed.contains("\\")
+                && !trimmed.equals(".")
+                && !trimmed.equals("..");
+    }
+
+    private static String capitalize(String value) {
+        if (value == null || value.isBlank()) {
+            return "Marketplace";
+        }
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 
     private static String normalize(String value) {
