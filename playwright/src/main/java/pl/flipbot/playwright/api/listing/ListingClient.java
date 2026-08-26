@@ -346,6 +346,33 @@ public class ListingClient extends ApiClient {
                     listing.url(),
                     listing.listingId()
             );
+
+            boolean hasConversationId =
+                    listing.conversationId() != null
+                            && !listing.conversationId().isBlank();
+            boolean hasConversationUrl =
+                    listing.conversationUrl() != null
+                            && !listing.conversationUrl().isBlank();
+
+            if (hasConversationId != hasConversationUrl) {
+                throw new IllegalArgumentException(
+                        "Conversation id and URL must either both be present or both be absent"
+                );
+            }
+
+            if ("NEGOTIATING".equals(listing.status())
+                    && !hasConversationId) {
+                throw new IllegalArgumentException(
+                        "NEGOTIATING listing has no conversation reference"
+                );
+            }
+
+            if (hasConversationId) {
+                MarketplaceUrls.resolveVintedConversationUrl(
+                        listing.conversationUrl(),
+                        listing.conversationId()
+                );
+            }
         } catch (RuntimeException exception) {
             throw new IllegalStateException(
                     "Backend returned an untrusted or mismatched marketplace listing while attempting to "
@@ -355,7 +382,11 @@ public class ListingClient extends ApiClient {
                             + ", marketplaceListingId="
                             + listing.listingId()
                             + ", url="
-                            + listing.url(),
+                            + listing.url()
+                            + ", conversationId="
+                            + listing.conversationId()
+                            + ", conversationUrl="
+                            + listing.conversationUrl(),
                     exception
             );
         }
