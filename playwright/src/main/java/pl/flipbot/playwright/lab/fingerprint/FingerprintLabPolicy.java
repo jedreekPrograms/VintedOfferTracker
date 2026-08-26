@@ -31,31 +31,11 @@ public final class FingerprintLabPolicy {
     }
 
     public static boolean isAllowedUrl(String rawUrl) {
-        if (rawUrl == null || rawUrl.isBlank()) {
-            return false;
-        }
+        return isAllowedNetworkUrl(rawUrl, Set.of("http", "https"));
+    }
 
-        try {
-            URI uri = URI.create(rawUrl.trim());
-            String scheme = normalize(uri.getScheme());
-            String host = normalize(uri.getHost());
-
-            if (!(scheme.equals("http") || scheme.equals("https"))) {
-                return false;
-            }
-
-            if (host.isBlank()) {
-                return false;
-            }
-
-            return LOOPBACK_HOSTS.contains(host)
-                    || host.endsWith(".localhost")
-                    || host.equals("test")
-                    || host.endsWith(".test");
-
-        } catch (IllegalArgumentException exception) {
-            return false;
-        }
+    public static boolean isAllowedWebSocketUrl(String rawUrl) {
+        return isAllowedNetworkUrl(rawUrl, Set.of("ws", "wss"));
     }
 
     public static void requireAllowed(String rawUrl) {
@@ -73,6 +53,33 @@ public final class FingerprintLabPolicy {
                             + rawUrl
                             + ". Allowed hosts are loopback, *.localhost and *.test only."
             );
+        }
+    }
+
+    private static boolean isAllowedNetworkUrl(
+            String rawUrl,
+            Set<String> allowedSchemes
+    ) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return false;
+        }
+
+        try {
+            URI uri = URI.create(rawUrl.trim());
+            String scheme = normalize(uri.getScheme());
+            String host = normalize(uri.getHost());
+
+            if (!allowedSchemes.contains(scheme) || host.isBlank()) {
+                return false;
+            }
+
+            return LOOPBACK_HOSTS.contains(host)
+                    || host.endsWith(".localhost")
+                    || host.equals("test")
+                    || host.endsWith(".test");
+
+        } catch (IllegalArgumentException exception) {
+            return false;
         }
     }
 
