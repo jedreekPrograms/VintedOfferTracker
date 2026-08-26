@@ -118,12 +118,29 @@ public class PreparedNextStepCoordinator {
             throw ambiguousFailure(listing, exception);
         }
 
-        audit.recordConfirmedRequired(
-                listing,
-                ACTION_TYPE,
-                decision.nextStep().getStepNumber(),
-                requestId
-        );
+        try {
+            audit.recordConfirmedRequired(
+                    listing,
+                    ACTION_TYPE,
+                    decision.nextStep().getStepNumber(),
+                    requestId
+            );
+        } catch (Exception exception) {
+            log.error(
+                    "NEXT_STEP for marketplace listing {} was confirmed by the submitter, but confirmed-action audit persistence failed. "
+                            + "The persistent action guard remains fail-closed and this real-action job must stop.",
+                    listing.listingId(),
+                    exception
+            );
+
+            throw new RealActionJobAbortException(
+                    "NEXT_STEP for marketplace listing "
+                            + listing.listingId()
+                            + " was already confirmed, but post-submit audit persistence failed. "
+                            + "Abort this real-action job and do not continue with another listing.",
+                    exception
+            );
+        }
 
         guard.releaseAfterConfirmedSuccessBestEffort(
                 botId,
