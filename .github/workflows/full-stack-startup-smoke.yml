@@ -59,7 +59,7 @@ jobs:
           SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/flipbot
           SPRING_DATASOURCE_USERNAME: postgres
           SPRING_DATASOURCE_PASSWORD: postgres
-          SERVER_PORT: "8080"
+          SERVER_PORT: "8081"
           FLIPBOT_SERVER_ADDRESS: 127.0.0.1
         run: |
           set -euo pipefail
@@ -76,7 +76,7 @@ jobs:
           healthy=false
           for attempt in $(seq 1 90); do
             if curl --fail --silent --show-error \
-                http://127.0.0.1:8080/actuator/health \
+                http://127.0.0.1:8081/actuator/health \
                 | grep -q '"status":"UP"'; then
               healthy=true
               break
@@ -98,11 +98,11 @@ jobs:
           fi
 
           curl --fail --silent --show-error \
-            http://127.0.0.1:8080/api/scheduler/bots/running \
+            http://127.0.0.1:8081/api/scheduler/bots/running \
             > "$RUNNER_TEMP/running-bots.json"
 
           curl --fail --silent --show-error \
-            http://127.0.0.1:8080/api/bots \
+            http://127.0.0.1:8081/api/bots \
             > "$RUNNER_TEMP/all-bots.json"
 
           python3 - <<'PY'
@@ -120,7 +120,7 @@ jobs:
       - name: Start real Playwright scheduler against backend
         shell: bash
         env:
-          FLIPBOT_BACKEND_URL: http://127.0.0.1:8080
+          FLIPBOT_BACKEND_URL: http://127.0.0.1:8081
           FLIPBOT_MARKET_STATS_ENABLED: "false"
           FLIPBOT_SYNC_INTERVAL_SECONDS: "1"
           FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS: "5"

@@ -12,16 +12,16 @@ public class BackendApiEndpointTest {
     @Test
     public void acceptsPlainHttpForIpv4Loopback() {
         assertEquals(
-                URI.create("http://127.0.0.1:8080"),
-                BackendApiEndpoint.resolve("http://127.0.0.1:8080/")
+                URI.create("http://127.0.0.1:8081"),
+                BackendApiEndpoint.resolve("http://127.0.0.1:8081/")
         );
     }
 
     @Test
     public void acceptsPlainHttpForLocalhost() {
         assertEquals(
-                URI.create("http://localhost:8080"),
-                BackendApiEndpoint.resolve("http://localhost:8080")
+                URI.create("http://localhost:8081"),
+                BackendApiEndpoint.resolve("http://localhost:8081")
         );
     }
 
@@ -36,7 +36,7 @@ public class BackendApiEndpointTest {
     @Test
     public void rejectsPlainHttpForRemoteBackend() {
         assertIllegalArgument(
-                () -> BackendApiEndpoint.resolve("http://flipbot.example:8080")
+                () -> BackendApiEndpoint.resolve("http://flipbot.example:8081")
         );
     }
 
@@ -57,7 +57,7 @@ public class BackendApiEndpointTest {
     @Test
     public void rejectsUnsupportedScheme() {
         assertIllegalArgument(
-                () -> BackendApiEndpoint.resolve("ftp://127.0.0.1:8080")
+                () -> BackendApiEndpoint.resolve("ftp://127.0.0.1:8081")
         );
     }
 

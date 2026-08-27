@@ -23,7 +23,7 @@ server:
   # application has an end-user authentication layer. Override deliberately
   # only behind a trusted reverse proxy/auth boundary.
   address: "${FLIPBOT_SERVER_ADDRESS:127.0.0.1}"
-  port: "${SERVER_PORT:8080}"
+  port: "${SERVER_PORT:8081}"
   error:
     include-stacktrace: never
     include-exception: false

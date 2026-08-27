@@ -7,7 +7,7 @@ import java.util.Set;
 final class BackendApiEndpoint {
 
     private static final String ENV_NAME = "FLIPBOT_BACKEND_URL";
-    private static final String DEFAULT_URL = "http://127.0.0.1:8080";
+    private static final String DEFAULT_URL = "http://127.0.0.1:8081";
     private static final Set<String> LOOPBACK_HOSTS = Set.of(
             "localhost",
             "127.0.0.1",
