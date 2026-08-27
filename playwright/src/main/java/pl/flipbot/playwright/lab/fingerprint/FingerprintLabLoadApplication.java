@@ -13,9 +13,9 @@ import java.util.List;
  * Local/test-only multi-context harness for studying profile isolation and
  * browser resource usage on one machine.
  *
- * It intentionally keeps Playwright operations on one thread and processes
- * contexts in bounded batches. Production hosts are rejected by the same
- * FingerprintLabPolicy used by the standalone lab.
+ * Simple controlled mode is intentionally opinionated: one test URL, one fleet
+ * size and bounded batches. Advanced lab variables remain supported for older
+ * workflows.
  */
 public final class FingerprintLabLoadApplication {
 
@@ -26,12 +26,18 @@ public final class FingerprintLabLoadApplication {
 
     private static final int DEFAULT_CONTEXT_COUNT = 20;
     private static final int DEFAULT_BATCH_SIZE = 10;
+    private static final int SIMPLE_MODE_BATCH_SIZE = 25;
     private static final int MAX_CONTEXT_COUNT = 1000;
     private static final int MAX_BATCH_SIZE = 100;
 
     private FingerprintLabLoadApplication() {}
 
     public static void main(String[] args) {
+        boolean simpleRuntime = ControlledTestRuntime.isEnabled();
+        if (simpleRuntime) {
+            ControlledTestRuntime.requireValidConfiguration();
+        }
+
         FingerprintLabConfiguration base =
                 FingerprintLabConfiguration.fromEnvironment(args);
         FingerprintLabServer localServer = null;
@@ -43,7 +49,7 @@ public final class FingerprintLabLoadApplication {
                         localServer.url(),
                         base.profileId(),
                         false,
-                        false,
+                        simpleRuntime || base.humanBehaviorSimulation(),
                         base.proxyUrl()
                 );
             }
@@ -51,17 +57,31 @@ public final class FingerprintLabLoadApplication {
             FingerprintLabPolicy.requireAllowed(base.targetUrl());
             FingerprintLabPolicy.requireAllowedProxy(base.proxyUrl());
 
-            int total = boundedPositiveInt(
+            int total = simpleRuntime
+                    ? ControlledTestRuntime.botCount()
+                    : boundedPositiveInt(
                     System.getenv(CONTEXT_COUNT_ENV),
                     DEFAULT_CONTEXT_COUNT,
                     MAX_CONTEXT_COUNT,
                     CONTEXT_COUNT_ENV
             );
-            int batchSize = boundedPositiveInt(
+
+            int batchSize = simpleRuntime
+                    ? Math.min(SIMPLE_MODE_BATCH_SIZE, total)
+                    : boundedPositiveInt(
                     System.getenv(BATCH_SIZE_ENV),
                     DEFAULT_BATCH_SIZE,
                     MAX_BATCH_SIZE,
                     BATCH_SIZE_ENV
+            );
+
+            System.out.printf(
+                    "[FINGERPRINT LAB LOAD] mode=%s target=%s bots=%d batch=%d humanBehavior=%s%n",
+                    simpleRuntime ? "simple-controlled" : "advanced-lab",
+                    base.targetUrl(),
+                    total,
+                    batchSize,
+                    base.humanBehaviorSimulation()
             );
 
             run(base, total, batchSize);
@@ -111,7 +131,7 @@ public final class FingerprintLabLoadApplication {
                                             base.targetUrl(),
                                             profileId,
                                             false,
-                                            false,
+                                            base.humanBehaviorSimulation(),
                                             base.proxyUrl()
                                     );
 
@@ -125,6 +145,12 @@ public final class FingerprintLabLoadApplication {
                             Page page = context.newPage();
                             page.navigate(base.targetUrl());
                             page.waitForLoadState();
+
+                            FingerprintLabPolicy.requireAllowed(page.url());
+
+                            if (configuration.humanBehaviorSimulation()) {
+                                FingerprintLabHumanBehavior.exercise(page);
+                            }
 
                             if (!Boolean.TRUE.equals(page.evaluate(
                                     "() => Boolean(window.__flipbotFingerprintLab?.active)"
