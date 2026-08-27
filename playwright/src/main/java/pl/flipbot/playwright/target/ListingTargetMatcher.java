@@ -27,31 +27,15 @@ public class ListingTargetMatcher {
     private static final Pattern LEADING_LISTING_ID_PATTERN =
             Pattern.compile("^\\d+-?");
 
-    private static final Pattern HAS_DIGIT_PATTERN =
-            Pattern.compile(".*\\d.*");
-
     /*
-     * Seller-written Samsung titles very often omit both "Galaxy" and the
-     * marketing "Z" from Fold/Flip names. Neither token changes the actual
-     * device identity once the remaining family + generation are present.
-     *
-     * We deliberately do NOT make "Tab", "Fold", "Flip", "Note" or
-     * "XCover" optional. Those are product-family identifiers and dropping
-     * them would make e.g. Galaxy S10+ match Galaxy Tab S10+.
+     * Optional brand-specific target tokens.
+     * For Samsung, "galaxy" may be omitted by sellers without changing the
+     * actual model identity.
      */
     private static final Map<String, Set<String>> OPTIONAL_TARGET_TOKENS_BY_BRAND =
             Map.of(
                     "samsung",
-                    Set.of("galaxy", "z")
-            );
-
-    private static final Set<String> SAMSUNG_FAMILY_TOKENS =
-            Set.of(
-                    "tab",
-                    "fold",
-                    "flip",
-                    "note",
-                    "xcover"
+                    Set.of("galaxy")
             );
 
     private static final Set<String> VARIANT_TOKENS =
@@ -67,21 +51,16 @@ public class ListingTargetMatcher {
             );
 
     /*
-     * Ordered longest/most specific first only for deterministic suffix
-     * splitting. The set above remains the semantic source of truth.
+     * Manufacturer product-code markers are not marketing model names.
+     *
+     * Example:
+     *   Samsung Galaxy S25 SM-S931 12/128GB
+     *
+     * Tokenization gives: s25, sm, s931, ...
+     * s931 must NOT conflict with the target model key s25. We ignore compact
+     * model-like tokens immediately preceded by a known technical-code marker
+     * while still detecting real conflicts such as S24 vs S25.
      */
-    private static final List<String> VARIANT_SUFFIXES =
-            List.of(
-                    "ultra",
-                    "plus",
-                    "edge",
-                    "lite",
-                    "mini",
-                    "max",
-                    "pro",
-                    "fe"
-            );
-
     private static final Set<String> TECHNICAL_MODEL_CODE_PREFIX_TOKENS =
             Set.of("sm");
 
@@ -95,6 +74,18 @@ public class ListingTargetMatcher {
 
         validateConfiguration(configuration);
 
+        /*
+         * VINTED_MODEL is fundamentally different from SEARCH_QUERY.
+         *
+         * Before this matcher is reached, FilterService has already opened
+         * Vinted's model filter and FilterActions has fail-closed unless it can
+         * prove the selected row is the exact configured model. Once that
+         * exact filter is persisted in brand_collection_ids[], Vinted's own
+         * classification defines the result set. Re-interpreting titles here
+         * would incorrectly throw away listings that Vinted itself placed
+         * under the exact model (and previously masked wrong filter selection
+         * by trying to repair it semantically afterwards).
+         */
         if (usesVintedModelFilter(configuration)) {
             log.debug(
                     "[TARGET MATCHER] Marketplace listing {} accepted from exact Vinted model-filter result set. No semantic title matching is used in VINTED_MODEL mode.",
@@ -264,14 +255,6 @@ public class ListingTargetMatcher {
             return false;
         }
 
-        if (hasUnexpectedSamsungFamily(
-                targetTokens,
-                candidateTokens,
-                configuration.getBrand()
-        )) {
-            return false;
-        }
-
         if (hasConflictingModelKey(targetTokens, candidateTokens)) {
             return false;
         }
@@ -291,34 +274,7 @@ public class ListingTargetMatcher {
         List<String> candidateTokens = tokenize(candidateText);
 
         return hasUnexpectedVariant(targetTokens, candidateTokens)
-                || hasUnexpectedSamsungFamily(
-                        targetTokens,
-                        candidateTokens,
-                        configuration.getBrand()
-                )
                 || hasConflictingModelKey(targetTokens, candidateTokens);
-    }
-
-    private boolean hasUnexpectedSamsungFamily(
-            List<String> targetTokens,
-            List<String> candidateTokens,
-            String configuredBrand
-    ) {
-        if (!isSamsung(configuredBrand)) {
-            return false;
-        }
-
-        Set<String> targetFamilies = new HashSet<>(targetTokens);
-        targetFamilies.retainAll(SAMSUNG_FAMILY_TOKENS);
-
-        for (String token : candidateTokens) {
-            if (SAMSUNG_FAMILY_TOKENS.contains(token)
-                    && !targetFamilies.contains(token)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private boolean hasConflictingModelKey(
@@ -351,6 +307,13 @@ public class ListingTargetMatcher {
         return false;
     }
 
+    /*
+     * Examples:
+     * s11       -> s11
+     * iphone 17 -> iphone17
+     * pixel 10  -> pixel10
+     * fold 8    -> fold8
+     */
     private List<String> extractModelKeys(List<String> tokens) {
         List<String> result = new ArrayList<>();
 
@@ -483,12 +446,6 @@ public class ListingTargetMatcher {
         );
     }
 
-    private boolean isSamsung(String configuredBrand) {
-        List<String> normalizedBrandTokens = tokenize(configuredBrand);
-        return normalizedBrandTokens.size() == 1
-                && "samsung".equals(normalizedBrandTokens.get(0));
-    }
-
     private boolean allTargetTokensMatch(
             List<String> targetTokens,
             List<String> candidateTokens
@@ -505,10 +462,7 @@ public class ListingTargetMatcher {
         }
 
         /*
-         * Candidate may compact several configured tokens:
-         *   S11 Ultra -> S11Ultra
-         *   Tab S10  -> TabS10
-         *   Z Fold 7 -> ZFold7
+         * Joined variants such as S11Ultra, TabS11Ultra, Fold8Ultra.
          */
         for (String candidateToken : candidateTokens) {
             for (int start = 0; start < targetTokens.size(); start++) {
@@ -522,41 +476,6 @@ public class ListingTargetMatcher {
                             matched[index] = true;
                         }
                     }
-                }
-            }
-        }
-
-        /*
-         * The configured dictionary/search value may itself be compact while
-         * the seller inserts spaces: iPhone15 <-> iPhone 15, Note20 <-> Note 20.
-         */
-        for (int targetIndex = 0;
-                targetIndex < targetTokens.size();
-                targetIndex++) {
-            if (matched[targetIndex]) {
-                continue;
-            }
-
-            String targetToken = targetTokens.get(targetIndex);
-
-            for (int start = 0; start < candidateTokens.size(); start++) {
-                StringBuilder joined = new StringBuilder();
-
-                for (int end = start; end < candidateTokens.size(); end++) {
-                    joined.append(candidateTokens.get(end));
-
-                    if (targetToken.equals(joined.toString())) {
-                        matched[targetIndex] = true;
-                        break;
-                    }
-
-                    if (joined.length() > targetToken.length()) {
-                        break;
-                    }
-                }
-
-                if (matched[targetIndex]) {
-                    break;
                 }
             }
         }
@@ -661,112 +580,20 @@ public class ListingTargetMatcher {
         for (int index = 0; index < rawTokens.length; index++) {
             String token = rawTokens[index];
 
-            /* "s 11" -> "s11", "a 55" -> "a55". */
+            /*
+             * "s 11" -> "s11", "a 55" -> "a55".
+             */
             if (token.matches("^[a-z]$")
                     && index + 1 < rawTokens.length
                     && rawTokens[index + 1].matches("^\\d+[a-z]*$")) {
-                token = token + rawTokens[index + 1];
+                result.add(token + rawTokens[index + 1]);
                 index++;
+                continue;
             }
 
-            appendCanonicalTokens(token, result);
+            result.add(token);
         }
 
         return result;
-    }
-
-    private void appendCanonicalTokens(
-            String token,
-            List<String> result
-    ) {
-        if (token == null || token.isBlank()) {
-            return;
-        }
-
-        /* GalaxyS25 / GalaxyTabS11Ultra / GalaxyZFold7. */
-        if (token.startsWith("galaxy")
-                && token.length() > "galaxy".length()
-                && hasDigit(token.substring("galaxy".length()))) {
-            result.add("galaxy");
-            appendCanonicalTokens(
-                    token.substring("galaxy".length()),
-                    result
-            );
-            return;
-        }
-
-        /* ZFold7 / ZFlip7. */
-        if (token.startsWith("zfold")
-                && token.length() > "zfold".length()
-                && hasDigit(token.substring("zfold".length()))) {
-            result.add("z");
-            result.add("fold");
-            appendCanonicalTokens(
-                    token.substring("zfold".length()),
-                    result
-            );
-            return;
-        }
-
-        if (token.startsWith("zflip")
-                && token.length() > "zflip".length()
-                && hasDigit(token.substring("zflip".length()))) {
-            result.add("z");
-            result.add("flip");
-            appendCanonicalTokens(
-                    token.substring("zflip".length()),
-                    result
-            );
-            return;
-        }
-
-        /* TabS10Plus / Fold7 / Flip7 / Note20 / XCover7. */
-        for (String family : List.of("xcover", "fold", "flip", "note", "tab")) {
-            if (token.startsWith(family)
-                    && token.length() > family.length()) {
-                String suffix = token.substring(family.length());
-
-                if (hasDigit(suffix)) {
-                    result.add(family);
-                    appendCanonicalTokens(suffix, result);
-                    return;
-                }
-            }
-        }
-
-        String compactBase = token;
-        List<String> strippedVariants = new ArrayList<>();
-
-        boolean stripped;
-        do {
-            stripped = false;
-
-            for (String variant : VARIANT_SUFFIXES) {
-                if (compactBase.endsWith(variant)
-                        && compactBase.length() > variant.length()) {
-                    String prefix = compactBase.substring(
-                            0,
-                            compactBase.length() - variant.length()
-                    );
-
-                    if (hasDigit(prefix)) {
-                        strippedVariants.add(0, variant);
-                        compactBase = prefix;
-                        stripped = true;
-                        break;
-                    }
-                }
-            }
-        } while (stripped);
-
-        if (!compactBase.isBlank()) {
-            result.add(compactBase);
-        }
-        result.addAll(strippedVariants);
-    }
-
-    private boolean hasDigit(String value) {
-        return value != null
-                && HAS_DIGIT_PATTERN.matcher(value).matches();
     }
 }

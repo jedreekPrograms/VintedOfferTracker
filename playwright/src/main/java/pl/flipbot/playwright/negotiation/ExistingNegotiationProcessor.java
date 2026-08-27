@@ -196,16 +196,6 @@ public class ExistingNegotiationProcessor {
                         break;
                     }
                 }
-            } catch (RealActionJobAbortException exception) {
-                log.error(
-                        "[CONVERSATION] Post-submit real-action failure for backend listing {}, marketplace listing {}, conversation {}. "
-                                + "Stopping this negotiation-check job immediately; no other real next step will be attempted in this run. reason={}",
-                        listing.id(),
-                        listing.listingId(),
-                        listing.conversationId(),
-                        support.friendlyError(exception)
-                );
-                throw exception;
             } catch (Exception exception) {
                 log.error(
                         "[CONVERSATION] Failed to inspect backend listing {}, marketplace listing {}, conversation {}: {}",

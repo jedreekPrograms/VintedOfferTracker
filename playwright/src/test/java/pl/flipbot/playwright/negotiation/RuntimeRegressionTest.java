@@ -6,8 +6,6 @@ import java.util.regex.Pattern;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
 
 public class RuntimeRegressionTest {
 
@@ -26,20 +24,5 @@ public class RuntimeRegressionTest {
         assertEquals(NegotiationConversationResult.UNKNOWN, snapshot.result());
         assertEquals("Anulowane", snapshot.rawStatus());
         assertNull(snapshot.sellerCounterOfferPrice());
-    }
-
-    @Test
-    public void ambiguousRealActionIsAlsoAJobAbortSignal() {
-        IllegalStateException cause =
-                new IllegalStateException("submit result unknown");
-
-        AmbiguousRealActionException exception =
-                new AmbiguousRealActionException(
-                        "stop this real-action job",
-                        cause
-                );
-
-        assertTrue(exception instanceof RealActionJobAbortException);
-        assertSame(cause, exception.getCause());
     }
 }

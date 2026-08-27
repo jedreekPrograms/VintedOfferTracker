@@ -42,8 +42,6 @@ function createInitialForm(): CreateBotFormValues {
                 message: "",
                 rejectionAction: "NEXT_STEP_NOW",
                 rejectionWaitHours: "",
-                readWaitHours: "3",
-                unreadWaitHours: "48",
                 counterOfferDefaultAction: "WAIT_BEFORE_NEXT_STEP",
                 counterOfferDefaultWaitHours: "6",
                 counterOfferRules: [
@@ -202,8 +200,6 @@ export function useCreateBotForm() {
             message: "",
             rejectionAction: rejection.action,
             rejectionWaitHours: rejection.waitHours,
-            readWaitHours: "3",
-            unreadWaitHours: "48",
             counterOfferDefaultAction: "WAIT_BEFORE_NEXT_STEP",
             counterOfferDefaultWaitHours: "6",
             counterOfferRules: createDefaultRules(),

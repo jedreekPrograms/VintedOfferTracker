@@ -177,12 +177,10 @@ public class ListingService {
             Long listingId,
             UpdateListingRequest request
     ) {
-        Listing listing = listingRepository.findByIdAndBotIdForUpdate(listingId, botId)
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
                 .orElseThrow(() -> new NoSuchElementException(
                         "Listing " + listingId + " was not found for bot " + botId
                 ));
-
-        validateUpdateTransition(listing, request);
 
         ListingStatus previousStatus = listing.getStatus();
         Integer previousStep = listing.getCurrentStep();
@@ -320,78 +318,6 @@ public class ListingService {
                 listing.getFormalResponseFingerprint(),
                 listing.getFormalResponseDetectedAt()
         );
-    }
-
-    private void validateUpdateTransition(
-            Listing listing,
-            UpdateListingRequest request
-    ) {
-        ListingStatus previousStatus = listing.getStatus();
-        ListingStatus requestedStatus = request.getStatus();
-        Integer previousStep = listing.getCurrentStep();
-        Integer requestedStep = request.getCurrentStep();
-
-        if (requestedStep == null || requestedStep < 0) {
-            throw new IllegalStateException(
-                    "Listing currentStep must be non-negative. Requested: "
-                            + requestedStep
-            );
-        }
-
-        if (requestedStatus != ListingStatus.NEGOTIATING) {
-            if (!Objects.equals(previousStep, requestedStep)) {
-                throw new IllegalStateException(
-                        "Changing listing status to "
-                                + requestedStatus
-                                + " cannot change negotiation step. Previous="
-                                + previousStep
-                                + ", requested="
-                                + requestedStep
-                );
-            }
-            return;
-        }
-
-        if (requestedStep <= 0) {
-            throw new IllegalStateException(
-                    "NEGOTIATING listing must have a positive currentStep. Requested: "
-                            + requestedStep
-            );
-        }
-
-        if (previousStatus == ListingStatus.DISCOVERED) {
-            if (requestedStep != 1) {
-                throw new IllegalStateException(
-                        "Starting a negotiation from DISCOVERED requires currentStep=1. Requested: "
-                                + requestedStep
-                );
-            }
-            return;
-        }
-
-        if (previousStatus != ListingStatus.NEGOTIATING) {
-            throw new IllegalStateException(
-                    "Generic listing update cannot enter NEGOTIATING from status "
-                            + previousStatus
-            );
-        }
-
-        if (previousStep == null || previousStep <= 0) {
-            throw new IllegalStateException(
-                    "Existing NEGOTIATING listing has invalid currentStep: "
-                            + previousStep
-            );
-        }
-
-        if (!Objects.equals(requestedStep, previousStep)
-                && requestedStep != previousStep + 1) {
-            throw new IllegalStateException(
-                    "NEGOTIATING currentStep can only stay unchanged or advance by exactly one. Previous="
-                            + previousStep
-                            + ", requested="
-                            + requestedStep
-            );
-        }
     }
 
     private List<ListingResponse> getListingsByStatus(Long botId, ListingStatus status) {

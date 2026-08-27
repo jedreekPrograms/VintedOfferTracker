@@ -24,7 +24,6 @@ public class SandboxCloneLoginService {
 
     private final BotContext context;
     private final PriceProbeRuntimeConfig config;
-    private final PriceProbeTestHumanPacing humanPacing;
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
 
@@ -34,7 +33,6 @@ public class SandboxCloneLoginService {
     ) {
         this.context = context;
         this.config = config;
-        this.humanPacing = PriceProbeTestHumanPacing.fromEnvironment(config);
     }
 
     public void login() {
@@ -61,7 +59,6 @@ public class SandboxCloneLoginService {
             );
         }
 
-        humanPacing.afterNavigation(page);
         acceptCookiesIfVisible(page);
         humanVerificationHandler.waitUntilVerified(page);
 
@@ -100,9 +97,7 @@ public class SandboxCloneLoginService {
                             .setState(WaitForSelectorState.VISIBLE)
                             .setTimeout(2_500)
             );
-            humanPacing.beforeClick(page, button);
             button.click();
-            humanPacing.afterClick(page);
         } catch (RuntimeException ignored) {
             // Optional UI.
         }
@@ -129,9 +124,7 @@ public class SandboxCloneLoginService {
                         .setState(WaitForSelectorState.VISIBLE)
                         .setTimeout(ELEMENT_TIMEOUT_MS)
         );
-        humanPacing.beforeClick(page, loginButton);
         loginButton.click();
-        humanPacing.afterClick(page);
     }
 
     private void openEmailLoginIfNeeded(Page page) {
@@ -152,9 +145,7 @@ public class SandboxCloneLoginService {
             ).first();
 
             if (isVisible(switchToLogin)) {
-                humanPacing.beforeClick(page, switchToLogin);
                 switchToLogin.click();
-                humanPacing.afterClick(page);
                 page.waitForTimeout(POLL_INTERVAL_MS);
                 continue;
             }
@@ -164,9 +155,7 @@ public class SandboxCloneLoginService {
             ).first();
 
             if (isVisible(emailLogin)) {
-                humanPacing.beforeClick(page, emailLogin);
                 emailLogin.click();
-                humanPacing.afterClick(page);
                 page.waitForTimeout(POLL_INTERVAL_MS);
                 continue;
             }
@@ -198,17 +187,8 @@ public class SandboxCloneLoginService {
                         .setTimeout(ELEMENT_TIMEOUT_MS)
         );
 
-        humanPacing.typeText(
-                page,
-                emailInput,
-                context.getBot().getEmail()
-        );
-        humanPacing.shortPause(page);
-        humanPacing.typeText(
-                page,
-                passwordInput,
-                context.getBot().getPassword()
-        );
+        emailInput.fill(context.getBot().getEmail());
+        passwordInput.fill(context.getBot().getPassword());
 
         Locator form = emailInput.locator(
                 "xpath=ancestor::form[1]"
@@ -229,9 +209,7 @@ public class SandboxCloneLoginService {
             );
         }
 
-        humanPacing.beforeClick(page, submit);
         submit.click();
-        humanPacing.afterClick(page);
         humanVerificationHandler.waitUntilVerified(page);
     }
 

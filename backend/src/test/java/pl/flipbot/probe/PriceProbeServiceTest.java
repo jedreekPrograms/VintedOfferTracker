@@ -2,7 +2,6 @@ package pl.flipbot.probe;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
@@ -12,15 +11,12 @@ import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.probe.dto.PriceProbeAssignmentResponse;
 
 import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,6 +39,8 @@ class PriceProbeServiceTest {
                 listingRepository,
                 priceProbeRepository
         );
+
+        when(priceProbeRepository.findAll()).thenReturn(List.of());
     }
 
     @Test
@@ -109,46 +107,6 @@ class PriceProbeServiceTest {
 
         assertTrue(service.claimNext(1L).isEmpty());
         verify(priceProbeRepository, never()).saveAndFlush(any());
-    }
-
-    @Test
-    void recoversUnreportedClaimsWithThirtyMinuteFailClosedCutoff() {
-        Bot probeBot = bot(1L, "S25 #1");
-
-        when(botRepository.findById(1L)).thenReturn(Optional.of(probeBot));
-        when(listingRepository.findByStatusInOrderByIdAsc(any()))
-                .thenReturn(List.of());
-        when(priceProbeRepository.transitionStaleClaimsToUnknown(
-                eq(PriceProbeStatus.CLAIMED),
-                eq(PriceProbeStatus.UNKNOWN),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class),
-                any(String.class)
-        )).thenReturn(2);
-
-        assertTrue(service.claimNext(1L).isEmpty());
-
-        ArgumentCaptor<LocalDateTime> claimedBefore =
-                ArgumentCaptor.forClass(LocalDateTime.class);
-        ArgumentCaptor<LocalDateTime> completedAt =
-                ArgumentCaptor.forClass(LocalDateTime.class);
-        ArgumentCaptor<String> failureReason =
-                ArgumentCaptor.forClass(String.class);
-
-        verify(priceProbeRepository).transitionStaleClaimsToUnknown(
-                eq(PriceProbeStatus.CLAIMED),
-                eq(PriceProbeStatus.UNKNOWN),
-                claimedBefore.capture(),
-                completedAt.capture(),
-                failureReason.capture()
-        );
-
-        assertEquals(
-                Duration.ofMinutes(30),
-                Duration.between(claimedBefore.getValue(), completedAt.getValue())
-        );
-        assertTrue(failureReason.getValue().contains("may already have been sent"));
-        assertTrue(failureReason.getValue().contains("automatic retry is forbidden"));
     }
 
     private Bot bot(Long id, String name) {

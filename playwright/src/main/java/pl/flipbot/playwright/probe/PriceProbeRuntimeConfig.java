@@ -1,7 +1,6 @@
 package pl.flipbot.playwright.probe;
 
 import lombok.extern.slf4j.Slf4j;
-import pl.flipbot.playwright.lab.fingerprint.ControlledTestRuntime;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -18,72 +17,27 @@ public record PriceProbeRuntimeConfig(
     private static final String DEFAULT_BASE_URL = "http://localhost:4173";
 
     public static PriceProbeRuntimeConfig fromEnvironment() {
-        boolean requested = readBoolean(ENABLED_ENV, false);
+        boolean enabled = readBoolean(ENABLED_ENV, false);
+        String rawBaseUrl = System.getenv(BASE_URL_ENV);
+        URI baseUri = validateBaseUrl(
+                rawBaseUrl == null || rawBaseUrl.isBlank()
+                        ? DEFAULT_BASE_URL
+                        : rawBaseUrl
+        );
 
-        if (!requested) {
-            log.info(
-                    "[PRICE PROBE CONFIG] PRICE_PROBE is disabled."
-            );
-            return disabledDefault();
-        }
-
-        String configuredBaseUrl;
-
-        if (ControlledTestRuntime.isEnabled()) {
-            try {
-                ControlledTestRuntime.requireValidConfiguration();
-                configuredBaseUrl = controlledTestBaseUrl(
-                        ControlledTestRuntime.targetUrl()
-                );
-
-                log.info(
-                        "[PRICE PROBE CONFIG] Using the shared controlled-test origin {} from {}. {} is ignored in simple controlled mode.",
-                        configuredBaseUrl,
-                        ControlledTestRuntime.TARGET_URL_ENV,
-                        BASE_URL_ENV
-                );
-            } catch (RuntimeException exception) {
-                log.warn(
-                        "[PRICE PROBE CONFIG] BLOCKED/SKIPPED because the shared controlled-test target is invalid. Normal FlipBot runtime will continue. reason={}",
-                        safeMessage(exception)
-                );
-                return disabledDefault();
-            }
-        } else {
-            String rawBaseUrl = System.getenv(BASE_URL_ENV);
-            configuredBaseUrl =
-                    rawBaseUrl == null || rawBaseUrl.isBlank()
-                            ? DEFAULT_BASE_URL
-                            : rawBaseUrl;
-        }
-
-        try {
-            URI baseUri = validateBaseUrl(configuredBaseUrl);
-
+        if (enabled) {
             log.warn(
                     "[PRICE PROBE CONFIG] PRICE_PROBE is ENABLED. baseUrl={}. Set {}=false to stop all new probe jobs.",
                     baseUri,
                     ENABLED_ENV
             );
-
-            return new PriceProbeRuntimeConfig(true, baseUri);
-
-        } catch (RuntimeException exception) {
-            /*
-             * PRICE_PROBE is an optional test-only subsystem. A forbidden or
-             * malformed target must remain fail-closed, but it must not prevent
-             * FlipBotPlaywrightApplication from starting normal workers and
-             * market statistics. Keep the probe disabled and continue with the
-             * known-safe loopback endpoint as inert configuration state.
-             */
-            log.warn(
-                    "[PRICE PROBE CONFIG] BLOCKED/SKIPPED. Normal FlipBot runtime will continue. requestedBaseUrl={}, reason={}",
-                    configuredBaseUrl,
-                    safeMessage(exception)
+        } else {
+            log.info(
+                    "[PRICE PROBE CONFIG] PRICE_PROBE is disabled."
             );
-
-            return disabledDefault();
         }
+
+        return new PriceProbeRuntimeConfig(enabled, baseUri);
     }
 
     public boolean isAllowedUrl(String rawUrl) {
@@ -185,46 +139,8 @@ public record PriceProbeRuntimeConfig(
             return false;
         }
 
-        String host = canonicalDnsHost(rawHost);
-        return "vinted.pl".equals(host) || host.endsWith(".vinted.pl");
-    }
-
-    private static String controlledTestBaseUrl(String rawTargetUrl) {
-        URI target = URI.create(rawTargetUrl.trim());
-
-        try {
-            return new URI(
-                    normalize(target.getScheme()),
-                    null,
-                    normalize(target.getHost()),
-                    target.getPort(),
-                    null,
-                    null,
-                    null
-            ).toString();
-        } catch (URISyntaxException exception) {
-            throw new IllegalStateException(
-                    "Could not derive controlled PRICE_PROBE origin from "
-                            + ControlledTestRuntime.TARGET_URL_ENV,
-                    exception
-            );
-        }
-    }
-
-    private static String canonicalDnsHost(String rawHost) {
         String host = rawHost.trim().toLowerCase(Locale.ROOT);
-
-        /*
-         * A trailing DNS root dot does not identify a different Internet host:
-         * www.vinted.pl. and www.vinted.pl resolve to the same FQDN. The probe
-         * blacklist must therefore compare their canonical DNS form instead of
-         * allowing a final dot to bypass the explicit Vinted prohibition.
-         */
-        while (host.endsWith(".")) {
-            host = host.substring(0, host.length() - 1);
-        }
-
-        return host;
+        return "vinted.pl".equals(host) || host.endsWith(".vinted.pl");
     }
 
     private static boolean sameEndpoint(URI expected, URI candidate) {
@@ -248,22 +164,11 @@ public record PriceProbeRuntimeConfig(
     }
 
     private static URI normalizeBaseUri(URI uri) {
-        try {
-            return new URI(
-                    normalize(uri.getScheme()),
-                    null,
-                    normalize(uri.getHost()),
-                    uri.getPort(),
-                    null,
-                    null,
-                    null
-            );
-        } catch (URISyntaxException exception) {
-            throw new IllegalStateException(
-                    "Could not normalize PRICE_PROBE base URL.",
-                    exception
-            );
+        String value = normalize(uri.getScheme()) + "://" + normalize(uri.getHost());
+        if (uri.getPort() >= 0) {
+            value += ":" + uri.getPort();
         }
+        return URI.create(value);
     }
 
     private static int effectivePort(URI uri) {
@@ -271,29 +176,6 @@ public record PriceProbeRuntimeConfig(
             return uri.getPort();
         }
         return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
-    }
-
-    private static PriceProbeRuntimeConfig disabledDefault() {
-        return new PriceProbeRuntimeConfig(
-                false,
-                validateBaseUrl(DEFAULT_BASE_URL)
-        );
-    }
-
-    private static String safeMessage(Throwable throwable) {
-        if (throwable == null
-                || throwable.getMessage() == null
-                || throwable.getMessage().isBlank()) {
-            return throwable == null
-                    ? "unknown error"
-                    : throwable.getClass().getSimpleName();
-        }
-
-        return throwable.getMessage()
-                .lines()
-                .findFirst()
-                .orElse(throwable.getMessage())
-                .trim();
     }
 
     private static String normalize(String value) {

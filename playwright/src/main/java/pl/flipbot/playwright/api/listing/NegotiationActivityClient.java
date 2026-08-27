@@ -16,7 +16,7 @@ import java.time.format.DateTimeFormatter;
 @Slf4j
 public class NegotiationActivityClient {
 
-    private static final String BACKEND_BASE_URL = "http://localhost:8081";
+    private static final String BACKEND_BASE_URL = "http://localhost:8080";
     private static final DateTimeFormatter BACKEND_DATE_TIME_FORMAT =
             DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 

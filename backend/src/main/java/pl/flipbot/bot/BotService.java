@@ -38,8 +38,6 @@ import java.util.Set;
 public class BotService {
 
     private static final int MAX_RESPONSE_WAIT_HOURS = 24 * 30;
-    private static final int DEFAULT_READ_WAIT_HOURS = 3;
-    private static final int DEFAULT_UNREAD_WAIT_HOURS = 48;
     private static final BigDecimal MAX_DISCOUNT_PERCENT = new BigDecimal("100");
 
     private final BotRepository botRepository;
@@ -390,7 +388,7 @@ public class BotService {
                     "Bot has active negotiations. These fields cannot be changed until all active negotiations are finished: "
                             + String.join(", ", lockedChanges)
                             + ". Allowed while active: bot name, listing min/max price, daily negotiation budget, "
-                            + "global negotiation cap and per-step rejection/counteroffer/read/unread response policies."
+                            + "global negotiation cap and per-step rejection/counteroffer response policies."
             );
         }
     }
@@ -455,8 +453,6 @@ public class BotService {
     private boolean samePolicy(NegotiationStep existing, ResolvedStepPolicy requested) {
         if (existing.getRejectionAction() != requested.rejectionAction()
                 || !Objects.equals(existing.getRejectionWaitHours(), requested.rejectionWaitHours())
-                || !Objects.equals(existing.getReadWaitHours(), requested.readWaitHours())
-                || !Objects.equals(existing.getUnreadWaitHours(), requested.unreadWaitHours())
                 || existing.getCounterOfferDefaultAction() != requested.counterDefaultAction()
                 || !Objects.equals(
                 existing.getCounterOfferDefaultWaitHours(),
@@ -599,8 +595,6 @@ public class BotService {
                     .message(request.getMessage())
                     .rejectionAction(policy.rejectionAction())
                     .rejectionWaitHours(policy.rejectionWaitHours())
-                    .readWaitHours(policy.readWaitHours())
-                    .unreadWaitHours(policy.unreadWaitHours())
                     .counterOfferDefaultAction(policy.counterDefaultAction())
                     .counterOfferDefaultWaitHours(policy.counterDefaultWaitHours())
                     .counterOfferRules(toRuleEntities(policy.rules()))
@@ -628,8 +622,6 @@ public class BotService {
 
             step.setRejectionAction(policy.rejectionAction());
             step.setRejectionWaitHours(policy.rejectionWaitHours());
-            step.setReadWaitHours(policy.readWaitHours());
-            step.setUnreadWaitHours(policy.unreadWaitHours());
             step.setCounterOfferDefaultAction(policy.counterDefaultAction());
             step.setCounterOfferDefaultWaitHours(policy.counterDefaultWaitHours());
             step.getCounterOfferRules().clear();
@@ -710,14 +702,6 @@ public class BotService {
                 policy.rejectionWaitHours(),
                 "Step " + stepNumber + " rejection policy"
         );
-        validatePendingWaitHours(
-                policy.readWaitHours(),
-                "Step " + stepNumber + " read follow-up"
-        );
-        validatePendingWaitHours(
-                policy.unreadWaitHours(),
-                "Step " + stepNumber + " unread follow-up"
-        );
         validateReaction(
                 policy.counterDefaultAction(),
                 policy.counterDefaultWaitHours(),
@@ -774,17 +758,6 @@ public class BotService {
         }
     }
 
-    private void validatePendingWaitHours(Integer waitHours, String label) {
-        if (waitHours == null
-                || waitHours < 1
-                || waitHours > MAX_RESPONSE_WAIT_HOURS) {
-            throw new IllegalArgumentException(
-                    label + " wait time must be between 1 and "
-                            + MAX_RESPONSE_WAIT_HOURS + " hours."
-            );
-        }
-    }
-
     private ResolvedStepPolicy resolvePolicy(
             CreateNegotiationStepRequest request,
             int stepNumber
@@ -804,13 +777,6 @@ public class BotService {
         if (rejectionAction == NegotiationReactionAction.NEXT_STEP_NOW) {
             rejectionWaitHours = null;
         }
-
-        Integer readWaitHours = request.getReadWaitHours() == null
-                ? DEFAULT_READ_WAIT_HOURS
-                : request.getReadWaitHours();
-        Integer unreadWaitHours = request.getUnreadWaitHours() == null
-                ? DEFAULT_UNREAD_WAIT_HOURS
-                : request.getUnreadWaitHours();
 
         NegotiationReactionAction counterDefaultAction =
                 request.getCounterOfferDefaultAction();
@@ -836,8 +802,6 @@ public class BotService {
         return new ResolvedStepPolicy(
                 rejectionAction,
                 rejectionWaitHours,
-                readWaitHours,
-                unreadWaitHours,
                 counterDefaultAction,
                 counterDefaultWaitHours,
                 rules
@@ -915,8 +879,6 @@ public class BotService {
     private record ResolvedStepPolicy(
             NegotiationReactionAction rejectionAction,
             Integer rejectionWaitHours,
-            Integer readWaitHours,
-            Integer unreadWaitHours,
             NegotiationReactionAction counterDefaultAction,
             Integer counterDefaultWaitHours,
             List<CounterRuleValue> rules

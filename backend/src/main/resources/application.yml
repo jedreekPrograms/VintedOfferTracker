@@ -1,16 +1,13 @@
 spring:
   datasource:
-    url: "${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5433/flipbot}"
-    username: "${SPRING_DATASOURCE_USERNAME:postgres}"
-    password: "${SPRING_DATASOURCE_PASSWORD:postgres}"
+    url: "jdbc:postgresql://localhost:5433/flipbot"
+    username: postgres
+    password: postgres
 
   jpa:
-    open-in-view: false
     hibernate:
-      # Flyway owns the schema. Hibernate must never create, update or silently
-      # repair production tables; startup fails if the mapped model and the
-      # migrated database disagree.
-      ddl-auto: validate
+      ddl-auto: update
+
     properties:
       hibernate:
         format_sql: true
@@ -18,12 +15,10 @@ spring:
   flyway:
     enabled: true
 
+  web:
+    error:
+      include-stacktrace: never
+      include-exception: false
+
 server:
-  # Credential-bearing endpoints are intentionally local-only until the
-  # application has an end-user authentication layer. Override deliberately
-  # only behind a trusted reverse proxy/auth boundary.
-  address: "${FLIPBOT_SERVER_ADDRESS:127.0.0.1}"
-  port: "${SERVER_PORT:8081}"
-  error:
-    include-stacktrace: never
-    include-exception: false
+  port: 8080

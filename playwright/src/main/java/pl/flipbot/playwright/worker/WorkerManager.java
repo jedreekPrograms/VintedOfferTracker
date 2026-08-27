@@ -4,12 +4,10 @@ import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.BotApiClient;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
 import pl.flipbot.playwright.model.RunningBotDto;
-import pl.flipbot.playwright.session.SessionManager;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -22,17 +20,11 @@ import java.util.stream.Collectors;
 @Slf4j
 public class WorkerManager implements AutoCloseable {
 
-    private static final long SESSION_RETENTION_CLEANUP_INTERVAL_MILLIS =
-            TimeUnit.MINUTES.toMillis(1);
-
     private final WorkerRuntimeConfig config =
             WorkerRuntimeConfig.fromEnvironment();
 
     private final BotApiClient botApiClient =
             new BotApiClient();
-
-    private final SessionManager sessionManager =
-            new SessionManager();
 
     private final RuntimeTelemetryReporter telemetryReporter =
             new RuntimeTelemetryReporter();
@@ -62,8 +54,6 @@ public class WorkerManager implements AutoCloseable {
 
     private final AtomicBoolean stopping =
             new AtomicBoolean(false);
-
-    private long nextSessionRetentionCleanupAtEpochMs = 0L;
 
     /*
      * Slot labels are monotonic for the lifetime of the manager. If a worker
@@ -138,7 +128,6 @@ public class WorkerManager implements AutoCloseable {
             );
 
             ensureWorkerSlots(requiredSlots);
-            cleanupOrphanedSessionMaterialIfDue();
 
             long activeNegotiationBots =
                     runningBots.values()
@@ -159,37 +148,6 @@ public class WorkerManager implements AutoCloseable {
         } catch (Exception exception) {
             log.error(
                     "Failed to synchronize RUNNING bots with scheduler.",
-                    exception
-            );
-        }
-    }
-
-    /**
-     * Session retention is deliberately independent from RUNNING scheduling.
-     * Every backend bot ID is used so STOPPED bots keep their encrypted session,
-     * while a deleted bot's encrypted or legacy token is removed shortly after
-     * the next successful scheduler sync.
-     *
-     * Cleanup failure is isolated from scheduler reconciliation: a temporary
-     * /api/bots failure must never stop normal RUNNING bots from being queued.
-     */
-    private void cleanupOrphanedSessionMaterialIfDue() {
-        long now = System.currentTimeMillis();
-
-        if (now < nextSessionRetentionCleanupAtEpochMs) {
-            return;
-        }
-
-        nextSessionRetentionCleanupAtEpochMs =
-                now + SESSION_RETENTION_CLEANUP_INTERVAL_MILLIS;
-
-        try {
-            Set<Long> existingBotIds = botApiClient.getAllBotIds();
-            sessionManager.deleteSessionsForMissingBots(existingBotIds);
-        } catch (Exception exception) {
-            log.warn(
-                    "[SESSION] Could not reconcile stored session retention with backend bot IDs. "
-                            + "Scheduler work continues; cleanup will retry later.",
                     exception
             );
         }

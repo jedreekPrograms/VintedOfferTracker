@@ -16,8 +16,6 @@ public class NegotiationStepMapper {
                 .message(step.getMessage())
                 .rejectionAction(step.getRejectionAction())
                 .rejectionWaitHours(step.getRejectionWaitHours())
-                .readWaitHours(step.getReadWaitHours())
-                .unreadWaitHours(step.getUnreadWaitHours())
                 .counterOfferDefaultAction(step.getCounterOfferDefaultAction())
                 .counterOfferDefaultWaitHours(step.getCounterOfferDefaultWaitHours())
                 .counterOfferRules(

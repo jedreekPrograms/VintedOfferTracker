@@ -32,14 +32,6 @@ public class CreateNegotiationStepRequest {
 
     private Integer rejectionWaitHours;
 
-    /*
-     * Pending-offer follow-up delays are configured per step. Missing values
-     * keep backward-compatible defaults (3h after read, 48h while unread).
-     */
-    private Integer readWaitHours;
-
-    private Integer unreadWaitHours;
-
     private NegotiationReactionAction counterOfferDefaultAction;
 
     private Integer counterOfferDefaultWaitHours;

@@ -7,10 +7,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
+import java.net.URI;
 import java.util.Objects;
 
 @Slf4j
@@ -33,16 +33,10 @@ public class PreparedNextStepStateVerifier {
         Page page = context.getPage();
         humanVerificationHandler.waitUntilVerified(page);
 
-        if (!MarketplaceUrls.isVintedConversationUrl(
-                page.url(),
-                listing.conversationId()
-        )) {
+        String openedConversationId = extractConversationId(page.url());
+        if (!listing.conversationId().equals(openedConversationId)) {
             throw new IllegalStateException(
-                    "Prepared next-step form is not on the expected trusted Vinted conversation. "
-                            + "Expected conversation="
-                            + listing.conversationId()
-                            + ", current URL="
-                            + page.url()
+                    "Prepared next-step form belongs to an unexpected conversation"
             );
         }
 
@@ -82,6 +76,22 @@ public class PreparedNextStepStateVerifier {
                 listing.listingId(),
                 nextStep.getStepNumber(),
                 nextStep.getOfferPrice()
+        );
+    }
+
+    private String extractConversationId(String conversationUrl) {
+        URI uri = URI.create(conversationUrl);
+        String path = uri.getPath();
+        String[] parts = path == null ? new String[0] : path.split("/");
+
+        for (int i = 0; i < parts.length - 1; i++) {
+            if ("inbox".equals(parts[i]) && !parts[i + 1].isBlank()) {
+                return parts[i + 1];
+            }
+        }
+
+        throw new IllegalArgumentException(
+                "Cannot extract conversation ID from URL: " + conversationUrl
         );
     }
 }

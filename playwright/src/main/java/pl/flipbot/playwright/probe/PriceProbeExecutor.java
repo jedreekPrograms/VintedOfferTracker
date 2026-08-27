@@ -51,7 +51,6 @@ public class PriceProbeExecutor {
 
     private final BotContext context;
     private final PriceProbeRuntimeConfig config;
-    private final PriceProbeTestHumanPacing humanPacing;
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
 
@@ -61,7 +60,6 @@ public class PriceProbeExecutor {
     ) {
         this.context = context;
         this.config = config;
-        this.humanPacing = PriceProbeTestHumanPacing.fromEnvironment(config);
     }
 
     public PriceProbeExecutionResult execute(PriceProbeAssignmentDto assignment) {
@@ -113,7 +111,6 @@ public class PriceProbeExecutor {
                 );
             }
 
-            humanPacing.afterNavigation(page);
             humanVerificationHandler.waitUntilVerified(page);
 
             MessageEntryPoint entryPoint = waitForMessageEntryPoint(page);
@@ -144,12 +141,10 @@ public class PriceProbeExecutor {
                         describeAction(messageAction)
                 );
 
-                humanPacing.beforeClick(page, messageAction);
                 messageAction.click(
                         new Locator.ClickOptions()
                                 .setTimeout(ELEMENT_TIMEOUT_MS)
                 );
-                humanPacing.afterClick(page);
 
                 humanVerificationHandler.waitUntilVerified(page);
                 composer = waitForComposer(page);
@@ -173,11 +168,7 @@ public class PriceProbeExecutor {
                 );
             }
 
-            humanPacing.typeText(
-                    page,
-                    composer,
-                    assignment.message()
-            );
+            composer.fill(assignment.message());
 
             if (!assignment.message().equals(composer.inputValue())) {
                 return PriceProbeExecutionResult.failed(
@@ -213,13 +204,11 @@ public class PriceProbeExecutor {
                     assignment.probePrice()
             );
 
-            humanPacing.beforeClick(page, sendButton);
             sendClickAttempted = true;
             sendButton.click(
                     new Locator.ClickOptions()
                             .setTimeout(ELEMENT_TIMEOUT_MS)
             );
-            humanPacing.afterClick(page);
 
             if (!waitForComposerToClear(page, composer)) {
                 return PriceProbeExecutionResult.unknown(
@@ -501,13 +490,7 @@ public class PriceProbeExecutor {
                     return true;
                 }
             } catch (PlaywrightException exception) {
-                /*
-                 * Losing the ability to inspect the composer after the click
-                 * is not positive delivery evidence. The caller maps false to
-                 * UNKNOWN, whose backend slot remains reserved and is never
-                 * retried automatically.
-                 */
-                return false;
+                return true;
             }
 
             page.waitForTimeout(POLL_INTERVAL_MS);

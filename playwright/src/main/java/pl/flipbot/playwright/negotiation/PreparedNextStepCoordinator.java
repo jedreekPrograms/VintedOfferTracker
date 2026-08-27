@@ -95,11 +95,10 @@ public class PreparedNextStepCoordinator {
             );
 
             log.error(
-                    "Prepared next-step finalization failed for listing {}. State is kept fail-closed and this real-action job must stop.",
+                    "Prepared next-step finalization failed for listing {}. State is kept fail-closed.",
                     listing.listingId()
             );
-
-            throw ambiguousFailure(listing, exception);
+            throw exception;
         }
 
         if (result != NextStepExecutionResult.SENT) {
@@ -114,33 +113,15 @@ public class PreparedNextStepCoordinator {
                     requestId,
                     exception
             );
-
-            throw ambiguousFailure(listing, exception);
+            throw exception;
         }
 
-        try {
-            audit.recordConfirmedRequired(
-                    listing,
-                    ACTION_TYPE,
-                    decision.nextStep().getStepNumber(),
-                    requestId
-            );
-        } catch (Exception exception) {
-            log.error(
-                    "NEXT_STEP for marketplace listing {} was confirmed by the submitter, but confirmed-action audit persistence failed. "
-                            + "The persistent action guard remains fail-closed and this real-action job must stop.",
-                    listing.listingId(),
-                    exception
-            );
-
-            throw new RealActionJobAbortException(
-                    "NEXT_STEP for marketplace listing "
-                            + listing.listingId()
-                            + " was already confirmed, but post-submit audit persistence failed. "
-                            + "Abort this real-action job and do not continue with another listing.",
-                    exception
-            );
-        }
+        audit.recordConfirmedRequired(
+                listing,
+                ACTION_TYPE,
+                decision.nextStep().getStepNumber(),
+                requestId
+        );
 
         guard.releaseAfterConfirmedSuccessBestEffort(
                 botId,
@@ -148,19 +129,6 @@ public class PreparedNextStepCoordinator {
                 requestId
         );
         return true;
-    }
-
-    private AmbiguousRealActionException ambiguousFailure(
-            ListingResponseDto listing,
-            Throwable cause
-    ) {
-        return new AmbiguousRealActionException(
-                "NEXT_STEP submit for marketplace listing "
-                        + listing.listingId()
-                        + " may already have reached Vinted. "
-                        + "Abort this real-action job and do not continue with another listing.",
-                cause
-        );
     }
 
     private void releaseQuota(Long botId) {

@@ -2,7 +2,6 @@ package pl.flipbot.playwright.marketplace;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
@@ -151,23 +150,10 @@ public class MarketplaceNavigator {
             Page page,
             Throwable throwable
     ) {
-        /*
-         * Playwright's navigation timeout is reported as a plain
-         * "Timeout 30000ms exceeded" and previously fell through this method,
-         * so NAVIGATION_MAX_ATTEMPTS was effectively bypassed for the exact
-         * failure seen under concurrent bot load. Because this method is used
-         * only around page.navigate(), a TimeoutError here is a transient
-         * navigation failure and is safe to retry.
-         */
-        if (throwable instanceof TimeoutError) {
-            return true;
-        }
-
         String message = friendlyMessage(throwable)
                 .toLowerCase(Locale.ROOT);
 
-        if ((message.contains("timeout") && message.contains("exceeded"))
-                || message.contains("err_network_changed")
+        if (message.contains("err_network_changed")
                 || message.contains("err_name_not_resolved")
                 || message.contains("err_connection_reset")
                 || message.contains("err_connection_closed")

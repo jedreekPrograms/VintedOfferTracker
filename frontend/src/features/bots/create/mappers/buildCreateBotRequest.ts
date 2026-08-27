@@ -32,8 +32,6 @@ export function buildCreateBotRequest(
                 message: step.message,
                 rejectionAction: step.rejectionAction,
                 rejectionWaitHours: step.rejectionWaitHours,
-                readWaitHours: step.readWaitHours,
-                unreadWaitHours: step.unreadWaitHours,
                 counterOfferDefaultAction: step.counterOfferDefaultAction,
                 counterOfferDefaultWaitHours: step.counterOfferDefaultWaitHours,
                 counterOfferRules: step.counterOfferRules.map((rule) => ({

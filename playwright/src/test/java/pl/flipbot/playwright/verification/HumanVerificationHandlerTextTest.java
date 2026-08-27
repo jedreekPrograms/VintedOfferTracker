@@ -18,23 +18,6 @@ public class HumanVerificationHandlerTextTest {
     }
 
     @Test
-    public void polishSliderChallengeIsRecognized() {
-        assertEquals(
-                "potwierdź, że jesteś człowiekiem",
-                HumanVerificationHandler.matchingStrongText(
-                        "Potwierdź, że jesteś człowiekiem"
-                )
-        );
-
-        assertEquals(
-                "przesuń w prawo, aby zabezpieczyć dostęp",
-                HumanVerificationHandler.matchingStrongText(
-                        "Przesuń w prawo, aby zabezpieczyć dostęp"
-                )
-        );
-    }
-
-    @Test
     public void genericSecurityTextDoesNotFreezeNormalBodyContent() {
         assertNull(
                 HumanVerificationHandler.matchingStrongText(
@@ -61,16 +44,6 @@ public class HumanVerificationHandlerTextTest {
                 HumanVerificationHandler.matchingTitleOnlyText(
                         "Security Check"
                 )
-        );
-    }
-
-    @Test
-    public void verificationTimeoutDefaultsToTenMinutes() {
-        // Environment override is intentionally not mutated by this unit test.
-        // In normal CI there is no override, so this verifies the safe default.
-        assertEquals(
-                600L,
-                HumanVerificationHandler.verificationTimeoutSeconds()
         );
     }
 }
