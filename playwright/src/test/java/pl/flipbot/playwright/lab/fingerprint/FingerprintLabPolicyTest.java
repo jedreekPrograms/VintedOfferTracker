@@ -58,6 +58,9 @@ public class FingerprintLabPolicyTest {
         assertFalse(FingerprintLabPolicy.isAllowedProxyUrl(
                 "file:///tmp/proxy"
         ));
+        assertFalse(FingerprintLabPolicy.isAllowedProxyUrl(
+                "http://user:pass@proxy.test:1080"
+        ));
     }
 
     @Test
@@ -80,7 +83,10 @@ public class FingerprintLabPolicyTest {
     }
 
     @Test
-    public void rejectsNonHttpSchemesAndMalformedUrls() {
+    public void rejectsCredentialBearingAndNonHttpUrls() {
+        assertFalse(FingerprintLabPolicy.isAllowedUrl(
+                "http://user@clone.test/catalog"
+        ));
         assertFalse(FingerprintLabPolicy.isAllowedUrl(
                 "file:///tmp/fingerprint.html"
         ));
