@@ -3,11 +3,11 @@ package pl.flipbot.playwright.lab.fingerprint;
 import java.util.List;
 
 /**
- * Synthetic profile for the local fingerprint laboratory.
+ * Coherent synthetic device profile for the controlled fingerprint laboratory.
  *
- * The values intentionally carry a visible "Lab" identity rather than trying
- * to impersonate a real device. The point is to demonstrate which browser
- * surfaces can be modified and how a detector can catch inconsistencies.
+ * Profile values are realistic enough to exercise consistency checks on a
+ * local/test platform, while the runtime remains visibly marked and hard-blocked
+ * from production hosts by FingerprintLabPolicy.
  */
 public record FingerprintLabProfile(
         String platform,
@@ -54,6 +54,14 @@ public record FingerprintLabProfile(
                     "available screen dimensions must be positive"
             );
         }
+        if (availWidth > screenWidth || availHeight > screenHeight) {
+            throw new IllegalArgumentException(
+                    "available screen dimensions cannot exceed screen dimensions"
+            );
+        }
+        if (colorDepth < 1) {
+            throw new IllegalArgumentException("colorDepth must be positive");
+        }
         if (deviceScaleFactor <= 0) {
             throw new IllegalArgumentException(
                     "deviceScaleFactor must be positive"
@@ -76,23 +84,10 @@ public record FingerprintLabProfile(
         return languages.getFirst();
     }
 
+    /**
+     * Compatibility alias for the original lab API.
+     */
     public static FingerprintLabProfile demoDesktopProfile() {
-        return new FingerprintLabProfile(
-                "Win32-Lab",
-                8,
-                8,
-                List.of("pl-PL", "pl", "en-US", "en"),
-                0,
-                1920,
-                1080,
-                1920,
-                1040,
-                24,
-                1.0,
-                "Europe/Warsaw",
-                "FlipBot Lab GPU Vendor",
-                "FlipBot Lab GPU Renderer",
-                0x5A17
-        );
+        return FingerprintLabProfileCatalog.defaultProfile();
     }
 }

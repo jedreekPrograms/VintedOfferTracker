@@ -7,20 +7,20 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.options.Proxy;
 import com.microsoft.playwright.options.ServiceWorkerPolicy;
 
 import java.io.IOException;
 
 /**
- * Standalone local fingerprint laboratory.
+ * Standalone fingerprint laboratory for loopback / reserved test hosts.
  *
- * This application is deliberately separate from FlipBot's marketplace
- * BrowserManager/BotContext pipeline. It compares a baseline Chrome context
- * with a synthetic fingerprint context on a laboratory URL only.
+ * It combines the original fingerprint simulator, detector, runtime bridge,
+ * coherent synthetic profiles, optional encrypted session persistence,
+ * laboratory-only proxy routing and an optional human-interaction simulator.
+ * The network boundary remains fail-closed for production hosts.
  */
 public final class FingerprintLabApplication {
-
-    private static final String URL_ENV = "FLIPBOT_FINGERPRINT_LAB_URL";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
@@ -28,25 +28,25 @@ public final class FingerprintLabApplication {
     private FingerprintLabApplication() {}
 
     public static void main(String[] args) throws Exception {
-        String configuredUrl = configuredTargetUrl(args);
+        FingerprintLabConfiguration configuration =
+                FingerprintLabConfiguration.fromEnvironment(args);
         FingerprintLabServer localServer = null;
 
         try {
-            String targetUrl;
-
-            if (configuredUrl == null) {
+            if (configuration.targetUrl() == null) {
                 localServer = FingerprintLabServer.startDefault();
-                targetUrl = localServer.url();
+                configuration = withTarget(
+                        configuration,
+                        localServer.url()
+                );
                 System.out.println(
                         "[FINGERPRINT LAB] Local detector server started at "
-                                + targetUrl
+                                + configuration.targetUrl()
                 );
-            } else {
-                targetUrl = configuredUrl;
             }
 
-            FingerprintLabPolicy.requireAllowed(targetUrl);
-            runLab(targetUrl);
+            validateConfiguration(configuration);
+            runLab(configuration);
 
         } finally {
             if (localServer != null) {
@@ -55,9 +55,10 @@ public final class FingerprintLabApplication {
         }
     }
 
-    private static void runLab(String targetUrl) throws Exception {
-        FingerprintLabProfile profile =
-                FingerprintLabProfile.demoDesktopProfile();
+    private static void runLab(
+            FingerprintLabConfiguration configuration
+    ) throws Exception {
+        FingerprintLabProfile profile = configuration.profile();
 
         try (Playwright playwright = Playwright.create()) {
             Browser browser = playwright.chromium().launch(
@@ -69,19 +70,50 @@ public final class FingerprintLabApplication {
             try {
                 FingerprintSnapshot baseline = captureBaseline(
                         browser,
-                        targetUrl
+                        configuration
                 );
 
                 try (BrowserContext labContext = createLabContext(
                         browser,
-                        profile
+                        configuration
                 )) {
                     Page labPage = labContext.newPage();
-                    labPage.navigate(targetUrl);
+                    labPage.navigate(configuration.targetUrl());
                     labPage.waitForLoadState();
+
+                    if (configuration.humanBehaviorSimulation()) {
+                        FingerprintLabHumanBehavior.exercise(labPage);
+                    }
 
                     FingerprintSnapshot simulated =
                             FingerprintLab.capture(labPage);
+
+                    System.out.println("=== LAB CONFIGURATION ===");
+                    System.out.println(
+                            "target=" + configuration.targetUrl()
+                    );
+                    System.out.println(
+                            "profile=" + configuration.profileId()
+                    );
+                    System.out.println(
+                            "availableProfiles="
+                                    + FingerprintLabProfileCatalog.ids()
+                    );
+                    System.out.println(
+                            "persistentSession="
+                                    + configuration.persistentSession()
+                    );
+                    System.out.println(
+                            "humanBehaviorSimulation="
+                                    + configuration.humanBehaviorSimulation()
+                    );
+                    System.out.println(
+                            "proxy="
+                                    + (configuration.proxyUrl() == null
+                                            ? "none"
+                                            : configuration.proxyUrl())
+                    );
+                    System.out.println();
 
                     System.out.println("=== BASELINE ===");
                     System.out.println(
@@ -94,14 +126,20 @@ public final class FingerprintLabApplication {
                     );
                     System.out.println();
                     System.out.println(
-                            "Fingerprint lab is running on: " + targetUrl
+                            "Fingerprint lab is running on: "
+                                    + configuration.targetUrl()
                     );
                     System.out.println(
                             "HTTP(S), WebSocket and Service Worker escape paths are constrained. "
-                                    + "Press ENTER to close the laboratory browser."
+                                    + "Press ENTER to save enabled lab session state and close the browser."
                     );
 
                     waitForEnter();
+
+                    FingerprintLabSessionStore.save(
+                            configuration,
+                            labContext.storageState()
+                    );
                 }
             } finally {
                 browser.close();
@@ -111,22 +149,49 @@ public final class FingerprintLabApplication {
 
     static BrowserContext createLabContext(
             Browser browser,
+            FingerprintLabConfiguration configuration
+    ) {
+        validateConfiguration(configuration);
+
+        FingerprintLabProfile profile = configuration.profile();
+        Browser.NewContextOptions options = new Browser.NewContextOptions()
+                .setLocale(profile.locale())
+                .setTimezoneId(profile.timezoneId())
+                .setViewportSize(
+                        profile.availWidth(),
+                        profile.availHeight()
+                )
+                .setDeviceScaleFactor(profile.deviceScaleFactor())
+                .setServiceWorkers(ServiceWorkerPolicy.BLOCK);
+
+        FingerprintLabSessionStore.load(configuration)
+                .ifPresent(options::setStorageState);
+        applyLaboratoryProxy(options, configuration);
+
+        BrowserContext context = browser.newContext(options);
+        installNetworkSafetyBoundary(context);
+        context.addInitScript(FingerprintLabScript.build(profile));
+        return context;
+    }
+
+    /**
+     * Compatibility overload kept for the original lab tests/callers.
+     */
+    static BrowserContext createLabContext(
+            Browser browser,
             FingerprintLabProfile profile
     ) {
-        BrowserContext context = browser.newContext(
-                new Browser.NewContextOptions()
-                        .setLocale(profile.locale())
-                        .setTimezoneId(profile.timezoneId())
-                        .setViewportSize(
-                                profile.availWidth(),
-                                profile.availHeight()
-                        )
-                        .setDeviceScaleFactor(
-                                profile.deviceScaleFactor()
-                        )
-                        .setServiceWorkers(ServiceWorkerPolicy.BLOCK)
-        );
+        Browser.NewContextOptions options = new Browser.NewContextOptions()
+                .setLocale(profile.locale())
+                .setTimezoneId(profile.timezoneId())
+                .setViewportSize(
+                        profile.availWidth(),
+                        profile.availHeight()
+                )
+                .setDeviceScaleFactor(profile.deviceScaleFactor())
+                .setServiceWorkers(ServiceWorkerPolicy.BLOCK);
 
+        BrowserContext context = browser.newContext(options);
         installNetworkSafetyBoundary(context);
         context.addInitScript(FingerprintLabScript.build(profile));
         return context;
@@ -134,20 +199,64 @@ public final class FingerprintLabApplication {
 
     private static FingerprintSnapshot captureBaseline(
             Browser browser,
-            String targetUrl
+            FingerprintLabConfiguration configuration
     ) {
-        try (BrowserContext context = browser.newContext(
-                new Browser.NewContextOptions()
-                        .setServiceWorkers(ServiceWorkerPolicy.BLOCK)
-        )) {
+        Browser.NewContextOptions options = new Browser.NewContextOptions()
+                .setServiceWorkers(ServiceWorkerPolicy.BLOCK);
+        applyLaboratoryProxy(options, configuration);
+
+        try (BrowserContext context = browser.newContext(options)) {
             installNetworkSafetyBoundary(context);
 
             Page page = context.newPage();
-            page.navigate(targetUrl);
+            page.navigate(configuration.targetUrl());
             page.waitForLoadState();
 
             return FingerprintLab.capture(page);
         }
+    }
+
+    private static void applyLaboratoryProxy(
+            Browser.NewContextOptions options,
+            FingerprintLabConfiguration configuration
+    ) {
+        if (configuration.proxyUrl() == null) {
+            return;
+        }
+
+        FingerprintLabPolicy.requireAllowedProxy(configuration.proxyUrl());
+        options.setProxy(new Proxy(configuration.proxyUrl()));
+    }
+
+    private static void validateConfiguration(
+            FingerprintLabConfiguration configuration
+    ) {
+        if (configuration == null) {
+            throw new IllegalArgumentException(
+                    "Fingerprint lab configuration cannot be null"
+            );
+        }
+        if (configuration.targetUrl() == null) {
+            throw new IllegalStateException(
+                    "Fingerprint lab target URL is required"
+            );
+        }
+
+        FingerprintLabPolicy.requireAllowed(configuration.targetUrl());
+        FingerprintLabPolicy.requireAllowedProxy(configuration.proxyUrl());
+    }
+
+    private static FingerprintLabConfiguration withTarget(
+            FingerprintLabConfiguration configuration,
+            String targetUrl
+    ) {
+        return new FingerprintLabConfiguration(
+                targetUrl,
+                configuration.profileId(),
+                configuration.persistentSession(),
+                configuration.humanBehaviorSimulation(),
+                configuration.proxyUrl()
+        );
     }
 
     static void installNetworkSafetyBoundary(BrowserContext context) {
@@ -199,23 +308,9 @@ public final class FingerprintLabApplication {
 
         String normalized = url.trim().toLowerCase();
 
-        // Non-network resources created by the already-allowed local document.
         return normalized.startsWith("data:")
                 || normalized.startsWith("blob:")
                 || normalized.equals("about:blank");
-    }
-
-    private static String configuredTargetUrl(String[] args) {
-        if (args != null && args.length > 0 && !args[0].isBlank()) {
-            return args[0].trim();
-        }
-
-        String fromEnv = System.getenv(URL_ENV);
-        if (fromEnv != null && !fromEnv.isBlank()) {
-            return fromEnv.trim();
-        }
-
-        return null;
     }
 
     private static void waitForEnter() {
