@@ -42,9 +42,17 @@ public record FingerprintLabConfiguration(
     }
 
     public static FingerprintLabConfiguration fromEnvironment(String[] args) {
+        boolean simpleRuntime = ControlledTestRuntime.isEnabled();
+        if (simpleRuntime) {
+            ControlledTestRuntime.requireValidConfiguration();
+        }
+
         String targetUrl = firstNonBlank(
                 firstArgument(args),
-                System.getenv(TARGET_URL_ENV)
+                firstNonBlank(
+                        simpleRuntime ? ControlledTestRuntime.targetUrl() : null,
+                        System.getenv(TARGET_URL_ENV)
+                )
         );
 
         String profileId = firstNonBlank(
@@ -52,21 +60,36 @@ public record FingerprintLabConfiguration(
                 FingerprintLabProfileCatalog.DEFAULT_PROFILE_ID
         );
 
+        boolean persistentSession = Boolean.parseBoolean(
+                System.getenv().getOrDefault(
+                        PERSIST_SESSION_ENV,
+                        "false"
+                )
+        );
+
+        /*
+         * The simple three-variable mode should work without another toggle.
+         * When an encryption key already exists, warm cookie/localStorage state
+         * is enabled automatically. Without a key the runtime stays ephemeral
+         * instead of failing startup just because persistence cannot be encrypted.
+         */
+        if (simpleRuntime && ControlledTestRuntime.hasSessionEncryptionKey()) {
+            persistentSession = true;
+        }
+
+        boolean humanBehaviorSimulation = simpleRuntime
+                || Boolean.parseBoolean(
+                System.getenv().getOrDefault(
+                        HUMAN_BEHAVIOR_ENV,
+                        "false"
+                )
+        );
+
         return new FingerprintLabConfiguration(
                 targetUrl,
                 profileId,
-                Boolean.parseBoolean(
-                        System.getenv().getOrDefault(
-                                PERSIST_SESSION_ENV,
-                                "false"
-                        )
-                ),
-                Boolean.parseBoolean(
-                        System.getenv().getOrDefault(
-                                HUMAN_BEHAVIOR_ENV,
-                                "false"
-                        )
-                ),
+                persistentSession,
+                humanBehaviorSimulation,
                 firstNonBlank(System.getenv(PROXY_URL_ENV), null)
         );
     }
