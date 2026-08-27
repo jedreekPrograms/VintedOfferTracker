@@ -76,7 +76,7 @@ public final class ControlledTestModuleManager {
 
     private void runControlledFleet(String targetUrl, int botCount) {
         try {
-            FingerprintLabLoadApplication.main(new String[0]);
+            FingerprintLabFleetRunner.run();
             log.info(
                     "[CONTROLLED TEST] Fleet run finished. target={}, bots={}.",
                     targetUrl,
