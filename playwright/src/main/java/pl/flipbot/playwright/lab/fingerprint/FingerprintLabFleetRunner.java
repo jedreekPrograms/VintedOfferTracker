@@ -10,14 +10,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Local/test-only multi-context harness for studying profile isolation and
- * browser resource usage on one machine.
+ * Managed local/test-only multi-context runner.
  *
- * Simple controlled mode is intentionally opinionated: one test URL, one fleet
- * size and bounded batches. Advanced lab variables remain supported for older
- * workflows.
+ * This is not a standalone application. ControlledTestModuleManager invokes it
+ * from the single FlipBotPlaywrightApplication process.
  */
-public final class FingerprintLabLoadApplication {
+public final class FingerprintLabFleetRunner {
 
     public static final String CONTEXT_COUNT_ENV =
             "FLIPBOT_FINGERPRINT_LAB_CONTEXTS";
@@ -30,16 +28,16 @@ public final class FingerprintLabLoadApplication {
     private static final int MAX_CONTEXT_COUNT = 1000;
     private static final int MAX_BATCH_SIZE = 100;
 
-    private FingerprintLabLoadApplication() {}
+    private FingerprintLabFleetRunner() {}
 
-    public static void main(String[] args) {
+    static void run() {
         boolean simpleRuntime = ControlledTestRuntime.isEnabled();
         if (simpleRuntime) {
             ControlledTestRuntime.requireValidConfiguration();
         }
 
         FingerprintLabConfiguration base =
-                FingerprintLabConfiguration.fromEnvironment(args);
+                FingerprintLabConfiguration.fromEnvironment(null);
         FingerprintLabServer localServer = null;
 
         try {
@@ -84,7 +82,7 @@ public final class FingerprintLabLoadApplication {
                     base.humanBehaviorSimulation()
             );
 
-            run(base, total, batchSize);
+            runFleet(base, total, batchSize);
 
         } finally {
             if (localServer != null) {
@@ -93,7 +91,7 @@ public final class FingerprintLabLoadApplication {
         }
     }
 
-    private static void run(
+    private static void runFleet(
             FingerprintLabConfiguration base,
             int total,
             int batchSize
@@ -136,7 +134,7 @@ public final class FingerprintLabLoadApplication {
                                     );
 
                             BrowserContext context =
-                                    FingerprintLabApplication.createLabContext(
+                                    FingerprintLabRuntimeSupport.createLabContext(
                                             browser,
                                             configuration
                                     );

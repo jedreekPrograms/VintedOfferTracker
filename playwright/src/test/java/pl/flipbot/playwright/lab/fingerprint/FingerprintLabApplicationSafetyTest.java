@@ -9,32 +9,32 @@ public class FingerprintLabApplicationSafetyTest {
 
     @Test
     public void allowsOnlyLaboratoryNetworkResources() {
-        assertTrue(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertTrue(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "http://127.0.0.1:3000/index.html"
         ));
-        assertTrue(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertTrue(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "https://fingerprint.test/app.js"
         ));
-        assertTrue(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertTrue(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "data:text/plain,hello"
         ));
-        assertTrue(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertTrue(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "blob:http://127.0.0.1:3000/abc"
         ));
-        assertTrue(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertTrue(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "about:blank"
         ));
     }
 
     @Test
     public void blocksProductionWebsitesIncludingVinted() {
-        assertFalse(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertFalse(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "https://www.vinted.pl/"
         ));
-        assertFalse(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertFalse(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "https://example.com/script.js"
         ));
-        assertFalse(FingerprintLabApplication.isSafeLaboratoryResource(
+        assertFalse(FingerprintLabRuntimeSupport.isSafeLaboratoryResource(
                 "https://fingerprint.test.example.com/"
         ));
     }
