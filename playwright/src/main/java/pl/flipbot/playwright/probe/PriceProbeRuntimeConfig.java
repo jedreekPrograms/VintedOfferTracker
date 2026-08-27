@@ -17,27 +17,48 @@ public record PriceProbeRuntimeConfig(
     private static final String DEFAULT_BASE_URL = "http://localhost:4173";
 
     public static PriceProbeRuntimeConfig fromEnvironment() {
-        boolean enabled = readBoolean(ENABLED_ENV, false);
+        boolean requested = readBoolean(ENABLED_ENV, false);
+
+        if (!requested) {
+            log.info(
+                    "[PRICE PROBE CONFIG] PRICE_PROBE is disabled."
+            );
+            return disabledDefault();
+        }
+
         String rawBaseUrl = System.getenv(BASE_URL_ENV);
-        URI baseUri = validateBaseUrl(
+        String configuredBaseUrl =
                 rawBaseUrl == null || rawBaseUrl.isBlank()
                         ? DEFAULT_BASE_URL
-                        : rawBaseUrl
-        );
+                        : rawBaseUrl;
 
-        if (enabled) {
+        try {
+            URI baseUri = validateBaseUrl(configuredBaseUrl);
+
             log.warn(
                     "[PRICE PROBE CONFIG] PRICE_PROBE is ENABLED. baseUrl={}. Set {}=false to stop all new probe jobs.",
                     baseUri,
                     ENABLED_ENV
             );
-        } else {
-            log.info(
-                    "[PRICE PROBE CONFIG] PRICE_PROBE is disabled."
-            );
-        }
 
-        return new PriceProbeRuntimeConfig(enabled, baseUri);
+            return new PriceProbeRuntimeConfig(true, baseUri);
+
+        } catch (RuntimeException exception) {
+            /*
+             * PRICE_PROBE is an optional test-only subsystem. A forbidden or
+             * malformed target must remain fail-closed, but it must not prevent
+             * FlipBotPlaywrightApplication from starting normal workers and
+             * market statistics. Keep the probe disabled and continue with the
+             * known-safe loopback endpoint as inert configuration state.
+             */
+            log.warn(
+                    "[PRICE PROBE CONFIG] BLOCKED/SKIPPED. Normal FlipBot runtime will continue. requestedBaseUrl={}, reason={}",
+                    configuredBaseUrl,
+                    safeMessage(exception)
+            );
+
+            return disabledDefault();
+        }
     }
 
     public boolean isAllowedUrl(String rawUrl) {
@@ -192,6 +213,29 @@ public record PriceProbeRuntimeConfig(
             return uri.getPort();
         }
         return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+    }
+
+    private static PriceProbeRuntimeConfig disabledDefault() {
+        return new PriceProbeRuntimeConfig(
+                false,
+                validateBaseUrl(DEFAULT_BASE_URL)
+        );
+    }
+
+    private static String safeMessage(Throwable throwable) {
+        if (throwable == null
+                || throwable.getMessage() == null
+                || throwable.getMessage().isBlank()) {
+            return throwable == null
+                    ? "unknown error"
+                    : throwable.getClass().getSimpleName();
+        }
+
+        return throwable.getMessage()
+                .lines()
+                .findFirst()
+                .orElse(throwable.getMessage())
+                .trim();
     }
 
     private static String normalize(String value) {
