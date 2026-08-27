@@ -9,13 +9,14 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Objects;
 
 /**
- * Optional bridge between FlipBot's regular BrowserManager pipeline and the
- * isolated fingerprint laboratory.
+ * Optional advanced bridge between FlipBot's regular BrowserManager pipeline
+ * and the isolated fingerprint laboratory.
  *
- * Advanced mode keeps the original flags. Simple controlled mode needs only:
- * - FLIPBOT_TEST_AUTOMATION=true
- * - FLIPBOT_TEST_URL=<loopback / *.localhost / *.test URL>
- * - FLIPBOT_TEST_BOTS=<1..350> for the fleet harness
+ * The normal one-entry-point setup does not need this bridge: when
+ * FLIPBOT_TEST_AUTOMATION=true, FlipBotPlaywrightApplication starts the guarded
+ * controlled fleet through ControlledTestModuleManager. This bridge remains an
+ * explicit advanced option and therefore requires
+ * FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION=true.
  *
  * Production hosts remain unreachable because FingerprintLabPolicy and the
  * network boundary are still authoritative.
@@ -31,8 +32,7 @@ public final class FingerprintLabRuntimeIntegration {
     private FingerprintLabRuntimeIntegration() {}
 
     public static boolean isRequested() {
-        return ControlledTestRuntime.isEnabled()
-                || Boolean.parseBoolean(
+        return Boolean.parseBoolean(
                 System.getenv().getOrDefault(INTEGRATION_ENV, "false")
         );
     }
@@ -138,7 +138,7 @@ public final class FingerprintLabRuntimeIntegration {
         context.addInitScript(FingerprintLabScript.build(profile));
 
         log.warn(
-                "[FINGERPRINT LAB] Runtime integration ACTIVE for controlled target {} using profile {}{}{}; production HTTP(S)/WebSocket traffic is blocked.",
+                "[FINGERPRINT LAB] Advanced BrowserManager integration ACTIVE for controlled target {} using profile {}{}{}; production HTTP(S)/WebSocket traffic is blocked.",
                 configuration.targetUrl(),
                 configuration.profileId(),
                 botId == null ? "" : " for bot " + botId,
