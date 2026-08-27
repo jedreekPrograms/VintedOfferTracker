@@ -1,19 +1,19 @@
 spring:
   datasource:
-    url: "jdbc:postgresql://localhost:5433/flipbot"
+    url: "jdbc:postgresql://localhost:5433/flipbot_pr74"
     username: postgres
     password: postgres
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
 
     properties:
       hibernate:
         format_sql: true
 
   flyway:
-    enabled: true
+    enabled: false
 
   web:
     error:
@@ -21,4 +21,4 @@ spring:
       include-exception: false
 
 server:
-  port: 8080
+  port: 8081
