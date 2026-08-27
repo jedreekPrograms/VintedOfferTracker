@@ -69,8 +69,7 @@ public final class MarketplaceUrls {
             }
 
             if (CONTROLLED_TEST_ORIGIN) {
-                return FingerprintLabPolicy.isAllowedUrl(rawUrl)
-                        && sameEndpoint(RUNTIME_ORIGIN, uri);
+                return isExactControlledOrigin(RUNTIME_ORIGIN, rawUrl);
             }
 
             if (!"https".equals(scheme) || uri.getPort() != -1) {
@@ -79,6 +78,24 @@ public final class MarketplaceUrls {
 
             return "vinted.pl".equals(host)
                     || host.endsWith(".vinted.pl");
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    static boolean isExactControlledOrigin(
+            URI expectedOrigin,
+            String rawUrl
+    ) {
+        if (expectedOrigin == null || rawUrl == null || rawUrl.isBlank()) {
+            return false;
+        }
+
+        try {
+            URI candidate = URI.create(rawUrl.trim());
+            return candidate.getRawUserInfo() == null
+                    && FingerprintLabPolicy.isAllowedUrl(rawUrl)
+                    && sameEndpoint(expectedOrigin, candidate);
         } catch (RuntimeException exception) {
             return false;
         }
