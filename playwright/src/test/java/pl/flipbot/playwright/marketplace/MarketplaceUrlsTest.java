@@ -2,6 +2,8 @@ package pl.flipbot.playwright.marketplace;
 
 import org.junit.Test;
 
+import java.net.URI;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
@@ -27,6 +29,41 @@ public class MarketplaceUrlsTest {
         assertFalse(MarketplaceUrls.isVintedUrl("chrome-error://chromewebdata/"));
         assertFalse(MarketplaceUrls.isVintedUrl("about:blank"));
         assertFalse(MarketplaceUrls.isVintedUrl(null));
+    }
+
+    @Test
+    public void controlledRuntimeTrustIsLimitedToOneExactTestOrigin() {
+        URI controlledOrigin = URI.create("http://clone.test:4173");
+
+        assertTrue(MarketplaceUrls.isExactControlledOrigin(
+                controlledOrigin,
+                "http://clone.test:4173/catalog?page=1"
+        ));
+        assertTrue(MarketplaceUrls.isExactControlledOrigin(
+                controlledOrigin,
+                "http://clone.test:4173/items/123"
+        ));
+
+        assertFalse(MarketplaceUrls.isExactControlledOrigin(
+                controlledOrigin,
+                "http://clone.test:4174/catalog"
+        ));
+        assertFalse(MarketplaceUrls.isExactControlledOrigin(
+                controlledOrigin,
+                "http://sub.clone.test:4173/catalog"
+        ));
+        assertFalse(MarketplaceUrls.isExactControlledOrigin(
+                controlledOrigin,
+                "http://user@clone.test:4173/catalog"
+        ));
+        assertFalse(MarketplaceUrls.isExactControlledOrigin(
+                controlledOrigin,
+                "https://www.vinted.pl/catalog"
+        ));
+        assertFalse(MarketplaceUrls.isExactControlledOrigin(
+                controlledOrigin,
+                "https://example.com/catalog"
+        ));
     }
 
     @Test

@@ -9,17 +9,17 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Objects;
 
 /**
- * Optional advanced bridge between FlipBot's regular BrowserManager pipeline
- * and the isolated fingerprint laboratory.
+ * Guarded bridge between FlipBot's regular BrowserManager pipeline and the
+ * isolated fingerprint laboratory.
  *
- * The normal one-entry-point setup does not need this bridge: when
- * FLIPBOT_TEST_AUTOMATION=true, FlipBotPlaywrightApplication starts the guarded
- * controlled fleet through ControlledTestModuleManager. This bridge remains an
- * explicit advanced option and therefore requires
- * FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION=true.
+ * A valid simple controlled runtime automatically enables this bridge so the
+ * normal worker contexts pointed at the controlled clone receive the same
+ * profile/network restrictions as the fleet harness. Advanced mode can still
+ * request the bridge explicitly with FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION.
  *
- * Production hosts remain unreachable because FingerprintLabPolicy and the
- * network boundary are still authoritative.
+ * Invalid/production simple targets do not activate the bridge. Production
+ * hosts remain unreachable to the lab because FingerprintLabPolicy and the
+ * network boundary are authoritative.
  */
 @Slf4j
 public final class FingerprintLabRuntimeIntegration {
@@ -32,6 +32,19 @@ public final class FingerprintLabRuntimeIntegration {
     private FingerprintLabRuntimeIntegration() {}
 
     public static boolean isRequested() {
+        if (ControlledTestRuntime.isEnabled()) {
+            try {
+                ControlledTestRuntime.requireValidConfiguration();
+                return true;
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "[FINGERPRINT LAB] Simple runtime integration BLOCKED/SKIPPED. Normal browser contexts remain unchanged. reason={}",
+                        safeMessage(exception)
+                );
+                return false;
+            }
+        }
+
         return Boolean.parseBoolean(
                 System.getenv().getOrDefault(INTEGRATION_ENV, "false")
         );
@@ -138,7 +151,7 @@ public final class FingerprintLabRuntimeIntegration {
         context.addInitScript(FingerprintLabScript.build(profile));
 
         log.warn(
-                "[FINGERPRINT LAB] Advanced BrowserManager integration ACTIVE for controlled target {} using profile {}{}{}; production HTTP(S)/WebSocket traffic is blocked.",
+                "[FINGERPRINT LAB] BrowserManager integration ACTIVE for controlled target {} using profile {}{}{}; production HTTP(S)/WebSocket traffic is blocked.",
                 configuration.targetUrl(),
                 configuration.profileId(),
                 botId == null ? "" : " for bot " + botId,
@@ -185,5 +198,21 @@ public final class FingerprintLabRuntimeIntegration {
 
     public static String configuredTargetUrl() {
         return configuration().targetUrl();
+    }
+
+    private static String safeMessage(Throwable throwable) {
+        if (throwable == null
+                || throwable.getMessage() == null
+                || throwable.getMessage().isBlank()) {
+            return throwable == null
+                    ? "unknown error"
+                    : throwable.getClass().getSimpleName();
+        }
+
+        return throwable.getMessage()
+                .lines()
+                .findFirst()
+                .orElse(throwable.getMessage())
+                .trim();
     }
 }
