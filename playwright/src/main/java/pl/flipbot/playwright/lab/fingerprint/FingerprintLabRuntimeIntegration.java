@@ -147,7 +147,7 @@ public final class FingerprintLabRuntimeIntegration {
         FingerprintLabConfiguration configuration = configurationForBot(botId);
         FingerprintLabProfile profile = configuration.profile();
 
-        FingerprintLabApplication.installNetworkSafetyBoundary(context);
+        FingerprintLabRuntimeSupport.installNetworkSafetyBoundary(context);
         context.addInitScript(FingerprintLabScript.build(profile));
 
         log.warn(
