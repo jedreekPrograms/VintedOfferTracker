@@ -86,13 +86,20 @@ public final class FingerprintLabRuntimeIntegration {
     public static void prepareContextOptions(
             Browser.NewContextOptions options
     ) {
+        prepareContextOptions(options, null);
+    }
+
+    public static void prepareContextOptions(
+            Browser.NewContextOptions options,
+            Long botId
+    ) {
         Objects.requireNonNull(options, "options cannot be null");
 
         if (!isActive()) {
             return;
         }
 
-        FingerprintLabConfiguration configuration = configuration();
+        FingerprintLabConfiguration configuration = configurationForBot(botId);
         FingerprintLabProfile profile = configuration.profile();
 
         options
@@ -111,22 +118,30 @@ public final class FingerprintLabRuntimeIntegration {
     }
 
     public static void install(BrowserContext context) {
+        install(context, null);
+    }
+
+    public static void install(
+            BrowserContext context,
+            Long botId
+    ) {
         Objects.requireNonNull(context, "context cannot be null");
 
         if (!isActive()) {
             return;
         }
 
-        FingerprintLabConfiguration configuration = configuration();
+        FingerprintLabConfiguration configuration = configurationForBot(botId);
         FingerprintLabProfile profile = configuration.profile();
 
         FingerprintLabApplication.installNetworkSafetyBoundary(context);
         context.addInitScript(FingerprintLabScript.build(profile));
 
         log.warn(
-                "[FINGERPRINT LAB] Runtime integration ACTIVE for controlled target {} using profile {}{}; production HTTP(S)/WebSocket traffic is blocked.",
+                "[FINGERPRINT LAB] Runtime integration ACTIVE for controlled target {} using profile {}{}{}; production HTTP(S)/WebSocket traffic is blocked.",
                 configuration.targetUrl(),
                 configuration.profileId(),
+                botId == null ? "" : " for bot " + botId,
                 configuration.proxyUrl() == null
                         ? ""
                         : " via laboratory proxy " + configuration.proxyUrl()
@@ -150,6 +165,22 @@ public final class FingerprintLabRuntimeIntegration {
         FingerprintLabPolicy.requireAllowed(configuration.targetUrl());
         FingerprintLabPolicy.requireAllowedProxy(configuration.proxyUrl());
         return configuration;
+    }
+
+    static FingerprintLabConfiguration configurationForBot(Long botId) {
+        FingerprintLabConfiguration configuration = configuration();
+
+        if (!ControlledTestRuntime.isEnabled() || botId == null) {
+            return configuration;
+        }
+
+        return new FingerprintLabConfiguration(
+                configuration.targetUrl(),
+                FingerprintLabProfileCatalog.idForBotId(botId),
+                configuration.persistentSession(),
+                configuration.humanBehaviorSimulation(),
+                configuration.proxyUrl()
+        );
     }
 
     public static String configuredTargetUrl() {
