@@ -1,6 +1,7 @@
 package pl.flipbot.playwright.probe;
 
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.lab.fingerprint.ControlledTestRuntime;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -26,11 +27,35 @@ public record PriceProbeRuntimeConfig(
             return disabledDefault();
         }
 
-        String rawBaseUrl = System.getenv(BASE_URL_ENV);
-        String configuredBaseUrl =
-                rawBaseUrl == null || rawBaseUrl.isBlank()
-                        ? DEFAULT_BASE_URL
-                        : rawBaseUrl;
+        String configuredBaseUrl;
+
+        if (ControlledTestRuntime.isEnabled()) {
+            try {
+                ControlledTestRuntime.requireValidConfiguration();
+                configuredBaseUrl = controlledTestBaseUrl(
+                        ControlledTestRuntime.targetUrl()
+                );
+
+                log.info(
+                        "[PRICE PROBE CONFIG] Using the shared controlled-test origin {} from {}. {} is ignored in simple controlled mode.",
+                        configuredBaseUrl,
+                        ControlledTestRuntime.TARGET_URL_ENV,
+                        BASE_URL_ENV
+                );
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "[PRICE PROBE CONFIG] BLOCKED/SKIPPED because the shared controlled-test target is invalid. Normal FlipBot runtime will continue. reason={}",
+                        safeMessage(exception)
+                );
+                return disabledDefault();
+            }
+        } else {
+            String rawBaseUrl = System.getenv(BASE_URL_ENV);
+            configuredBaseUrl =
+                    rawBaseUrl == null || rawBaseUrl.isBlank()
+                            ? DEFAULT_BASE_URL
+                            : rawBaseUrl;
+        }
 
         try {
             URI baseUri = validateBaseUrl(configuredBaseUrl);
@@ -164,6 +189,28 @@ public record PriceProbeRuntimeConfig(
         return "vinted.pl".equals(host) || host.endsWith(".vinted.pl");
     }
 
+    private static String controlledTestBaseUrl(String rawTargetUrl) {
+        URI target = URI.create(rawTargetUrl.trim());
+
+        try {
+            return new URI(
+                    normalize(target.getScheme()),
+                    null,
+                    normalize(target.getHost()),
+                    target.getPort(),
+                    null,
+                    null,
+                    null
+            ).toString();
+        } catch (URISyntaxException exception) {
+            throw new IllegalStateException(
+                    "Could not derive controlled PRICE_PROBE origin from "
+                            + ControlledTestRuntime.TARGET_URL_ENV,
+                    exception
+            );
+        }
+    }
+
     private static String canonicalDnsHost(String rawHost) {
         String host = rawHost.trim().toLowerCase(Locale.ROOT);
 
@@ -201,11 +248,22 @@ public record PriceProbeRuntimeConfig(
     }
 
     private static URI normalizeBaseUri(URI uri) {
-        String value = normalize(uri.getScheme()) + "://" + normalize(uri.getHost());
-        if (uri.getPort() >= 0) {
-            value += ":" + uri.getPort();
+        try {
+            return new URI(
+                    normalize(uri.getScheme()),
+                    null,
+                    normalize(uri.getHost()),
+                    uri.getPort(),
+                    null,
+                    null,
+                    null
+            );
+        } catch (URISyntaxException exception) {
+            throw new IllegalStateException(
+                    "Could not normalize PRICE_PROBE base URL.",
+                    exception
+            );
         }
-        return URI.create(value);
     }
 
     private static int effectivePort(URI uri) {
