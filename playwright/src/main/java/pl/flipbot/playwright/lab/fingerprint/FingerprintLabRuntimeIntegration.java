@@ -12,14 +12,13 @@ import java.util.Objects;
  * Optional bridge between FlipBot's regular BrowserManager pipeline and the
  * isolated fingerprint laboratory.
  *
- * The bridge is deliberately fail-closed and requires all of the following:
- * - FLIPBOT_FINGERPRINT_RUNTIME_INTEGRATION=true
- * - FLIPBOT_FINGERPRINT_LAB=true
- * - FLIPBOT_FINGERPRINT_LAB_URL accepted by FingerprintLabPolicy
+ * Advanced mode keeps the original flags. Simple controlled mode needs only:
+ * - FLIPBOT_TEST_AUTOMATION=true
+ * - FLIPBOT_TEST_URL=<loopback / *.localhost / *.test URL>
+ * - FLIPBOT_TEST_BOTS=<1..350> for the fleet harness
  *
- * Production hosts remain unreachable even when every laboratory feature is
- * enabled. BrowserManager's normal per-bot session state remains authoritative;
- * the standalone lab has a separate optional encrypted profile-session store.
+ * Production hosts remain unreachable because FingerprintLabPolicy and the
+ * network boundary are still authoritative.
  */
 @Slf4j
 public final class FingerprintLabRuntimeIntegration {
@@ -32,13 +31,16 @@ public final class FingerprintLabRuntimeIntegration {
     private FingerprintLabRuntimeIntegration() {}
 
     public static boolean isRequested() {
-        return Boolean.parseBoolean(
+        return ControlledTestRuntime.isEnabled()
+                || Boolean.parseBoolean(
                 System.getenv().getOrDefault(INTEGRATION_ENV, "false")
         );
     }
 
     public static boolean isActive() {
-        String targetUrl = System.getenv(TARGET_URL_ENV);
+        String targetUrl = ControlledTestRuntime.isEnabled()
+                ? ControlledTestRuntime.targetUrl()
+                : System.getenv(TARGET_URL_ENV);
 
         return validateConfiguration(
                 isRequested(),
@@ -58,7 +60,7 @@ public final class FingerprintLabRuntimeIntegration {
 
         if (!fingerprintLabEnabled) {
             throw new IllegalStateException(
-                    "Fingerprint runtime integration requires "
+                    "Fingerprint runtime integration requires the controlled test runtime or "
                             + FingerprintLabPolicy.ENABLE_ENV
                             + "=true."
             );
@@ -66,9 +68,7 @@ public final class FingerprintLabRuntimeIntegration {
 
         if (targetUrl == null || targetUrl.isBlank()) {
             throw new IllegalStateException(
-                    "Fingerprint runtime integration requires "
-                            + TARGET_URL_ENV
-                            + " to point to an allowed laboratory URL."
+                    "Fingerprint runtime integration requires a controlled laboratory target URL."
             );
         }
 
@@ -124,7 +124,7 @@ public final class FingerprintLabRuntimeIntegration {
         context.addInitScript(FingerprintLabScript.build(profile));
 
         log.warn(
-                "[FINGERPRINT LAB] Runtime integration ACTIVE for laboratory target {} using profile {}{}; production HTTP(S)/WebSocket traffic is blocked.",
+                "[FINGERPRINT LAB] Runtime integration ACTIVE for controlled target {} using profile {}{}; production HTTP(S)/WebSocket traffic is blocked.",
                 configuration.targetUrl(),
                 configuration.profileId(),
                 configuration.proxyUrl() == null
@@ -134,14 +134,16 @@ public final class FingerprintLabRuntimeIntegration {
     }
 
     public static FingerprintLabConfiguration configuration() {
+        if (ControlledTestRuntime.isEnabled()) {
+            ControlledTestRuntime.requireValidConfiguration();
+        }
+
         FingerprintLabConfiguration configuration =
                 FingerprintLabConfiguration.fromEnvironment(null);
 
         if (configuration.targetUrl() == null) {
             throw new IllegalStateException(
-                    "Fingerprint runtime integration requires "
-                            + TARGET_URL_ENV
-                            + " to point to an allowed laboratory URL."
+                    "Fingerprint runtime integration requires a controlled laboratory target URL."
             );
         }
 
