@@ -17,6 +17,12 @@ public final class FingerprintLabProfileCatalog {
 
     public static final String DEFAULT_PROFILE_ID = "windows-desktop-pl";
 
+    private static final List<String> PROFILE_ORDER = List.of(
+            "windows-desktop-pl",
+            "windows-laptop-pl",
+            "windows-desktop-en"
+    );
+
     private static final Map<String, FingerprintLabProfile> PROFILES =
             createProfiles();
 
@@ -35,7 +41,7 @@ public final class FingerprintLabProfileCatalog {
                     "Unknown fingerprint lab profile '"
                             + rawId
                             + "'. Available profiles: "
-                            + String.join(", ", PROFILES.keySet())
+                            + String.join(", ", PROFILE_ORDER)
             );
         }
 
@@ -44,6 +50,20 @@ public final class FingerprintLabProfileCatalog {
 
     public static Set<String> ids() {
         return PROFILES.keySet();
+    }
+
+    public static List<String> orderedIds() {
+        return PROFILE_ORDER;
+    }
+
+    /**
+     * Stable cohort assignment for controlled multi-bot tests. A bot keeps the
+     * same coherent profile family between runs while the fleet is distributed
+     * across the available profile catalog.
+     */
+    public static String idForBotId(long botId) {
+        int index = Math.floorMod(botId, PROFILE_ORDER.size());
+        return PROFILE_ORDER.get(index);
     }
 
     static String normalizeId(String rawId) {
