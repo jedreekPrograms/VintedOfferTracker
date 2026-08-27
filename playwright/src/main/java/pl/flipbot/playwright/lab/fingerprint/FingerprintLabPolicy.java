@@ -106,7 +106,9 @@ public final class FingerprintLabPolicy {
             String scheme = normalize(uri.getScheme());
             String host = normalize(uri.getHost());
 
-            if (!allowedSchemes.contains(scheme) || host.isBlank()) {
+            if (!allowedSchemes.contains(scheme)
+                    || host.isBlank()
+                    || uri.getRawUserInfo() != null) {
                 return false;
             }
 
