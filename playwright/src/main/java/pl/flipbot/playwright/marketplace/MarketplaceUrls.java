@@ -1,28 +1,58 @@
 package pl.flipbot.playwright.marketplace;
 
+import pl.flipbot.playwright.lab.fingerprint.ControlledTestRuntime;
+import pl.flipbot.playwright.lab.fingerprint.FingerprintLabPolicy;
+
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Locale;
 
 public final class MarketplaceUrls {
+
+    private static final URI PRODUCTION_ORIGIN =
+            URI.create("https://www.vinted.pl");
+
+    /*
+     * Environment variables are process-level configuration, so resolving the
+     * marketplace origin once at class initialization keeps every consumer in
+     * one JVM on the same target. Invalid/forbidden controlled-test settings
+     * fail closed back to the normal production marketplace runtime; the
+     * controlled test modules themselves remain BLOCKED/SKIPPED by their own
+     * policy.
+     */
+    private static final URI RUNTIME_ORIGIN = resolveRuntimeOrigin();
+    private static final boolean CONTROLLED_TEST_ORIGIN =
+            !sameEndpoint(PRODUCTION_ORIGIN, RUNTIME_ORIGIN);
 
     private MarketplaceUrls() {
     }
 
     public static final String HOME =
-            "https://www.vinted.pl/";
+            originUrl(RUNTIME_ORIGIN) + "/";
 
     public static final String CATALOG =
-            "https://www.vinted.pl/catalog";
+            originUrl(RUNTIME_ORIGIN) + "/catalog";
 
     public static final String INBOX =
-            "https://www.vinted.pl/inbox";
+            originUrl(RUNTIME_ORIGIN) + "/inbox";
+
+    public static boolean isControlledTestRuntime() {
+        return CONTROLLED_TEST_ORIGIN;
+    }
+
+    public static String runtimeOrigin() {
+        return originUrl(RUNTIME_ORIGIN);
+    }
 
     /**
-     * Treat only normal HTTPS URLs on the real Polish Vinted host (or one of
-     * its subdomains) as trusted. Prefix checks are intentionally avoided
-     * because a lookalike host such as www.vinted.pl.example.com must never
-     * pass. User-info and explicit ports are not part of normal marketplace
-     * navigation and are rejected at this trust boundary as well.
+     * Production mode trusts only normal HTTPS URLs on the real Polish Vinted
+     * host (or its subdomains). In controlled-test mode the same existing
+     * marketplace guards are reused, but they trust only the exact loopback or
+     * reserved .test origin selected before process startup.
+     *
+     * Prefix checks are intentionally avoided. User-info is always rejected.
+     * Explicit ports remain forbidden for production Vinted, while a test
+     * origin may use exactly the port configured in FLIPBOT_TEST_URL.
      */
     public static boolean isVintedUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
@@ -34,9 +64,16 @@ public final class MarketplaceUrls {
             String scheme = normalize(uri.getScheme());
             String host = normalize(uri.getHost());
 
-            if (!"https".equals(scheme)
-                    || uri.getRawUserInfo() != null
-                    || uri.getPort() != -1) {
+            if (uri.getRawUserInfo() != null || host.isBlank()) {
+                return false;
+            }
+
+            if (CONTROLLED_TEST_ORIGIN) {
+                return FingerprintLabPolicy.isAllowedUrl(rawUrl)
+                        && sameEndpoint(RUNTIME_ORIGIN, uri);
+            }
+
+            if (!"https".equals(scheme) || uri.getPort() != -1) {
                 return false;
             }
 
@@ -64,7 +101,8 @@ public final class MarketplaceUrls {
 
     /**
      * Resolve a listing URL supplied by the scanner/backend and prove that it
-     * still points to the expected item on trusted Polish Vinted.
+     * still points to the expected item on the currently trusted marketplace
+     * origin.
      */
     public static String resolveVintedListingUrl(
             String rawUrl,
@@ -82,7 +120,7 @@ public final class MarketplaceUrls {
 
         if (!isVintedListingUrl(resolved, expectedListingId)) {
             throw new IllegalArgumentException(
-                    "Refusing marketplace listing URL that is not the expected trusted Vinted item. "
+                    "Refusing marketplace listing URL that is not the expected trusted marketplace item. "
                             + "listingId="
                             + expectedListingId
                             + ", url="
@@ -131,7 +169,7 @@ public final class MarketplaceUrls {
 
         if (!isVintedConversationUrl(resolved, expectedConversationId)) {
             throw new IllegalArgumentException(
-                    "Refusing conversation URL that is not the expected trusted Vinted inbox conversation. "
+                    "Refusing conversation URL that is not the expected trusted marketplace inbox conversation. "
                             + "conversationId="
                             + expectedConversationId
                             + ", url="
@@ -192,11 +230,75 @@ public final class MarketplaceUrls {
 
         if (!isVintedUrl(resolved)) {
             throw new IllegalArgumentException(
-                    "Refusing non-Vinted " + label + " URL: " + rawUrl
+                    "Refusing URL outside the currently trusted marketplace origin for "
+                            + label
+                            + ": "
+                            + rawUrl
             );
         }
 
         return resolved;
+    }
+
+    private static URI resolveRuntimeOrigin() {
+        if (!ControlledTestRuntime.isEnabled()) {
+            return PRODUCTION_ORIGIN;
+        }
+
+        try {
+            ControlledTestRuntime.requireValidConfiguration();
+            URI configured = URI.create(
+                    ControlledTestRuntime.targetUrl().trim()
+            );
+
+            if (configured.getRawUserInfo() != null) {
+                return PRODUCTION_ORIGIN;
+            }
+
+            return new URI(
+                    normalize(configured.getScheme()),
+                    null,
+                    normalize(configured.getHost()),
+                    configured.getPort(),
+                    null,
+                    null,
+                    null
+            );
+        } catch (RuntimeException | URISyntaxException exception) {
+            return PRODUCTION_ORIGIN;
+        }
+    }
+
+    private static boolean sameEndpoint(URI expected, URI candidate) {
+        return normalize(expected.getScheme()).equals(normalize(candidate.getScheme()))
+                && normalize(expected.getHost()).equals(normalize(candidate.getHost()))
+                && effectivePort(expected) == effectivePort(candidate);
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+    }
+
+    private static String originUrl(URI uri) {
+        try {
+            return new URI(
+                    normalize(uri.getScheme()),
+                    null,
+                    normalize(uri.getHost()),
+                    uri.getPort(),
+                    null,
+                    null,
+                    null
+            ).toString();
+        } catch (URISyntaxException exception) {
+            throw new IllegalStateException(
+                    "Could not build trusted marketplace origin",
+                    exception
+            );
+        }
     }
 
     private static boolean isSafePathSegment(String value) {
