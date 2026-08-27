@@ -12,7 +12,7 @@ import java.net.http.HttpResponse;
 
 public abstract class ApiClient {
 
-    private static final String BASE_URL = "http://localhost:8080";
+    private static final String BASE_URL = "http://localhost:8081";
 
     protected final HttpClient httpClient;
 
