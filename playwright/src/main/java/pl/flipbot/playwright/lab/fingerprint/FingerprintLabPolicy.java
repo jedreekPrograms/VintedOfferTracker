@@ -25,7 +25,8 @@ public final class FingerprintLabPolicy {
     private FingerprintLabPolicy() {}
 
     public static boolean isEnabled() {
-        return Boolean.parseBoolean(
+        return ControlledTestRuntime.isEnabled()
+                || Boolean.parseBoolean(
                 System.getenv().getOrDefault(ENABLE_ENV, "false")
         );
     }
@@ -54,8 +55,10 @@ public final class FingerprintLabPolicy {
         if (!isEnabled()) {
             throw new IllegalStateException(
                     "Fingerprint lab is disabled. Set "
+                            + ControlledTestRuntime.ENABLE_ENV
+                            + "=true for the simple controlled runtime, or "
                             + ENABLE_ENV
-                            + "=true only for local laboratory runs."
+                            + "=true for the advanced lab."
             );
         }
 
@@ -75,7 +78,7 @@ public final class FingerprintLabPolicy {
 
         if (!isEnabled()) {
             throw new IllegalStateException(
-                    "Fingerprint lab proxy configuration requires "
+                    "Fingerprint lab proxy configuration requires the controlled test runtime or "
                             + ENABLE_ENV
                             + "=true."
             );

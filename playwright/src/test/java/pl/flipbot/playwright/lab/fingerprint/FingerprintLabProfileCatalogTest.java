@@ -35,6 +35,26 @@ public class FingerprintLabProfileCatalogTest {
         }
     }
 
+    @Test
+    public void assignsStableProfileCohortsByBotId() {
+        assertEquals(
+                "windows-laptop-pl",
+                FingerprintLabProfileCatalog.idForBotId(1L)
+        );
+        assertEquals(
+                "windows-desktop-en",
+                FingerprintLabProfileCatalog.idForBotId(2L)
+        );
+        assertEquals(
+                "windows-desktop-pl",
+                FingerprintLabProfileCatalog.idForBotId(3L)
+        );
+        assertEquals(
+                FingerprintLabProfileCatalog.idForBotId(1L),
+                FingerprintLabProfileCatalog.idForBotId(4L)
+        );
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsUnknownProfile() {
         FingerprintLabProfileCatalog.byId("does-not-exist");
