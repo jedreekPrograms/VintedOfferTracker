@@ -35,8 +35,31 @@ public class MarketplaceNavigator {
     private final BotContext context;
 
     public void goToHome() {
-        navigate(MarketplaceUrls.HOME, true);
-        waitForHomeShell();
+        try {
+            navigate(MarketplaceUrls.HOME, true);
+            waitForHomeShell();
+            return;
+        } catch (RuntimeException exception) {
+            Page page = context.getPage();
+
+            if (isPageClosedFailure(exception)
+                    || !MarketplaceUrls.isVintedUrl(safePageUrl(page))
+                    || !isRecoverableHomeSessionFailure(page, exception)) {
+                throw exception;
+            }
+
+            log.warn(
+                    "[SESSION REFRESH] Vinted homepage is not usable with the restored session. "
+                            + "Performing one final clean-session recovery before LoginService decides whether credentials must be submitted. bot={}, currentUrl={}, reason={}",
+                    context.getBot() == null ? null : context.getBot().getId(),
+                    safePageUrl(page),
+                    friendlyMessage(exception)
+            );
+
+            resetStoredSessionForCleanLogin(page);
+            navigate(MarketplaceUrls.HOME, false);
+            waitForHomeShell();
+        }
     }
 
     public void goToCatalog() {
@@ -322,6 +345,21 @@ public class MarketplaceNavigator {
                     safePageUrl(page)
             );
         }
+    }
+
+    private boolean isRecoverableHomeSessionFailure(
+            Page page,
+            Throwable throwable
+    ) {
+        if (isSessionRefreshFailure(page, throwable)) {
+            return true;
+        }
+
+        String message = friendlyMessage(throwable)
+                .toLowerCase(Locale.ROOT);
+
+        return message.contains("homepage did not expose either a login control")
+                || message.contains("homepage returned to session-refresh");
     }
 
     private boolean isRetryableNavigationFailure(
