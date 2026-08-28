@@ -18,30 +18,52 @@ public class MarketplaceNavigator {
     private static final double NAVIGATION_RETRY_DELAY_MS = 1_000;
     private static final double NAVIGATION_TIMEOUT_MS = 30_000;
     private static final double CATALOG_SHELL_TIMEOUT_MS = 5_000;
+    private static final double HOME_SHELL_TIMEOUT_MS = 10_000;
+    private static final double SESSION_REFRESH_TIMEOUT_MS = 15_000;
+    private static final double SESSION_REFRESH_POLL_INTERVAL_MS = 250;
 
     private static final String CATALOG_SEARCH_INPUT_SELECTOR =
             "form[action='/catalog'] input[name='search_text']:visible";
 
+    private static final String HOME_LOGIN_CONTROL_SELECTOR =
+            "[data-testid='header--login-button']:visible";
+
+    private static final String HOME_AUTHENTICATED_CONTROL_SELECTOR =
+            "[data-testid='header-conversations-button']:visible, "
+                    + "a[href*='/inbox']:visible";
+
     private final BotContext context;
 
     public void goToHome() {
-        navigate(MarketplaceUrls.HOME);
+        navigate(MarketplaceUrls.HOME, true);
+        waitForHomeShell();
     }
 
     public void goToCatalog() {
-        navigate(MarketplaceUrls.CATALOG);
+        navigate(MarketplaceUrls.CATALOG, false);
+
+        if (!MarketplaceUrls.isCatalogUrl(page().url())) {
+            throw new IllegalStateException(
+                    "Navigation to Vinted catalog did not finish on a catalog URL. Current URL: "
+                            + safePageUrl(page())
+            );
+        }
+
         waitForCatalogShell();
     }
 
     public void goToInbox() {
-        navigate(MarketplaceUrls.INBOX);
+        navigate(MarketplaceUrls.INBOX, false);
     }
 
     public Page page() {
         return context.getPage();
     }
 
-    private void navigate(String url) {
+    private void navigate(
+            String url,
+            boolean allowStoredSessionRecovery
+    ) {
         if (!MarketplaceUrls.isVintedUrl(url)) {
             throw new IllegalArgumentException(
                     "MarketplaceNavigator accepts only trusted Vinted URLs: "
@@ -51,6 +73,7 @@ public class MarketplaceNavigator {
 
         Page page = context.getPage();
         RuntimeException lastException = null;
+        boolean storedSessionRecoveryUsed = false;
 
         for (int attempt = 1; attempt <= NAVIGATION_MAX_ATTEMPTS; attempt++) {
             try {
@@ -68,6 +91,15 @@ public class MarketplaceNavigator {
                     );
                 }
 
+                waitForSessionRefreshResolution(page, url);
+
+                if (!MarketplaceUrls.isVintedUrl(page.url())) {
+                    throw new IllegalStateException(
+                            "Navigation to Vinted ended on an unexpected URL after session refresh: "
+                                    + page.url()
+                    );
+                }
+
                 if (attempt > 1) {
                     log.info(
                             "[NAVIGATION] Vinted navigation recovered on attempt {}/{}. URL: {}",
@@ -81,6 +113,16 @@ public class MarketplaceNavigator {
 
             } catch (RuntimeException exception) {
                 lastException = exception;
+
+                boolean sessionRefreshFailure =
+                        isSessionRefreshFailure(page, exception);
+
+                if (sessionRefreshFailure
+                        && allowStoredSessionRecovery
+                        && !storedSessionRecoveryUsed) {
+                    storedSessionRecoveryUsed = true;
+                    resetStoredSessionForCleanLogin(page);
+                }
 
                 if (isPageClosedFailure(exception)
                         || !isRetryableNavigationFailure(page, exception)
@@ -111,6 +153,134 @@ public class MarketplaceNavigator {
         }
     }
 
+    private void waitForSessionRefreshResolution(
+            Page page,
+            String requestedUrl
+    ) {
+        if (!MarketplaceUrls.isSessionRefreshUrl(safePageUrl(page))) {
+            return;
+        }
+
+        String initialRefreshUrl = safePageUrl(page);
+
+        log.warn(
+                "[SESSION REFRESH] Vinted redirected navigation through session-refresh. "
+                        + "Waiting up to {}ms for it to finish. requested={}, refreshUrl={}",
+                (int) SESSION_REFRESH_TIMEOUT_MS,
+                requestedUrl,
+                initialRefreshUrl
+        );
+
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) SESSION_REFRESH_TIMEOUT_MS;
+
+        while (System.currentTimeMillis() < deadline) {
+            if (page.isClosed()) {
+                throw new IllegalStateException(
+                        "Vinted page was closed while waiting for session refresh"
+                );
+            }
+
+            String currentUrl = safePageUrl(page);
+
+            if (!MarketplaceUrls.isSessionRefreshUrl(currentUrl)) {
+                log.info(
+                        "[SESSION REFRESH] Vinted session refresh completed. requested={}, finalUrl={}",
+                        requestedUrl,
+                        currentUrl
+                );
+                return;
+            }
+
+            page.waitForTimeout(SESSION_REFRESH_POLL_INTERVAL_MS);
+        }
+
+        throw new IllegalStateException(
+                "Vinted session refresh remained stuck for "
+                        + Math.round(SESSION_REFRESH_TIMEOUT_MS)
+                        + "ms. requested="
+                        + requestedUrl
+                        + ", currentUrl="
+                        + safePageUrl(page)
+        );
+    }
+
+    private void resetStoredSessionForCleanLogin(Page page) {
+        Long botId = context.getBot() == null
+                ? null
+                : context.getBot().getId();
+
+        log.warn(
+                "[SESSION REFRESH] Stored Vinted session appears stuck during homepage navigation. "
+                        + "Invalidating persisted state and clearing this browser context once so LoginService can perform a clean login. bot={}",
+                botId
+        );
+
+        if (botId != null && botId > 0) {
+            context.getSessionManager().invalidateSession(botId);
+        }
+
+        try {
+            if (!page.isClosed() && MarketplaceUrls.isVintedUrl(page.url())) {
+                page.evaluate(
+                        "() => { try { localStorage.clear(); } catch (_) {} "
+                                + "try { sessionStorage.clear(); } catch (_) {} }"
+                );
+            }
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "[SESSION REFRESH] Could not clear page storage while recovering the session: {}",
+                    friendlyMessage(exception)
+            );
+        }
+
+        try {
+            context.getBrowserContext().clearCookies();
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[SESSION REFRESH] Could not clear browser cookies while recovering the session: {}",
+                    friendlyMessage(exception)
+            );
+        }
+    }
+
+    private void waitForHomeShell() {
+        Page page = context.getPage();
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) HOME_SHELL_TIMEOUT_MS;
+
+        Locator loginControl =
+                page.locator(HOME_LOGIN_CONTROL_SELECTOR);
+        Locator authenticatedControl =
+                page.locator(HOME_AUTHENTICATED_CONTROL_SELECTOR);
+
+        while (System.currentTimeMillis() < deadline) {
+            String currentUrl = safePageUrl(page);
+
+            if (MarketplaceUrls.isSessionRefreshUrl(currentUrl)) {
+                throw new IllegalStateException(
+                        "Vinted homepage returned to session-refresh while waiting for login readiness. Current URL: "
+                                + currentUrl
+                );
+            }
+
+            if (hasVisible(loginControl) || hasVisible(authenticatedControl)) {
+                return;
+            }
+
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException(
+                "Vinted homepage did not expose either a login control or an authenticated inbox control within "
+                        + Math.round(HOME_SHELL_TIMEOUT_MS)
+                        + "ms. Refusing to infer authentication from a blank/partial page. Current URL: "
+                        + safePageUrl(page)
+        );
+    }
+
     private void waitForCatalogShell() {
         Page page = context.getPage();
 
@@ -128,6 +298,14 @@ public class MarketplaceNavigator {
         } catch (RuntimeException exception) {
             if (page.isClosed()) {
                 throw exception;
+            }
+
+            if (MarketplaceUrls.isSessionRefreshUrl(safePageUrl(page))) {
+                throw new IllegalStateException(
+                        "Vinted catalog navigation fell back to a stuck session-refresh page: "
+                                + safePageUrl(page),
+                        exception
+                );
             }
 
             /*
@@ -158,7 +336,8 @@ public class MarketplaceNavigator {
                 || message.contains("err_connection_reset")
                 || message.contains("err_connection_closed")
                 || message.contains("err_timed_out")
-                || message.contains("navigation interrupted by another one")) {
+                || message.contains("navigation interrupted by another one")
+                || message.contains("session refresh")) {
             return true;
         }
 
@@ -166,7 +345,37 @@ public class MarketplaceNavigator {
                 .toLowerCase(Locale.ROOT);
 
         return currentUrl.startsWith("chrome-error://")
-                || currentUrl.startsWith("edge-error://");
+                || currentUrl.startsWith("edge-error://")
+                || MarketplaceUrls.isSessionRefreshUrl(currentUrl);
+    }
+
+    private boolean isSessionRefreshFailure(
+            Page page,
+            Throwable throwable
+    ) {
+        if (MarketplaceUrls.isSessionRefreshUrl(safePageUrl(page))) {
+            return true;
+        }
+
+        return friendlyMessage(throwable)
+                .toLowerCase(Locale.ROOT)
+                .contains("session refresh");
+    }
+
+    private boolean hasVisible(Locator locator) {
+        try {
+            int count = locator.count();
+
+            for (int index = 0; index < count; index++) {
+                if (locator.nth(index).isVisible()) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException exception) {
+            return false;
+        }
+
+        return false;
     }
 
     private boolean isPageClosedFailure(Throwable throwable) {
