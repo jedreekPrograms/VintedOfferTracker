@@ -5,6 +5,9 @@ import java.util.Locale;
 
 public final class MarketplaceUrls {
 
+    private static final String SESSION_REFRESH_PATH =
+            "/session-refresh";
+
     private MarketplaceUrls() {
     }
 
@@ -53,6 +56,21 @@ public final class MarketplaceUrls {
             return path != null
                     && ("/catalog".equals(path)
                     || path.startsWith("/catalog/"));
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    public static boolean isSessionRefreshUrl(String rawUrl) {
+        if (!isVintedUrl(rawUrl)) {
+            return false;
+        }
+
+        try {
+            String path = URI.create(rawUrl.trim()).getPath();
+            return path != null
+                    && (SESSION_REFRESH_PATH.equals(path)
+                    || (SESSION_REFRESH_PATH + "/").equals(path));
         } catch (RuntimeException exception) {
             return false;
         }
