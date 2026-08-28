@@ -35,31 +35,7 @@ The project currently consists of four cooperating parts:
 ## Demo
 
 > ### 🎬 Demo video — coming soon
->
-> Recommended format: **60–120 seconds**, recorded in one continuous flow:
-> 1. create/configure a bot,
-> 2. show exact model/search targeting,
-> 3. start the bot,
-> 4. show parallel Playwright workers discovering listings,
-> 5. show a negotiation appearing in the dashboard,
-> 6. show a seller response and the scheduled next step,
-> 7. finish with market statistics.
->
-> After uploading the recording (YouTube unlisted, Loom, Vimeo or GitHub-hosted media), replace this block with a thumbnail linked to the video.
 
-### Screenshots
-
-The README is prepared for a small visual gallery. Put final assets in [`docs/media/`](docs/media/) and replace the placeholders below.
-
-| View | What to show |
-| --- | --- |
-| **Dashboard** | running bots, current status and operational overview |
-| **Bot configuration** | target mode, category, brand/model, prices and negotiation ladder |
-| **Live discovery** | exact Vinted filter / search-query flow and newest-first scan |
-| **Negotiations** | seller activity, current step, waiting policy and next action |
-| **Market statistics** | per-model observations and new-listing activity |
-
-**Recommendation for a portfolio README:** keep the video as the strongest proof that the system works, but still add 3–5 screenshots. Recruiters often scan a repository without playing a video.
 
 ---
 
