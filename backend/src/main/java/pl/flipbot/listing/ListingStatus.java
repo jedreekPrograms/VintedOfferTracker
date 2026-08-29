@@ -16,6 +16,8 @@ public enum ListingStatus {
 
     SKIPPED_TARGET_MISMATCH,
 
+    SKIPPED_ALREADY_NEGOTIATED,
+
     SKIPPED_BY_USER,
 
     UNAVAILABLE,
