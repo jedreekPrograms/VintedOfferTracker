@@ -34,6 +34,15 @@ public class NewNegotiationProcessor {
      */
     private static final int MAX_FINAL_VERIFICATIONS_PER_CYCLE = 20;
 
+    /*
+     * Preparation can still reject a candidate after final verification: the
+     * item may be unavailable, non-negotiable, a historical wrong-model entry,
+     * or its offer form may fail before quota reservation. Keep a small pool
+     * of already-verified fallbacks so one such candidate does not waste the
+     * run's available negotiation capacity.
+     */
+    private static final int PREPARATION_FALLBACK_CANDIDATES = 5;
+
     private static final double DETAIL_INSPECTION_PACING_MS = 1_500;
 
     private final BotContext context;
@@ -166,21 +175,31 @@ public class NewNegotiationProcessor {
             return;
         }
 
+        int desiredVerifiedCandidates = Math.min(
+                targetEligibleListings.size(),
+                Math.min(
+                        MAX_FINAL_VERIFICATIONS_PER_CYCLE,
+                        maximumOffersThisRun + PREPARATION_FALLBACK_CANDIDATES
+                )
+        );
+
         log.warn(
-                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final target verification will inspect up to {} candidates until {} verified candidate(s) are found. Quota is reserved only after the form is fully prepared and submit is ready.",
+                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final target verification will inspect up to {} candidates until {} verified candidate(s) are found ({} capacity + up to {} preparation fallbacks). Quota is reserved only after the form is fully prepared and submit is ready.",
                 botId,
                 targetEligibleListings.size(),
                 allowedNewNegotiations,
                 maximumOffersThisRun,
                 MAX_FINAL_VERIFICATIONS_PER_CYCLE,
-                maximumOffersThisRun
+                desiredVerifiedCandidates,
+                maximumOffersThisRun,
+                PREPARATION_FALLBACK_CANDIDATES
         );
 
         FinalVerificationResult finalVerification = verifyFinalCandidates(
                 targetEligibleListings,
                 configuration,
                 MAX_FINAL_VERIFICATIONS_PER_CYCLE,
-                maximumOffersThisRun
+                desiredVerifiedCandidates
         );
 
         List<ListingResponseDto> finalVerifiedListings =
@@ -283,11 +302,11 @@ public class NewNegotiationProcessor {
 
             if (actionGuardRequestId == null) {
                 firstOfferExecutor.cancelPreparedOfferSafely();
-                log.error(
-                        "[REAL OFFER] FIRST_OFFER action guard refused marketplace listing {}. Failing closed for this run; no quota was reserved and no real submit was attempted.",
+                log.warn(
+                        "[REAL OFFER] FIRST_OFFER action guard refused marketplace listing {} (for example because another bot already owns that marketplace negotiation). No quota was reserved and no real submit was attempted. Trying the next verified candidate instead of wasting this run's capacity.",
                         listing.listingId()
                 );
-                return;
+                continue;
             }
 
             log.warn(
