@@ -2,6 +2,7 @@ package pl.flipbot.negotiation;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.configuration.BotConfiguration;
@@ -26,6 +27,7 @@ class NegotiationCapacityServiceTest {
 
     private BotRepository botRepository;
     private ListingRepository listingRepository;
+    private JdbcTemplate jdbcTemplate;
     private DailyOfferQuotaService dailyOfferQuotaService;
     private NegotiationCapacityService service;
     private Bot bot;
@@ -34,10 +36,14 @@ class NegotiationCapacityServiceTest {
     void setUp() {
         botRepository = mock(BotRepository.class);
         listingRepository = mock(ListingRepository.class);
+        jdbcTemplate = mock(JdbcTemplate.class);
         dailyOfferQuotaService = mock(DailyOfferQuotaService.class);
 
         NegotiationPlanner negotiationPlanner =
-                new NegotiationPlanner(listingRepository);
+                new NegotiationPlanner(
+                        listingRepository,
+                        jdbcTemplate
+                );
 
         service = new NegotiationCapacityService(
                 botRepository,
