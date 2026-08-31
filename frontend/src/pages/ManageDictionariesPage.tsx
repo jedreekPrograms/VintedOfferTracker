@@ -107,7 +107,7 @@ function ManageDictionariesPage() {
 
     async function runAction(
         key: string,
-        action: () => Promise<void>,
+        action: () => Promise<unknown>,
         success: string,
     ) {
         if (actionKey !== null) {
