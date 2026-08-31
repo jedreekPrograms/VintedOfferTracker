@@ -9,6 +9,7 @@ import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
+import pl.flipbot.marketplace.Marketplace;
 import pl.flipbot.negotiation.quota.DailyOfferQuotaService;
 import pl.flipbot.negotiation.quota.dto.DailyOfferQuotaResponse;
 
@@ -17,6 +18,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -52,6 +56,7 @@ class NegotiationCapacityServiceTest {
         );
 
         BotConfiguration configuration = BotConfiguration.builder()
+                .marketplace(Marketplace.VINTED)
                 .dailyNegotiationBudget(25)
                 .negotiationSteps(new ArrayList<>(
                         List.of(
@@ -152,6 +157,35 @@ class NegotiationCapacityServiceTest {
          */
         assertEquals(
                 4,
+                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
+        );
+    }
+
+    @Test
+    void confirmedActiveDuplicateLoserDoesNotReserveFutureCapacity() {
+        quota(25, 0);
+
+        Listing duplicateLoser = Listing.builder()
+                .id(999L)
+                .listingId("9755800886")
+                .status(ListingStatus.NEGOTIATING)
+                .currentStep(1)
+                .bot(bot)
+                .build();
+
+        activeListings(
+                List.of(duplicateLoser),
+                List.of()
+        );
+
+        when(jdbcTemplate.queryForObject(
+                anyString(),
+                eq(Boolean.class),
+                any(Object[].class)
+        )).thenReturn(true);
+
+        assertEquals(
+                5,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
