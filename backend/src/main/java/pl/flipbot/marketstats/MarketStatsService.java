@@ -14,10 +14,14 @@ import pl.flipbot.marketstats.dto.MarketObservationBatchRequest;
 import pl.flipbot.marketstats.dto.MarketObservationBatchResponse;
 import pl.flipbot.marketstats.dto.MarketStatsTargetResponse;
 import pl.flipbot.marketstats.dto.ModelPlanningResponse;
+import pl.flipbot.negotiation.quota.DailyOfferQuota;
+import pl.flipbot.negotiation.quota.DailyOfferQuotaRepository;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -36,16 +40,20 @@ public class MarketStatsService {
     private static final int NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
     private static final int OBSERVATION_RETENTION_DAYS = 30;
     private static final String CATEGORY_PATH_SEPARATOR_REGEX = "\\s*>\\s*";
+    private static final ZoneId NEGOTIATION_USAGE_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
+    private final DailyOfferQuotaRepository dailyOfferQuotaRepository;
 
     @Transactional(readOnly = true)
     public List<ModelPlanningResponse> getPlanning() {
         LocalDateTime now = LocalDateTime.now();
+        LocalDate today = LocalDate.now(NEGOTIATION_USAGE_ZONE);
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        NegotiationUsageByBot negotiationUsage = loadNegotiationUsage(today);
 
         return modelRepository.findAll()
                 .stream()
@@ -62,7 +70,8 @@ public class MarketStatsService {
                 .map(model -> toPlanningResponse(
                         model,
                         configurations,
-                        now
+                        now,
+                        negotiationUsage
                 ))
                 .toList();
     }
@@ -290,19 +299,30 @@ public class MarketStatsService {
     private ModelPlanningResponse toPlanningResponse(
             DictionaryModel model,
             List<BotConfiguration> configurations,
-            LocalDateTime now
+            LocalDateTime now,
+            NegotiationUsageByBot negotiationUsage
     ) {
         MarketModelScanState state = scanStateRepository
                 .findById(model.getId())
                 .orElse(null);
 
-        int existingBots = safeInt(
-                configurations.stream()
-                        .filter(configuration -> matchesModel(
-                                model,
-                                configuration
-                        ))
-                        .count()
+        List<Long> matchingBotIds = configurations.stream()
+                .filter(configuration -> matchesModel(model, configuration))
+                .map(BotConfiguration::getBot)
+                .filter(Objects::nonNull)
+                .map(bot -> bot.getId())
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        int existingBots = matchingBotIds.size();
+        int negotiationsStartedToday = sumNegotiationUsage(
+                matchingBotIds,
+                negotiationUsage.todayByBot()
+        );
+        int negotiationsStartedLast7Days = sumNegotiationUsage(
+                matchingBotIds,
+                negotiationUsage.last7DaysByBot()
         );
 
         if (state == null || state.getBaselineCompleteAt() == null) {
@@ -311,6 +331,8 @@ public class MarketStatsService {
                     null,
                     null,
                     null,
+                    negotiationsStartedToday,
+                    negotiationsStartedLast7Days,
                     null,
                     existingBots,
                     false,
@@ -362,6 +384,8 @@ public class MarketStatsService {
                 state.getBaselineOfferCount(),
                 offersLast24Hours,
                 offersLast7Days,
+                negotiationsStartedToday,
+                negotiationsStartedLast7Days,
                 recommendedBots,
                 existingBots,
                 statsReady,
@@ -369,6 +393,57 @@ public class MarketStatsService {
                 state.getLastScanAt(),
                 Boolean.TRUE.equals(state.getLastScanComplete())
         );
+    }
+
+    private NegotiationUsageByBot loadNegotiationUsage(
+            LocalDate today
+    ) {
+        LocalDate firstTrackedDay = today.minusDays(TRACKING_WINDOW_DAYS - 1L);
+        Map<Long, Integer> todayByBot = new HashMap<>();
+        Map<Long, Integer> last7DaysByBot = new HashMap<>();
+
+        for (DailyOfferQuota quota : dailyOfferQuotaRepository
+                .findAllByUsageDateGreaterThanEqual(firstTrackedDay)) {
+            if (quota.getUsageDate() == null
+                    || quota.getBot() == null
+                    || quota.getBot().getId() == null) {
+                continue;
+            }
+
+            Long botId = quota.getBot().getId();
+            int used = Math.max(quota.getUsedCount(), 0);
+
+            last7DaysByBot.merge(botId, used, this::safeAdd);
+
+            if (today.equals(quota.getUsageDate())) {
+                todayByBot.merge(botId, used, this::safeAdd);
+            }
+        }
+
+        return new NegotiationUsageByBot(
+                Map.copyOf(todayByBot),
+                Map.copyOf(last7DaysByBot)
+        );
+    }
+
+    private int sumNegotiationUsage(
+            List<Long> botIds,
+            Map<Long, Integer> usageByBot
+    ) {
+        long sum = 0L;
+
+        for (Long botId : botIds) {
+            sum += Math.max(usageByBot.getOrDefault(botId, 0), 0);
+        }
+
+        return safeInt(sum);
+    }
+
+    private int safeAdd(
+            int left,
+            int right
+    ) {
+        return safeInt((long) left + right);
     }
 
     private int calculateRecommendedBots(
@@ -588,6 +663,12 @@ public class MarketStatsService {
         return value > Integer.MAX_VALUE
                 ? Integer.MAX_VALUE
                 : (int) value;
+    }
+
+    private record NegotiationUsageByBot(
+            Map<Long, Integer> todayByBot,
+            Map<Long, Integer> last7DaysByBot
+    ) {
     }
 
     private record CategoryResolution(
