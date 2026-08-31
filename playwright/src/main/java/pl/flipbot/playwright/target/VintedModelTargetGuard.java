@@ -43,6 +43,24 @@ public final class VintedModelTargetGuard {
     private static final Set<String> TECHNICAL_CODE_PREFIXES =
             Set.of("sm");
 
+    /*
+     * Only known model-family words may be joined with a following number.
+     * Without this bound, generic seller text such as "telefon 128 GB" would
+     * incorrectly create a fake model key "telefon128" and become a false
+     * mismatch. Compact identities such as S25, A55, X7 or P60 are handled by
+     * COMPACT_MODEL_TOKEN and do not need to appear here.
+     */
+    private static final Set<String> SPLIT_MODEL_FAMILIES = Set.of(
+            "flip",
+            "fold",
+            "pixel",
+            "iphone",
+            "note",
+            "mate",
+            "oneplus",
+            "xiaomi"
+    );
+
     public Optional<String> findConclusiveMismatch(
             String configuredModel,
             String visibleItemTitle
@@ -107,13 +125,8 @@ public final class VintedModelTargetGuard {
             }
 
             String next = tokens.get(index + 1);
-            if (!token.matches("^[a-z]+$")
+            if (!SPLIT_MODEL_FAMILIES.contains(token)
                     || !next.matches("^\\d+[a-z]*$")) {
-                continue;
-            }
-
-            if (VARIANT_TOKENS.contains(token)
-                    || TECHNICAL_CODE_PREFIXES.contains(token)) {
                 continue;
             }
 
