@@ -1,12 +1,11 @@
-import {
-    useState,
-} from "react";
+import { useState } from "react";
 
 import {
     removeHistoryEntry,
     updateHistoryPurchasePrice,
     type ListingHistoryResponse,
 } from "../../api/historyApi";
+import AppDialog from "../../components/AppDialog";
 import "./HistoryCard.css";
 import {
     calculateDiscountPercentage,
@@ -29,27 +28,18 @@ function HistoryCard({
     onRemoved,
 }: HistoryCardProps) {
     const [editingPurchasePrice, setEditingPurchasePrice] = useState(false);
-    const [purchasePriceDraft, setPurchasePriceDraft] = useState(
-        String(listing.currentPrice),
-    );
+    const [purchasePriceDraft, setPurchasePriceDraft] = useState(String(listing.currentPrice));
     const [isSaving, setIsSaving] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
+    const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
 
-    const savings = calculateSavings(
-        listing.originalPrice,
-        listing.currentPrice,
-    );
-    const discount = calculateDiscountPercentage(
-        listing.originalPrice,
-        listing.currentPrice,
-    );
+    const savings = calculateSavings(listing.originalPrice, listing.currentPrice);
+    const discount = calculateDiscountPercentage(listing.originalPrice, listing.currentPrice);
     const purchased = listing.status === "PURCHASED";
 
     async function savePurchasePrice() {
-        const normalizedDraft = purchasePriceDraft.replace(",", ".").trim();
-        const purchasePrice = Number(normalizedDraft);
-
+        const purchasePrice = Number(purchasePriceDraft.replace(",", ".").trim());
         if (!Number.isFinite(purchasePrice) || purchasePrice <= 0) {
             setActionError("Podaj prawidłową cenę zakupu większą od 0 zł.");
             return;
@@ -57,13 +47,8 @@ function HistoryCard({
 
         setIsSaving(true);
         setActionError(null);
-
         try {
-            const updatedListing = await updateHistoryPurchasePrice(
-                listing.id,
-                purchasePrice,
-            );
-
+            const updatedListing = await updateHistoryPurchasePrice(listing.id, purchasePrice);
             onUpdated(updatedListing);
             setPurchasePriceDraft(String(updatedListing.currentPrice));
             setEditingPurchasePrice(false);
@@ -79,20 +64,15 @@ function HistoryCard({
     }
 
     async function removeFromHistory() {
-        const confirmed = window.confirm(
-            `Usunąć „${listing.title}” z historii? `
-            + "Oferta pozostanie zapisana technicznie, żeby bot nie potraktował jej ponownie jako nowej.",
-        );
-
-        if (!confirmed) {
+        if (isRemoving) {
             return;
         }
 
         setIsRemoving(true);
         setActionError(null);
-
         try {
             await removeHistoryEntry(listing.id);
+            setShowRemoveConfirmation(false);
             onRemoved(listing.id);
         } catch (error) {
             setActionError(
@@ -100,6 +80,7 @@ function HistoryCard({
                     ? error.message
                     : "Nie udało się usunąć wpisu z historii.",
             );
+        } finally {
             setIsRemoving(false);
         }
     }
@@ -124,7 +105,6 @@ function HistoryCard({
                         </span>
                         <h2>{listing.title}</h2>
                     </div>
-
                     <div className="history-decision-date">
                         <span>Data decyzji</span>
                         <strong>{formatDecisionDate(listing.decisionAt)}</strong>
@@ -138,16 +118,13 @@ function HistoryCard({
                             {formatHistoryPrice(listing.originalPrice)}
                         </strong>
                     </div>
-
                     <div className="history-price-arrow">→</div>
-
                     <div>
                         <span>{purchased ? "Cena zakupu" : "Cena po negocjacji"}</span>
-
                         {purchased && editingPurchasePrice ? (
                             <form
                                 className="history-price-editor"
-                                onSubmit={event => {
+                                onSubmit={(event) => {
                                     event.preventDefault();
                                     void savePurchasePrice();
                                 }}
@@ -162,11 +139,10 @@ function HistoryCard({
                                         inputMode="decimal"
                                         value={purchasePriceDraft}
                                         disabled={isSaving}
-                                        onChange={event => setPurchasePriceDraft(event.target.value)}
+                                        onChange={(event) => setPurchasePriceDraft(event.target.value)}
                                     />
                                     <span>zł</span>
                                 </div>
-
                                 <div className="history-price-editor-actions">
                                     <button
                                         className="primary-button history-compact-button"
@@ -191,7 +167,6 @@ function HistoryCard({
                             </strong>
                         )}
                     </div>
-
                     <div className="history-saving">
                         <span>Wynegocjowano</span>
                         <strong>{formatHistoryPrice(savings)}</strong>
@@ -200,23 +175,10 @@ function HistoryCard({
                 </div>
 
                 <div className="history-details">
-                    <HistoryDetail
-                        label="Bot"
-                        value={listing.botName}
-                        secondary={`#${listing.botId}`}
-                    />
-                    <HistoryDetail
-                        label="Listing ID"
-                        value={listing.listingId}
-                    />
-                    <HistoryDetail
-                        label="Krok negocjacji"
-                        value={String(listing.currentStep)}
-                    />
-                    <HistoryDetail
-                        label="Status"
-                        value={listing.status}
-                    />
+                    <HistoryDetail label="Bot" value={listing.botName} secondary={`#${listing.botId}`} />
+                    <HistoryDetail label="Listing ID" value={listing.listingId} />
+                    <HistoryDetail label="Krok negocjacji" value={String(listing.currentStep)} />
+                    <HistoryDetail label="Status" value={listing.status} />
                 </div>
 
                 {actionError !== null && (
@@ -235,7 +197,6 @@ function HistoryCard({
                 >
                     Otwórz ofertę
                 </a>
-
                 {purchased && !editingPurchasePrice && (
                     <button
                         className="secondary-button"
@@ -250,31 +211,41 @@ function HistoryCard({
                         Zmień cenę
                     </button>
                 )}
-
                 <button
                     className="history-remove-button"
                     type="button"
                     disabled={isRemoving || isSaving}
-                    onClick={() => void removeFromHistory()}
+                    onClick={() => setShowRemoveConfirmation(true)}
                 >
                     {isRemoving ? "Usuwanie..." : "Usuń z historii"}
                 </button>
             </div>
+
+            <AppDialog
+                open={showRemoveConfirmation}
+                title="Usunąć wpis z historii?"
+                description={
+                    <>Oferta <strong>„{listing.title}”</strong> zniknie z historii widocznej w aplikacji. Techniczny zapis pozostanie w bazie, żeby bot nie potraktował jej ponownie jako nowej.</>
+                }
+                confirmLabel="Usuń z historii"
+                danger
+                busy={isRemoving}
+                onCancel={() => setShowRemoveConfirmation(false)}
+                onConfirm={() => void removeFromHistory()}
+            />
         </article>
     );
-}
-
-interface HistoryDetailProps {
-    label: string;
-    value: string;
-    secondary?: string;
 }
 
 function HistoryDetail({
     label,
     value,
     secondary,
-}: HistoryDetailProps) {
+}: {
+    label: string;
+    value: string;
+    secondary?: string;
+}) {
     return (
         <div>
             <span>{label}</span>
