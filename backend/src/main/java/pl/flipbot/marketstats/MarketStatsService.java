@@ -14,8 +14,10 @@ import pl.flipbot.marketstats.dto.MarketObservationBatchRequest;
 import pl.flipbot.marketstats.dto.MarketObservationBatchResponse;
 import pl.flipbot.marketstats.dto.MarketStatsTargetResponse;
 import pl.flipbot.marketstats.dto.ModelPlanningResponse;
-import pl.flipbot.negotiation.quota.DailyOfferQuota;
-import pl.flipbot.negotiation.quota.DailyOfferQuotaRepository;
+import pl.flipbot.negotiation.audit.RealActionAudit;
+import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
+import pl.flipbot.negotiation.audit.RealActionAuditRepository;
+import pl.flipbot.negotiation.guard.RealActionType;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -46,7 +48,7 @@ public class MarketStatsService {
     private final BotConfigurationRepository configurationRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
-    private final DailyOfferQuotaRepository dailyOfferQuotaRepository;
+    private final RealActionAuditRepository realActionAuditRepository;
 
     @Transactional(readOnly = true)
     public List<ModelPlanningResponse> getPlanning() {
@@ -399,24 +401,30 @@ public class MarketStatsService {
             LocalDate today
     ) {
         LocalDate firstTrackedDay = today.minusDays(TRACKING_WINDOW_DAYS - 1L);
+        LocalDateTime firstTrackedAt = firstTrackedDay.atStartOfDay();
         Map<Long, Integer> todayByBot = new HashMap<>();
         Map<Long, Integer> last7DaysByBot = new HashMap<>();
 
-        for (DailyOfferQuota quota : dailyOfferQuotaRepository
-                .findAllByUsageDateGreaterThanEqual(firstTrackedDay)) {
-            if (quota.getUsageDate() == null
-                    || quota.getBot() == null
-                    || quota.getBot().getId() == null) {
+        for (RealActionAudit audit : realActionAuditRepository
+                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                        RealActionType.FIRST_OFFER,
+                        RealActionAuditOutcome.CONFIRMED,
+                        firstTrackedAt
+                )) {
+            if (audit.getBotId() == null || audit.getCreatedAt() == null) {
                 continue;
             }
 
-            Long botId = quota.getBot().getId();
-            int used = Math.max(quota.getUsedCount(), 0);
+            LocalDate usageDay = audit.getCreatedAt().toLocalDate();
+            if (usageDay.isBefore(firstTrackedDay) || usageDay.isAfter(today)) {
+                continue;
+            }
 
-            last7DaysByBot.merge(botId, used, this::safeAdd);
+            Long botId = audit.getBotId();
+            last7DaysByBot.merge(botId, 1, this::safeAdd);
 
-            if (today.equals(quota.getUsageDate())) {
-                todayByBot.merge(botId, used, this::safeAdd);
+            if (today.equals(usageDay)) {
+                todayByBot.merge(botId, 1, this::safeAdd);
             }
         }
 
