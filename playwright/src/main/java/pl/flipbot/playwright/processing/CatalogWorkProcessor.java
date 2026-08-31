@@ -68,11 +68,9 @@ public class CatalogWorkProcessor {
 
         logTargetExecutionPlan(botId);
 
-        /* 1. Open the live Vinted catalog. */
         log.info("[BOT TARGET FLOW] Bot {} -> opening Vinted catalog.", botId);
         marketplaceNavigator.goToCatalog();
 
-        /* 2. Apply bot category / brand / model-or-search / price filters. */
         filterService.applyFilters(context.getBot());
 
         BotConfigurationDto configuration = context.getBot().getConfiguration();
@@ -85,42 +83,33 @@ public class CatalogWorkProcessor {
                 context.getPage().url()
         );
 
-        /*
-         * 3. Build the candidate queue.
-         *
-         * CatalogCandidateProcessor:
-         * - scans the current newest-first catalog page,
-         * - persists genuinely new listings,
-         * - loads the whole persisted DISCOVERED backlog,
-         * - prioritizes current-scan items while interleaving old backlog,
-         * - applies the hard stored-price guard,
-         * - returns candidates for target/live verification.
-         */
         log.info(
-                "[BOT TARGET FLOW] Bot {} -> scanning catalog results and historical DISCOVERED backlog.",
+                "[BOT TARGET FLOW] Bot {} -> scanning current catalog and loading only this bot's persisted DISCOVERED pool.",
                 botId
         );
-        var priceEligibleListings = catalogCandidateProcessor.process();
 
-        if (priceEligibleListings.isEmpty()) {
+        CatalogCandidateProcessor.CandidateBatch candidateBatch =
+                catalogCandidateProcessor.process();
+
+        if (candidateBatch.candidates().isEmpty()) {
             log.info(
-                    "[CATALOG WORK] No eligible DISCOVERED candidates remain after backlog selection and price guards."
+                    "[CATALOG WORK] Bot {} has no eligible DISCOVERED candidates after backlog selection and price guards.",
+                    botId
             );
             return false;
         }
 
         log.info(
-                "[BOT TARGET FLOW] Bot {} -> {} price-eligible candidate(s) reached target/live verification.",
+                "[BOT TARGET FLOW] Bot {} -> {} price-eligible candidate(s) reached target verification. Current filtered scan contains {} IDs; persisted-only backlog will not inherit that proof.",
                 botId,
-                priceEligibleListings.size()
+                candidateBatch.candidates().size(),
+                candidateBatch.currentScanListingIds().size()
         );
 
-        /*
-         * 4. Verify and start as many safe first offers as this production
-         * run is allowed to perform. The processor still enforces all
-         * per-listing live checks, persistent guard and quota semantics.
-         */
-        newNegotiationProcessor.process(priceEligibleListings);
+        newNegotiationProcessor.process(
+                candidateBatch.candidates(),
+                candidateBatch.currentScanListingIds()
+        );
 
         if (!realOffersEnabled) {
             return false;
@@ -189,6 +178,9 @@ public class CatalogWorkProcessor {
                     "[BOT TARGET FLOW] Bot {} will apply category -> brand -> open Vinted model filter -> type model='{}' into the model-filter search -> click ONLY the exact model option -> confirm -> verify brand_collection_ids[] in URL -> price range -> newest_first.",
                     botId,
                     configuration.getModel()
+            );
+            log.info(
+                    "[BOT TARGET FLOW] Only listing IDs actually observed in that verified current result set receive current exact-model provenance. Older DISCOVERED rows stay bot-scoped backlog and must be revalidated before a real action."
             );
             log.info(
                     "[BOT TARGET FLOW] Configured searchQuery='{}' is NOT typed into the main Vinted search box in this mode.",

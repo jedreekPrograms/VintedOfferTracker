@@ -12,17 +12,19 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Final, conservative consistency guard for VINTED_MODEL listings.
+ * Conservative model-identity guard used around VINTED_MODEL targets.
  *
- * The Vinted model filter remains the primary classifier. This guard does not
- * try to reclassify every seller-written title. It only rejects a candidate
- * when the already-open item page provides conclusive evidence of a different
- * model (for example configured Galaxy S25 vs visible Galaxy Z Flip 4), or an
- * explicitly different variant (for example S25 vs S25 Ultra).
+ * The native Vinted filter is useful evidence, but persisted DISCOVERED rows
+ * can outlive the catalog scan (or even a later bot configuration change).
+ * Therefore model identity must never be inferred solely from the fact that a
+ * listing currently belongs to a bot's backlog.
  *
- * Ambiguous/generic titles are deliberately accepted here because absence of
- * model evidence is not proof that Vinted's exact catalog classification was
- * wrong.
+ * This class supports two complementary questions:
+ * - can the observed text conclusively prove a DIFFERENT model?
+ * - can the observed text positively prove the CONFIGURED model?
+ *
+ * Generic seller text is neither a match nor a mismatch. Callers must then use
+ * stronger evidence, preferably the structured Model field from the item page.
  */
 public final class VintedModelTargetGuard {
 
@@ -37,7 +39,8 @@ public final class VintedModelTargetGuard {
             "fe",
             "lite",
             "mini",
-            "edge"
+            "edge",
+            "air"
     );
 
     private static final Set<String> TECHNICAL_CODE_PREFIXES =
@@ -46,9 +49,7 @@ public final class VintedModelTargetGuard {
     /*
      * Only known model-family words may be joined with a following number.
      * Without this bound, generic seller text such as "telefon 128 GB" would
-     * incorrectly create a fake model key "telefon128" and become a false
-     * mismatch. Compact identities such as S25, A55, X7 or P60 are handled by
-     * COMPACT_MODEL_TOKEN and do not need to appear here.
+     * incorrectly create a fake model key "telefon128".
      */
     private static final Set<String> SPLIT_MODEL_FAMILIES = Set.of(
             "flip",
@@ -61,12 +62,16 @@ public final class VintedModelTargetGuard {
             "xiaomi"
     );
 
+    /**
+     * Returns a reason only when observed text contains conclusive evidence of
+     * a different model/variant. Ambiguous text returns Optional.empty().
+     */
     public Optional<String> findConclusiveMismatch(
             String configuredModel,
-            String visibleItemTitle
+            String observedText
     ) {
         List<String> targetTokens = tokenize(configuredModel);
-        List<String> observedTokens = tokenize(visibleItemTitle);
+        List<String> observedTokens = tokenize(observedText);
 
         Set<String> targetKeys = extractModelKeys(targetTokens);
         Set<String> observedKeys = extractModelKeys(observedTokens);
@@ -81,29 +86,75 @@ public final class VintedModelTargetGuard {
         if (sharedKeys.isEmpty()) {
             return Optional.of(
                     "configured model keys " + targetKeys
-                            + " conflict with visible item-title model keys "
+                            + " conflict with observed model keys "
                             + observedKeys
-                            + " (title='" + normalizeVisibleText(visibleItemTitle) + "')"
+                            + " (observed='" + normalizeVisibleText(observedText) + "')"
             );
         }
 
         Set<String> targetVariants = extractVariants(targetTokens);
         Set<String> observedVariants = extractVariants(observedTokens);
-        observedVariants.removeAll(targetVariants);
 
-        if (!observedVariants.isEmpty()) {
+        Set<String> unexpectedObservedVariants =
+                new LinkedHashSet<>(observedVariants);
+        unexpectedObservedVariants.removeAll(targetVariants);
+
+        if (!unexpectedObservedVariants.isEmpty()) {
             return Optional.of(
-                    "visible item title contains unexpected model variant(s) "
-                            + observedVariants
+                    "observed text contains unexpected model variant(s) "
+                            + unexpectedObservedVariants
                             + " for configured model '"
                             + normalizeVisibleText(configuredModel)
-                            + "' (title='"
-                            + normalizeVisibleText(visibleItemTitle)
+                            + "' (observed='"
+                            + normalizeVisibleText(observedText)
                             + "')"
             );
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Positive proof is deliberately stronger than "not a mismatch".
+     *
+     * Example:
+     * - target Galaxy S25, observed "Samsung S25 128GB" -> true
+     * - target Galaxy S25, observed "Samsung telefon" -> false
+     * - target Galaxy S25+, observed "Galaxy S25" -> false
+     * - target Galaxy S25, observed "Galaxy S25 Ultra" -> false
+     */
+    public boolean provesConfiguredModel(
+            String configuredModel,
+            String observedText
+    ) {
+        List<String> targetTokens = tokenize(configuredModel);
+        List<String> observedTokens = tokenize(observedText);
+
+        Set<String> targetKeys = extractModelKeys(targetTokens);
+        Set<String> observedKeys = extractModelKeys(observedTokens);
+
+        if (targetKeys.isEmpty() || observedKeys.isEmpty()) {
+            return false;
+        }
+
+        Set<String> sharedKeys = new HashSet<>(targetKeys);
+        sharedKeys.retainAll(observedKeys);
+        if (sharedKeys.isEmpty()) {
+            return false;
+        }
+
+        Set<String> targetVariants = extractVariants(targetTokens);
+        Set<String> observedVariants = extractVariants(observedTokens);
+
+        if (!observedVariants.containsAll(targetVariants)) {
+            return false;
+        }
+
+        Set<String> unexpectedObservedVariants =
+                new LinkedHashSet<>(observedVariants);
+        unexpectedObservedVariants.removeAll(targetVariants);
+
+        return unexpectedObservedVariants.isEmpty();
     }
 
     private Set<String> extractModelKeys(List<String> tokens) {
@@ -159,12 +210,24 @@ public final class VintedModelTargetGuard {
             return List.of();
         }
 
+        String[] rawTokens = normalized.split("\\s+");
         List<String> result = new ArrayList<>();
-        for (String token : normalized.split("\\s+")) {
-            if (!token.isBlank()) {
-                result.add(token);
+
+        for (int index = 0; index < rawTokens.length; index++) {
+            String token = rawTokens[index];
+
+            /* "s 25" -> "s25", "a 55" -> "a55". */
+            if (token.matches("^[a-z]$")
+                    && index + 1 < rawTokens.length
+                    && rawTokens[index + 1].matches("^\\d+[a-z]*$")) {
+                result.add(token + rawTokens[index + 1]);
+                index++;
+                continue;
             }
+
+            result.add(token);
         }
+
         return result;
     }
 
@@ -173,7 +236,9 @@ public final class VintedModelTargetGuard {
             return "";
         }
 
-        String withPlus = value.replace("+", " plus ");
+        String withPlus = value
+                .replace("+", " plus ")
+                .replace("＋", " plus ");
         String decomposed = Normalizer.normalize(
                 withPlus,
                 Normalizer.Form.NFD

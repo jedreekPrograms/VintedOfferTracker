@@ -18,31 +18,15 @@ import pl.flipbot.playwright.target.VintedRateLimitException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 public class NewNegotiationProcessor {
 
     private static final String VINTED_MODEL = "VINTED_MODEL";
     private static final int MAX_DETAIL_INSPECTIONS_PER_CYCLE = 5;
-
-    /*
-     * Historical DISCOVERED queues can contain stale or no-longer-matching
-     * items. Checking only five final candidates meant that five bad backlog
-     * entries could starve dozens of valid listings behind them. We now scan
-     * further until enough candidates are verified for this run, with a
-     * bounded ceiling to avoid excessive item-page traffic.
-     */
     private static final int MAX_FINAL_VERIFICATIONS_PER_CYCLE = 20;
-
-    /*
-     * Preparation can still reject a candidate after final verification: the
-     * item may be unavailable, non-negotiable, a historical wrong-model entry,
-     * or its offer form may fail before quota reservation. Keep a small pool
-     * of already-verified fallbacks so one such candidate does not waste the
-     * run's available negotiation capacity.
-     */
     private static final int PREPARATION_FALLBACK_CANDIDATES = 5;
-
     private static final double DETAIL_INSPECTION_PACING_MS = 1_500;
 
     private final BotContext context;
@@ -79,11 +63,23 @@ public class NewNegotiationProcessor {
         this.maxRealOffersPerRun = maxRealOffersPerRun;
     }
 
-    public void process(List<ListingResponseDto> priceEligibleListings) {
+    /**
+     * @param currentScanListingIds IDs actually observed in THIS already-filtered
+     * current catalog scan. For VINTED_MODEL these are the only persisted rows
+     * allowed to inherit current exact-model-filter provenance for this cycle.
+     */
+    public void process(
+            List<ListingResponseDto> priceEligibleListings,
+            Set<String> currentScanListingIds
+    ) {
         if (priceEligibleListings == null || priceEligibleListings.isEmpty()) {
             log.info("[REAL OFFER] There are no price-eligible listings to process.");
             return;
         }
+
+        Set<String> currentScanIds = currentScanListingIds == null
+                ? Set.of()
+                : Set.copyOf(currentScanListingIds);
 
         BotConfigurationDto configuration = context.getBot().getConfiguration();
         if (configuration == null) {
@@ -92,7 +88,8 @@ public class NewNegotiationProcessor {
 
         List<ListingResponseDto> targetEligibleListings = retainTargetEligibleListings(
                 priceEligibleListings,
-                configuration
+                configuration,
+                currentScanIds
         );
 
         if (targetEligibleListings.isEmpty()) {
@@ -115,6 +112,7 @@ public class NewNegotiationProcessor {
             processDryRun(
                     targetEligibleListings,
                     configuration,
+                    currentScanIds,
                     allowedNewNegotiations
             );
             return;
@@ -123,6 +121,7 @@ public class NewNegotiationProcessor {
         processRealOffers(
                 targetEligibleListings,
                 configuration,
+                currentScanIds,
                 botId,
                 allowedNewNegotiations
         );
@@ -131,6 +130,7 @@ public class NewNegotiationProcessor {
     private void processDryRun(
             List<ListingResponseDto> targetEligibleListings,
             BotConfigurationDto configuration,
+            Set<String> currentScanListingIds,
             int allowedNewNegotiations
     ) {
         int desiredVerified = Math.min(
@@ -141,6 +141,7 @@ public class NewNegotiationProcessor {
         FinalVerificationResult finalVerification = verifyFinalCandidates(
                 targetEligibleListings,
                 configuration,
+                currentScanListingIds,
                 MAX_FINAL_VERIFICATIONS_PER_CYCLE,
                 desiredVerified
         );
@@ -159,6 +160,7 @@ public class NewNegotiationProcessor {
     private void processRealOffers(
             List<ListingResponseDto> targetEligibleListings,
             BotConfigurationDto configuration,
+            Set<String> currentScanListingIds,
             Long botId,
             int allowedNewNegotiations
     ) {
@@ -198,6 +200,7 @@ public class NewNegotiationProcessor {
         FinalVerificationResult finalVerification = verifyFinalCandidates(
                 targetEligibleListings,
                 configuration,
+                currentScanListingIds,
                 MAX_FINAL_VERIFICATIONS_PER_CYCLE,
                 desiredVerifiedCandidates
         );
@@ -453,6 +456,7 @@ public class NewNegotiationProcessor {
     private FinalVerificationResult verifyFinalCandidates(
             List<ListingResponseDto> targetEligibleListings,
             BotConfigurationDto configuration,
+            Set<String> currentScanListingIds,
             int maximumCandidatesToCheck,
             int desiredVerifiedCount
     ) {
@@ -483,7 +487,6 @@ public class NewNegotiationProcessor {
         int mismatches = 0;
         int failures = 0;
         int realItemPageRequests = 0;
-        boolean exactVintedModelMode = usesExactVintedModelFilter(configuration);
 
         for (ListingResponseDto listing : targetEligibleListings) {
             if (checked >= candidatesToCheck) {
@@ -497,11 +500,40 @@ public class NewNegotiationProcessor {
 
             checked++;
 
-            boolean cached = !exactVintedModelMode
-                    && listingDetailTargetInspector.hasCachedFullTitle(
+            boolean currentExactModelProof = hasCurrentExactModelProof(
+                    listing,
+                    configuration,
+                    currentScanListingIds
+            );
+
+            if (currentExactModelProof) {
+                log.info(
+                        "[FINAL VERIFY] Candidate {}/{}. Backend listing={}, marketplace listing={}, catalog title='{}', price={}, targetMode={}, target='{}', source=CURRENT_EXACT_VINTED_MODEL_SCAN.",
+                        checked,
+                        candidatesToCheck,
+                        listing.id(),
+                        listing.listingId(),
+                        listing.title(),
+                        listing.originalPrice(),
+                        configuration.getTargetMode(),
+                        getConfiguredTargetLabel(configuration)
+                );
+
+                /*
+                 * retainTargetEligibleListings already rejected any conclusive
+                 * title conflict. The listing ID is actually present in the
+                 * current exact-filter result set, so it may pass this stage.
+                 * AdaptiveFirstOfferExecutor still performs the final live
+                 * structured Brand/Model check immediately before quota/submit.
+                 */
+                verifiedListings.add(listing);
+                continue;
+            }
+
+            boolean cached = listingDetailTargetInspector.hasCachedFullTitle(
                     listing.listingId()
             );
-            boolean liveItemPageRequest = !exactVintedModelMode && !cached;
+            boolean liveItemPageRequest = !cached;
 
             if (liveItemPageRequest && realItemPageRequests > 0) {
                 context.getPage().waitForTimeout(DETAIL_INSPECTION_PACING_MS);
@@ -511,10 +543,10 @@ public class NewNegotiationProcessor {
                 realItemPageRequests++;
             }
 
-            String verificationSource = exactVintedModelMode
-                    ? "EXACT_VINTED_MODEL_FILTER"
-                    : cached
-                    ? "FULL_TITLE_CACHE"
+            String verificationSource = cached
+                    ? "LIVE_ITEM_IDENTITY_CACHE"
+                    : usesExactVintedModelFilter(configuration)
+                    ? "PERSISTED_VINTED_MODEL_BACKLOG_ITEM_PAGE"
                     : "VINTED_ITEM_PAGE";
 
             log.info(
@@ -609,10 +641,12 @@ public class NewNegotiationProcessor {
 
     private List<ListingResponseDto> retainTargetEligibleListings(
             List<ListingResponseDto> listings,
-            BotConfigurationDto configuration
+            BotConfigurationDto configuration,
+            Set<String> currentScanListingIds
     ) {
         List<ListingResponseDto> eligibleListings = new ArrayList<>();
 
+        int acceptedFromCurrentExactScan = 0;
         int matchedFromCatalogTitle = 0;
         int matchedFromUrlSlug = 0;
         int matchedFromDetailCache = 0;
@@ -629,12 +663,44 @@ public class NewNegotiationProcessor {
         Long botId = context.getBot().getId();
 
         for (ListingResponseDto listing : listings) {
+            boolean currentExactModelProof = hasCurrentExactModelProof(
+                    listing,
+                    configuration,
+                    currentScanListingIds
+            );
+
             ListingTargetAssessment catalogAssessment =
                     listingTargetMatcher.assessCatalogListing(
                             listing,
                             configuration
                     );
 
+            if (currentExactModelProof) {
+                if (catalogAssessment == ListingTargetAssessment.MISMATCH) {
+                    rejectedCatalogMismatch++;
+                    listingStatusUpdater.markTargetMismatch(botId, listing);
+                    persistedTargetMismatches++;
+                    log.warn(
+                            "[TARGET PROVENANCE] Marketplace listing {} is present in the current exact Vinted model result set, but its stored catalog title contains conclusive conflicting model evidence. Failing closed and persisting SKIPPED_TARGET_MISMATCH.",
+                            listing.listingId()
+                    );
+                    continue;
+                }
+
+                eligibleListings.add(listing);
+                acceptedFromCurrentExactScan++;
+                log.debug(
+                        "[TARGET PROVENANCE] Marketplace listing {} accepted from CURRENT exact Vinted model scan for this bot. It is not merely inheriting proof from persisted DISCOVERED state.",
+                        listing.listingId()
+                );
+                continue;
+            }
+
+            /*
+             * From here down the candidate has NO current exact-model proof.
+             * It is either SEARCH_QUERY or a persisted VINTED_MODEL backlog row
+             * and must prove identity from stored text/URL or live item data.
+             */
             if (catalogAssessment == ListingTargetAssessment.MATCH) {
                 eligibleListings.add(listing);
                 matchedFromCatalogTitle++;
@@ -672,28 +738,36 @@ public class NewNegotiationProcessor {
             );
 
             if (cached) {
-                boolean cachedMatches =
-                        listingDetailTargetInspector.matchesConfiguredTarget(
-                                listing,
-                                configuration
-                        );
+                try {
+                    boolean cachedMatches =
+                            listingDetailTargetInspector.matchesConfiguredTarget(
+                                    listing,
+                                    configuration
+                            );
 
-                if (cachedMatches) {
-                    eligibleListings.add(listing);
-                    matchedFromDetailCache++;
-                } else {
-                    rejectedFromDetailCache++;
-                    listingStatusUpdater.markTargetMismatch(botId, listing);
-                    persistedTargetMismatches++;
+                    if (cachedMatches) {
+                        eligibleListings.add(listing);
+                        matchedFromDetailCache++;
+                    } else {
+                        rejectedFromDetailCache++;
+                        listingStatusUpdater.markTargetMismatch(botId, listing);
+                        persistedTargetMismatches++;
+                    }
+                } catch (Exception exception) {
+                    detailInspectionFailures++;
+                    log.warn(
+                            "[TARGET DETAIL] Cached identity for marketplace listing {} could not safely prove the target: {}. It remains DISCOVERED for retry.",
+                            listing.listingId(),
+                            getFriendlyErrorMessage(exception)
+                    );
                 }
-
                 continue;
             }
 
             if (detailRequestsThisCycle >= MAX_DETAIL_INSPECTIONS_PER_CYCLE) {
                 deferredByDetailLimit++;
                 log.info(
-                        "[TARGET DETAIL] Marketplace listing {} is still ambiguous, but the per-cycle detail limit ({}) has already been reached. The listing is deferred safely to a later cycle before quota reservation.",
+                        "[TARGET DETAIL] Marketplace listing {} is persisted backlog with ambiguous identity, but the per-cycle detail limit ({}) is reached. It is deferred safely and cannot reach quota/submit this cycle.",
                         listing.listingId(),
                         MAX_DETAIL_INSPECTIONS_PER_CYCLE
                 );
@@ -753,8 +827,9 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
+                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Current exact-scan accepted: {}, catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
                 listings.size(),
+                acceptedFromCurrentExactScan,
                 matchedFromCatalogTitle,
                 matchedFromUrlSlug,
                 matchedFromDetailCache,
@@ -776,11 +851,29 @@ public class NewNegotiationProcessor {
         return eligibleListings;
     }
 
+    private boolean hasCurrentExactModelProof(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration,
+            Set<String> currentScanListingIds
+    ) {
+        return listing != null
+                && listing.listingId() != null
+                && usesExactVintedModelFilter(configuration)
+                && currentScanListingIds != null
+                && currentScanListingIds.contains(listing.listingId());
+    }
+
     private boolean usesExactVintedModelFilter(
             BotConfigurationDto configuration
     ) {
-        return configuration != null
-                && VINTED_MODEL.equalsIgnoreCase(configuration.getTargetMode());
+        if (configuration == null) {
+            return false;
+        }
+
+        String targetMode = configuration.getTargetMode();
+        return targetMode == null
+                || targetMode.isBlank()
+                || VINTED_MODEL.equalsIgnoreCase(targetMode.trim());
     }
 
     private String getConfiguredTargetLabel(
@@ -794,7 +887,7 @@ public class NewNegotiationProcessor {
             return configuration.getSearchQuery();
         }
 
-        if (VINTED_MODEL.equalsIgnoreCase(configuration.getTargetMode())) {
+        if (usesExactVintedModelFilter(configuration)) {
             return configuration.getModel();
         }
 

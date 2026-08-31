@@ -10,9 +10,11 @@ import pl.flipbot.playwright.api.listing.dto.NegotiationActivityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
+import pl.flipbot.playwright.target.VintedModelTargetGuard;
 
 import java.text.Normalizer;
 import java.util.Locale;
+import java.util.Optional;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -25,6 +27,9 @@ public class ExistingNegotiationSupport {
     private final ListingClient listingClient;
     private final ListingStatusUpdater listingStatusUpdater;
     private final NegotiationActivityClient negotiationActivityClient;
+
+    private final VintedModelTargetGuard vintedModelTargetGuard =
+            new VintedModelTargetGuard();
 
     public void logConversationActivity(
             ListingResponseDto listing,
@@ -91,11 +96,6 @@ public class ExistingNegotiationSupport {
                     )
             );
         } catch (Exception exception) {
-            /*
-             * A delayed response rule must fail closed if we cannot persist its
-             * first-detection time. The decision layer sees no matching stable
-             * timestamp and keeps waiting instead of guessing.
-             */
             log.warn(
                     "[NEGOTIATION ACTIVITY API] Could not persist activity/response timer for listing {}: {}",
                     listing.listingId(),
@@ -111,30 +111,64 @@ public class ExistingNegotiationSupport {
         if (configuration == null) {
             throw new IllegalArgumentException("Bot configuration cannot be null");
         }
+        if (listing == null) {
+            return false;
+        }
 
         String targetMode = configuration.getTargetMode();
         if (targetMode == null
                 || targetMode.isBlank()
                 || VINTED_MODEL.equalsIgnoreCase(targetMode.trim())) {
             /*
-             * The negotiation was created only after the exact Vinted model
-             * filter had been proven and its brand_collection_ids[] value had
-             * been verified. Seller-written listing titles are not allowed to
-             * reinterpret that Vinted classification later in the lifecycle.
+             * Existing negotiations are historical business state, so we do
+             * not require positive model proof again and risk terminating a
+             * legitimate conversation because of a generic seller title.
+             *
+             * We DO stop follow-ups when the stored title or URL contains
+             * conclusive evidence of a different model. This prevents a legacy
+             * wrong-target negotiation from sending any additional steps.
              */
+            Optional<String> titleMismatch =
+                    vintedModelTargetGuard.findConclusiveMismatch(
+                            configuration.getModel(),
+                            listing.title()
+                    );
+
+            if (titleMismatch.isPresent()) {
+                log.error(
+                        "[TARGET GUARD] Existing VINTED_MODEL negotiation {} is a conclusive wrong target from stored title. Configured='{}', title='{}'. Reason: {}",
+                        listing.listingId(),
+                        configuration.getModel(),
+                        listing.title(),
+                        titleMismatch.get()
+                );
+                return false;
+            }
+
+            Optional<String> urlMismatch =
+                    vintedModelTargetGuard.findConclusiveMismatch(
+                            configuration.getModel(),
+                            listing.url()
+                    );
+
+            if (urlMismatch.isPresent()) {
+                log.error(
+                        "[TARGET GUARD] Existing VINTED_MODEL negotiation {} is a conclusive wrong target from stored URL. Configured='{}', url='{}'. Reason: {}",
+                        listing.listingId(),
+                        configuration.getModel(),
+                        listing.url(),
+                        urlMismatch.get()
+                );
+                return false;
+            }
+
             log.debug(
-                    "[TARGET GUARD] Listing {} remains valid because VINTED_MODEL negotiations trust the exact Vinted model filter used when the listing was discovered.",
-                    listing == null ? null : listing.listingId()
+                    "[TARGET GUARD] Existing VINTED_MODEL negotiation {} has no conclusive conflicting model evidence. It may continue.",
+                    listing.listingId()
             );
             return true;
         }
 
-        /*
-         * Preserve the historical behavior for non-VINTED_MODEL modes. In the
-         * current SEARCH_QUERY configuration model is null, so this guard does
-         * not replace the dedicated search-query verification performed before
-         * a new negotiation starts.
-         */
         String model = normalize(configuration.getModel());
         if (model.isBlank()) {
             return true;

@@ -9,20 +9,18 @@ import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
+import pl.flipbot.playwright.target.VintedItemIdentityReader;
 import pl.flipbot.playwright.target.VintedModelTargetGuard;
 
 import java.math.BigDecimal;
+import java.text.Normalizer;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Keeps the existing FirstOfferExecutor submit/guard behavior intact, but when
- * Vinted rejects the configured first offer as too low, retries with the
- * adaptive ladder described by BotConfiguration.
- *
- * A missing "Make an offer" action is deliberately confirmed more than once.
- * A single 15-second observation is not enough to permanently classify a
- * historical listing as non-negotiable: Vinted can render item actions late.
+ * Keeps FirstOfferExecutor's submit/guard behavior intact and adds adaptive
+ * first-offer pricing plus the last live identity gate before quota/submit.
  */
 @Slf4j
 public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
@@ -33,15 +31,6 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     private static final double STUCK_OFFER_FORM_RESET_TIMEOUT_MS = 30_000;
     private static final double STUCK_OFFER_FORM_SETTLE_MS = 500;
 
-    private static final String ITEM_TITLE_SELECTOR =
-            "[data-testid='item-page-summary-plugin'] h1";
-
-    /*
-     * Playwright Java serializes Java Pattern flags to JavaScript RegExp flags.
-     * UNICODE_CASE is not supported by that bridge and caused the sold-state
-     * probe to fail before it could inspect the page. CASE_INSENSITIVE is both
-     * sufficient for these two ASCII/Polish labels and Playwright-supported.
-     */
     private static final Pattern SOLD_STATUS_TEXT = Pattern.compile(
             "^(Sprzedane|Sold)$",
             Pattern.CASE_INSENSITIVE
@@ -50,12 +39,14 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     private final BotContext context;
     private final AdaptiveNegotiationPricingService pricingService;
     private final VintedModelTargetGuard modelTargetGuard;
+    private final VintedItemIdentityReader itemIdentityReader;
 
     public AdaptiveFirstOfferExecutor(BotContext context) {
         super(context);
         this.context = context;
         this.pricingService = new AdaptiveNegotiationPricingService();
         this.modelTargetGuard = new VintedModelTargetGuard();
+        this.itemIdentityReader = new VintedItemIdentityReader();
     }
 
     static Pattern soldStatusPattern() {
@@ -98,13 +89,6 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
         while (retryPrice.isPresent()) {
             BigDecimal effectivePrice = retryPrice.get();
 
-            /*
-             * Vinted sometimes leaves the too-low offer form visible even
-             * after Escape. Re-entering FirstOfferExecutor in that state used
-             * to fail with "Offer form was already visible" and waste the
-             * whole candidate/run. No submit or quota happened yet, so a page
-             * reload is a safe way to restore a clean item-page state.
-             */
             resetStuckOfferFormBeforeSameListingRetry(listing);
 
             log.warn(
@@ -121,11 +105,6 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
             try {
                 retryResult = prepareWithNegotiationActionConfirmation(listing);
             } finally {
-                /*
-                 * The prepared offer stored inside FirstOfferExecutor already
-                 * captured the effective price. Restore the shared bot DTO so
-                 * other listings still start from the configured ladder.
-                 */
                 firstStep.setOfferPrice(configuredPrice);
             }
 
@@ -152,11 +131,12 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     }
 
     /**
-     * Historical DISCOVERED records do not carry proof that they were created
-     * by today's exact Vinted model filter. Therefore, immediately before a
-     * prepared real offer can reach quota/submit, compare the already-loaded
-     * item-page title with the configured model and reject only CONCLUSIVE
-     * conflicts. Generic seller titles remain allowed.
+     * Last fail-closed identity check on the already-open item page.
+     *
+     * The structured Vinted Model field is authoritative enough to reject a
+     * wrong persisted backlog entry even when h1 is generic (for example h1
+     * "Tablet z wyświetlaczem do wymiany" but Model "Galaxy Tab S9 FE+").
+     * No quota is reserved before this method returns PREPARED.
      */
     private NegotiationPreparationResult applyLiveModelConsistencyGuard(
             ListingResponseDto listing,
@@ -171,11 +151,73 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
             return result;
         }
 
-        String visibleTitle = readVisibleItemTitle();
+        VintedItemIdentityReader.ItemIdentity identity =
+                itemIdentityReader.read(context.getPage());
+
+        if (identity.hasStructuredBrand()
+                && configuration.getBrand() != null
+                && !configuration.getBrand().isBlank()
+                && !normalizeIdentity(configuration.getBrand()).equals(
+                normalizeIdentity(identity.brand())
+        )) {
+            return rejectPreparedTargetMismatch(
+                    listing,
+                    configuration,
+                    identity,
+                    "configured brand '" + configuration.getBrand()
+                            + "' conflicts with structured Vinted brand '"
+                            + identity.brand() + "'"
+            );
+        }
+
+        if (identity.hasStructuredModel()) {
+            Optional<String> mismatch = modelTargetGuard.findConclusiveMismatch(
+                    configuration.getModel(),
+                    identity.model()
+            );
+
+            if (mismatch.isPresent()) {
+                return rejectPreparedTargetMismatch(
+                        listing,
+                        configuration,
+                        identity,
+                        mismatch.get()
+                );
+            }
+
+            if (!modelTargetGuard.provesConfiguredModel(
+                    configuration.getModel(),
+                    identity.model()
+            )) {
+                cancelPreparedOfferSafely();
+                throw new IllegalStateException(
+                        "Prepared VINTED_MODEL offer cannot positively prove configured model '"
+                                + configuration.getModel()
+                                + "' from structured Vinted model field '"
+                                + identity.model()
+                                + "'. Marketplace listing: "
+                                + listing.listingId()
+                                + ". No quota was reserved and no offer was sent."
+                );
+            }
+
+            log.info(
+                    "[LIVE TARGET GUARD] Marketplace listing {} passed final structured identity check. Configured model='{}', Vinted brand='{}', Vinted model='{}', h1='{}'.",
+                    listing.listingId(),
+                    configuration.getModel(),
+                    identity.brand(),
+                    identity.model(),
+                    identity.title()
+            );
+
+            return result;
+        }
+
+        String visibleTitle = identity.title();
         if (visibleTitle == null || visibleTitle.isBlank()) {
             cancelPreparedOfferSafely();
             throw new IllegalStateException(
-                    "Prepared VINTED_MODEL offer cannot pass final live target consistency because the visible item h1 disappeared before quota reservation. Marketplace listing: "
+                    "Prepared VINTED_MODEL offer cannot pass final live target consistency because neither structured Model nor visible h1 is readable before quota reservation. Marketplace listing: "
                             + listing.listingId()
             );
         }
@@ -186,27 +228,58 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
         );
 
         if (mismatch.isPresent()) {
-            log.error(
-                    "[LIVE TARGET GUARD] Marketplace listing {} is a conclusive wrong-model match for configured Vinted model '{}'. Visible h1='{}'. Reason: {}. Prepared form will be cancelled; no quota or offer will be used.",
-                    listing.listingId(),
-                    configuration.getModel(),
-                    visibleTitle,
+            return rejectPreparedTargetMismatch(
+                    listing,
+                    configuration,
+                    identity,
                     mismatch.get()
             );
+        }
 
+        if (!modelTargetGuard.provesConfiguredModel(
+                configuration.getModel(),
+                visibleTitle
+        )) {
             cancelPreparedOfferSafely();
-            resetStuckOfferFormBeforeSameListingRetry(listing);
-            return NegotiationPreparationResult.TARGET_MISMATCH;
+            throw new IllegalStateException(
+                    "Prepared VINTED_MODEL offer has only ambiguous h1='"
+                            + visibleTitle
+                            + "' and no readable structured Model field for configured model '"
+                            + configuration.getModel()
+                            + "'. Failing closed before quota reservation. Marketplace listing: "
+                            + listing.listingId()
+            );
         }
 
         log.info(
-                "[LIVE TARGET GUARD] Marketplace listing {} passed final live model consistency for configured '{}'. Visible h1='{}'.",
+                "[LIVE TARGET GUARD] Marketplace listing {} passed final title identity check for configured '{}'. Structured Model was unavailable; h1='{}'.",
                 listing.listingId(),
                 configuration.getModel(),
                 visibleTitle
         );
 
         return result;
+    }
+
+    private NegotiationPreparationResult rejectPreparedTargetMismatch(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration,
+            VintedItemIdentityReader.ItemIdentity identity,
+            String reason
+    ) {
+        log.error(
+                "[LIVE TARGET GUARD] Marketplace listing {} is the wrong target for configured Vinted model '{}'. Structured brand='{}', structured model='{}', h1='{}'. Reason: {}. Prepared form will be cancelled; no quota or offer will be used.",
+                listing.listingId(),
+                configuration.getModel(),
+                identity.brand(),
+                identity.model(),
+                identity.title(),
+                reason
+        );
+
+        cancelPreparedOfferSafely();
+        resetStuckOfferFormBeforeSameListingRetry(listing);
+        return NegotiationPreparationResult.TARGET_MISMATCH;
     }
 
     private boolean usesVintedModelFilter(BotConfigurationDto configuration) {
@@ -220,29 +293,17 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
                 || "VINTED_MODEL".equalsIgnoreCase(targetMode.trim());
     }
 
-    private String readVisibleItemTitle() {
-        try {
-            Locator title = context.getPage()
-                    .locator(ITEM_TITLE_SELECTOR)
-                    .first();
-
-            if (!title.isVisible()) {
-                return null;
-            }
-
-            String value = title.innerText();
-            if (value == null) {
-                return null;
-            }
-
-            return value.trim().replaceAll("\\s+", " ");
-        } catch (PlaywrightException exception) {
-            log.debug(
-                    "[LIVE TARGET GUARD] Could not read the current item title.",
-                    exception
-            );
-            return null;
+    private String normalizeIdentity(String value) {
+        if (value == null) {
+            return "";
         }
+
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
     }
 
     private void resetStuckOfferFormBeforeSameListingRetry(
@@ -301,7 +362,7 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
                 );
             }
         } catch (PlaywrightException ignored) {
-            /* DOM was replaced by reload, which is the desired outcome. */
+            // DOM replacement after reload is the desired outcome.
         }
     }
 
@@ -318,14 +379,6 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
                 return result;
             }
 
-            /*
-             * Vinted's sold item page can still expose a perfectly valid h1,
-             * so the generic item-page availability check may see a loaded
-             * listing while the offer action is intentionally absent. The
-             * visible green "Sprzedane"/"Sold" status is authoritative enough
-             * to classify the listing as UNAVAILABLE instead of permanently
-             * labelling it CANNOT_NEGOTIATE.
-             */
             if (isExplicitlySold(context.getPage())) {
                 log.info(
                         "[REAL OFFER AVAILABILITY] Marketplace listing {} is explicitly marked as sold by Vinted. Returning LISTING_UNAVAILABLE; caller will persist UNAVAILABLE and no quota/offer will be used.",
@@ -387,7 +440,7 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
 
             String normalized = bodyText
                     .replaceAll("\\s+", " ")
-                    .toLowerCase();
+                    .toLowerCase(Locale.ROOT);
 
             return normalized.contains("przedmiot został sprzedany")
                     || normalized.contains("przedmiot zostal sprzedany")

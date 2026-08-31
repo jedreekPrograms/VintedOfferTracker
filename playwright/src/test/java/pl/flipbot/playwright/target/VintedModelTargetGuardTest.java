@@ -21,6 +21,26 @@ public class VintedModelTargetGuardTest {
     }
 
     @Test
+    public void rejectsFold5WhenBotTargetsS25() {
+        assertTrue(
+                guard.findConclusiveMismatch(
+                        "Galaxy S25",
+                        "Samsung Galaxy Z Fold5"
+                ).isPresent()
+        );
+    }
+
+    @Test
+    public void rejectsGalaxyTabS9FePlusWhenBotTargetsS25() {
+        assertTrue(
+                guard.findConclusiveMismatch(
+                        "Galaxy S25",
+                        "Galaxy Tab S9 FE+"
+                ).isPresent()
+        );
+    }
+
+    @Test
     public void rejectsDifferentSSeriesModel() {
         assertTrue(
                 guard.findConclusiveMismatch(
@@ -41,22 +61,60 @@ public class VintedModelTargetGuardTest {
     }
 
     @Test
-    public void acceptsMatchingS25Title() {
-        assertFalse(
-                guard.findConclusiveMismatch(
+    public void positivelyProvesMatchingS25Title() {
+        assertTrue(
+                guard.provesConfiguredModel(
                         "Galaxy S25",
                         "Telefon Samsung S25 128GB"
-                ).isPresent()
+                )
         );
     }
 
     @Test
-    public void doesNotRejectAmbiguousGenericTitle() {
+    public void genericTitleIsNeitherPositiveProofNorMismatch() {
         assertFalse(
                 guard.findConclusiveMismatch(
                         "Galaxy S25",
-                        "Samsung telefon 128 GB czarny"
+                        "Tablet z wyświetlaczem do wymiany"
                 ).isPresent()
+        );
+        assertFalse(
+                guard.provesConfiguredModel(
+                        "Galaxy S25",
+                        "Tablet z wyświetlaczem do wymiany"
+                )
+        );
+    }
+
+    @Test
+    public void targetPlusRequiresPlusEvidence() {
+        assertFalse(
+                guard.provesConfiguredModel(
+                        "Galaxy S25+",
+                        "Samsung Galaxy S25"
+                )
+        );
+        assertTrue(
+                guard.provesConfiguredModel(
+                        "Galaxy S25+",
+                        "Samsung Galaxy S25+ 256GB"
+                )
+        );
+    }
+
+    @Test
+    public void baseS25RejectsPlusEvidence() {
+        assertTrue(
+                guard.findConclusiveMismatch(
+                        "Galaxy S25",
+                        "Samsung Galaxy S25+ 256GB"
+                ).isPresent()
+        );
+        assertFalse(
+                guard.provesConfiguredModel(
+                        "Galaxy S25",
+                        "Samsung Galaxy S25+ 256GB"
+                )
         );
     }
 
@@ -67,6 +125,12 @@ public class VintedModelTargetGuardTest {
                         "Galaxy S25",
                         "Samsung SM-S931 12/128 GB"
                 ).isPresent()
+        );
+        assertFalse(
+                guard.provesConfiguredModel(
+                        "Galaxy S25",
+                        "Samsung SM-S931 12/128 GB"
+                )
         );
     }
 }

@@ -27,42 +27,40 @@ public class ListingTargetMatcher {
     private static final Pattern LEADING_LISTING_ID_PATTERN =
             Pattern.compile("^\\d+-?");
 
-    /*
-     * Optional brand-specific target tokens.
-     * For Samsung, "galaxy" may be omitted by sellers without changing the
-     * actual model identity.
-     */
     private static final Map<String, Set<String>> OPTIONAL_TARGET_TOKENS_BY_BRAND =
             Map.of(
                     "samsung",
                     Set.of("galaxy")
             );
 
-    private static final Set<String> VARIANT_TOKENS =
-            Set.of(
-                    "plus",
-                    "ultra",
-                    "pro",
-                    "max",
-                    "fe",
-                    "lite",
-                    "mini",
-                    "edge"
-            );
+    private static final Set<String> VARIANT_TOKENS = Set.of(
+            "plus",
+            "ultra",
+            "pro",
+            "max",
+            "fe",
+            "lite",
+            "mini",
+            "edge",
+            "air"
+    );
 
-    /*
-     * Manufacturer product-code markers are not marketing model names.
-     *
-     * Example:
-     *   Samsung Galaxy S25 SM-S931 12/128GB
-     *
-     * Tokenization gives: s25, sm, s931, ...
-     * s931 must NOT conflict with the target model key s25. We ignore compact
-     * model-like tokens immediately preceded by a known technical-code marker
-     * while still detecting real conflicts such as S24 vs S25.
-     */
     private static final Set<String> TECHNICAL_MODEL_CODE_PREFIX_TOKENS =
             Set.of("sm");
+
+    private static final Set<String> SPLIT_MODEL_FAMILIES = Set.of(
+            "flip",
+            "fold",
+            "pixel",
+            "iphone",
+            "note",
+            "mate",
+            "oneplus",
+            "xiaomi"
+    );
+
+    private final VintedModelTargetGuard vintedModelTargetGuard =
+            new VintedModelTargetGuard();
 
     public ListingTargetAssessment assessCatalogListing(
             ListingResponseDto listing,
@@ -74,59 +72,36 @@ public class ListingTargetMatcher {
 
         validateConfiguration(configuration);
 
-        /*
-         * VINTED_MODEL is fundamentally different from SEARCH_QUERY.
-         *
-         * Before this matcher is reached, FilterService has already opened
-         * Vinted's model filter and FilterActions has fail-closed unless it can
-         * prove the selected row is the exact configured model. Once that
-         * exact filter is persisted in brand_collection_ids[], Vinted's own
-         * classification defines the result set. Re-interpreting titles here
-         * would incorrectly throw away listings that Vinted itself placed
-         * under the exact model (and previously masked wrong filter selection
-         * by trying to repair it semantically afterwards).
-         */
-        if (usesVintedModelFilter(configuration)) {
-            log.debug(
-                    "[TARGET MATCHER] Marketplace listing {} accepted from exact Vinted model-filter result set. No semantic title matching is used in VINTED_MODEL mode.",
-                    listing.listingId()
-            );
-            return ListingTargetAssessment.MATCH;
-        }
-
         String title = normalizeVisibleText(listing.title());
-        if (title.isBlank()) {
-            log.info(
-                    "[TARGET MATCHER] Marketplace listing {} has no usable catalog title. URL/detail inspection is required for SEARCH_QUERY.",
-                    listing.listingId()
-            );
-            return ListingTargetAssessment.NEEDS_DETAIL_INSPECTION;
-        }
-
-        if (matchesTextStrict(title, configuration)) {
-            log.debug(
-                    "[TARGET MATCHER] Marketplace listing {} already matches SEARCH_QUERY using catalog title='{}'.",
-                    listing.listingId(),
-                    title
-            );
-            return ListingTargetAssessment.MATCH;
-        }
-
-        if (hasClearConflict(title, configuration)) {
-            log.info(
-                    "[TARGET MATCHER] Marketplace listing {} is a clear SEARCH_QUERY catalog mismatch. Catalog title='{}'.",
-                    listing.listingId(),
-                    title
-            );
-            return ListingTargetAssessment.MISMATCH;
-        }
-
-        log.info(
-                "[TARGET MATCHER] Marketplace listing {} has an incomplete or ambiguous SEARCH_QUERY catalog title='{}'. URL slug will be checked before opening the item page.",
-                listing.listingId(),
-                title
+        ListingTargetAssessment assessment = assessVisibleText(
+                title,
+                configuration
         );
-        return ListingTargetAssessment.NEEDS_DETAIL_INSPECTION;
+
+        if (assessment == ListingTargetAssessment.MATCH) {
+            log.debug(
+                    "[TARGET MATCHER] Marketplace listing {} positively matches {} from catalog title='{}'.",
+                    listing.listingId(),
+                    resolveTargetMode(configuration),
+                    title
+            );
+        } else if (assessment == ListingTargetAssessment.MISMATCH) {
+            log.warn(
+                    "[TARGET MATCHER] Marketplace listing {} is a conclusive {} catalog mismatch. Catalog title='{}'.",
+                    listing.listingId(),
+                    resolveTargetMode(configuration),
+                    title
+            );
+        } else {
+            log.info(
+                    "[TARGET MATCHER] Marketplace listing {} has incomplete/ambiguous {} catalog identity='{}'. URL or live item identity is required before negotiation.",
+                    listing.listingId(),
+                    resolveTargetMode(configuration),
+                    title
+            );
+        }
+
+        return assessment;
     }
 
     public ListingTargetAssessment assessListingUrl(
@@ -139,46 +114,93 @@ public class ListingTargetMatcher {
 
         validateConfiguration(configuration);
 
-        if (usesVintedModelFilter(configuration)) {
-            return ListingTargetAssessment.MATCH;
-        }
-
         if (listing.url() == null || listing.url().isBlank()) {
             return ListingTargetAssessment.NEEDS_DETAIL_INSPECTION;
         }
 
         String slugText = extractSlugText(listing.url());
         if (slugText.isBlank()) {
-            log.debug(
-                    "[TARGET URL] Marketplace listing {} has no usable descriptive URL slug.",
-                    listing.listingId()
-            );
             return ListingTargetAssessment.NEEDS_DETAIL_INSPECTION;
         }
 
-        if (matchesTextStrict(slugText, configuration)) {
+        ListingTargetAssessment assessment = assessVisibleText(
+                slugText,
+                configuration
+        );
+
+        if (assessment == ListingTargetAssessment.MATCH) {
             log.info(
-                    "[TARGET URL] Marketplace listing {} matches SEARCH_QUERY using URL slug='{}'. No detail-page request is needed.",
+                    "[TARGET URL] Marketplace listing {} positively matches {} using URL slug='{}'.",
                     listing.listingId(),
+                    resolveTargetMode(configuration),
                     slugText
             );
+        } else if (assessment == ListingTargetAssessment.MISMATCH) {
+            log.warn(
+                    "[TARGET URL] Marketplace listing {} is a conclusive {} mismatch using URL slug='{}'.",
+                    listing.listingId(),
+                    resolveTargetMode(configuration),
+                    slugText
+            );
+        }
+
+        return assessment;
+    }
+
+    /**
+     * Assesses arbitrary visible identity text.
+     *
+     * VINTED_MODEL no longer means "blindly trust every persisted DISCOVERED
+     * row". A bot-scoped backlog can contain rows discovered under an older
+     * broken filter or before a later configuration change. Therefore:
+     * - conclusive different model -> MISMATCH,
+     * - positive configured model proof -> MATCH,
+     * - generic/ambiguous text -> NEEDS_DETAIL_INSPECTION.
+     */
+    public ListingTargetAssessment assessVisibleText(
+            String visibleText,
+            BotConfigurationDto configuration
+    ) {
+        validateConfiguration(configuration);
+
+        String normalizedText = normalizeVisibleText(visibleText);
+        if (normalizedText.isBlank()) {
+            return ListingTargetAssessment.NEEDS_DETAIL_INSPECTION;
+        }
+
+        if (usesVintedModelFilter(configuration)) {
+            var mismatch = vintedModelTargetGuard.findConclusiveMismatch(
+                    configuration.getModel(),
+                    normalizedText
+            );
+
+            if (mismatch.isPresent()) {
+                log.warn(
+                        "[VINTED MODEL TARGET] Conclusive mismatch for configured '{}': {}",
+                        configuration.getModel(),
+                        mismatch.get()
+                );
+                return ListingTargetAssessment.MISMATCH;
+            }
+
+            if (vintedModelTargetGuard.provesConfiguredModel(
+                    configuration.getModel(),
+                    normalizedText
+            )) {
+                return ListingTargetAssessment.MATCH;
+            }
+
+            return ListingTargetAssessment.NEEDS_DETAIL_INSPECTION;
+        }
+
+        if (matchesTextStrict(normalizedText, configuration)) {
             return ListingTargetAssessment.MATCH;
         }
 
-        if (hasClearConflict(slugText, configuration)) {
-            log.info(
-                    "[TARGET URL] Marketplace listing {} is a clear SEARCH_QUERY mismatch using URL slug='{}'. No detail-page request is needed.",
-                    listing.listingId(),
-                    slugText
-            );
+        if (hasClearConflict(normalizedText, configuration)) {
             return ListingTargetAssessment.MISMATCH;
         }
 
-        log.debug(
-                "[TARGET URL] Marketplace listing {} URL slug='{}' is still ambiguous for SEARCH_QUERY. Detail-page inspection may be required.",
-                listing.listingId(),
-                slugText
-        );
         return ListingTargetAssessment.NEEDS_DETAIL_INSPECTION;
     }
 
@@ -186,38 +208,27 @@ public class ListingTargetMatcher {
             String fullTitle,
             BotConfigurationDto configuration
     ) {
-        validateConfiguration(configuration);
+        ListingTargetAssessment assessment = assessVisibleText(
+                fullTitle,
+                configuration
+        );
 
-        if (usesVintedModelFilter(configuration)) {
+        if (assessment == ListingTargetAssessment.MATCH) {
             log.debug(
-                    "[TARGET MATCHER] Full-title semantic matching skipped because VINTED_MODEL uses the exact persisted Vinted model filter as source of truth."
+                    "[TARGET MATCHER] Full item title positively matches {} target. Full title='{}'.",
+                    resolveTargetMode(configuration),
+                    normalizeVisibleText(fullTitle)
             );
             return true;
         }
 
-        String normalizedTitle = normalizeVisibleText(fullTitle);
-        if (normalizedTitle.isBlank()) {
-            return false;
-        }
-
-        boolean matches = matchesTextStrict(
-                normalizedTitle,
-                configuration
+        log.info(
+                "[TARGET MATCHER] Full item title does not positively prove {} target. Assessment={}, full title='{}'.",
+                resolveTargetMode(configuration),
+                assessment,
+                normalizeVisibleText(fullTitle)
         );
-
-        if (matches) {
-            log.debug(
-                    "[TARGET MATCHER] Full item title matches SEARCH_QUERY target. Full title='{}'.",
-                    normalizedTitle
-            );
-        } else {
-            log.info(
-                    "[TARGET MATCHER] Full item title does not match SEARCH_QUERY target. Full title='{}'.",
-                    normalizedTitle
-            );
-        }
-
-        return matches;
+        return false;
     }
 
     public boolean matches(
@@ -307,13 +318,6 @@ public class ListingTargetMatcher {
         return false;
     }
 
-    /*
-     * Examples:
-     * s11       -> s11
-     * iphone 17 -> iphone17
-     * pixel 10  -> pixel10
-     * fold 8    -> fold8
-     */
     private List<String> extractModelKeys(List<String> tokens) {
         List<String> result = new ArrayList<>();
 
@@ -330,14 +334,10 @@ public class ListingTargetMatcher {
                 continue;
             }
 
-            if (token.matches("^\\d+[a-z]*$") && index > 0) {
-                String previousToken = tokens.get(index - 1);
-
-                if (previousToken.matches("^[a-z]+$")
-                        && !VARIANT_TOKENS.contains(previousToken)
-                        && !TECHNICAL_MODEL_CODE_PREFIX_TOKENS.contains(previousToken)) {
-                    result.add(previousToken + token);
-                }
+            if (index + 1 < tokens.size()
+                    && SPLIT_MODEL_FAMILIES.contains(token)
+                    && tokens.get(index + 1).matches("^\\d+[a-z]*$")) {
+                result.add(token + tokens.get(index + 1));
             }
         }
 
@@ -453,17 +453,14 @@ public class ListingTargetMatcher {
         boolean[] matched = new boolean[targetTokens.size()];
 
         for (int targetIndex = 0;
-                targetIndex < targetTokens.size();
-                targetIndex++) {
+             targetIndex < targetTokens.size();
+             targetIndex++) {
             String targetToken = targetTokens.get(targetIndex);
             if (candidateTokens.contains(targetToken)) {
                 matched[targetIndex] = true;
             }
         }
 
-        /*
-         * Joined variants such as S11Ultra, TabS11Ultra, Fold8Ultra.
-         */
         for (String candidateToken : candidateTokens) {
             for (int start = 0; start < targetTokens.size(); start++) {
                 StringBuilder joined = new StringBuilder();
@@ -580,9 +577,6 @@ public class ListingTargetMatcher {
         for (int index = 0; index < rawTokens.length; index++) {
             String token = rawTokens[index];
 
-            /*
-             * "s 11" -> "s11", "a 55" -> "a55".
-             */
             if (token.matches("^[a-z]$")
                     && index + 1 < rawTokens.length
                     && rawTokens[index + 1].matches("^\\d+[a-z]*$")) {
