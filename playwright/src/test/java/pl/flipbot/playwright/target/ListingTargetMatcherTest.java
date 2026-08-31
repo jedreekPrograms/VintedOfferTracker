@@ -3,6 +3,7 @@ package pl.flipbot.playwright.target;
 import org.junit.Test;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -62,18 +63,68 @@ public class ListingTargetMatcherTest {
     }
 
     @Test
-    public void vintedModelDoesNotReinterpretListingsAfterExactFilterSelection() {
+    public void vintedModelRejectsWrongPersistedBacklogModel() {
+        assertEquals(
+                ListingTargetAssessment.MISMATCH,
+                matcher.assessVisibleText(
+                        "Samsung Galaxy Tab S9 FE+",
+                        samsungVintedModel("Galaxy S25")
+                )
+        );
+    }
+
+    @Test
+    public void vintedModelRejectsDifferentFamily() {
+        assertEquals(
+                ListingTargetAssessment.MISMATCH,
+                matcher.assessVisibleText(
+                        "Samsung Galaxy Z Fold5",
+                        samsungVintedModel("Galaxy S25")
+                )
+        );
+    }
+
+    @Test
+    public void vintedModelGenericSellerTitleRequiresLiveIdentity() {
+        assertEquals(
+                ListingTargetAssessment.NEEDS_DETAIL_INSPECTION,
+                matcher.assessVisibleText(
+                        "Tablet z wyświetlaczem do wymiany",
+                        samsungVintedModel("Galaxy S25")
+                )
+        );
+    }
+
+    @Test
+    public void vintedModelExactStoredTitleIsPositiveProof() {
+        assertEquals(
+                ListingTargetAssessment.MATCH,
+                matcher.assessVisibleText(
+                        "Samsung Galaxy S25 128 GB",
+                        samsungVintedModel("Galaxy S25")
+                )
+        );
+    }
+
+    @Test
+    public void vintedModelFullTitleNoLongerBlindlyTrustsBotBacklog() {
         BotConfigurationDto configuration = samsungVintedModel("Galaxy S25");
 
-        assertTrue(
+        assertFalse(
                 matcher.matchesFullTitle(
                         "Seller wrote a completely custom title",
                         configuration
                 )
         );
+        assertFalse(
+                matcher.matchesFullTitle(
+                        "Samsung Galaxy Tab S9 FE+",
+                        configuration
+                )
+        );
         assertTrue(
                 matcher.matchesFullTitle(
-                        "Samsung Galaxy S25 Edge text would be irrelevant here because the exact Vinted filter already defines the result set",
+                        "Samsung Galaxy S25",
                         configuration
                 )
         );
