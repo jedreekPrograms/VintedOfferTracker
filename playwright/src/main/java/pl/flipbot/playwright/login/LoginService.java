@@ -83,8 +83,14 @@ public class LoginService {
                 context.getBot().getId()
         );
 
+        /*
+         * MarketplaceNavigator.goToHome() already waits for DOMContentLoaded.
+         * Waiting again for Playwright's full LOAD state made otherwise usable
+         * Vinted pages fail after 30 seconds when a slow/non-essential resource
+         * (ads, analytics, CDN) did not finish. Authentication readiness below
+         * is verified from concrete UI/session signals instead.
+         */
         new MarketplaceNavigator(context).goToHome();
-        page.waitForLoadState();
 
         acceptCookiesIfVisible(page);
 
