@@ -9,6 +9,7 @@ import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
+import pl.flipbot.playwright.target.VintedModelTargetGuard;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -29,6 +30,11 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     private static final int CANNOT_NEGOTIATE_CONFIRMATION_ATTEMPTS = 3;
     private static final double CANNOT_NEGOTIATE_RETRY_DELAY_MS = 1_500;
     private static final double CANNOT_NEGOTIATE_RELOAD_TIMEOUT_MS = 30_000;
+    private static final double STUCK_OFFER_FORM_RESET_TIMEOUT_MS = 30_000;
+    private static final double STUCK_OFFER_FORM_SETTLE_MS = 500;
+
+    private static final String ITEM_TITLE_SELECTOR =
+            "[data-testid='item-page-summary-plugin'] h1";
 
     /*
      * Playwright Java serializes Java Pattern flags to JavaScript RegExp flags.
@@ -43,11 +49,13 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
 
     private final BotContext context;
     private final AdaptiveNegotiationPricingService pricingService;
+    private final VintedModelTargetGuard modelTargetGuard;
 
     public AdaptiveFirstOfferExecutor(BotContext context) {
         super(context);
         this.context = context;
         this.pricingService = new AdaptiveNegotiationPricingService();
+        this.modelTargetGuard = new VintedModelTargetGuard();
     }
 
     static Pattern soldStatusPattern() {
@@ -58,11 +66,16 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     public NegotiationPreparationResult prepareFirstOffer(
             ListingResponseDto listing
     ) {
+        resetStuckOfferFormBeforeSameListingRetry(listing);
+
         NegotiationPreparationResult configuredResult =
                 prepareWithNegotiationActionConfirmation(listing);
 
         if (configuredResult != NegotiationPreparationResult.OFFER_TOO_LOW) {
-            return configuredResult;
+            return applyLiveModelConsistencyGuard(
+                    listing,
+                    configuredResult
+            );
         }
 
         BotConfigurationDto configuration = context.getBot().getConfiguration();
@@ -84,6 +97,15 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
 
         while (retryPrice.isPresent()) {
             BigDecimal effectivePrice = retryPrice.get();
+
+            /*
+             * Vinted sometimes leaves the too-low offer form visible even
+             * after Escape. Re-entering FirstOfferExecutor in that state used
+             * to fail with "Offer form was already visible" and waste the
+             * whole candidate/run. No submit or quota happened yet, so a page
+             * reload is a safe way to restore a clean item-page state.
+             */
+            resetStuckOfferFormBeforeSameListingRetry(listing);
 
             log.warn(
                     "[ADAPTIVE FIRST OFFER] Retrying marketplace listing {} with adaptive first offer {} instead of configured {}. Global negotiation cap={}.",
@@ -108,7 +130,10 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
             }
 
             if (retryResult != NegotiationPreparationResult.OFFER_TOO_LOW) {
-                return retryResult;
+                return applyLiveModelConsistencyGuard(
+                        listing,
+                        retryResult
+                );
             }
 
             retryPrice = pricingService.nextFirstOfferRetry(
@@ -124,6 +149,160 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
         );
 
         return NegotiationPreparationResult.OFFER_TOO_LOW;
+    }
+
+    /**
+     * Historical DISCOVERED records do not carry proof that they were created
+     * by today's exact Vinted model filter. Therefore, immediately before a
+     * prepared real offer can reach quota/submit, compare the already-loaded
+     * item-page title with the configured model and reject only CONCLUSIVE
+     * conflicts. Generic seller titles remain allowed.
+     */
+    private NegotiationPreparationResult applyLiveModelConsistencyGuard(
+            ListingResponseDto listing,
+            NegotiationPreparationResult result
+    ) {
+        if (result != NegotiationPreparationResult.PREPARED) {
+            return result;
+        }
+
+        BotConfigurationDto configuration = context.getBot().getConfiguration();
+        if (!usesVintedModelFilter(configuration)) {
+            return result;
+        }
+
+        String visibleTitle = readVisibleItemTitle();
+        if (visibleTitle == null || visibleTitle.isBlank()) {
+            cancelPreparedOfferSafely();
+            throw new IllegalStateException(
+                    "Prepared VINTED_MODEL offer cannot pass final live target consistency because the visible item h1 disappeared before quota reservation. Marketplace listing: "
+                            + listing.listingId()
+            );
+        }
+
+        Optional<String> mismatch = modelTargetGuard.findConclusiveMismatch(
+                configuration.getModel(),
+                visibleTitle
+        );
+
+        if (mismatch.isPresent()) {
+            log.error(
+                    "[LIVE TARGET GUARD] Marketplace listing {} is a conclusive wrong-model match for configured Vinted model '{}'. Visible h1='{}'. Reason: {}. Prepared form will be cancelled; no quota or offer will be used.",
+                    listing.listingId(),
+                    configuration.getModel(),
+                    visibleTitle,
+                    mismatch.get()
+            );
+
+            cancelPreparedOfferSafely();
+            resetStuckOfferFormBeforeSameListingRetry(listing);
+            return NegotiationPreparationResult.TARGET_MISMATCH;
+        }
+
+        log.info(
+                "[LIVE TARGET GUARD] Marketplace listing {} passed final live model consistency for configured '{}'. Visible h1='{}'.",
+                listing.listingId(),
+                configuration.getModel(),
+                visibleTitle
+        );
+
+        return result;
+    }
+
+    private boolean usesVintedModelFilter(BotConfigurationDto configuration) {
+        if (configuration == null) {
+            return false;
+        }
+
+        String targetMode = configuration.getTargetMode();
+        return targetMode == null
+                || targetMode.isBlank()
+                || "VINTED_MODEL".equalsIgnoreCase(targetMode.trim());
+    }
+
+    private String readVisibleItemTitle() {
+        try {
+            Locator title = context.getPage()
+                    .locator(ITEM_TITLE_SELECTOR)
+                    .first();
+
+            if (!title.isVisible()) {
+                return null;
+            }
+
+            String value = title.innerText();
+            if (value == null) {
+                return null;
+            }
+
+            return value.trim().replaceAll("\\s+", " ");
+        } catch (PlaywrightException exception) {
+            log.debug(
+                    "[LIVE TARGET GUARD] Could not read the current item title.",
+                    exception
+            );
+            return null;
+        }
+    }
+
+    private void resetStuckOfferFormBeforeSameListingRetry(
+            ListingResponseDto listing
+    ) {
+        if (listing == null
+                || listing.listingId() == null
+                || listing.listingId().isBlank()) {
+            return;
+        }
+
+        Page page = context.getPage();
+        if (page == null || page.isClosed()) {
+            return;
+        }
+
+        String currentUrl = page.url();
+        if (currentUrl == null
+                || !currentUrl.contains("/items/" + listing.listingId())) {
+            return;
+        }
+
+        Locator priceInput = page.getByTestId(
+                        NegotiationSelectors.OFFER_PRICE_INPUT
+                )
+                .first();
+
+        boolean visible;
+        try {
+            visible = priceInput.isVisible();
+        } catch (PlaywrightException exception) {
+            visible = false;
+        }
+
+        if (!visible) {
+            return;
+        }
+
+        log.warn(
+                "[ADAPTIVE FIRST OFFER] Offer form is still visible for marketplace listing {} before a safe pre-submit retry. Reloading the item page to clear stale modal state. No quota has been reserved and no submit was attempted.",
+                listing.listingId()
+        );
+
+        page.reload(
+                new Page.ReloadOptions()
+                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(STUCK_OFFER_FORM_RESET_TIMEOUT_MS)
+        );
+        page.waitForTimeout(STUCK_OFFER_FORM_SETTLE_MS);
+
+        try {
+            if (priceInput.isVisible()) {
+                throw new IllegalStateException(
+                        "Offer form remained visible after safe item-page reset for marketplace listing "
+                                + listing.listingId()
+                );
+            }
+        } catch (PlaywrightException ignored) {
+            /* DOM was replaced by reload, which is the desired outcome. */
+        }
     }
 
     private NegotiationPreparationResult prepareWithNegotiationActionConfirmation(
