@@ -1,6 +1,5 @@
 package pl.flipbot.playwright.target;
 
-import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.options.WaitUntilState;
@@ -10,32 +9,23 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
+import java.text.Normalizer;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 public class ListingDetailTargetInspector {
 
     private static final double NAVIGATION_TIMEOUT_MS = 30_000;
-    private static final double TITLE_TIMEOUT_MS = 10_000;
-    private static final double TITLE_POLL_INTERVAL_MS = 250;
+    private static final double IDENTITY_TIMEOUT_MS = 10_000;
+    private static final double IDENTITY_POLL_INTERVAL_MS = 250;
 
-    private static final long FULL_TITLE_CACHE_TTL_MS =
+    private static final long IDENTITY_CACHE_TTL_MS =
             30L * 60L * 1_000L;
 
-    private static final int MAX_FULL_TITLE_CACHE_ENTRIES = 5_000;
-
-    /*
-     * The first selector is Vinted's normal item-page structure. The generic
-     * fallbacks matter for alternate/cross-border item layouts where the same
-     * visible title is rendered outside item-page-summary-plugin.
-     */
-    private static final String[] ITEM_TITLE_SELECTORS = {
-            "[data-testid='item-page-summary-plugin'] h1",
-            "main h1",
-            "h1"
-    };
+    private static final int MAX_IDENTITY_CACHE_ENTRIES = 5_000;
 
     private static final String[] RATE_LIMIT_MARKERS = {
             "you are rate limited",
@@ -54,16 +44,20 @@ public class ListingDetailTargetInspector {
 
     private final BotContext context;
     private final ListingTargetMatcher listingTargetMatcher;
+    private final VintedModelTargetGuard vintedModelTargetGuard =
+            new VintedModelTargetGuard();
+    private final VintedItemIdentityReader itemIdentityReader =
+            new VintedItemIdentityReader();
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
 
-    private final Map<String, CachedTitle> fullTitleCache =
+    private final Map<String, CachedIdentity> identityCache =
             new LinkedHashMap<>(128, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(
-                        Map.Entry<String, CachedTitle> eldest
+                        Map.Entry<String, CachedIdentity> eldest
                 ) {
-                    return size() > MAX_FULL_TITLE_CACHE_ENTRIES;
+                    return size() > MAX_IDENTITY_CACHE_ENTRIES;
                 }
             };
 
@@ -78,96 +72,156 @@ public class ListingDetailTargetInspector {
     public boolean hasCachedFullTitle(
             String marketplaceListingId
     ) {
-        return getCachedFullTitle(marketplaceListingId) != null;
+        CachedIdentity cached = getCachedIdentity(marketplaceListingId);
+        return cached != null
+                && cached.identity() != null
+                && !cached.identity().title().isBlank();
     }
 
     public boolean matchesConfiguredTarget(
             ListingResponseDto listing,
             BotConfigurationDto configuration
     ) {
-        /*
-         * VINTED_MODEL has already been proven by FilterActions and persisted
-         * in the catalog URL. Opening every item page to reinterpret the title
-         * would be both wasteful and conceptually wrong: seller-written text
-         * is not the target classifier in this mode.
-         */
-        if (listingTargetMatcher.usesVintedModelFilter(configuration)) {
-            log.debug(
-                    "[TARGET DETAIL] Marketplace listing {} accepted without semantic item-title verification because VINTED_MODEL trusts the exact persisted Vinted model filter.",
-                    listing == null ? null : listing.listingId()
-            );
-            return true;
-        }
-
         if (listing == null
                 || listing.url() == null
                 || listing.url().isBlank()) {
             log.warn(
-                    "[TARGET DETAIL] Listing has no usable URL. It cannot be inspected safely for SEARCH_QUERY."
+                    "[TARGET DETAIL] Listing has no usable URL. It cannot be verified safely."
             );
             return false;
         }
 
-        String cachedFullTitle = getCachedFullTitle(
-                listing.listingId()
-        );
+        if (listingTargetMatcher.usesVintedModelFilter(configuration)) {
+            return matchesVintedModelTarget(listing, configuration);
+        }
 
-        if (cachedFullTitle != null) {
-            boolean cachedMatches = listingTargetMatcher.matchesFullTitle(
-                    cachedFullTitle,
-                    configuration
-            );
+        return matchesSearchQueryTarget(listing, configuration);
+    }
 
-            log.info(
-                    "[TARGET CACHE] Marketplace listing {} reused cached full title='{}'. Match={}. No Vinted item-page request was performed.",
+    private boolean matchesVintedModelTarget(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration
+    ) {
+        VintedItemIdentityReader.ItemIdentity identity =
+                getOrLoadIdentity(listing);
+
+        String configuredBrand = normalizeIdentity(configuration.getBrand());
+        String observedBrand = normalizeIdentity(identity.brand());
+
+        if (!configuredBrand.isBlank()
+                && !observedBrand.isBlank()
+                && !configuredBrand.equals(observedBrand)) {
+            log.error(
+                    "[TARGET DETAIL] Marketplace listing {} is wrong brand for bot target. Configured brand='{}', structured Vinted brand='{}'.",
                     listing.listingId(),
-                    cachedFullTitle,
-                    cachedMatches
-            );
-
-            return cachedMatches;
-        }
-
-        Page page = context.getPage();
-
-        log.info(
-                "[TARGET DETAIL] Opening marketplace listing {} for live SEARCH_QUERY title verification: {}",
-                listing.listingId(),
-                listing.url()
-        );
-
-        page.navigate(
-                listing.url(),
-                new Page.NavigateOptions()
-                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
-                        .setTimeout(NAVIGATION_TIMEOUT_MS)
-        );
-
-        throwIfRateLimited(page, listing);
-        humanVerificationHandler.waitUntilVerified(page);
-        throwIfRateLimited(page, listing);
-
-        Locator itemTitle = waitForVisibleItemTitle(
-                page,
-                listing
-        );
-
-        String fullTitle = normalizeVisibleText(
-                itemTitle.innerText()
-        );
-
-        if (fullTitle.isBlank()) {
-            log.warn(
-                    "[TARGET DETAIL] Item page title is empty for marketplace listing {}. The listing will be skipped fail-closed for this cycle.",
-                    listing.listingId()
+                    configuration.getBrand(),
+                    identity.brand()
             );
             return false;
         }
 
-        cacheFullTitle(
-                listing.listingId(),
-                fullTitle
+        if (identity.hasStructuredModel()) {
+            Optional<String> mismatch =
+                    vintedModelTargetGuard.findConclusiveMismatch(
+                            configuration.getModel(),
+                            identity.model()
+                    );
+
+            if (mismatch.isPresent()) {
+                log.error(
+                        "[TARGET DETAIL] Marketplace listing {} failed structured Vinted model verification. Configured model='{}', structured model='{}'. Reason: {}",
+                        listing.listingId(),
+                        configuration.getModel(),
+                        identity.model(),
+                        mismatch.get()
+                );
+                return false;
+            }
+
+            if (vintedModelTargetGuard.provesConfiguredModel(
+                    configuration.getModel(),
+                    identity.model()
+            )) {
+                log.info(
+                        "[TARGET DETAIL] Marketplace listing {} positively verified from structured Vinted identity. Brand='{}', model='{}', h1='{}'.",
+                        listing.listingId(),
+                        identity.brand(),
+                        identity.model(),
+                        identity.title()
+                );
+                return true;
+            }
+
+            throw new IllegalStateException(
+                    "Structured Vinted model field could not positively prove configured model '"
+                            + configuration.getModel()
+                            + "' for marketplace listing "
+                            + listing.listingId()
+                            + ". Structured model='"
+                            + identity.model()
+                            + "'. Failing closed for this cycle."
+            );
+        }
+
+        ListingTargetAssessment titleAssessment =
+                listingTargetMatcher.assessVisibleText(
+                        identity.title(),
+                        configuration
+                );
+
+        if (titleAssessment == ListingTargetAssessment.MATCH) {
+            log.info(
+                    "[TARGET DETAIL] Marketplace listing {} has no readable structured model field, but live h1 positively proves configured Vinted model '{}'. h1='{}'.",
+                    listing.listingId(),
+                    configuration.getModel(),
+                    identity.title()
+            );
+            return true;
+        }
+
+        if (titleAssessment == ListingTargetAssessment.MISMATCH) {
+            log.error(
+                    "[TARGET DETAIL] Marketplace listing {} has no readable structured model field and live h1 conclusively conflicts with configured Vinted model '{}'. h1='{}'.",
+                    listing.listingId(),
+                    configuration.getModel(),
+                    identity.title()
+            );
+            return false;
+        }
+
+        /*
+         * Generic titles such as "Tablet z wyświetlaczem do wymiany" must not
+         * be treated as proof of Galaxy S25. If Vinted's structured Model field
+         * cannot be read, keep the listing DISCOVERED and retry later instead
+         * of either sending an unsafe offer or permanently misclassifying it.
+         */
+        throw new IllegalStateException(
+                "Live Vinted item identity is ambiguous for configured model '"
+                        + configuration.getModel()
+                        + "' and marketplace listing "
+                        + listing.listingId()
+                        + ". h1='"
+                        + identity.title()
+                        + "', structured brand='"
+                        + identity.brand()
+                        + "', structured model is unavailable. Failing closed for this cycle."
         );
+    }
+
+    private boolean matchesSearchQueryTarget(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration
+    ) {
+        VintedItemIdentityReader.ItemIdentity identity =
+                getOrLoadIdentity(listing);
+
+        String fullTitle = identity.title();
+        if (fullTitle.isBlank()) {
+            throw new IllegalStateException(
+                    "No visible item h1 was found for marketplace listing "
+                            + listing.listingId()
+            );
+        }
 
         boolean matches = listingTargetMatcher.matchesFullTitle(
                 fullTitle,
@@ -193,75 +247,89 @@ public class ListingDetailTargetInspector {
         return matches;
     }
 
-    private Locator waitForVisibleItemTitle(
+    private VintedItemIdentityReader.ItemIdentity getOrLoadIdentity(
+            ListingResponseDto listing
+    ) {
+        CachedIdentity cached = getCachedIdentity(listing.listingId());
+        if (cached != null) {
+            log.info(
+                    "[TARGET CACHE] Marketplace listing {} reused cached live identity. h1='{}', brand='{}', model='{}'. No Vinted item-page request was performed.",
+                    listing.listingId(),
+                    cached.identity().title(),
+                    cached.identity().brand(),
+                    cached.identity().model()
+            );
+            return cached.identity();
+        }
+
+        Page page = context.getPage();
+
+        log.info(
+                "[TARGET DETAIL] Opening marketplace listing {} for live identity verification: {}",
+                listing.listingId(),
+                listing.url()
+        );
+
+        page.navigate(
+                listing.url(),
+                new Page.NavigateOptions()
+                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(NAVIGATION_TIMEOUT_MS)
+        );
+
+        throwIfRateLimited(page, listing);
+        humanVerificationHandler.waitUntilVerified(page);
+        throwIfRateLimited(page, listing);
+
+        VintedItemIdentityReader.ItemIdentity identity =
+                waitForReadableIdentity(page, listing);
+
+        cacheIdentity(listing.listingId(), identity);
+        return identity;
+    }
+
+    private VintedItemIdentityReader.ItemIdentity waitForReadableIdentity(
             Page page,
             ListingResponseDto listing
     ) {
         long deadline = System.currentTimeMillis()
-                + (long) TITLE_TIMEOUT_MS;
+                + (long) IDENTITY_TIMEOUT_MS;
+
+        VintedItemIdentityReader.ItemIdentity lastIdentity =
+                VintedItemIdentityReader.ItemIdentity.empty();
 
         while (System.currentTimeMillis() < deadline) {
             throwIfRateLimited(page, listing);
             throwIfListingUnavailable(page, listing);
 
-            Locator visibleTitle = findVisibleItemTitle(page);
-            if (visibleTitle != null) {
-                log.info(
-                        "[TARGET DETAIL] Visible item title found for marketplace listing {} using live page URL {}.",
-                        listing.listingId(),
-                        page.url()
-                );
-                return visibleTitle;
+            lastIdentity = itemIdentityReader.read(page);
+
+            if (lastIdentity.hasStructuredModel()
+                    || !lastIdentity.title().isBlank()) {
+                return lastIdentity;
             }
 
-            page.waitForTimeout(TITLE_POLL_INTERVAL_MS);
+            page.waitForTimeout(IDENTITY_POLL_INTERVAL_MS);
         }
 
         throwIfRateLimited(page, listing);
         throwIfListingUnavailable(page, listing);
 
         throw new IllegalStateException(
-                "No visible item h1 was found within "
-                        + Math.round(TITLE_TIMEOUT_MS / 1_000)
+                "No readable Vinted item identity was found within "
+                        + Math.round(IDENTITY_TIMEOUT_MS / 1_000)
                         + " seconds for marketplace listing "
                         + listing.listingId()
                         + ". Current URL: "
                         + page.url()
-                        + ". Checked selectors: "
-                        + String.join(", ", ITEM_TITLE_SELECTORS)
+                        + ". Last h1='"
+                        + lastIdentity.title()
+                        + "', brand='"
+                        + lastIdentity.brand()
+                        + "', model='"
+                        + lastIdentity.model()
+                        + "'."
         );
-    }
-
-    private Locator findVisibleItemTitle(Page page) {
-        for (String selector : ITEM_TITLE_SELECTORS) {
-            Locator candidates = page.locator(selector);
-            int count;
-
-            try {
-                count = Math.min(candidates.count(), 10);
-            } catch (PlaywrightException exception) {
-                continue;
-            }
-
-            for (int index = 0; index < count; index++) {
-                Locator candidate = candidates.nth(index);
-
-                try {
-                    if (!candidate.isVisible()) {
-                        continue;
-                    }
-
-                    String text = normalizeVisibleText(candidate.innerText());
-                    if (!text.isBlank()) {
-                        return candidate;
-                    }
-                } catch (PlaywrightException ignored) {
-                    // DOM changed while polling. Try the next candidate/poll.
-                }
-            }
-        }
-
-        return null;
     }
 
     private void throwIfRateLimited(
@@ -328,27 +396,26 @@ public class ListingDetailTargetInspector {
         }
     }
 
-    private void cacheFullTitle(
+    private void cacheIdentity(
             String marketplaceListingId,
-            String fullTitle
+            VintedItemIdentityReader.ItemIdentity identity
     ) {
         if (marketplaceListingId == null
                 || marketplaceListingId.isBlank()
-                || fullTitle == null
-                || fullTitle.isBlank()) {
+                || identity == null) {
             return;
         }
 
-        fullTitleCache.put(
+        identityCache.put(
                 marketplaceListingId,
-                new CachedTitle(
-                        fullTitle,
+                new CachedIdentity(
+                        identity,
                         System.currentTimeMillis()
                 )
         );
     }
 
-    private String getCachedFullTitle(
+    private CachedIdentity getCachedIdentity(
             String marketplaceListingId
     ) {
         if (marketplaceListingId == null
@@ -356,37 +423,35 @@ public class ListingDetailTargetInspector {
             return null;
         }
 
-        CachedTitle cachedTitle = fullTitleCache.get(
-                marketplaceListingId
-        );
-
-        if (cachedTitle == null) {
+        CachedIdentity cached = identityCache.get(marketplaceListingId);
+        if (cached == null) {
             return null;
         }
 
-        long age = System.currentTimeMillis()
-                - cachedTitle.cachedAtMillis();
-
-        if (age > FULL_TITLE_CACHE_TTL_MS) {
-            fullTitleCache.remove(marketplaceListingId);
+        long age = System.currentTimeMillis() - cached.cachedAtMillis();
+        if (age > IDENTITY_CACHE_TTL_MS) {
+            identityCache.remove(marketplaceListingId);
             return null;
         }
 
-        return cachedTitle.title();
+        return cached;
     }
 
-    private String normalizeVisibleText(String value) {
+    private String normalizeIdentity(String value) {
         if (value == null) {
             return "";
         }
 
-        return value
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", " ")
                 .trim()
                 .replaceAll("\\s+", " ");
     }
 
-    private record CachedTitle(
-            String title,
+    private record CachedIdentity(
+            VintedItemIdentityReader.ItemIdentity identity,
             long cachedAtMillis
     ) {
     }
