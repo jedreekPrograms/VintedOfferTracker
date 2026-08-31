@@ -1,17 +1,17 @@
 package pl.flipbot.playwright.target;
 
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
-class VintedModelTargetGuardTest {
+public class VintedModelTargetGuardTest {
 
     private final VintedModelTargetGuard guard =
             new VintedModelTargetGuard();
 
     @Test
-    void rejectsFlip4WhenBotTargetsS25() {
+    public void rejectsFlip4WhenBotTargetsS25() {
         assertTrue(
                 guard.findConclusiveMismatch(
                         "Galaxy S25",
@@ -21,7 +21,7 @@ class VintedModelTargetGuardTest {
     }
 
     @Test
-    void rejectsDifferentSSeriesModel() {
+    public void rejectsDifferentSSeriesModel() {
         assertTrue(
                 guard.findConclusiveMismatch(
                         "Galaxy S25",
@@ -31,7 +31,7 @@ class VintedModelTargetGuardTest {
     }
 
     @Test
-    void rejectsUnexpectedVariant() {
+    public void rejectsUnexpectedVariant() {
         assertTrue(
                 guard.findConclusiveMismatch(
                         "Galaxy S25",
@@ -41,7 +41,7 @@ class VintedModelTargetGuardTest {
     }
 
     @Test
-    void acceptsMatchingS25Title() {
+    public void acceptsMatchingS25Title() {
         assertFalse(
                 guard.findConclusiveMismatch(
                         "Galaxy S25",
@@ -51,7 +51,7 @@ class VintedModelTargetGuardTest {
     }
 
     @Test
-    void doesNotRejectAmbiguousGenericTitle() {
+    public void doesNotRejectAmbiguousGenericTitle() {
         assertFalse(
                 guard.findConclusiveMismatch(
                         "Galaxy S25",
@@ -61,7 +61,7 @@ class VintedModelTargetGuardTest {
     }
 
     @Test
-    void ignoresSamsungTechnicalProductCodeAsModelEvidence() {
+    public void ignoresSamsungTechnicalProductCodeAsModelEvidence() {
         assertFalse(
                 guard.findConclusiveMismatch(
                         "Galaxy S25",
