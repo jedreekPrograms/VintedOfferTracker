@@ -13,7 +13,9 @@ spring:
         format_sql: true
 
   flyway:
-    enabled: false
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 33
 
   web:
     error:
