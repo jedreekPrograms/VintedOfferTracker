@@ -46,6 +46,17 @@ function AppDialog({
     const inputId = useId();
     const inputRef = useRef<HTMLInputElement>(null);
     const cancelRef = useRef<HTMLButtonElement>(null);
+    const onCancelRef = useRef(onCancel);
+    const busyRef = useRef(busy);
+    const hasInput = input !== undefined;
+
+    useEffect(() => {
+        onCancelRef.current = onCancel;
+    }, [onCancel]);
+
+    useEffect(() => {
+        busyRef.current = busy;
+    }, [busy]);
 
     useEffect(() => {
         if (!open) {
@@ -56,7 +67,7 @@ function AppDialog({
         document.body.style.overflow = "hidden";
 
         const animationFrame = window.requestAnimationFrame(() => {
-            if (input !== undefined) {
+            if (hasInput) {
                 inputRef.current?.focus();
                 inputRef.current?.select();
             } else {
@@ -65,9 +76,9 @@ function AppDialog({
         });
 
         function handleKeyDown(event: KeyboardEvent) {
-            if (event.key === "Escape" && !busy) {
+            if (event.key === "Escape" && !busyRef.current) {
                 event.preventDefault();
-                onCancel();
+                onCancelRef.current();
             }
         }
 
@@ -78,7 +89,7 @@ function AppDialog({
             document.removeEventListener("keydown", handleKeyDown);
             document.body.style.overflow = previousOverflow;
         };
-    }, [busy, input, onCancel, open]);
+    }, [hasInput, open]);
 
     if (!open) {
         return null;
