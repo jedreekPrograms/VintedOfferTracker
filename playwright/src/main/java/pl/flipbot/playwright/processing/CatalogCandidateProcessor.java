@@ -19,16 +19,6 @@ import java.util.Set;
 @Slf4j
 public class CatalogCandidateProcessor {
 
-    /*
-     * A listing that is already DISCOVERED but has never started a
-     * negotiation must not starve just because newer items keep appearing.
-     *
-     * Every cycle starts with the oldest persisted DISCOVERED backlog item,
-     * then gives two slots to genuinely new listings before progressing the
-     * backlog again. This guarantees backlog progress even when the real-offer
-     * run limit is only one, while still keeping most capacity focused on new
-     * marketplace offers.
-     */
     private static final int FRESH_PRIORITY_BATCH = 2;
     private static final int BACKLOG_PROGRESS_BATCH = 1;
 
@@ -53,13 +43,18 @@ public class CatalogCandidateProcessor {
         );
     }
 
-    public List<ListingResponseDto> process() {
+    /**
+     * Builds one bot's candidate pool and carries CURRENT-SCAN provenance next
+     * to the prioritized persisted backlog.
+     *
+     * The backend endpoint is already bot-scoped: bot 4 loads bot 4 DISCOVERED,
+     * bot 9 loads bot 9 DISCOVERED, etc. The important extra distinction is
+     * that belonging to a bot's persisted backlog is NOT by itself proof of
+     * the bot's current model configuration.
+     */
+    public CandidateBatch process() {
         Long botId = context.getBot().getId();
 
-        /*
-         * 1. Scan what is visible in the current filtered Vinted catalog.
-         * LinkedHashSet intentionally preserves newest-first scan ordering.
-         */
         var scannedListings = listingScanner.scan();
 
         Set<String> currentScanListingIds = new LinkedHashSet<>();
@@ -70,23 +65,18 @@ public class CatalogCandidateProcessor {
         }
 
         log.info(
-                "[CATALOG CANDIDATES] Current scan contains {} unique marketplace listings.",
+                "[CATALOG CANDIDATES] Bot {} current filtered scan contains {} unique marketplace listings. Only these IDs carry current-scan target provenance in this cycle.",
+                botId,
                 currentScanListingIds.size()
         );
 
         if (currentScanListingIds.isEmpty()) {
             log.warn(
-                    "[CATALOG CANDIDATES] Current filtered scan is empty. "
-                            + "No new listings can be discovered this cycle, but the persisted DISCOVERED backlog will still be considered safely."
+                    "[CATALOG CANDIDATES] Bot {} current filtered scan is empty. Persisted DISCOVERED backlog may still be considered, but NONE of it will inherit current-filter model proof.",
+                    botId
             );
         }
 
-        /*
-         * 2. Persist genuinely new current-scan listings.
-         * The backend remains authoritative for listing identity within this
-         * bot. A listing already known to this bot is intentionally not
-         * recreated and remains in its existing lifecycle state.
-         */
         var newlyClaimedListings = listingProcessingService.process(scannedListings);
 
         Set<String> newlyClaimedListingIds = new LinkedHashSet<>();
@@ -105,17 +95,10 @@ public class CatalogCandidateProcessor {
         );
 
         /*
-         * 3. Load the whole DISCOVERED backlog for this bot.
-         *
-         * IMPORTANT: a listing is backlog whenever it was already DISCOVERED
-         * before this scan, even if it still appears on the current Vinted
-         * page. That distinction prevents a yesterday listing from being
-         * treated as forever "fresh" and pushed behind tomorrow's new items.
-         *
-         * An older DISCOVERED listing is NOT discarded merely because it has
-         * fallen off the current first catalog page. It still has a stored
-         * direct URL and will go through target verification, availability
-         * checks and all real-action guards before submit.
+         * This endpoint is explicitly scoped by botId. Each bot therefore has
+         * its own persisted DISCOVERED pool. Old bad rows can still exist in
+         * that pool from historical filter bugs/config changes, so target proof
+         * is tracked separately through currentScanListingIds.
          */
         List<ListingResponseDto> discoveredListings =
                 listingClient.getDiscoveredListings(botId);
@@ -127,8 +110,8 @@ public class CatalogCandidateProcessor {
         );
 
         log.info(
-                "[CATALOG CANDIDATES] DISCOVERED listings: backend={}, genuinelyNew={}, backlog={}. "
-                        + "Processing starts with the oldest backlog item, then uses {} fresh : {} backlog fairness batches.",
+                "[CATALOG CANDIDATES] Bot {} DISCOVERED pool: backend={}, genuinelyNew={}, backlog={}. Processing starts with the oldest backlog item, then uses {} fresh : {} backlog fairness batches.",
+                botId,
                 discoveredListings.size(),
                 candidateSelection.fresh().size(),
                 candidateSelection.backlog().size(),
@@ -144,15 +127,12 @@ public class CatalogCandidateProcessor {
                     "[CATALOG CANDIDATES] Bot {} has no DISCOVERED listings eligible for further processing.",
                     botId
             );
-            return List.of();
+            return new CandidateBatch(
+                    List.of(),
+                    Set.copyOf(currentScanListingIds)
+            );
         }
 
-        /*
-         * 4. Hard price guard over BOTH fresh and backlog candidates.
-         *
-         * We do not trust only Vinted's catalog filter. Stored listing data
-         * must still satisfy the configured range before any item-page work.
-         */
         List<ListingResponseDto> priceEligibleListings = new ArrayList<>();
         int skippedOutsidePriceRange = 0;
 
@@ -170,7 +150,8 @@ public class CatalogCandidateProcessor {
         }
 
         log.info(
-                "[PRICE GUARD] Checked {} DISCOVERED candidates. Eligible={}, skipped={}.",
+                "[PRICE GUARD] Bot {} checked {} DISCOVERED candidates. Eligible={}, skipped={}.",
+                botId,
                 prioritizedCandidates.size(),
                 priceEligibleListings.size(),
                 skippedOutsidePriceRange
@@ -181,16 +162,28 @@ public class CatalogCandidateProcessor {
                     "[PRICE GUARD] Bot {} has no DISCOVERED listings inside the configured price range.",
                     botId
             );
-            return List.of();
+            return new CandidateBatch(
+                    List.of(),
+                    Set.copyOf(currentScanListingIds)
+            );
         }
 
+        long currentlyProven = priceEligibleListings.stream()
+                .filter(listing -> currentScanListingIds.contains(listing.listingId()))
+                .count();
+
         log.info(
-                "[CATALOG CANDIDATES] Bot {} has {} listings ready for target/live verification.",
+                "[CATALOG CANDIDATES] Bot {} has {} listings ready for target/live verification. Current-scan proven IDs={}, persisted-only backlog IDs={}.",
                 botId,
-                priceEligibleListings.size()
+                priceEligibleListings.size(),
+                currentlyProven,
+                priceEligibleListings.size() - currentlyProven
         );
 
-        return priceEligibleListings;
+        return new CandidateBatch(
+                List.copyOf(priceEligibleListings),
+                Set.copyOf(currentScanListingIds)
+        );
     }
 
     static CandidateSelection selectCandidates(
@@ -231,11 +224,6 @@ public class CatalogCandidateProcessor {
 
         List<ListingResponseDto> fresh = new ArrayList<>();
 
-        /*
-         * Fresh means genuinely claimed during THIS scan, not merely visible
-         * in the current catalog. Iterate currentIds so genuinely new items
-         * retain Vinted's newest-first ordering.
-         */
         for (String marketplaceListingId : currentIds) {
             if (!newIds.contains(marketplaceListingId)) {
                 continue;
@@ -250,11 +238,9 @@ public class CatalogCandidateProcessor {
         }
 
         /*
-         * getDiscoveredListings() is backend-id ASC. Every remaining value was
-         * already DISCOVERED before this scan, so the remaining values form an
-         * oldest-first backlog regardless of whether they are still visible
-         * on page 1. Old items therefore cannot be permanently starved by a
-         * continuous stream of newer listings.
+         * Freshness controls queue ordering only. A previously discovered item
+         * that is still present in the current scan remains backlog for fairness
+         * but separately retains current-scan target provenance.
          */
         List<ListingResponseDto> backlog =
                 new ArrayList<>(remainingByMarketplaceId.values());
@@ -282,10 +268,6 @@ public class CatalogCandidateProcessor {
         int freshIndex = 0;
         int backlogIndex = 0;
 
-        /*
-         * The oldest outstanding candidate goes first. This is what makes the
-         * guarantee hold even when capacity/maxRealOffersPerRun is only one.
-         */
         if (backlogIndex < backlog.size()) {
             result.add(backlog.get(backlogIndex++));
         }
@@ -294,16 +276,16 @@ public class CatalogCandidateProcessor {
                 || backlogIndex < backlog.size()) {
 
             for (int count = 0;
-                    count < FRESH_PRIORITY_BATCH
-                            && freshIndex < fresh.size();
-                    count++) {
+                 count < FRESH_PRIORITY_BATCH
+                         && freshIndex < fresh.size();
+                 count++) {
                 result.add(fresh.get(freshIndex++));
             }
 
             for (int count = 0;
-                    count < BACKLOG_PROGRESS_BATCH
-                            && backlogIndex < backlog.size();
-                    count++) {
+                 count < BACKLOG_PROGRESS_BATCH
+                         && backlogIndex < backlog.size();
+                 count++) {
                 result.add(backlog.get(backlogIndex++));
             }
         }
@@ -353,6 +335,12 @@ public class CatalogCandidateProcessor {
         }
 
         return true;
+    }
+
+    record CandidateBatch(
+            List<ListingResponseDto> candidates,
+            Set<String> currentScanListingIds
+    ) {
     }
 
     record CandidateSelection(
