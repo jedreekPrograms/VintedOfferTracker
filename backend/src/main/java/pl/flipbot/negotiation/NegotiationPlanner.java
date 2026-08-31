@@ -2,6 +2,7 @@ package pl.flipbot.negotiation;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.configuration.BotConfiguration;
@@ -18,6 +19,7 @@ import java.util.List;
 public class NegotiationPlanner {
 
     private final ListingRepository listingRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     /**
      * Calculates how many NEW conversations may be started without spending
@@ -96,8 +98,21 @@ public class NegotiationPlanner {
         );
 
         int reservedFutureSteps = 0;
+        int supersededActiveDuplicates = 0;
 
         for (Listing listing : activeListings) {
+            if (isSupersededByActiveMarketplaceOwner(listing)) {
+                supersededActiveDuplicates++;
+
+                log.warn(
+                        "[NEGOTIATION CAPACITY] Bot {} active listing backendId={}, marketplaceId={} is superseded by another ACTIVE confirmed marketplace owner. It will not reserve future capacity.",
+                        botId,
+                        listing.getId(),
+                        listing.getListingId()
+                );
+                continue;
+            }
+
             Integer currentStep = listing.getCurrentStep();
 
             /*
@@ -130,12 +145,53 @@ public class NegotiationPlanner {
         }
 
         log.info(
-                "[NEGOTIATION CAPACITY] Bot {} has {} active negotiation(s) reserving {} future action(s) in total.",
+                "[NEGOTIATION CAPACITY] Bot {} has {} active row(s), {} superseded duplicate(s), reserving {} future action(s) in total.",
                 botId,
                 activeListings.size(),
+                supersededActiveDuplicates,
                 reservedFutureSteps
         );
 
         return reservedFutureSteps;
+    }
+
+    private boolean isSupersededByActiveMarketplaceOwner(
+            Listing listing
+    ) {
+        if (listing == null
+                || listing.getId() == null
+                || listing.getListingId() == null
+                || listing.getBot() == null
+                || listing.getBot().getId() == null
+                || listing.getBot().getConfiguration() == null
+                || listing.getBot().getConfiguration().getMarketplace() == null) {
+            return false;
+        }
+
+        Boolean superseded = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM marketplace_negotiation_claim c
+                    JOIN listing owner
+                      ON owner.id = c.owner_listing_id
+                    WHERE c.marketplace = ?
+                      AND c.marketplace_listing_id = ?
+                      AND c.confirmed_at IS NOT NULL
+                      AND (
+                           c.owner_bot_id <> ?
+                           OR c.owner_listing_id <> ?
+                      )
+                      AND owner.status IN ('NEGOTIATING', 'ACTION_REQUIRED')
+                )
+                """,
+                Boolean.class,
+                listing.getBot().getConfiguration().getMarketplace().name(),
+                listing.getListingId(),
+                listing.getBot().getId(),
+                listing.getId()
+        );
+
+        return Boolean.TRUE.equals(superseded);
     }
 }
