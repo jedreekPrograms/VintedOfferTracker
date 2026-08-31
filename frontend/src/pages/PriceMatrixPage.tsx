@@ -10,19 +10,12 @@ import {
     getModelsByBrand,
     updateModelPricing,
 } from "../api/dictionariesApi";
-
-import {
-    getModelPlanning,
-} from "../api/marketStatsApi";
-
+import { getModelPlanning } from "../api/marketStatsApi";
 import type {
     DictionaryBrand,
     DictionaryModel,
 } from "../types/dictionaries";
-
-import type {
-    ModelPlanning,
-} from "../types/marketStats";
+import type { ModelPlanning } from "../types/marketStats";
 
 import "../styles/price-matrix.css";
 
@@ -54,13 +47,10 @@ function PriceMatrixPage() {
         useState<Record<number, PriceDraft>>({});
     const [expandedBrandIds, setExpandedBrandIds] =
         useState<Set<number>>(new Set());
-    const [savingModelId, setSavingModelId] =
-        useState<number | null>(null);
-    const [savedModelId, setSavedModelId] =
-        useState<number | null>(null);
+    const [savingModelId, setSavingModelId] = useState<number | null>(null);
+    const [savedModelId, setSavedModelId] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [errorMessage, setErrorMessage] =
-        useState<string | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -71,11 +61,9 @@ function PriceMatrixPage() {
                 getBrands(),
                 getModelPlanning(),
             ]);
-
             const loadedBrands = [...loadedBrandsRaw].sort((left, right) =>
                 left.name.localeCompare(right.name, "pl"),
             );
-
             const modelGroups = await Promise.all(
                 loadedBrands.map(async (brand) => ({
                     brandId: brand.id,
@@ -95,7 +83,6 @@ function PriceMatrixPage() {
 
             for (const group of modelGroups) {
                 nextModelsByBrand[group.brandId] = group.models;
-
                 for (const model of group.models) {
                     nextDrafts[model.id] = draftFromModel(model);
                 }
@@ -105,18 +92,9 @@ function PriceMatrixPage() {
             setModelsByBrand(nextModelsByBrand);
             setPlanningByModel(nextPlanningByModel);
             setDrafts(nextDrafts);
-            setExpandedBrandIds(
-                new Set(
-                    loadedBrands.map((brand) => brand.id),
-                ),
-            );
+            setExpandedBrandIds(new Set(loadedBrands.map((brand) => brand.id)));
         } catch (error) {
-            setErrorMessage(
-                getErrorMessage(
-                    error,
-                    "Nie udało się pobrać cennika modeli.",
-                ),
-            );
+            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać cennika modeli."));
         } finally {
             setIsLoading(false);
         }
@@ -126,17 +104,12 @@ function PriceMatrixPage() {
         try {
             const planning = await getModelPlanning();
             const nextPlanningByModel: Record<number, ModelPlanning> = {};
-
             for (const item of planning) {
                 nextPlanningByModel[item.modelId] = item;
             }
-
             setPlanningByModel(nextPlanningByModel);
         } catch (error) {
-            console.error(
-                "Nie udało się automatycznie odświeżyć statystyk rynku.",
-                error,
-            );
+            console.error("Nie udało się automatycznie odświeżyć statystyk rynku.", error);
         }
     }, []);
 
@@ -146,33 +119,25 @@ function PriceMatrixPage() {
 
     useEffect(() => {
         const intervalId = window.setInterval(
-            () => {
-                void refreshPlanning();
-            },
+            () => void refreshPlanning(),
             PLANNING_REFRESH_INTERVAL_MS,
         );
-
-        return () => {
-            window.clearInterval(intervalId);
-        };
+        return () => window.clearInterval(intervalId);
     }, [refreshPlanning]);
 
     const modelCount = useMemo(
-        () => Object.values(modelsByBrand)
-            .reduce((sum, models) => sum + models.length, 0),
+        () => Object.values(modelsByBrand).reduce((sum, models) => sum + models.length, 0),
         [modelsByBrand],
     );
 
     function toggleBrand(brandId: number) {
         setExpandedBrandIds((current) => {
             const next = new Set(current);
-
             if (next.has(brandId)) {
                 next.delete(brandId);
             } else {
                 next.add(brandId);
             }
-
             return next;
         });
     }
@@ -194,7 +159,6 @@ function PriceMatrixPage() {
 
     async function saveModel(model: DictionaryModel) {
         const draft = drafts[model.id];
-
         if (draft === undefined || savingModelId !== null) {
             return;
         }
@@ -203,7 +167,6 @@ function PriceMatrixPage() {
             draft.proposedOfferPrice,
             "Proponowana cena dla bota musi być większa od 0.",
         );
-
         if (!proposedResult.valid) {
             setErrorMessage(proposedResult.errorMessage);
             return;
@@ -213,7 +176,6 @@ function PriceMatrixPage() {
             draft.expectedResalePrice,
             "Cena sprzedaży musi być większa od 0.",
         );
-
         if (!resaleResult.valid) {
             setErrorMessage(resaleResult.errorMessage);
             return;
@@ -223,7 +185,6 @@ function PriceMatrixPage() {
             draft.marketMinPrice,
             "Minimalna cena obserwacji musi być większa od 0.",
         );
-
         if (!marketMinResult.valid) {
             setErrorMessage(marketMinResult.errorMessage);
             return;
@@ -233,7 +194,6 @@ function PriceMatrixPage() {
             draft.marketMaxPrice,
             "Maksymalna cena obserwacji musi być większa od 0.",
         );
-
         if (!marketMaxResult.valid) {
             setErrorMessage(marketMaxResult.errorMessage);
             return;
@@ -244,9 +204,7 @@ function PriceMatrixPage() {
             && marketMaxResult.value !== null
             && marketMinResult.value > marketMaxResult.value
         ) {
-            setErrorMessage(
-                "Minimalna cena obserwacji nie może być większa od maksymalnej.",
-            );
+            setErrorMessage("Minimalna cena obserwacji nie może być większa od maksymalnej.");
             return;
         }
 
@@ -281,29 +239,20 @@ function PriceMatrixPage() {
             setModelsByBrand((current) => ({
                 ...current,
                 [model.brandId]: (current[model.brandId] ?? []).map((item) =>
-                    item.id === updated.id
-                        ? updated
-                        : item,
+                    item.id === updated.id ? updated : item,
                 ),
             }));
-
             setDrafts((current) => ({
                 ...current,
                 [updated.id]: draftFromModel(updated),
             }));
-
             setSavedModelId(updated.id);
 
             if (marketRangeChanged) {
                 await refreshPlanning();
             }
         } catch (error) {
-            setErrorMessage(
-                getErrorMessage(
-                    error,
-                    "Nie udało się zapisać cen modelu.",
-                ),
-            );
+            setErrorMessage(getErrorMessage(error, "Nie udało się zapisać cen modelu."));
         } finally {
             setSavingModelId(null);
         }
@@ -317,14 +266,13 @@ function PriceMatrixPage() {
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
                         Min i max obserwacji ograniczają rynek liczony przez observera.
-                        Puste pole oznacza brak ograniczenia, czyli observer bierze pod uwagę
-                        wszystkie ceny. Pierwszy pełny skan tworzy punkt startowy i nie jest
-                        liczony jako nowe oferty; dopiero kolejne nieznane ID zasilają statystyki
-                        24h i 7 dni. Zapotrzebowanie zakłada maksymalnie 5 nowych rozmów dziennie
-                        na jednego bota.
+                        Pierwszy pełny skan tworzy punkt startowy, a kolejne nieznane ID
+                        zasilają statystyki 24h i 7 dni. „Potrzebne boty” nadal pokazuje
+                        teoretyczną przepustowość przy 5 nowych rozmowach dziennie na bota,
+                        natomiast „Negocjacje / 7 dni” pokazują realnie wykorzystane sloty
+                        pierwszych ofert — również z zapisanej historii dziennych limitów.
                     </p>
                 </div>
-
                 <div className="price-matrix-summary">
                     <strong>{modelCount}</strong>
                     <span>modeli</span>
@@ -381,11 +329,7 @@ interface BrandPriceSheetProps {
     savingModelId: number | null;
     savedModelId: number | null;
     onToggle: () => void;
-    onDraftChange: (
-        modelId: number,
-        field: keyof PriceDraft,
-        value: string,
-    ) => void;
+    onDraftChange: (modelId: number, field: keyof PriceDraft, value: string) => void;
     onSave: (model: DictionaryModel) => Promise<void>;
 }
 
@@ -411,14 +355,10 @@ function BrandPriceSheet({
             >
                 <span className="price-brand-heading">
                     <span className="price-brand-name">{brand.name}</span>
-                    <span className="price-brand-count">
-                        {formatModelCount(models.length)}
-                    </span>
+                    <span className="price-brand-count">{formatModelCount(models.length)}</span>
                 </span>
                 <span
-                    className={`price-brand-chevron ${
-                        expanded ? "price-brand-chevron-open" : ""
-                    }`}
+                    className={`price-brand-chevron ${expanded ? "price-brand-chevron-open" : ""}`}
                     aria-hidden="true"
                 >
                     ▾
@@ -435,6 +375,7 @@ function BrandPriceSheet({
                         <div>Max obserwacji</div>
                         <div>Nowe / 24h</div>
                         <div>Oferty / 7 dni</div>
+                        <div>Negocjacje / 7 dni</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
                     </div>
@@ -460,100 +401,56 @@ function BrandPriceSheet({
                                     label="Proponowana cena"
                                     placeholder="—"
                                     value={draft.proposedOfferPrice}
-                                    disabled={
-                                        savingModelId !== null
-                                        && savingModelId !== model.id
-                                    }
+                                    disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) =>
-                                        onDraftChange(
-                                            model.id,
-                                            "proposedOfferPrice",
-                                            value,
-                                        )
-                                    }
+                                    onChange={(value) => onDraftChange(model.id, "proposedOfferPrice", value)}
                                     onBlur={() => void onSave(model)}
                                 />
-
                                 <PriceInput
                                     label="Sprzedaż"
                                     placeholder="—"
                                     value={draft.expectedResalePrice}
-                                    disabled={
-                                        savingModelId !== null
-                                        && savingModelId !== model.id
-                                    }
+                                    disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) =>
-                                        onDraftChange(
-                                            model.id,
-                                            "expectedResalePrice",
-                                            value,
-                                        )
-                                    }
+                                    onChange={(value) => onDraftChange(model.id, "expectedResalePrice", value)}
                                     onBlur={() => void onSave(model)}
                                 />
-
                                 <PriceInput
                                     label="Min obserwacji"
                                     placeholder="bez min"
                                     value={draft.marketMinPrice}
-                                    disabled={
-                                        savingModelId !== null
-                                        && savingModelId !== model.id
-                                    }
+                                    disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) =>
-                                        onDraftChange(
-                                            model.id,
-                                            "marketMinPrice",
-                                            value,
-                                        )
-                                    }
+                                    onChange={(value) => onDraftChange(model.id, "marketMinPrice", value)}
                                     onBlur={() => void onSave(model)}
                                 />
-
                                 <PriceInput
                                     label="Max obserwacji"
                                     placeholder="bez max"
                                     value={draft.marketMaxPrice}
-                                    disabled={
-                                        savingModelId !== null
-                                        && savingModelId !== model.id
-                                    }
+                                    disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) =>
-                                        onDraftChange(
-                                            model.id,
-                                            "marketMaxPrice",
-                                            value,
-                                        )
-                                    }
+                                    onChange={(value) => onDraftChange(model.id, "marketMaxPrice", value)}
                                     onBlur={() => void onSave(model)}
                                 />
 
                                 <Last24HoursMetricCell planning={planning} />
-
                                 <MarketMetricCell
                                     label="Oferty / 7 dni"
                                     value={planning?.offersLast7Days ?? null}
                                     planning={planning}
                                 />
-
+                                <NegotiationUsageMetricCell planning={planning} />
                                 <MarketMetricCell
                                     label="Potrzebne boty"
                                     value={planning?.recommendedBots ?? null}
                                     planning={planning}
                                 />
-
-                                <div
-                                    className="price-metric-cell"
-                                    data-label="Posiadane boty"
-                                >
+                                <div className="price-metric-cell" data-label="Posiadane boty">
                                     <strong>{planning?.existingBots ?? 0}</strong>
                                     <span>utworzonych</span>
                                 </div>
@@ -566,13 +463,25 @@ function BrandPriceSheet({
     );
 }
 
-interface Last24HoursMetricCellProps {
+function NegotiationUsageMetricCell({
+    planning,
+}: {
     planning: ModelPlanning | undefined;
+}) {
+    return (
+        <div className="price-metric-cell" data-label="Negocjacje / 7 dni">
+            <strong>{planning?.negotiationsStartedLast7Days ?? 0}</strong>
+            <span>dzisiaj: {planning?.negotiationsStartedToday ?? 0}</span>
+            <span className="price-metric-note">faktycznie rozpoczęte</span>
+        </div>
+    );
 }
 
 function Last24HoursMetricCell({
     planning,
-}: Last24HoursMetricCellProps) {
+}: {
+    planning: ModelPlanning | undefined;
+}) {
     if (planning === undefined) {
         return (
             <div className="price-metric-cell" data-label="Nowe / 24h">
@@ -583,36 +492,28 @@ function Last24HoursMetricCell({
     }
 
     if (planning.offersLast24Hours === null) {
-        const status = planning.lastStatsUpdatedAt === null
-            ? "Czeka na pierwszy skan"
-            : "Czeka na pełny punkt startowy";
-
         return (
             <div className="price-metric-cell" data-label="Nowe / 24h">
                 <strong>—</strong>
-                <span>{status}</span>
+                <span>
+                    {planning.lastStatsUpdatedAt === null
+                        ? "Czeka na pierwszy skan"
+                        : "Czeka na pełny punkt startowy"}
+                </span>
             </div>
         );
     }
 
-    const measurementJustStarted = planning.trackedDays === 0;
-
     return (
         <div className="price-metric-cell" data-label="Nowe / 24h">
             <strong>{planning.offersLast24Hours}</strong>
-            <span>
-                {measurementJustStarted
-                    ? "nowych od startu"
-                    : "ostatnie 24h"}
-            </span>
+            <span>{planning.trackedDays === 0 ? "nowych od startu" : "ostatnie 24h"}</span>
             {planning.baselineOffers !== null && (
                 <span className="price-metric-note">
                     punkt startowy: {planning.baselineOffers} ofert
                 </span>
             )}
-            {!planning.lastScanComplete && (
-                <span>Ostatni skan niepełny</span>
-            )}
+            {!planning.lastScanComplete && <span>Ostatni skan niepełny</span>}
         </div>
     );
 }
@@ -638,14 +539,14 @@ function MarketMetricCell({
     }
 
     if (!planning.statsReady) {
-        const status = planning.lastStatsUpdatedAt === null
-            ? "Czeka na pierwszy skan"
-            : `Zbieranie danych ${planning.trackedDays}/7 dni`;
-
         return (
             <div className="price-metric-cell" data-label={label}>
                 <strong>—</strong>
-                <span>{status}</span>
+                <span>
+                    {planning.lastStatsUpdatedAt === null
+                        ? "Czeka na pierwszy skan"
+                        : `Zbieranie danych ${planning.trackedDays}/7 dni`}
+                </span>
             </div>
         );
     }
@@ -653,9 +554,7 @@ function MarketMetricCell({
     return (
         <div className="price-metric-cell" data-label={label}>
             <strong>{value ?? 0}</strong>
-            {!planning.lastScanComplete && (
-                <span>Ostatni skan niepełny</span>
-            )}
+            {!planning.lastScanComplete && <span>Ostatni skan niepełny</span>}
         </div>
     );
 }
@@ -701,16 +600,10 @@ function PriceInput({
                         }
                     }}
                 />
-                {value.trim().length > 0 && (
-                    <span className="price-currency">zł</span>
-                )}
+                {value.trim().length > 0 && <span className="price-currency">zł</span>}
             </div>
-            {saving && (
-                <span className="price-save-state">Zapisywanie...</span>
-            )}
-            {!saving && saved && (
-                <span className="price-save-state">Zapisano</span>
-            )}
+            {saving && <span className="price-save-state">Zapisywanie...</span>}
+            {!saving && saved && <span className="price-save-state">Zapisano</span>}
         </div>
     );
 }
@@ -730,17 +623,14 @@ function parseOptionalPositivePrice(
     errorMessage: string,
 ): ParsedPriceSuccess | ParsedPriceFailure {
     const normalized = rawValue.trim().replace(",", ".");
-
     if (normalized.length === 0) {
         return { valid: true, value: null };
     }
 
     const value = Number(normalized);
-
     if (!Number.isFinite(value) || value <= 0) {
         return { valid: false, errorMessage };
     }
-
     return { valid: true, value };
 }
 
@@ -754,16 +644,13 @@ function draftFromModel(model: DictionaryModel): PriceDraft {
 }
 
 function formatInputPrice(value: number | null): string {
-    return value === null
-        ? ""
-        : String(value);
+    return value === null ? "" : String(value);
 }
 
 function samePrice(left: number | null, right: number | null): boolean {
     if (left === null || right === null) {
         return left === right;
     }
-
     return Math.abs(left - right) < 0.0001;
 }
 
@@ -771,18 +658,14 @@ function formatModelCount(count: number): string {
     if (count === 1) {
         return "1 model";
     }
-
     if (count >= 2 && count <= 4) {
         return `${count} modele`;
     }
-
     return `${count} modeli`;
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
-    return error instanceof Error
-        ? error.message
-        : fallback;
+    return error instanceof Error ? error.message : fallback;
 }
 
 export default PriceMatrixPage;
