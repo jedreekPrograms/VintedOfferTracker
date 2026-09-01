@@ -17,6 +17,21 @@ export interface BotOfferQuota {
     remaining: number;
 }
 
+export interface BotRuntimeState {
+    botId: number;
+    runtimeStatus: "IDLE" | "QUEUED" | "WORKING" | "COOLDOWN" | "ERROR";
+    lastRunStartedAt: string | null;
+    lastRunFinishedAt: string | null;
+    nextRunAt: string | null;
+    lastRunDurationMs: number | null;
+    consecutiveFailures: number;
+    lastError: string | null;
+    workerSlot: number | null;
+    sessionBlockedSince: string | null;
+    sessionBlockCount: number;
+    updatedAt: string | null;
+}
+
 export async function getBots(): Promise<BotListItem[]> {
     const response = await fetch(BOTS_BASE_URL);
 
@@ -77,25 +92,36 @@ export async function getBotOfferQuota(
     return response.json() as Promise<BotOfferQuota>;
 }
 
+export async function getBotRuntimeState(
+    botId: number,
+): Promise<BotRuntimeState> {
+    const response = await fetch(`${BOTS_BASE_URL}/${botId}/runtime`);
+
+    if (response.status === 404) {
+        throw new Error(`Nie znaleziono stanu runtime bota ${botId}.`);
+    }
+
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać stanu runtime bota ${botId}. Status HTTP: ${response.status}.`,
+    );
+
+    return response.json() as Promise<BotRuntimeState>;
+}
+
 export async function createBot(request: CreateBotRequest): Promise<void> {
     const response = await fetch(BOTS_BASE_URL, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
     });
 
     if (response.status === 400) {
-        throw new Error(
-            "Backend odrzucił konfigurację bota. Sprawdź wprowadzone dane.",
-        );
+        throw new Error("Backend odrzucił konfigurację bota. Sprawdź wprowadzone dane.");
     }
 
     if (response.status === 409) {
-        throw new Error(
-            "Nie można utworzyć bota, ponieważ wystąpił konflikt z istniejącymi danymi.",
-        );
+        throw new Error("Nie można utworzyć bota, ponieważ wystąpił konflikt z istniejącymi danymi.");
     }
 
     await assertApiResponse(
@@ -110,9 +136,7 @@ export async function updateBot(
 ): Promise<void> {
     const response = await fetch(`${BOTS_BASE_URL}/${botId}`, {
         method: "PATCH",
-        headers: {
-            "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
     });
 
