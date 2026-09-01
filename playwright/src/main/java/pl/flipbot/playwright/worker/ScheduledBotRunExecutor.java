@@ -1,5 +1,6 @@
 package pl.flipbot.playwright.worker;
 
+import com.microsoft.playwright.Page;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
@@ -25,6 +26,9 @@ public class ScheduledBotRunExecutor {
             ScheduledActionLimitConfig.fromEnvironment();
     private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
             PriceProbeRuntimeConfig.fromEnvironment();
+
+    private static final long SESSION_BLOCK_CLASSIFICATION_WINDOW_MS = 2_000L;
+    private static final long SESSION_BLOCK_CLASSIFICATION_POLL_MS = 200L;
 
     private final BotDetailsDto bot;
     private final BrowserManager browserManager;
@@ -204,14 +208,16 @@ public class ScheduledBotRunExecutor {
             throw exception;
         } catch (RuntimeException exception) {
             /*
-             * Last-resort classification for flows whose own readiness check
-             * threw a generic timeout before it could call HumanVerificationHandler
-             * (notably the homepage shell during login). Positive block-page
-             * text upgrades that failure to the dedicated bot-wide cooldown.
+             * Last-resort classification for every Vinted job. Login/auth UI can
+             * fail first and the dedicated hard-block page can finish rendering a
+             * fraction of a second later. Poll briefly before turning the run into
+             * a generic failure so an actual "Twoja sesja została zablokowana"
+             * page always reaches the scheduler as VintedSessionBlockedException.
              */
-            sessionBlockDetector.throwIfBlocked(
-                    context.getPage(),
-                    "running " + (jobType == null ? "FULL_RUN" : jobType) + " for bot " + botId
+            classifyLateSessionBlock(
+                    context,
+                    jobType,
+                    botId
             );
             throw exception;
         } finally {
@@ -242,6 +248,34 @@ public class ScheduledBotRunExecutor {
                         exception
                 );
             }
+        }
+    }
+
+    private void classifyLateSessionBlock(
+            BotContext context,
+            ScheduledJobType jobType,
+            Long botId
+    ) {
+        Page page = context.getPage();
+        if (page == null || page.isClosed()) {
+            return;
+        }
+
+        String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
+        long deadline = System.currentTimeMillis() + SESSION_BLOCK_CLASSIFICATION_WINDOW_MS;
+
+        while (true) {
+            sessionBlockDetector.throwIfBlocked(
+                    page,
+                    "classifying failed " + jobLabel + " for bot " + botId
+            );
+
+            if (System.currentTimeMillis() >= deadline
+                    || page.isClosed()) {
+                return;
+            }
+
+            page.waitForTimeout(SESSION_BLOCK_CLASSIFICATION_POLL_MS);
         }
     }
 

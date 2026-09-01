@@ -39,6 +39,8 @@ export interface RuntimeDashboardBot {
     consecutiveFailures: number;
     lastError: string | null;
     workerSlot: number | null;
+    sessionBlockedSince: string | null;
+    sessionBlockCount: number;
     updatedAt: string | null;
 }
 
