@@ -16,6 +16,7 @@ import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
+import pl.flipbot.playwright.target.VintedSessionFailureClassifier;
 
 @Slf4j
 public class ScheduledBotRunExecutor {
@@ -219,6 +220,32 @@ public class ScheduledBotRunExecutor {
                     jobType,
                     botId
             );
+
+            /*
+             * Vinted can also leave the credential form visible after all three
+             * deterministic submit mechanisms without rendering the hard-block
+             * page soon enough to read its text. Retrying that state every minute
+             * is exactly the hammering the session cooldown is meant to prevent.
+             * Only the narrow, known login-stall signatures are upgraded here;
+             * explicit credential failures and unrelated errors stay generic.
+             */
+            if (VintedSessionFailureClassifier.shouldUseProtectiveCooldown(exception)) {
+                String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
+                log.warn(
+                        "[SESSION BLOCK] Bot {} hit a repeated Vinted authentication stall during {}. Treating it as a protective session cooldown instead of RUN_FAILED so all bot jobs back off together.",
+                        botId,
+                        jobLabel
+                );
+                throw new VintedSessionBlockedException(
+                        "Vinted authentication stalled after repeated submit/verification attempts while running "
+                                + jobLabel
+                                + " for bot "
+                                + botId
+                                + ". Applying protective session cooldown. Original failure: "
+                                + friendlyMessage(exception)
+                );
+            }
+
             throw exception;
         } finally {
             if (loginReady) {
@@ -277,6 +304,22 @@ public class ScheduledBotRunExecutor {
 
             page.waitForTimeout(SESSION_BLOCK_CLASSIFICATION_POLL_MS);
         }
+    }
+
+    private String friendlyMessage(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown error";
+        }
+
+        String message = throwable.getMessage();
+        if (message == null || message.isBlank()) {
+            return throwable.getClass().getSimpleName();
+        }
+
+        return message.lines()
+                .findFirst()
+                .orElse(message)
+                .trim();
     }
 
     private void logExecutionMode(
