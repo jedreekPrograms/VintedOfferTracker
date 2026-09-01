@@ -3,11 +3,13 @@ package pl.flipbot.playwright.worker;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.BotApiClient;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
+import pl.flipbot.playwright.api.runtime.RuntimeTelemetryStateResponse;
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.target.VintedRateLimitException;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
 
+import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -50,6 +52,23 @@ public class BotWorkerSlot implements Runnable {
                 ScheduledBotTask task = scheduler.takeNext();
                 Long botId = task.botId();
                 ScheduledJobType jobType = task.jobType();
+
+                Long persistedBlockDelayMillis = persistedSessionBlockDelay(botId);
+                if (persistedBlockDelayMillis != null && persistedBlockDelayMillis > 0L) {
+                    log.warn(
+                            "[SESSION BLOCK] Bot {} was claimed after a scheduler/process refresh, but its persisted Vinted session cooldown is still active for about {} minute(s). No browser job will start early.",
+                            botId,
+                            Math.max(1L, TimeUnit.MILLISECONDS.toMinutes(persistedBlockDelayMillis))
+                    );
+                    scheduler.completeRun(
+                            botId,
+                            jobType,
+                            persistedBlockDelayMillis,
+                            true,
+                            false
+                    );
+                    continue;
+                }
 
                 long nextDelayMillis = TimeUnit.SECONDS.toMillis(
                         config.normalDelaySeconds(jobType)
@@ -257,6 +276,28 @@ public class BotWorkerSlot implements Runnable {
             }
 
             log.info("[SLOT {}] Worker slot stopped.", slotNumber);
+        }
+    }
+
+    private Long persistedSessionBlockDelay(Long botId) {
+        try {
+            RuntimeTelemetryStateResponse state = telemetryReporter.currentState(botId);
+            if (state == null
+                    || state.sessionBlockedSince() == null
+                    || state.nextRunAt() == null) {
+                return null;
+            }
+
+            long remaining = Instant.parse(state.nextRunAt()).toEpochMilli()
+                    - System.currentTimeMillis();
+            return Math.max(0L, remaining);
+        } catch (Exception exception) {
+            log.warn(
+                    "[SESSION BLOCK] Could not read persisted cooldown for bot {} before run. Continuing with the in-memory scheduler state. reason={}",
+                    botId,
+                    errorMessage(exception)
+            );
+            return null;
         }
     }
 

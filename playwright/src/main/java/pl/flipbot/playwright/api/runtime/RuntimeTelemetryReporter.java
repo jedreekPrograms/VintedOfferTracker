@@ -66,6 +66,13 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         ));
     }
 
+    public RuntimeTelemetryStateResponse currentState(Long botId) {
+        return await(
+                submit(() -> client.getState(botId)),
+                "read runtime state for bot " + botId
+        );
+    }
+
     /**
      * Session blocking is scheduler-significant: the backend owns the
      * persistent attempt counter and calculates the next exponential retry.
@@ -86,48 +93,27 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                 errorMessage
         );
 
-        final Future<RuntimeTelemetryStateResponse> future;
-        try {
-            future = executor.submit(() -> client.sendEvent(botId, request));
-        } catch (RejectedExecutionException exception) {
-            throw new IllegalStateException("Runtime telemetry reporter is shutting down.", exception);
+        RuntimeTelemetryStateResponse response = await(
+                submit(() -> client.sendEvent(botId, request)),
+                "persist Vinted session block for bot " + botId
+        );
+
+        if (response == null || response.nextRunAt() == null) {
+            throw new IllegalStateException(
+                    "Backend did not return nextRunAt for SESSION_BLOCKED."
+            );
         }
 
-        try {
-            RuntimeTelemetryStateResponse response = future.get(
-                    SYNCHRONOUS_EVENT_TIMEOUT_SECONDS,
-                    TimeUnit.SECONDS
-            );
+        long nextRunAtEpochMs = Instant.parse(response.nextRunAt()).toEpochMilli();
+        int attemptNumber = response.sessionBlockCount() == null
+                ? 1
+                : Math.max(1, response.sessionBlockCount());
 
-            if (response == null || response.nextRunAt() == null) {
-                throw new IllegalStateException(
-                        "Backend did not return nextRunAt for SESSION_BLOCKED."
-                );
-            }
-
-            long nextRunAtEpochMs = Instant.parse(response.nextRunAt()).toEpochMilli();
-            int attemptNumber = response.sessionBlockCount() == null
-                    ? 1
-                    : Math.max(1, response.sessionBlockCount());
-
-            return new SessionBlockCooldown(
-                    nextRunAtEpochMs,
-                    attemptNumber,
-                    response.sessionBlockedSince()
-            );
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(
-                    "Interrupted while reporting Vinted session block.",
-                    exception
-            );
-        } catch (ExecutionException | TimeoutException exception) {
-            future.cancel(true);
-            throw new IllegalStateException(
-                    "Could not obtain persisted Vinted session-block cooldown.",
-                    exception
-            );
-        }
+        return new SessionBlockCooldown(
+                nextRunAtEpochMs,
+                attemptNumber,
+                response.sessionBlockedSince()
+        );
     }
 
     public void idle(Long botId) {
@@ -156,6 +142,38 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                     "[TELEMETRY] Could not report {} for bot {}. Scheduler work continues.",
                     request.eventType(),
                     botId,
+                    exception
+            );
+        }
+    }
+
+    private <T> Future<T> submit(java.util.concurrent.Callable<T> callable) {
+        try {
+            return executor.submit(callable);
+        } catch (RejectedExecutionException exception) {
+            throw new IllegalStateException(
+                    "Runtime telemetry reporter is shutting down.",
+                    exception
+            );
+        }
+    }
+
+    private <T> T await(Future<T> future, String operation) {
+        try {
+            return future.get(
+                    SYNCHRONOUS_EVENT_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS
+            );
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while attempting to " + operation + ".",
+                    exception
+            );
+        } catch (ExecutionException | TimeoutException exception) {
+            future.cancel(true);
+            throw new IllegalStateException(
+                    "Could not " + operation + ".",
                     exception
             );
         }

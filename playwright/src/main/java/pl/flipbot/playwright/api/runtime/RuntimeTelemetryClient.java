@@ -7,6 +7,14 @@ import java.net.http.HttpResponse;
 
 public class RuntimeTelemetryClient extends ApiClient {
 
+    public RuntimeTelemetryStateResponse getState(Long botId) {
+        HttpResponse<String> response = get(
+                "/api/bots/" + botId + "/runtime"
+        );
+        validateResponse(botId, "read", response);
+        return readBody(response, RuntimeTelemetryStateResponse.class);
+    }
+
     public RuntimeTelemetryStateResponse sendEvent(
             Long botId,
             RuntimeTelemetryEventRequest request
@@ -15,18 +23,28 @@ public class RuntimeTelemetryClient extends ApiClient {
                 "/api/bots/" + botId + "/runtime",
                 request
         );
+        validateResponse(botId, request.eventType(), response);
+        return readBody(response, RuntimeTelemetryStateResponse.class);
+    }
 
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new ApiException(
-                    "Runtime telemetry update failed for bot "
-                            + botId
-                            + ". HTTP "
-                            + response.statusCode()
-                            + ": "
-                            + response.body()
-            );
+    private void validateResponse(
+            Long botId,
+            String operation,
+            HttpResponse<String> response
+    ) {
+        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            return;
         }
 
-        return readBody(response, RuntimeTelemetryStateResponse.class);
+        throw new ApiException(
+                "Runtime telemetry "
+                        + operation
+                        + " failed for bot "
+                        + botId
+                        + ". HTTP "
+                        + response.statusCode()
+                        + ": "
+                        + response.body()
+        );
     }
 }
