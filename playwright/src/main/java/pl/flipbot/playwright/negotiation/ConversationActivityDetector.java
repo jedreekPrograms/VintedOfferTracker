@@ -16,7 +16,7 @@ public class ConversationActivityDetector {
     private static final DateTimeFormatter
             VINTED_TIMESTAMP_FORMAT =
             DateTimeFormatter.ofPattern(
-                    "dd.MM.yyyy, HH:mm:ss"
+                    "d.M.yyyy, HH:mm:ss"
             );
 
     private static final String INSPECTION_SCRIPT =
@@ -330,7 +330,7 @@ public class ConversationActivityDetector {
     }
 
 
-    private LocalDateTime parseVintedTimestamp(
+    LocalDateTime parseVintedTimestamp(
             String rawTimestamp
     ) {
 
