@@ -110,7 +110,7 @@ function AppLayout() {
                             </div>
 
                             <div className="sidebar-subtitle">
-                                Control center
+                                Vinted automation
                             </div>
                         </div>
                     </div>
@@ -176,11 +176,11 @@ function AppLayout() {
                 <div className="sidebar-footer">
                     <div className="sidebar-footer-status-row">
                         <span className="sidebar-footer-status-dot" aria-hidden="true" />
-                        <span>System lokalny</span>
+                        <span>Workspace lokalny</span>
                     </div>
 
                     <div className="sidebar-footer-title">
-                        FlipBot workspace
+                        FlipBot control center
                     </div>
 
                     <div className="sidebar-footer-text">
