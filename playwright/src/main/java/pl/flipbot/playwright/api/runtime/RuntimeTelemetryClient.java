@@ -7,7 +7,7 @@ import java.net.http.HttpResponse;
 
 public class RuntimeTelemetryClient extends ApiClient {
 
-    public void sendEvent(
+    public RuntimeTelemetryStateResponse sendEvent(
             Long botId,
             RuntimeTelemetryEventRequest request
     ) {
@@ -26,5 +26,7 @@ public class RuntimeTelemetryClient extends ApiClient {
                             + response.body()
             );
         }
+
+        return readBody(response, RuntimeTelemetryStateResponse.class);
     }
 }
