@@ -8,9 +8,15 @@ import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.listing.dto.CreateListingRequest;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+
 @Service
 @RequiredArgsConstructor
 public class ListingClaimService {
+
+    private static final ZoneId DISCOVERY_ZONE =
+            ZoneId.of("Europe/Warsaw");
 
     private final ListingRepository listingRepository;
 
@@ -35,6 +41,7 @@ public class ListingClaimService {
                 .currentStep(0)
                 .awaitingSellerResponse(false)
                 .status(ListingStatus.DISCOVERED)
+                .lastFreshDiscoveryAt(LocalDateTime.now(DISCOVERY_ZONE))
                 .bot(bot)
                 .build();
 

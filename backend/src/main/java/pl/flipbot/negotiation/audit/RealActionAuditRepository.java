@@ -15,6 +15,12 @@ public interface RealActionAuditRepository
 
     List<RealActionAudit> findByBotIdOrderByCreatedAtDesc(Long botId);
 
+    boolean existsByBackendListingIdAndActionTypeAndOutcome(
+            Long backendListingId,
+            RealActionType actionType,
+            RealActionAuditOutcome outcome
+    );
+
     List<RealActionAudit>
     findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
             RealActionType actionType,

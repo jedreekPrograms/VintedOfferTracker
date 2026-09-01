@@ -19,12 +19,12 @@ import pl.flipbot.mapper.ListingMapper;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 @Slf4j
@@ -38,6 +38,7 @@ public class ListingService {
     private final BotRepository botRepository;
     private final ListingMapper listingMapper;
     private final ListingClaimService listingClaimService;
+    private final ListingRediscoveryService listingRediscoveryService;
 
     public List<ListingResponse> getDiscoveredListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.DISCOVERED);
@@ -107,20 +108,50 @@ public class ListingService {
             return List.of();
         }
 
-        Set<String> existingListingIds = findExistingListingIds(
+        Map<String, Listing> existingListings = findExistingListings(
                 botId,
                 uniqueRequests.keySet()
         );
-        List<ListingResponse> claimedListings = new ArrayList<>();
+
+        List<ListingResponse> listingsForProcessing = new ArrayList<>();
+        int newlyClaimedListings = 0;
+        int requalifiedListings = 0;
 
         for (CreateListingRequest listingRequest : uniqueRequests.values()) {
-            if (existingListingIds.contains(listingRequest.getListingId())) {
+            Listing existingListing = existingListings.get(
+                    listingRequest.getListingId()
+            );
+
+            if (existingListing != null) {
+                if (listingRediscoveryService.shouldAttemptRequalification(
+                        existingListing
+                )) {
+                    Optional<Listing> requalified = listingRediscoveryService
+                            .requalifyIfEligible(
+                                    botId,
+                                    listingRequest.getListingId(),
+                                    listingRequest
+                            );
+
+                    if (requalified.isPresent()) {
+                        listingsForProcessing.add(
+                                listingMapper.map(requalified.get())
+                        );
+                        requalifiedListings++;
+                    }
+                }
                 continue;
             }
 
             try {
-                Listing claimedListing = listingClaimService.claimListing(botId, listingRequest);
-                claimedListings.add(listingMapper.map(claimedListing));
+                Listing claimedListing = listingClaimService.claimListing(
+                        botId,
+                        listingRequest
+                );
+                listingsForProcessing.add(
+                        listingMapper.map(claimedListing)
+                );
+                newlyClaimedListings++;
             } catch (DataIntegrityViolationException exception) {
                 if (!isUniqueConstraintViolation(exception)) {
                     log.error(
@@ -141,13 +172,15 @@ public class ListingService {
         }
 
         log.info(
-                "Bot {} discovered {} listings and claimed {} new listings",
+                "Bot {} fresh scan contained {} listing(s): claimed {} brand-new, requalified {} historical once-per-day listing(s), returned {} listing(s) for further processing.",
                 botId,
                 uniqueRequests.size(),
-                claimedListings.size()
+                newlyClaimedListings,
+                requalifiedListings,
+                listingsForProcessing.size()
         );
 
-        return claimedListings;
+        return listingsForProcessing;
     }
 
     @Transactional
@@ -344,7 +377,7 @@ public class ListingService {
         return uniqueRequests;
     }
 
-    private Set<String> findExistingListingIds(
+    private Map<String, Listing> findExistingListings(
             Long botId,
             Set<String> listingIds
     ) {
@@ -353,11 +386,15 @@ public class ListingService {
                         botId,
                         listingIds
                 );
-        Set<String> existingListingIds = new HashSet<>();
+
+        Map<String, Listing> existingByMarketplaceId = new LinkedHashMap<>();
         for (Listing listing : existingListings) {
-            existingListingIds.add(listing.getListingId());
+            existingByMarketplaceId.put(
+                    listing.getListingId(),
+                    listing
+            );
         }
-        return existingListingIds;
+        return existingByMarketplaceId;
     }
 
     private String normalizeOptionalText(String value) {
