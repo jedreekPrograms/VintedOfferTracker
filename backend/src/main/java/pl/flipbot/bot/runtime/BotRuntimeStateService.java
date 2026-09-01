@@ -181,6 +181,14 @@ public class BotRuntimeStateService {
         state.setLastRunDurationMs(safeDuration(request.getDurationMs()));
         state.setNextRunAt(now.plus(retryDelay));
         state.setSessionBlockCount(attemptNumber);
+
+        /*
+         * A Vinted hard session/IP block is a dedicated external cooldown state,
+         * not an application/job failure. Once positively classified, stale
+         * generic login failures must not keep showing as hundreds of consecutive
+         * application errors in Runtime.
+         */
+        state.setConsecutiveFailures(0);
         state.setLastError(normalizeError(request.getErrorMessage()));
         state.setWorkerSlot(null);
     }

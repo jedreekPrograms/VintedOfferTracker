@@ -97,6 +97,8 @@ public class RuntimeDashboardService {
                 runtime == null ? 0 : runtime.getConsecutiveFailures(),
                 runtime == null ? null : runtime.getLastError(),
                 runtime == null ? null : runtime.getWorkerSlot(),
+                runtime == null ? null : runtime.getSessionBlockedSince(),
+                runtime == null ? 0 : runtime.getSessionBlockCount(),
                 runtime == null ? null : runtime.getUpdatedAt()
         );
     }
