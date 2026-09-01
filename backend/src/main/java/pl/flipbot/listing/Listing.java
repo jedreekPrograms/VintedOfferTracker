@@ -89,6 +89,9 @@ public class Listing {
     @Column(name = "read_detected_at")
     private LocalDateTime readDetectedAt;
 
+    @Column(name = "last_fresh_discovery_at")
+    private LocalDateTime lastFreshDiscoveryAt;
+
     /*
      * Formal response timing is deliberately persisted. Vinted may show the
      * same "rejected" state or the same counteroffer on every poll. Without a

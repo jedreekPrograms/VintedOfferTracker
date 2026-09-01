@@ -23,6 +23,18 @@ public interface ListingRepository
             String listingId
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select listing
+            from Listing listing
+            where listing.bot.id = :botId
+              and listing.listingId = :marketplaceListingId
+            """)
+    Optional<Listing> findByBotIdAndListingIdForUpdate(
+            @Param("botId") Long botId,
+            @Param("marketplaceListingId") String marketplaceListingId
+    );
+
     Optional<Listing> findByIdAndBotId(
             Long listingId,
             Long botId
