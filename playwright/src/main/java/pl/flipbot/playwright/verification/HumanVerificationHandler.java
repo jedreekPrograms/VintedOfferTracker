@@ -21,12 +21,6 @@ public class HumanVerificationHandler {
     private static final double LOG_INTERVAL_MS =
             15_000;
 
-    /*
-     * These phrases are specific enough to count as visible-page evidence.
-     * Deliberately do not put generic strings such as "security check" or
-     * "just a moment" here: Vinted/third-party widgets may contain them in
-     * ordinary hidden markup and that must never freeze a normal offer flow.
-     */
     private static final List<String> STRONG_VERIFICATION_TEXTS =
             List.of(
                     "sprawdzanie, czy jesteś człowiekiem",
@@ -52,6 +46,9 @@ public class HumanVerificationHandler {
                     + "iframe[src*='recaptcha'], "
                     + "iframe[src*='turnstile']";
 
+    private final CookieConsentHandler cookieConsentHandler =
+            new CookieConsentHandler();
+
     public void waitUntilVerified(
             Page page
     ) {
@@ -59,6 +56,13 @@ public class HumanVerificationHandler {
                 page,
                 "Page cannot be null"
         );
+
+        /*
+         * Vinted can render a consent overlay on an already authenticated
+         * catalog or inbox page. Clear that optional overlay before probing for
+         * CAPTCHA/human verification so it cannot intercept the next bot click.
+         */
+        cookieConsentHandler.acceptAllIfVisible(page);
 
         String evidence = verificationEvidence(page);
 
@@ -86,6 +90,9 @@ public class HumanVerificationHandler {
             }
 
             page.waitForTimeout(POLL_INTERVAL_MS);
+
+            /* A consent banner can appear after a navigation/challenge clears. */
+            cookieConsentHandler.acceptAllIfVisible(page);
 
             latestEvidence = verificationEvidence(page);
 
@@ -161,10 +168,6 @@ public class HumanVerificationHandler {
                         + "'";
             }
 
-            /*
-             * innerText() represents rendered text, unlike textContent() which
-             * would also include hidden challenge templates/widgets.
-             */
             String bodyText = safeLower(
                     page.locator("body").innerText()
             );
@@ -177,11 +180,6 @@ public class HumanVerificationHandler {
             return null;
 
         } catch (PlaywrightException exception) {
-            /*
-             * A DOM read failing while Chromium is navigating is NOT evidence
-             * of a CAPTCHA/challenge. Fail open for the probe only; the normal
-             * offer/navigation guards still decide whether an action is safe.
-             */
             log.debug(
                     "Page changed while probing for human verification. "
                             + "Probe is inconclusive; no verification is reported without positive evidence."
