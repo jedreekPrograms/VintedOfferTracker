@@ -42,7 +42,7 @@ public class BotRuntimeStateService {
         Instant now = Instant.now();
 
         switch (request.getEventType()) {
-            case QUEUED -> applyQueued(state, request);
+            case QUEUED -> applyQueued(state, request, now);
             case RUN_STARTED -> applyRunStarted(state, request, now);
             case RUN_SUCCEEDED -> applyRunSucceeded(state, request, now);
             case RUN_FAILED -> applyRunFailed(state, request, now);
@@ -52,7 +52,6 @@ public class BotRuntimeStateService {
         }
 
         state.setUpdatedAt(now);
-
         return toResponse(runtimeStateRepository.save(state));
     }
 
@@ -77,10 +76,30 @@ public class BotRuntimeStateService {
 
     private void applyQueued(
             BotRuntimeState state,
-            BotRuntimeEventRequest request
+            BotRuntimeEventRequest request,
+            Instant now
     ) {
+        Instant requestedNextRunAt = toInstant(request.getNextRunAtEpochMs());
+
+        /*
+         * WorkerManager rebuilds its in-memory schedule after a process restart
+         * and initially reports QUEUED=now. Never let that housekeeping event
+         * erase a still-active persisted session-block deadline. The worker will
+         * read this preserved deadline before starting a browser job and put its
+         * in-memory schedule back onto the same cooldown.
+         */
+        if (state.getSessionBlockedSince() != null
+                && state.getNextRunAt() != null
+                && state.getNextRunAt().isAfter(now)
+                && (requestedNextRunAt == null
+                || requestedNextRunAt.isBefore(state.getNextRunAt()))) {
+            state.setRuntimeStatus(BotRuntimeStatus.COOLDOWN);
+            state.setWorkerSlot(null);
+            return;
+        }
+
         state.setRuntimeStatus(BotRuntimeStatus.QUEUED);
-        state.setNextRunAt(toInstant(request.getNextRunAtEpochMs()));
+        state.setNextRunAt(requestedNextRunAt);
         state.setWorkerSlot(null);
     }
 
@@ -183,7 +202,6 @@ public class BotRuntimeStateService {
         if (durationMs == null) {
             return null;
         }
-
         return Math.max(0L, durationMs);
     }
 
@@ -191,7 +209,6 @@ public class BotRuntimeStateService {
         if (epochMs == null) {
             return null;
         }
-
         return Instant.ofEpochMilli(epochMs);
     }
 
@@ -201,11 +218,9 @@ public class BotRuntimeStateService {
         }
 
         String normalized = message.trim();
-
         if (normalized.length() <= MAX_ERROR_LENGTH) {
             return normalized;
         }
-
         return normalized.substring(0, MAX_ERROR_LENGTH);
     }
 
