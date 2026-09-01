@@ -9,6 +9,7 @@ import pl.flipbot.bot.runtime.dto.BotRuntimeEventRequest;
 import pl.flipbot.bot.runtime.dto.BotRuntimeStateResponse;
 import pl.flipbot.exception.BotNotFoundException;
 
+import java.time.Duration;
 import java.time.Instant;
 
 @Service
@@ -19,6 +20,9 @@ public class BotRuntimeStateService {
 
     private final BotRepository botRepository;
     private final BotRuntimeStateRepository runtimeStateRepository;
+
+    private final SessionBlockBackoffPolicy sessionBlockBackoffPolicy =
+            new SessionBlockBackoffPolicy();
 
     @Transactional
     public BotRuntimeStateResponse getRuntimeState(Long botId) {
@@ -38,16 +42,16 @@ public class BotRuntimeStateService {
         Instant now = Instant.now();
 
         switch (request.getEventType()) {
-            case QUEUED -> applyQueued(state, request);
+            case QUEUED -> applyQueued(state, request, now);
             case RUN_STARTED -> applyRunStarted(state, request, now);
             case RUN_SUCCEEDED -> applyRunSucceeded(state, request, now);
             case RUN_FAILED -> applyRunFailed(state, request, now);
             case RATE_LIMITED -> applyRateLimited(state, request, now);
+            case SESSION_BLOCKED -> applySessionBlocked(state, request, now);
             case IDLE -> applyIdle(state);
         }
 
         state.setUpdatedAt(now);
-
         return toResponse(runtimeStateRepository.save(state));
     }
 
@@ -64,6 +68,7 @@ public class BotRuntimeStateService {
         state.setBot(bot);
         state.setRuntimeStatus(BotRuntimeStatus.IDLE);
         state.setConsecutiveFailures(0);
+        state.setSessionBlockCount(0);
         state.setUpdatedAt(Instant.now());
 
         return runtimeStateRepository.save(state);
@@ -71,10 +76,30 @@ public class BotRuntimeStateService {
 
     private void applyQueued(
             BotRuntimeState state,
-            BotRuntimeEventRequest request
+            BotRuntimeEventRequest request,
+            Instant now
     ) {
+        Instant requestedNextRunAt = toInstant(request.getNextRunAtEpochMs());
+
+        /*
+         * WorkerManager rebuilds its in-memory schedule after a process restart
+         * and initially reports QUEUED=now. Never let that housekeeping event
+         * erase a still-active persisted session-block deadline. The worker will
+         * read this preserved deadline before starting a browser job and put its
+         * in-memory schedule back onto the same cooldown.
+         */
+        if (state.getSessionBlockedSince() != null
+                && state.getNextRunAt() != null
+                && state.getNextRunAt().isAfter(now)
+                && (requestedNextRunAt == null
+                || requestedNextRunAt.isBefore(state.getNextRunAt()))) {
+            state.setRuntimeStatus(BotRuntimeStatus.COOLDOWN);
+            state.setWorkerSlot(null);
+            return;
+        }
+
         state.setRuntimeStatus(BotRuntimeStatus.QUEUED);
-        state.setNextRunAt(toInstant(request.getNextRunAtEpochMs()));
+        state.setNextRunAt(requestedNextRunAt);
         state.setWorkerSlot(null);
     }
 
@@ -87,6 +112,13 @@ public class BotRuntimeStateService {
         state.setLastRunStartedAt(now);
         state.setNextRunAt(null);
         state.setWorkerSlot(request.getWorkerSlot());
+
+        /*
+         * Do not clear sessionBlockedSince here. A retry is only a probe: if
+         * Vinted still shows the block page, the UI must keep counting from
+         * the first detection. The episode is cleared only by a successful
+         * full scheduled job (or when the bot is explicitly idled/stopped).
+         */
     }
 
     private void applyRunSucceeded(
@@ -101,6 +133,7 @@ public class BotRuntimeStateService {
         state.setConsecutiveFailures(0);
         state.setLastError(null);
         state.setWorkerSlot(null);
+        clearSessionBlockEpisode(state);
     }
 
     private void applyRunFailed(
@@ -130,17 +163,45 @@ public class BotRuntimeStateService {
         state.setWorkerSlot(null);
     }
 
+    private void applySessionBlocked(
+            BotRuntimeState state,
+            BotRuntimeEventRequest request,
+            Instant now
+    ) {
+        if (state.getSessionBlockedSince() == null) {
+            state.setSessionBlockedSince(now);
+            state.setSessionBlockCount(0);
+        }
+
+        int attemptNumber = Math.max(0, state.getSessionBlockCount()) + 1;
+        Duration retryDelay = sessionBlockBackoffPolicy.delayForAttempt(attemptNumber);
+
+        state.setRuntimeStatus(BotRuntimeStatus.COOLDOWN);
+        state.setLastRunFinishedAt(now);
+        state.setLastRunDurationMs(safeDuration(request.getDurationMs()));
+        state.setNextRunAt(now.plus(retryDelay));
+        state.setSessionBlockCount(attemptNumber);
+        state.setLastError(normalizeError(request.getErrorMessage()));
+        state.setWorkerSlot(null);
+    }
+
     private void applyIdle(BotRuntimeState state) {
         state.setRuntimeStatus(BotRuntimeStatus.IDLE);
         state.setNextRunAt(null);
         state.setWorkerSlot(null);
+        state.setLastError(null);
+        clearSessionBlockEpisode(state);
+    }
+
+    private void clearSessionBlockEpisode(BotRuntimeState state) {
+        state.setSessionBlockedSince(null);
+        state.setSessionBlockCount(0);
     }
 
     private Long safeDuration(Long durationMs) {
         if (durationMs == null) {
             return null;
         }
-
         return Math.max(0L, durationMs);
     }
 
@@ -148,7 +209,6 @@ public class BotRuntimeStateService {
         if (epochMs == null) {
             return null;
         }
-
         return Instant.ofEpochMilli(epochMs);
     }
 
@@ -158,11 +218,9 @@ public class BotRuntimeStateService {
         }
 
         String normalized = message.trim();
-
         if (normalized.length() <= MAX_ERROR_LENGTH) {
             return normalized;
         }
-
         return normalized.substring(0, MAX_ERROR_LENGTH);
     }
 
@@ -177,6 +235,8 @@ public class BotRuntimeStateService {
                 .consecutiveFailures(state.getConsecutiveFailures())
                 .lastError(state.getLastError())
                 .workerSlot(state.getWorkerSlot())
+                .sessionBlockedSince(state.getSessionBlockedSince())
+                .sessionBlockCount(state.getSessionBlockCount())
                 .updatedAt(state.getUpdatedAt())
                 .build();
     }

@@ -8,11 +8,15 @@ import { Link } from "react-router-dom";
 
 import {
     getBotOfferQuota,
+    getBotRuntimeState,
     getBots,
     startBot,
     stopBot,
 } from "../api/botsApi";
-import type { BotOfferQuota } from "../api/botsApi";
+import type {
+    BotOfferQuota,
+    BotRuntimeState,
+} from "../api/botsApi";
 import AppDialog from "../components/AppDialog";
 import MarketStatsObserverCard from "../components/MarketStatsObserverCard";
 import type { BotListItem } from "../types/bots";
@@ -24,6 +28,9 @@ function BotsPage() {
     const [bots, setBots] = useState<BotListItem[]>([]);
     const [quotaByBotId, setQuotaByBotId] =
         useState<Record<number, BotOfferQuota>>({});
+    const [runtimeByBotId, setRuntimeByBotId] =
+        useState<Record<number, BotRuntimeState>>({});
+    const [nowMs, setNowMs] = useState(() => Date.now());
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [actionBotId, setActionBotId] = useState<number | null>(null);
@@ -44,27 +51,43 @@ function BotsPage() {
             const loadedBots = await getBots();
             setBots(loadedBots);
 
-            const quotaResults = await Promise.all(
+            const supplementaryResults = await Promise.all(
                 loadedBots.map(async (bot) => {
-                    try {
-                        return {
-                            botId: bot.id,
-                            quota: await getBotOfferQuota(bot.id),
-                        };
-                    } catch (error) {
-                        console.error(`Nie udało się pobrać quota dla bota ${bot.id}.`, error);
-                        return null;
+                    const [quotaResult, runtimeResult] = await Promise.allSettled([
+                        getBotOfferQuota(bot.id),
+                        getBotRuntimeState(bot.id),
+                    ]);
+
+                    if (quotaResult.status === "rejected") {
+                        console.error(`Nie udało się pobrać quota dla bota ${bot.id}.`, quotaResult.reason);
                     }
+                    if (runtimeResult.status === "rejected") {
+                        console.error(`Nie udało się pobrać runtime dla bota ${bot.id}.`, runtimeResult.reason);
+                    }
+
+                    return {
+                        botId: bot.id,
+                        quota: quotaResult.status === "fulfilled" ? quotaResult.value : null,
+                        runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
+                    };
                 }),
             );
 
             const nextQuotaByBotId: Record<number, BotOfferQuota> = {};
-            for (const result of quotaResults) {
-                if (result !== null) {
+            const nextRuntimeByBotId: Record<number, BotRuntimeState> = {};
+
+            for (const result of supplementaryResults) {
+                if (result.quota !== null) {
                     nextQuotaByBotId[result.botId] = result.quota;
                 }
+                if (result.runtime !== null) {
+                    nextRuntimeByBotId[result.botId] = result.runtime;
+                }
             }
+
             setQuotaByBotId(nextQuotaByBotId);
+            setRuntimeByBotId(nextRuntimeByBotId);
+            setNowMs(Date.now());
         } catch (error) {
             setErrorMessage(getErrorMessage(error, "Nie udało się pobrać botów."));
         } finally {
@@ -79,6 +102,50 @@ function BotsPage() {
     useEffect(() => {
         void loadBots("initial");
     }, [loadBots]);
+
+    useEffect(() => {
+        const timer = window.setInterval(() => setNowMs(Date.now()), 15_000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        if (bots.length === 0) {
+            return;
+        }
+
+        const refreshRuntime = async () => {
+            const results = await Promise.all(
+                bots.map(async (bot) => {
+                    try {
+                        return {
+                            botId: bot.id,
+                            runtime: await getBotRuntimeState(bot.id),
+                        };
+                    } catch (error) {
+                        console.error(`Nie udało się odświeżyć runtime bota ${bot.id}.`, error);
+                        return null;
+                    }
+                }),
+            );
+
+            setRuntimeByBotId((previous) => {
+                const next = { ...previous };
+                for (const result of results) {
+                    if (result !== null) {
+                        next[result.botId] = result.runtime;
+                    }
+                }
+                return next;
+            });
+            setNowMs(Date.now());
+        };
+
+        const timer = window.setInterval(() => {
+            void refreshRuntime();
+        }, 5_000);
+
+        return () => window.clearInterval(timer);
+    }, [bots]);
 
     const runningBots = useMemo(
         () => bots.filter((bot) => bot.status.toUpperCase() === "RUNNING"),
@@ -279,6 +346,7 @@ function BotsPage() {
                                     const isRunning = bot.status.toUpperCase() === "RUNNING";
                                     const isActionInProgress = actionBotId === bot.id;
                                     const quota = quotaByBotId[bot.id];
+                                    const runtime = runtimeByBotId[bot.id];
 
                                     return (
                                         <tr key={bot.id}>
@@ -292,7 +360,11 @@ function BotsPage() {
                                                 {bot.email}
                                             </td>
                                             <td data-label="Status">
-                                                <BotStatus status={bot.status} />
+                                                <BotStatus
+                                                    status={bot.status}
+                                                    runtime={runtime}
+                                                    nowMs={nowMs}
+                                                />
                                             </td>
                                             <td data-label="Dzisiejsze oferty">
                                                 {quota ? <BotOfferQuotaCell quota={quota} /> : <span>Brak danych</span>}
@@ -383,9 +455,44 @@ function BotOfferQuotaCell({ quota }: { quota: BotOfferQuota }) {
     );
 }
 
-function BotStatus({ status }: { status: string }) {
+function BotStatus({
+    status,
+    runtime,
+    nowMs,
+}: {
+    status: string;
+    runtime: BotRuntimeState | undefined;
+    nowMs: number;
+}) {
     const normalizedStatus = status.toUpperCase();
-    const statusClassName = normalizedStatus === "RUNNING"
+    const isRunning = normalizedStatus === "RUNNING";
+    const blockedSince = isRunning ? runtime?.sessionBlockedSince : null;
+
+    if (blockedSince) {
+        const nextRetry = runtime?.nextRunAt
+            ? Date.parse(runtime.nextRunAt)
+            : Number.NaN;
+        const retryText = Number.isFinite(nextRetry) && nextRetry > nowMs
+            ? `ponownie za ${formatRemainingDuration(nextRetry - nowMs)}`
+            : "trwa ponowna próba";
+
+        return (
+            <div className="bot-name-cell">
+                <span className="bot-status bot-status-stopped">
+                    <span className="bot-status-dot" />
+                    Sesja zablokowana
+                </span>
+                <span>
+                    od {formatElapsedDuration(blockedSince, nowMs)}
+                </span>
+                <span>
+                    Próba {Math.max(runtime?.sessionBlockCount ?? 1, 1)} · {retryText}
+                </span>
+            </div>
+        );
+    }
+
+    const statusClassName = isRunning
         ? "bot-status bot-status-running"
         : "bot-status bot-status-stopped";
 
@@ -395,6 +502,42 @@ function BotStatus({ status }: { status: string }) {
             {formatBotStatus(status)}
         </span>
     );
+}
+
+function formatElapsedDuration(blockedSince: string, nowMs: number): string {
+    const startedAt = Date.parse(blockedSince);
+    if (!Number.isFinite(startedAt)) {
+        return "nieznanego czasu";
+    }
+
+    const totalMinutes = Math.max(0, Math.floor((nowMs - startedAt) / 60_000));
+    if (totalMinutes < 1) {
+        return "mniej niż 1 min";
+    }
+    if (totalMinutes < 60) {
+        return `${totalMinutes} min`;
+    }
+
+    const totalHours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (totalHours < 24) {
+        return `${totalHours} godz.${minutes > 0 ? ` ${minutes} min` : ""}`;
+    }
+
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    return `${days} d${hours > 0 ? ` ${hours} godz.` : ""}${minutes > 0 ? ` ${minutes} min` : ""}`;
+}
+
+function formatRemainingDuration(durationMs: number): string {
+    const totalMinutes = Math.max(1, Math.ceil(durationMs / 60_000));
+    if (totalMinutes < 60) {
+        return `${totalMinutes} min`;
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours} godz.${minutes > 0 ? ` ${minutes} min` : ""}`;
 }
 
 function formatBotStatus(status: string): string {
