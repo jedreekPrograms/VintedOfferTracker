@@ -152,7 +152,7 @@ A normal bot lifecycle is intentionally split into small, recoverable stages ins
 3. **Create an isolated browser job**. Every scheduled run receives its own `BrowserContext` and page lifetime.
 4. **Build the target** using either an exact native Vinted model or a search query.
 5. **Scan newest-first listings**, enforce price / target guards and persist eligible discoveries.
-6. **Claim work in the backend** so the same marketplace item is not independently acted on by multiple bot accounts.
+6. **Persist discovery per bot** using `(bot_id, listing_id)` identity, keeping retries idempotent inside one bot while allowing different bot/account configurations to observe the same marketplace item.
 7. **Prepare a negotiation action** and re-check the live item immediately before submission.
 8. **Acquire persistent guard + reserve quota** only when the action is ready to be submitted.
 9. **Submit and confirm** the marketplace-side result, then persist conversation identifiers, step state and audit data.
