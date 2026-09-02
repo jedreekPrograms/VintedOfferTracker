@@ -20,6 +20,79 @@ public class SessionManagerTest {
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
+    public void repositoryRootResolvesToPlaywrightModuleSessions()
+            throws Exception {
+        Path repositoryRoot = temporaryFolder.newFolder("repo-root").toPath();
+        Path playwrightModule = createPlaywrightModule(repositoryRoot);
+
+        Path resolved = SessionManager.resolveDefaultSessionDirectory(
+                repositoryRoot,
+                null
+        );
+
+        assertEquals(
+                playwrightModule.resolve("sessions").toAbsolutePath().normalize(),
+                resolved
+        );
+    }
+
+    @Test
+    public void moduleWorkingDirectoryResolvesToSameSessionDirectory()
+            throws Exception {
+        Path repositoryRoot = temporaryFolder.newFolder("module-cwd").toPath();
+        Path playwrightModule = createPlaywrightModule(repositoryRoot);
+
+        Path resolved = SessionManager.resolveDefaultSessionDirectory(
+                playwrightModule,
+                null
+        );
+
+        assertEquals(
+                playwrightModule.resolve("sessions").toAbsolutePath().normalize(),
+                resolved
+        );
+    }
+
+    @Test
+    public void nestedTargetWorkingDirectoryStillFindsModuleSessions()
+            throws Exception {
+        Path repositoryRoot = temporaryFolder.newFolder("target-cwd").toPath();
+        Path playwrightModule = createPlaywrightModule(repositoryRoot);
+        Path nestedWorkingDirectory = Files.createDirectories(
+                playwrightModule.resolve("target/classes")
+        );
+
+        Path resolved = SessionManager.resolveDefaultSessionDirectory(
+                nestedWorkingDirectory,
+                null
+        );
+
+        assertEquals(
+                playwrightModule.resolve("sessions").toAbsolutePath().normalize(),
+                resolved
+        );
+    }
+
+    @Test
+    public void configuredSessionDirectoryOverridesDiscovery()
+            throws Exception {
+        Path repositoryRoot = temporaryFolder.newFolder("override-root").toPath();
+        createPlaywrightModule(repositoryRoot);
+
+        Path resolved = SessionManager.resolveDefaultSessionDirectory(
+                repositoryRoot,
+                "custom-sessions"
+        );
+
+        assertEquals(
+                repositoryRoot.resolve("custom-sessions")
+                        .toAbsolutePath()
+                        .normalize(),
+                resolved
+        );
+    }
+
+    @Test
     public void invalidatingSessionBacksItUpWithoutRemovingActiveStorage()
             throws Exception {
         Path sessions = temporaryFolder.newFolder("sessions").toPath();
@@ -89,5 +162,17 @@ public class SessionManagerTest {
         );
 
         manager.sessionFile(0L);
+    }
+
+    private Path createPlaywrightModule(Path repositoryRoot)
+            throws Exception {
+        Path module = Files.createDirectories(
+                repositoryRoot.resolve("playwright")
+        );
+        Files.createFile(module.resolve("pom.xml"));
+        Files.createDirectories(
+                module.resolve("src/main/java/pl/flipbot/playwright")
+        );
+        return module;
     }
 }
