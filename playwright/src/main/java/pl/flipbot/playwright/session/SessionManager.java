@@ -1,11 +1,15 @@
 package pl.flipbot.playwright.session;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.BrowserContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -23,6 +27,9 @@ public class SessionManager {
 
     private static final AtomicBoolean SESSION_DIRECTORY_LOGGED =
             new AtomicBoolean();
+
+    private static final ObjectMapper OBJECT_MAPPER =
+            new ObjectMapper();
 
     private static final Path DEFAULT_SESSION_DIRECTORY =
             resolveDefaultSessionDirectory(
@@ -136,19 +143,139 @@ public class SessionManager {
     }
 
     public boolean sessionExists(Long botId) {
-        return Files.exists(sessionFile(botId));
+        Path session = sessionFile(botId);
+        try {
+            return Files.isRegularFile(session) && Files.size(session) > 0;
+        } catch (IOException exception) {
+            log.warn(
+                    "[SESSION] Could not inspect stored session for bot {}: {}",
+                    botId,
+                    session,
+                    exception
+            );
+            return false;
+        }
     }
 
     public void saveSession(Long botId, BrowserContext context) {
-        /*
-         * Cookies and localStorage are sufficient for the Vinted session.
-         * Persisting IndexedDB caused Playwright to save entries that could
-         * later fail BrowserContext creation with "Unable to restore IndexedDB".
-         */
-        context.storageState(
-                new BrowserContext.StorageStateOptions()
-                        .setPath(sessionFile(botId))
-        );
+        Path stagedSession;
+        try {
+            stagedSession = Files.createTempFile(
+                    sessionDirectory,
+                    ".bot-" + botId + "-",
+                    ".json.tmp"
+            );
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not create a staging file for bot " + botId
+                            + " session; the active session was left untouched.",
+                    exception
+            );
+        }
+
+        try {
+            /*
+             * Never let Playwright write directly into the active bot-X.json.
+             * A failed/interrupted storageState write can truncate its target.
+             * Write to a sibling staging file first, validate it, and only then
+             * replace the active session.
+             *
+             * Cookies and localStorage are sufficient for the Vinted session.
+             * Persisting IndexedDB caused Playwright to save entries that could
+             * later fail BrowserContext creation with "Unable to restore IndexedDB".
+             */
+            context.storageState(
+                    new BrowserContext.StorageStateOptions()
+                            .setPath(stagedSession)
+            );
+
+            installStagedSession(botId, stagedSession);
+        } finally {
+            deleteQuietly(stagedSession);
+        }
+    }
+
+    void installStagedSession(
+            Long botId,
+            Path stagedSession
+    ) {
+        Path activeSession = sessionFile(botId);
+        validateStagedSession(botId, stagedSession);
+
+        try {
+            try {
+                Files.move(
+                        stagedSession,
+                        activeSession,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(
+                        stagedSession,
+                        activeSession,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            }
+
+            log.debug(
+                    "[SESSION] Installed validated session state for bot {}: {}",
+                    botId,
+                    activeSession
+            );
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not install validated session state for bot " + botId
+                            + "; the previous active session was preserved whenever the filesystem allowed it.",
+                    exception
+            );
+        }
+    }
+
+    private void validateStagedSession(
+            Long botId,
+            Path stagedSession
+    ) {
+        try {
+            if (!Files.isRegularFile(stagedSession)
+                    || Files.size(stagedSession) == 0) {
+                throw new IllegalStateException(
+                        "Playwright produced an empty session state for bot "
+                                + botId
+                                + "; refusing to replace the active session."
+                );
+            }
+
+            JsonNode root = OBJECT_MAPPER.readTree(stagedSession.toFile());
+            if (root == null
+                    || !root.isObject()
+                    || !root.path("cookies").isArray()
+                    || !root.path("origins").isArray()) {
+                throw new IllegalStateException(
+                        "Playwright produced an invalid storageState JSON for bot "
+                                + botId
+                                + "; refusing to replace the active session."
+                );
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not validate staged session state for bot " + botId
+                            + "; refusing to replace the active session.",
+                    exception
+            );
+        }
+    }
+
+    private void deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException exception) {
+            log.warn(
+                    "[SESSION] Could not remove temporary staged session file: {}",
+                    path,
+                    exception
+            );
+        }
     }
 
     /**

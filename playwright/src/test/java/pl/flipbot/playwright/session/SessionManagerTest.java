@@ -13,6 +13,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class SessionManagerTest {
 
@@ -90,6 +91,87 @@ public class SessionManagerTest {
                         .normalize(),
                 resolved
         );
+    }
+
+    @Test
+    public void zeroByteSessionIsNotConsideredUsable()
+            throws Exception {
+        Path sessions = temporaryFolder.newFolder("zero-byte").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        Files.createFile(manager.sessionFile(6L));
+
+        assertFalse(manager.sessionExists(6L));
+    }
+
+    @Test
+    public void validatedStagedSessionReplacesActiveSession()
+            throws Exception {
+        Path sessions = temporaryFolder.newFolder("atomic-valid").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        Path activeSession = manager.sessionFile(3L);
+        Path stagedSession = sessions.resolve("staged.json.tmp");
+
+        byte[] original = "{\"cookies\":[],\"origins\":[],\"marker\":\"old\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        byte[] replacement = "{\"cookies\":[],\"origins\":[],\"marker\":\"new\"}"
+                .getBytes(StandardCharsets.UTF_8);
+
+        Files.write(activeSession, original);
+        Files.write(stagedSession, replacement);
+
+        manager.installStagedSession(3L, stagedSession);
+
+        assertArrayEquals(replacement, Files.readAllBytes(activeSession));
+        assertFalse(Files.exists(stagedSession));
+    }
+
+    @Test
+    public void emptyStagedSessionNeverTruncatesExistingActiveSession()
+            throws Exception {
+        Path sessions = temporaryFolder.newFolder("atomic-empty").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        Path activeSession = manager.sessionFile(3L);
+        Path stagedSession = sessions.resolve("empty.json.tmp");
+
+        byte[] original = "{\"cookies\":[{\"name\":\"session\"}],\"origins\":[]}"
+                .getBytes(StandardCharsets.UTF_8);
+
+        Files.write(activeSession, original);
+        Files.createFile(stagedSession);
+
+        try {
+            manager.installStagedSession(3L, stagedSession);
+            fail("Empty staged session should have been rejected");
+        } catch (IllegalStateException expected) {
+            // expected
+        }
+
+        assertArrayEquals(original, Files.readAllBytes(activeSession));
+        assertTrue(Files.exists(stagedSession));
+    }
+
+    @Test
+    public void malformedStagedSessionNeverReplacesExistingActiveSession()
+            throws Exception {
+        Path sessions = temporaryFolder.newFolder("atomic-malformed").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        Path activeSession = manager.sessionFile(3L);
+        Path stagedSession = sessions.resolve("malformed.json.tmp");
+
+        byte[] original = "{\"cookies\":[],\"origins\":[]}"
+                .getBytes(StandardCharsets.UTF_8);
+
+        Files.write(activeSession, original);
+        Files.writeString(stagedSession, "{not-json");
+
+        try {
+            manager.installStagedSession(3L, stagedSession);
+            fail("Malformed staged session should have been rejected");
+        } catch (IllegalStateException expected) {
+            // expected
+        }
+
+        assertArrayEquals(original, Files.readAllBytes(activeSession));
     }
 
     @Test
