@@ -20,7 +20,7 @@ public class SessionManagerTest {
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
-    public void invalidatingSessionPreservesItInBackupInsteadOfDeletingIt()
+    public void invalidatingSessionBacksItUpWithoutRemovingActiveStorage()
             throws Exception {
         Path sessions = temporaryFolder.newFolder("sessions").toPath();
         SessionManager manager = new SessionManager(sessions);
@@ -32,7 +32,8 @@ public class SessionManagerTest {
 
         manager.invalidateSession(3L);
 
-        assertFalse(Files.exists(activeSession));
+        assertTrue(Files.exists(activeSession));
+        assertArrayEquals(original, Files.readAllBytes(activeSession));
 
         Path backups = sessions.resolve("backups");
         assertTrue(Files.isDirectory(backups));
@@ -46,6 +47,28 @@ public class SessionManagerTest {
         assertTrue(files.getFirst().getFileName().toString().startsWith("bot-3-"));
         assertTrue(files.getFirst().getFileName().toString().endsWith(".json"));
         assertArrayEquals(original, Files.readAllBytes(files.getFirst()));
+    }
+
+    @Test
+    public void repeatedRecoveryBackupsNeverMutateActiveSession()
+            throws Exception {
+        Path sessions = temporaryFolder.newFolder("repeated-backups").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        Path activeSession = manager.sessionFile(3L);
+        byte[] original = "{\"cookies\":[{\"value\":\"still-valid\"}]}"
+                .getBytes(StandardCharsets.UTF_8);
+
+        Files.write(activeSession, original);
+
+        manager.invalidateSession(3L);
+        manager.invalidateSession(3L);
+
+        assertTrue(Files.exists(activeSession));
+        assertArrayEquals(original, Files.readAllBytes(activeSession));
+
+        try (var stream = Files.list(sessions.resolve("backups"))) {
+            assertEquals(2L, stream.count());
+        }
     }
 
     @Test
