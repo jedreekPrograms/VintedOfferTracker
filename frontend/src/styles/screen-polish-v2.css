@@ -1,248 +1,415 @@
 /*
- * Focused visual polish from the 2026-09-02 UI review.
- * Presentation only: no component behavior, API calls or business logic changes.
+ * FlipBot semantic visual polish.
+ *
+ * Presentation only. Color is intentionally semantic instead of decorative:
+ * blue = primary interaction/information, green = confirmed success/healthy,
+ * amber = attention/waiting, red = destructive/failure. Neutral data stays neutral.
  */
 
 :root {
-    --polish-blue: #2563eb;
-    --polish-blue-strong: #1d4ed8;
-    --polish-blue-soft: #eff6ff;
-    --polish-blue-border: #bfdbfe;
-    --polish-green: #16a34a;
-    --polish-green-strong: #15803d;
-    --polish-green-soft: #f0fdf4;
-    --polish-green-border: #bbf7d0;
-    --polish-amber: #d97706;
-    --polish-amber-soft: #fff7ed;
-    --polish-amber-border: #fed7aa;
-    --polish-red: #dc2626;
-    --polish-red-soft: #fef2f2;
-    --polish-red-border: #fecaca;
-    --polish-cyan: #0891b2;
-    --polish-cyan-soft: #ecfeff;
-    --polish-text: #111827;
-    --polish-muted: #667085;
-    --polish-border: #e4e9f0;
+    --v3-bg: #f8f9fb;
+    --v3-surface: #ffffff;
+    --v3-surface-subtle: #fafbfc;
+    --v3-surface-hover: #f5f7fa;
+    --v3-border: #e6e9ef;
+    --v3-border-strong: #d8dee8;
+
+    --v3-text: #344054;
+    --v3-text-strong: #101828;
+    --v3-text-muted: #667085;
+    --v3-text-faint: #98a2b3;
+
+    --v3-blue: #2f6fed;
+    --v3-blue-hover: #245fda;
+    --v3-blue-soft: #f1f6ff;
+    --v3-blue-border: #d5e3ff;
+
+    --v3-green: #148a5b;
+    --v3-green-strong: #0f7049;
+    --v3-green-soft: #effaf5;
+    --v3-green-border: #ccecdf;
+
+    --v3-amber: #a9630b;
+    --v3-amber-soft: #fff8ea;
+    --v3-amber-border: #f2dfb8;
+
+    --v3-red: #c7424f;
+    --v3-red-strong: #ad303d;
+    --v3-red-soft: #fff4f5;
+    --v3-red-border: #f1cfd4;
+
+    --v3-radius-sm: 8px;
+    --v3-radius: 10px;
+    --v3-radius-lg: 12px;
 }
 
-/* Keep the light theme flat, but make interactive hierarchy more alive. */
-.primary-button {
-    border-color: var(--polish-blue) !important;
-    background: var(--polish-blue) !important;
+/* -------------------------
+   Global rhythm / typography
+   ------------------------- */
+
+html,
+body,
+button,
+input,
+select,
+textarea {
+    font-family:
+        Inter,
+        ui-sans-serif,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        Helvetica,
+        Arial,
+        sans-serif;
 }
 
-.primary-button:hover:not(:disabled) {
-    border-color: var(--polish-blue-strong) !important;
-    background: var(--polish-blue-strong) !important;
+body {
+    color: var(--v3-text);
+    background: var(--v3-bg);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: -0.005em;
+}
+
+.page-title {
+    color: var(--v3-text-strong) !important;
+    font-size: clamp(28px, 2.6vw, 34px) !important;
+    font-weight: 720 !important;
+    line-height: 1.14 !important;
+    letter-spacing: -0.035em !important;
+}
+
+.page-eyebrow,
+.negotiation-response-policy-eyebrow {
+    color: var(--v3-text-faint) !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.06em !important;
+}
+
+.page-description,
+.content-card-text,
+.negotiation-policy-card-title p,
+.negotiation-policy-footnote {
+    color: var(--v3-text-muted) !important;
+}
+
+.content-card-title,
+.dashboard-section-header h2,
+.action-required-card h2,
+.history-card h2,
+.negotiation-response-policy-heading h3 {
+    color: var(--v3-text-strong) !important;
+    font-weight: 680 !important;
+    letter-spacing: -0.018em !important;
+}
+
+.content-card-title,
+.dashboard-section-header h2 {
+    font-size: 16px !important;
+}
+
+.form-label {
+    color: #475467 !important;
+    font-weight: 620 !important;
+}
+
+.form-help,
+.stat-description {
+    color: var(--v3-text-faint) !important;
+}
+
+.stat-value,
+.dashboard-effectiveness strong,
+.price-metric-cell strong,
+.bot-quota-value,
+.history-price,
+.history-current-price {
+    font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------
+   Core surfaces
+   ------------------------- */
+
+.main-content,
+.app-layout {
+    background: var(--v3-bg) !important;
+}
+
+.content-card,
+.stat-card,
+.action-required-card,
+.history-card,
+.price-brand-sheet,
+.negotiation-policy-card,
+.dictionary-list-item,
+.bot-selection-preview,
+.information-box,
+.market-stats-observer-card {
+    border-color: var(--v3-border) !important;
+    background: var(--v3-surface) !important;
+    box-shadow: none !important;
+}
+
+.content-card,
+.stat-card,
+.action-required-card,
+.history-card,
+.price-brand-sheet {
+    border-radius: var(--v3-radius-lg) !important;
+}
+
+/* -------------------------
+   Primary interaction: blue only
+   ------------------------- */
+
+.primary-button,
+.bot-start-button,
+.purchase-finished-button {
+    border-color: var(--v3-blue) !important;
+    color: #ffffff !important;
+    background: var(--v3-blue) !important;
+    box-shadow: none !important;
+}
+
+.primary-button:hover:not(:disabled),
+.bot-start-button:hover:not(:disabled),
+.purchase-finished-button:hover:not(:disabled) {
+    border-color: var(--v3-blue-hover) !important;
+    color: #ffffff !important;
+    background: var(--v3-blue-hover) !important;
+}
+
+.secondary-button,
+.counter-rule-add {
+    border-color: var(--v3-border-strong) !important;
+    color: #344054 !important;
+    background: #ffffff !important;
+}
+
+.secondary-button:hover:not(:disabled),
+.counter-rule-add:hover:not(:disabled) {
+    border-color: #c7d0dc !important;
+    color: var(--v3-text-strong) !important;
+    background: var(--v3-surface-hover) !important;
 }
 
 .navigation-link-active,
 .navigation-link-active:hover {
-    border-color: #dbeafe !important;
-    color: var(--polish-blue-strong) !important;
-    background: #f4f8ff !important;
+    border-color: var(--v3-blue-border) !important;
+    color: #245fda !important;
+    background: var(--v3-blue-soft) !important;
 }
 
 .navigation-link-active .navigation-icon {
-    color: var(--polish-blue) !important;
+    color: var(--v3-blue) !important;
 }
 
-.sidebar-footer-status-dot {
-    background: #22c55e !important;
+.dashboard-period-button-active,
+.history-status-filter-active {
+    border-color: var(--v3-blue-border) !important;
+    color: #245fda !important;
+    background: var(--v3-blue-soft) !important;
 }
 
 .form-input:focus,
 .form-textarea:focus,
 .form-select:focus,
 .app-select-open .app-select-trigger,
-.history-search input:focus {
-    border-color: #60a5fa !important;
-    box-shadow: 0 0 0 3px rgb(37 99 235 / 9%) !important;
+.history-search input:focus,
+.price-matrix-input:focus {
+    border-color: #8db2fb !important;
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgb(47 111 237 / 8%) !important;
 }
 
-.dashboard-period-button-active,
-.history-status-filter-active {
-    border-color: var(--polish-blue-border) !important;
-    color: var(--polish-blue-strong) !important;
-    background: var(--polish-blue-soft) !important;
+/* Counters / metadata are neutral, not action-colored. */
+.dictionary-count,
+.price-brand-count,
+.negotiation-policy-badge {
+    border-color: var(--v3-border) !important;
+    color: #667085 !important;
+    background: #f7f8fa !important;
 }
 
-/* Dashboard: make success information obvious without adding 3D. */
+/* -------------------------
+   Success: only real positive outcomes / healthy states
+   ------------------------- */
+
 .stat-card-success {
-    border-top: 2px solid #22c55e !important;
+    border-top: 2px solid #32a976 !important;
 }
 
-.stat-card-success .stat-value {
-    color: var(--polish-green-strong) !important;
+.stat-card-success .stat-value,
+.history-current-price,
+.history-saving strong,
+.action-required-savings,
+.action-required-discount {
+    color: var(--v3-green-strong) !important;
 }
 
-.stat-card-warning {
-    border-top: 2px solid #f59e0b !important;
+.bot-status-running,
+.runtime-status-working,
+.runtime-status-running,
+.history-status-purchased {
+    border-color: var(--v3-green-border) !important;
+    color: var(--v3-green-strong) !important;
+    background: var(--v3-green-soft) !important;
 }
 
-.stat-card-warning .stat-value {
-    color: #b45309 !important;
+.bot-status-running .bot-status-dot,
+.runtime-status-working::before,
+.runtime-status-running::before,
+.sidebar-footer-status-dot {
+    background: #23a66f !important;
 }
 
+.form-message-success {
+    border-color: var(--v3-green-border) !important;
+    color: var(--v3-green-strong) !important;
+    background: var(--v3-green-soft) !important;
+}
+
+/* Effectiveness remains a neutral KPI card; green is only a slim success cue. */
 .dashboard-effectiveness {
     position: relative;
     overflow: hidden;
-    margin-top: 16px;
-    border: 1px solid var(--polish-green-border) !important;
-    border-radius: 10px !important;
-    padding: 15px 17px !important;
-    background: var(--polish-green-soft) !important;
+    margin-top: 15px !important;
+    border: 1px solid var(--v3-border) !important;
+    border-radius: var(--v3-radius) !important;
+    padding: 15px 16px 14px !important;
+    background: #fbfcfd !important;
 }
 
 .dashboard-effectiveness::before {
     position: absolute;
     inset: 0 auto 0 0;
     width: 3px;
-    background: #22c55e;
+    background: #2ca36f;
     content: "";
 }
 
 .dashboard-effectiveness strong {
-    color: var(--polish-green-strong) !important;
-    font-size: clamp(34px, 4vw, 44px) !important;
-    font-weight: 760 !important;
-    line-height: 1 !important;
-    letter-spacing: -0.045em !important;
+    color: var(--v3-text-strong) !important;
+    font-size: clamp(36px, 4vw, 44px) !important;
+    font-weight: 730 !important;
+    line-height: 0.98 !important;
+    letter-spacing: -0.05em !important;
 }
 
 .dashboard-effectiveness span {
     margin-top: 8px !important;
-    color: #47745a !important;
+    color: var(--v3-text-muted) !important;
     font-size: 11px !important;
-    font-weight: 620 !important;
-}
-
-.dashboard-decision-stats > div {
-    border-color: var(--polish-border) !important;
+    font-weight: 500 !important;
 }
 
 .dashboard-decision-stats > div:nth-child(1) strong {
-    color: var(--polish-green-strong) !important;
+    color: var(--v3-green-strong) !important;
 }
 
-.dashboard-decision-stats > div:nth-child(2) strong {
-    color: #c2414d !important;
-}
-
+.dashboard-decision-stats > div:nth-child(2) strong,
 .dashboard-decision-stats > div:nth-child(3) strong {
-    color: var(--polish-blue-strong) !important;
+    color: var(--v3-text-strong) !important;
 }
 
-/* Bot/runtime success, info and quota accents. */
-.bot-status-running,
-.runtime-status-working,
-.runtime-status-running {
-    border-color: var(--polish-green-border) !important;
-    color: var(--polish-green-strong) !important;
-    background: var(--polish-green-soft) !important;
+/* -------------------------
+   Attention and destructive states
+   ------------------------- */
+
+.stat-card-warning {
+    border-top: 2px solid #d9a03e !important;
 }
 
-.bot-status-running .bot-status-dot,
-.runtime-status-working::before,
-.runtime-status-running::before {
-    background: #22c55e !important;
+.stat-card-warning .stat-value,
+.runtime-status-cooldown,
+.runtime-status-rate-limited {
+    color: var(--v3-amber) !important;
 }
 
-.bot-start-button,
-.purchase-finished-button {
-    border-color: var(--polish-green-border) !important;
-    color: var(--polish-green-strong) !important;
-    background: var(--polish-green-soft) !important;
+.negotiation-policy-note {
+    border: 1px solid var(--v3-amber-border) !important;
+    color: #7f581d !important;
+    background: var(--v3-amber-soft) !important;
 }
 
-.bot-start-button:hover:not(:disabled),
-.purchase-finished-button:hover:not(:disabled) {
-    border-color: #86efac !important;
-    color: #166534 !important;
-    background: #dcfce7 !important;
+.bot-stop-button,
+.action-required-reject-button,
+.history-remove-button,
+.counter-rule-remove,
+.danger-text-button {
+    color: var(--v3-red) !important;
 }
+
+.bot-stop-button,
+.action-required-reject-button,
+.history-remove-button {
+    border-color: var(--v3-red-border) !important;
+    background: #ffffff !important;
+}
+
+.bot-stop-button:hover:not(:disabled),
+.action-required-reject-button:hover:not(:disabled),
+.history-remove-button:hover:not(:disabled) {
+    border-color: #e5b6bd !important;
+    color: var(--v3-red-strong) !important;
+    background: var(--v3-red-soft) !important;
+}
+
+.form-message-error {
+    border-color: var(--v3-red-border) !important;
+    color: var(--v3-red-strong) !important;
+    background: var(--v3-red-soft) !important;
+}
+
+/* -------------------------
+   Progress / quota = informational blue
+   ------------------------- */
 
 .bot-quota-value {
-    color: #1e3a8a !important;
+    color: var(--v3-text-strong) !important;
 }
 
 .bot-quota-percentage {
-    color: var(--polish-blue) !important;
-    font-weight: 700 !important;
+    color: var(--v3-text-muted) !important;
+    font-weight: 600 !important;
 }
 
 .bot-quota-progress {
-    height: 6px !important;
-    accent-color: var(--polish-blue);
+    height: 5px !important;
+    accent-color: var(--v3-blue);
 }
 
 .bot-quota-progress::-webkit-progress-bar {
     border-radius: 999px;
-    background: #e8eef7;
+    background: #edf1f6;
 }
 
 .bot-quota-progress::-webkit-progress-value {
     border-radius: 999px;
-    background: var(--polish-blue);
+    background: var(--v3-blue);
 }
 
 .bot-quota-progress::-moz-progress-bar {
     border-radius: 999px;
-    background: var(--polish-blue);
+    background: var(--v3-blue);
 }
 
-/* Purchased/history success should read as success, not as neutral metadata. */
-.history-status-purchased {
-    border: 1px solid var(--polish-green-border) !important;
-    color: var(--polish-green-strong) !important;
-    background: var(--polish-green-soft) !important;
-}
+/* -------------------------
+   Negotiation policy layout
+   ------------------------- */
 
-.history-current-price,
-.history-saving strong {
-    color: var(--polish-green-strong) !important;
-}
-
-.history-details > div:last-child strong {
-    color: var(--polish-green-strong) !important;
-}
-
-.action-required-badge {
-    border-color: var(--polish-blue-border) !important;
-    color: var(--polish-blue-strong) !important;
-    background: var(--polish-blue-soft) !important;
-}
-
-.action-required-savings,
-.action-required-discount {
-    color: var(--polish-green-strong) !important;
-}
-
-/* Negotiation reaction editor: remove the tall empty left card and improve rhythm. */
 .negotiation-response-policy {
     margin-top: 18px !important;
     padding-top: 17px !important;
 }
 
 .negotiation-response-policy-heading {
+    align-items: center !important;
     margin-bottom: 12px !important;
-}
-
-.negotiation-response-policy-eyebrow {
-    color: var(--polish-blue) !important;
-}
-
-.negotiation-policy-badge {
-    border: 1px solid var(--polish-blue-border) !important;
-    color: var(--polish-blue-strong) !important;
-    background: var(--polish-blue-soft) !important;
-}
-
-.negotiation-policy-note {
-    margin-bottom: 12px !important;
-    border: 1px solid var(--polish-amber-border) !important;
-    color: #8a4b08 !important;
-    background: var(--polish-amber-soft) !important;
 }
 
 .negotiation-policy-grid {
@@ -253,20 +420,8 @@
 
 .negotiation-policy-card {
     align-self: start !important;
-    border-color: #dce3ec !important;
-    border-radius: 11px !important;
+    border-radius: var(--v3-radius-lg) !important;
     padding: 14px !important;
-    background: #ffffff !important;
-}
-
-.negotiation-policy-card:first-child .negotiation-policy-icon {
-    color: var(--polish-red) !important;
-    background: var(--polish-red-soft) !important;
-}
-
-.negotiation-policy-card-wide .negotiation-policy-icon {
-    color: var(--polish-blue) !important;
-    background: var(--polish-blue-soft) !important;
 }
 
 .negotiation-policy-card-title {
@@ -274,21 +429,28 @@
 }
 
 .negotiation-policy-card-title strong {
-    color: #182230 !important;
+    color: var(--v3-text-strong) !important;
+    font-size: 12px !important;
+    font-weight: 680 !important;
 }
 
-.negotiation-policy-card-title p {
-    margin-top: 3px !important;
-    color: #748095 !important;
+.negotiation-policy-icon {
+    color: #667085 !important;
+    background: #f2f4f7 !important;
+}
+
+.negotiation-policy-card:first-child .negotiation-policy-icon {
+    color: var(--v3-red) !important;
+    background: var(--v3-red-soft) !important;
 }
 
 .counter-rule-fallback {
     grid-template-columns: minmax(190px, 0.78fr) minmax(0, 1.45fr) !important;
     gap: 12px !important;
-    border: 1px solid #e3e8ef !important;
-    border-radius: 9px !important;
+    border: 1px solid var(--v3-border) !important;
+    border-radius: var(--v3-radius) !important;
     padding: 11px !important;
-    background: #f8fafc !important;
+    background: var(--v3-surface-subtle) !important;
 }
 
 .counter-rules-list {
@@ -300,8 +462,8 @@
     grid-template-columns: minmax(130px, 0.44fr) minmax(0, 1.38fr) auto !important;
     align-items: center !important;
     gap: 10px !important;
-    border-color: #e3e8ef !important;
-    border-radius: 9px !important;
+    border-color: var(--v3-border) !important;
+    border-radius: var(--v3-radius) !important;
     padding: 10px 11px !important;
 }
 
@@ -317,32 +479,23 @@
 .counter-rule-remove {
     align-self: center !important;
     min-height: 34px !important;
-    padding-inline: 6px !important;
-    color: #c24141 !important;
+    padding-inline: 7px !important;
 }
 
 .counter-rule-add {
     margin-top: 10px !important;
-    border-color: var(--polish-blue-border) !important;
-    color: var(--polish-blue-strong) !important;
-    background: #ffffff !important;
-}
-
-.counter-rule-add:hover:not(:disabled) {
-    background: var(--polish-blue-soft) !important;
-}
-
-.negotiation-policy-footnote {
-    margin-top: 9px !important;
 }
 
 .input-with-suffix > span {
-    border-color: #d7dfeb !important;
-    color: #64748b !important;
-    background: #f8fafc !important;
+    border-color: var(--v3-border-strong) !important;
+    color: #667085 !important;
+    background: #f8f9fb !important;
 }
 
-/* Price matrix: specifically tighten the vertical space visible in "Posiadane boty". */
+/* -------------------------
+   Price matrix density
+   ------------------------- */
+
 .price-matrix-card {
     padding: 10px !important;
 }
@@ -356,11 +509,15 @@
 }
 
 .price-sheet-row {
-    min-height: 48px !important;
+    min-height: 46px !important;
 }
 
 .price-sheet-header {
     min-height: 34px !important;
+    color: #7a8495 !important;
+    font-size: 9.5px !important;
+    font-weight: 650 !important;
+    letter-spacing: 0.035em !important;
 }
 
 .price-sheet-row > div {
@@ -372,60 +529,59 @@
 }
 
 .price-metric-cell strong {
+    color: var(--v3-text-strong) !important;
     font-size: 13px !important;
+    font-weight: 680 !important;
     line-height: 1.1 !important;
 }
 
 .price-metric-cell span {
+    color: #8993a4 !important;
     font-size: 9px !important;
     line-height: 1.15 !important;
 }
 
 .price-metric-cell[data-label="Posiadane boty"] {
     justify-content: center !important;
-    gap: 2px !important;
+    gap: 1px !important;
 }
 
+/* Existing-bot count is plain inventory data, therefore neutral. */
 .price-metric-cell[data-label="Posiadane boty"] strong {
-    color: var(--polish-blue-strong) !important;
-}
-
-.price-matrix-input:focus {
-    border-color: #60a5fa !important;
-    background: #ffffff !important;
-    box-shadow: 0 0 0 3px rgb(37 99 235 / 8%) !important;
+    color: var(--v3-text-strong) !important;
 }
 
 .price-save-state {
-    color: var(--polish-green-strong) !important;
+    color: var(--v3-text-faint) !important;
 }
 
-/* Slightly richer semantic feedback globally, still flat. */
-.form-message-success {
-    border-color: var(--polish-green-border) !important;
-    color: var(--polish-green-strong) !important;
-    background: var(--polish-green-soft) !important;
+/* -------------------------
+   Tables
+   ------------------------- */
+
+.bots-table thead th,
+.history-table thead th,
+.runtime-table thead th {
+    color: #8993a4 !important;
+    font-size: 10px !important;
+    font-weight: 650 !important;
+    letter-spacing: 0.035em !important;
 }
 
-.form-message-error {
-    border-color: var(--polish-red-border) !important;
-    color: #b42318 !important;
-    background: var(--polish-red-soft) !important;
+.bots-table tbody td,
+.history-table tbody td,
+.runtime-table tbody td {
+    color: #475467;
 }
 
-.dictionary-count {
-    border-color: var(--polish-blue-border) !important;
-    color: var(--polish-blue-strong) !important;
-    background: var(--polish-blue-soft) !important;
+.bot-name-cell strong,
+.runtime-bot-name {
+    color: var(--v3-text-strong) !important;
 }
 
 @media (max-width: 1050px) {
     .negotiation-policy-grid {
         grid-template-columns: 1fr !important;
-    }
-
-    .negotiation-policy-card {
-        width: 100%;
     }
 }
 
