@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="../../actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/jedreekPrograms/VintedOfferTracker/ci.yml?branch=main&label=CI"></a>
+  <a href="../../actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/jedreekPrograms/VintedOfferTracker/ci.yml?branch=fix%2Fsession-refresh-stable&label=CI"></a>
   <img alt="Java" src="https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white">
   <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?logo=springboot&logoColor=white">
   <img alt="Playwright" src="https://img.shields.io/badge/Playwright-1.54-2EAD33?logo=playwright&logoColor=white">
@@ -20,12 +20,16 @@
 ## Demo
 
 <p align="center">
-  <img src="docs/media/demo-preview.svg" alt="FlipBot demo preview" width="900">
+  <a href="https://www.youtube.com/watch?v=xaNDLMsuKKk">
+    <img src="https://img.youtube.com/vi/xaNDLMsuKKk/maxresdefault.jpg" alt="Watch the FlipBot full demo on YouTube" width="900">
+  </a>
 </p>
 
-A polished **2:34 end-to-end recording** is prepared for the public project demo. The best publishing setup is to keep the full recording on **YouTube** and use the README as the high-signal entry point instead of committing an 85 MB source video to repository history.
+<p align="center">
+  <strong>▶ <a href="https://www.youtube.com/watch?v=xaNDLMsuKKk">Watch the full 2:34 FlipBot demo on YouTube</a></strong>
+</p>
 
-The recording demonstrates the real application rather than a mock-up:
+The demo shows the **real application**, not a mock-up or isolated browser script. It walks through the dashboard, bot configuration, persisted history, the parallel Playwright runtime and live runtime telemetry.
 
 | Approx. time | What is shown |
 | --- | --- |
@@ -37,17 +41,11 @@ The recording demonstrates the real application rather than a mock-up:
 | **2:05** | runtime observability: working, queued, cooldown and error states |
 | **2:28** | UI state changing alongside the worker logs |
 
-<!--
-When the full video is published on YouTube, replace this comment with:
-
-[![Watch the full FlipBot demo](https://img.youtube.com/vi/YOUTUBE_VIDEO_ID/maxresdefault.jpg)](https://youtu.be/YOUTUBE_VIDEO_ID)
-
-That gives the README a real YouTube thumbnail without storing another large binary asset in this repository.
--->
+The full-resolution recording stays on YouTube rather than in Git history, keeping the repository lightweight while still providing an immediate visual proof that the system works end to end.
 
 ### What the demo proves
 
-The video is intentionally product-focused. It shows that FlipBot is more than a scraper or a Selenium-style script: the browser engine, backend state, scheduler and dashboard operate as one coordinated system.
+FlipBot is more than a scraper or a Selenium-style script. The browser engine, backend state, scheduler, persistent safety guards and dashboard operate as one coordinated system.
 
 ---
 
@@ -570,9 +568,9 @@ The result is closer to a small **automation platform** than to a scraper script
 
 - establish a clean Flyway baseline for one-command empty-database bootstrap,
 - richer runtime/event tracing and historical performance charts,
-- broader regression coverage for marketplace UI changes,
+- broader automated regression coverage for marketplace UI changes,
 - deployment profiles and production packaging,
-- publish the full demo on YouTube and replace the README demo card with the real video thumbnail/link.
+- add a compact static screenshot gallery alongside the published YouTube demo.
 
 ---
 
