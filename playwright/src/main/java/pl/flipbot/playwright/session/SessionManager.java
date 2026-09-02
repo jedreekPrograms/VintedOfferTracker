@@ -8,12 +8,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class SessionManager {
 
+    private static final String SESSION_DIRECTORY_ENV =
+            "FLIPBOT_SESSION_DIR";
+
+    private static final String PLAYWRIGHT_MODULE_DIRECTORY =
+            "playwright";
+
+    private static final int MODULE_DISCOVERY_MAX_DEPTH = 6;
+
+    private static final AtomicBoolean SESSION_DIRECTORY_LOGGED =
+            new AtomicBoolean();
+
     private static final Path DEFAULT_SESSION_DIRECTORY =
-            Path.of("sessions");
+            resolveDefaultSessionDirectory(
+                    Path.of(System.getProperty("user.dir", ".")),
+                    System.getenv(SESSION_DIRECTORY_ENV)
+            );
 
     private static final String BACKUP_DIRECTORY_NAME =
             "backups";
@@ -28,17 +43,96 @@ public class SessionManager {
     }
 
     SessionManager(Path sessionDirectory) {
-        this.sessionDirectory = sessionDirectory;
+        this.sessionDirectory = sessionDirectory
+                .toAbsolutePath()
+                .normalize();
 
         try {
-            Files.createDirectories(sessionDirectory);
+            Files.createDirectories(this.sessionDirectory);
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Could not create Playwright session directory: "
-                            + sessionDirectory,
+                            + this.sessionDirectory,
                     exception
             );
         }
+
+        if (SESSION_DIRECTORY_LOGGED.compareAndSet(false, true)) {
+            log.info(
+                    "[SESSION] Using Playwright session directory: {}. workingDirectory={}, overrideEnv={}",
+                    this.sessionDirectory,
+                    Path.of(System.getProperty("user.dir", "."))
+                            .toAbsolutePath()
+                            .normalize(),
+                    System.getenv(SESSION_DIRECTORY_ENV) == null
+                            ? "<not set>"
+                            : SESSION_DIRECTORY_ENV
+            );
+        }
+    }
+
+    static Path resolveDefaultSessionDirectory(
+            Path workingDirectory,
+            String configuredDirectory
+    ) {
+        Path normalizedWorkingDirectory = workingDirectory
+                .toAbsolutePath()
+                .normalize();
+
+        if (configuredDirectory != null
+                && !configuredDirectory.isBlank()) {
+            Path configured = Path.of(configuredDirectory.trim());
+            if (!configured.isAbsolute()) {
+                configured = normalizedWorkingDirectory.resolve(configured);
+            }
+            return configured.toAbsolutePath().normalize();
+        }
+
+        Path moduleDirectory = findPlaywrightModuleDirectory(
+                normalizedWorkingDirectory
+        );
+
+        if (moduleDirectory != null) {
+            return moduleDirectory.resolve("sessions")
+                    .toAbsolutePath()
+                    .normalize();
+        }
+
+        return normalizedWorkingDirectory.resolve("sessions")
+                .toAbsolutePath()
+                .normalize();
+    }
+
+    private static Path findPlaywrightModuleDirectory(
+            Path workingDirectory
+    ) {
+        Path current = workingDirectory;
+
+        for (int depth = 0;
+             current != null && depth <= MODULE_DISCOVERY_MAX_DEPTH;
+             depth++, current = current.getParent()) {
+            if (looksLikePlaywrightModule(current)) {
+                return current;
+            }
+
+            Path nestedModule = current.resolve(
+                    PLAYWRIGHT_MODULE_DIRECTORY
+            );
+            if (looksLikePlaywrightModule(nestedModule)) {
+                return nestedModule;
+            }
+        }
+
+        return null;
+    }
+
+    private static boolean looksLikePlaywrightModule(Path candidate) {
+        return Files.isRegularFile(candidate.resolve("pom.xml"))
+                && Files.isDirectory(
+                        candidate.resolve(
+                                "src/main/java/pl/flipbot/playwright"
+                        )
+                );
     }
 
     public boolean sessionExists(Long botId) {
@@ -63,12 +157,6 @@ public class SessionManager {
      * <p>The historical method name is kept temporarily because the browser
      * context recovery path already calls it, but its contract is deliberately
      * non-destructive: sessions/bot-X.json remains exactly where it is.</p>
-     *
-     * <p>This matters especially for Vinted session-block cooldowns. A stored
-     * session can still contain valid authentication cookies even if one
-     * Playwright context restore fails. If a subsequent clean-context attempt
-     * reaches a Vinted session-block page, the scheduler must only wait; it must
-     * not destroy or quarantine the user's recoverable storageState.</p>
      *
      * <p>A timestamped copy is written under sessions/backups before recovery
      * continues. If the backup cannot be created, this method fails closed so
