@@ -1,0 +1,442 @@
+/*
+ * Focused visual polish from the 2026-09-02 UI review.
+ * Presentation only: no component behavior, API calls or business logic changes.
+ */
+
+:root {
+    --polish-blue: #2563eb;
+    --polish-blue-strong: #1d4ed8;
+    --polish-blue-soft: #eff6ff;
+    --polish-blue-border: #bfdbfe;
+    --polish-green: #16a34a;
+    --polish-green-strong: #15803d;
+    --polish-green-soft: #f0fdf4;
+    --polish-green-border: #bbf7d0;
+    --polish-amber: #d97706;
+    --polish-amber-soft: #fff7ed;
+    --polish-amber-border: #fed7aa;
+    --polish-red: #dc2626;
+    --polish-red-soft: #fef2f2;
+    --polish-red-border: #fecaca;
+    --polish-cyan: #0891b2;
+    --polish-cyan-soft: #ecfeff;
+    --polish-text: #111827;
+    --polish-muted: #667085;
+    --polish-border: #e4e9f0;
+}
+
+/* Keep the light theme flat, but make interactive hierarchy more alive. */
+.primary-button {
+    border-color: var(--polish-blue) !important;
+    background: var(--polish-blue) !important;
+}
+
+.primary-button:hover:not(:disabled) {
+    border-color: var(--polish-blue-strong) !important;
+    background: var(--polish-blue-strong) !important;
+}
+
+.navigation-link-active,
+.navigation-link-active:hover {
+    border-color: #dbeafe !important;
+    color: var(--polish-blue-strong) !important;
+    background: #f4f8ff !important;
+}
+
+.navigation-link-active .navigation-icon {
+    color: var(--polish-blue) !important;
+}
+
+.sidebar-footer-status-dot {
+    background: #22c55e !important;
+}
+
+.form-input:focus,
+.form-textarea:focus,
+.form-select:focus,
+.app-select-open .app-select-trigger,
+.history-search input:focus {
+    border-color: #60a5fa !important;
+    box-shadow: 0 0 0 3px rgb(37 99 235 / 9%) !important;
+}
+
+.dashboard-period-button-active,
+.history-status-filter-active {
+    border-color: var(--polish-blue-border) !important;
+    color: var(--polish-blue-strong) !important;
+    background: var(--polish-blue-soft) !important;
+}
+
+/* Dashboard: make success information obvious without adding 3D. */
+.stat-card-success {
+    border-top: 2px solid #22c55e !important;
+}
+
+.stat-card-success .stat-value {
+    color: var(--polish-green-strong) !important;
+}
+
+.stat-card-warning {
+    border-top: 2px solid #f59e0b !important;
+}
+
+.stat-card-warning .stat-value {
+    color: #b45309 !important;
+}
+
+.dashboard-effectiveness {
+    position: relative;
+    overflow: hidden;
+    margin-top: 16px;
+    border: 1px solid var(--polish-green-border) !important;
+    border-radius: 10px !important;
+    padding: 15px 17px !important;
+    background: var(--polish-green-soft) !important;
+}
+
+.dashboard-effectiveness::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: #22c55e;
+    content: "";
+}
+
+.dashboard-effectiveness strong {
+    color: var(--polish-green-strong) !important;
+    font-size: clamp(34px, 4vw, 44px) !important;
+    font-weight: 760 !important;
+    line-height: 1 !important;
+    letter-spacing: -0.045em !important;
+}
+
+.dashboard-effectiveness span {
+    margin-top: 8px !important;
+    color: #47745a !important;
+    font-size: 11px !important;
+    font-weight: 620 !important;
+}
+
+.dashboard-decision-stats > div {
+    border-color: var(--polish-border) !important;
+}
+
+.dashboard-decision-stats > div:nth-child(1) strong {
+    color: var(--polish-green-strong) !important;
+}
+
+.dashboard-decision-stats > div:nth-child(2) strong {
+    color: #c2414d !important;
+}
+
+.dashboard-decision-stats > div:nth-child(3) strong {
+    color: var(--polish-blue-strong) !important;
+}
+
+/* Bot/runtime success, info and quota accents. */
+.bot-status-running,
+.runtime-status-working,
+.runtime-status-running {
+    border-color: var(--polish-green-border) !important;
+    color: var(--polish-green-strong) !important;
+    background: var(--polish-green-soft) !important;
+}
+
+.bot-status-running .bot-status-dot,
+.runtime-status-working::before,
+.runtime-status-running::before {
+    background: #22c55e !important;
+}
+
+.bot-start-button,
+.purchase-finished-button {
+    border-color: var(--polish-green-border) !important;
+    color: var(--polish-green-strong) !important;
+    background: var(--polish-green-soft) !important;
+}
+
+.bot-start-button:hover:not(:disabled),
+.purchase-finished-button:hover:not(:disabled) {
+    border-color: #86efac !important;
+    color: #166534 !important;
+    background: #dcfce7 !important;
+}
+
+.bot-quota-value {
+    color: #1e3a8a !important;
+}
+
+.bot-quota-percentage {
+    color: var(--polish-blue) !important;
+    font-weight: 700 !important;
+}
+
+.bot-quota-progress {
+    height: 6px !important;
+    accent-color: var(--polish-blue);
+}
+
+.bot-quota-progress::-webkit-progress-bar {
+    border-radius: 999px;
+    background: #e8eef7;
+}
+
+.bot-quota-progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: var(--polish-blue);
+}
+
+.bot-quota-progress::-moz-progress-bar {
+    border-radius: 999px;
+    background: var(--polish-blue);
+}
+
+/* Purchased/history success should read as success, not as neutral metadata. */
+.history-status-purchased {
+    border: 1px solid var(--polish-green-border) !important;
+    color: var(--polish-green-strong) !important;
+    background: var(--polish-green-soft) !important;
+}
+
+.history-current-price,
+.history-saving strong {
+    color: var(--polish-green-strong) !important;
+}
+
+.history-details > div:last-child strong {
+    color: var(--polish-green-strong) !important;
+}
+
+.action-required-badge {
+    border-color: var(--polish-blue-border) !important;
+    color: var(--polish-blue-strong) !important;
+    background: var(--polish-blue-soft) !important;
+}
+
+.action-required-savings,
+.action-required-discount {
+    color: var(--polish-green-strong) !important;
+}
+
+/* Negotiation reaction editor: remove the tall empty left card and improve rhythm. */
+.negotiation-response-policy {
+    margin-top: 18px !important;
+    padding-top: 17px !important;
+}
+
+.negotiation-response-policy-heading {
+    margin-bottom: 12px !important;
+}
+
+.negotiation-response-policy-eyebrow {
+    color: var(--polish-blue) !important;
+}
+
+.negotiation-policy-badge {
+    border: 1px solid var(--polish-blue-border) !important;
+    color: var(--polish-blue-strong) !important;
+    background: var(--polish-blue-soft) !important;
+}
+
+.negotiation-policy-note {
+    margin-bottom: 12px !important;
+    border: 1px solid var(--polish-amber-border) !important;
+    color: #8a4b08 !important;
+    background: var(--polish-amber-soft) !important;
+}
+
+.negotiation-policy-grid {
+    grid-template-columns: minmax(270px, 0.72fr) minmax(520px, 1.55fr) !important;
+    align-items: start !important;
+    gap: 14px !important;
+}
+
+.negotiation-policy-card {
+    align-self: start !important;
+    border-color: #dce3ec !important;
+    border-radius: 11px !important;
+    padding: 14px !important;
+    background: #ffffff !important;
+}
+
+.negotiation-policy-card:first-child .negotiation-policy-icon {
+    color: var(--polish-red) !important;
+    background: var(--polish-red-soft) !important;
+}
+
+.negotiation-policy-card-wide .negotiation-policy-icon {
+    color: var(--polish-blue) !important;
+    background: var(--polish-blue-soft) !important;
+}
+
+.negotiation-policy-card-title {
+    margin-bottom: 12px !important;
+}
+
+.negotiation-policy-card-title strong {
+    color: #182230 !important;
+}
+
+.negotiation-policy-card-title p {
+    margin-top: 3px !important;
+    color: #748095 !important;
+}
+
+.counter-rule-fallback {
+    grid-template-columns: minmax(190px, 0.78fr) minmax(0, 1.45fr) !important;
+    gap: 12px !important;
+    border: 1px solid #e3e8ef !important;
+    border-radius: 9px !important;
+    padding: 11px !important;
+    background: #f8fafc !important;
+}
+
+.counter-rules-list {
+    gap: 8px !important;
+    margin-top: 10px !important;
+}
+
+.counter-rule-row {
+    grid-template-columns: minmax(130px, 0.44fr) minmax(0, 1.38fr) auto !important;
+    align-items: center !important;
+    gap: 10px !important;
+    border-color: #e3e8ef !important;
+    border-radius: 9px !important;
+    padding: 10px 11px !important;
+}
+
+.reaction-editor-compact {
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: end !important;
+}
+
+.reaction-editor-compact:has(.reaction-wait-field) {
+    grid-template-columns: minmax(200px, 1fr) minmax(118px, 0.42fr) !important;
+}
+
+.counter-rule-remove {
+    align-self: center !important;
+    min-height: 34px !important;
+    padding-inline: 6px !important;
+    color: #c24141 !important;
+}
+
+.counter-rule-add {
+    margin-top: 10px !important;
+    border-color: var(--polish-blue-border) !important;
+    color: var(--polish-blue-strong) !important;
+    background: #ffffff !important;
+}
+
+.counter-rule-add:hover:not(:disabled) {
+    background: var(--polish-blue-soft) !important;
+}
+
+.negotiation-policy-footnote {
+    margin-top: 9px !important;
+}
+
+.input-with-suffix > span {
+    border-color: #d7dfeb !important;
+    color: #64748b !important;
+    background: #f8fafc !important;
+}
+
+/* Price matrix: specifically tighten the vertical space visible in "Posiadane boty". */
+.price-matrix-card {
+    padding: 10px !important;
+}
+
+.price-matrix-board {
+    gap: 10px !important;
+}
+
+.price-brand-title {
+    padding: 12px 15px !important;
+}
+
+.price-sheet-row {
+    min-height: 48px !important;
+}
+
+.price-sheet-header {
+    min-height: 34px !important;
+}
+
+.price-sheet-row > div {
+    padding: 6px 8px !important;
+}
+
+.price-metric-cell {
+    gap: 1px !important;
+}
+
+.price-metric-cell strong {
+    font-size: 13px !important;
+    line-height: 1.1 !important;
+}
+
+.price-metric-cell span {
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+}
+
+.price-metric-cell[data-label="Posiadane boty"] {
+    justify-content: center !important;
+    gap: 2px !important;
+}
+
+.price-metric-cell[data-label="Posiadane boty"] strong {
+    color: var(--polish-blue-strong) !important;
+}
+
+.price-matrix-input:focus {
+    border-color: #60a5fa !important;
+    background: #ffffff !important;
+    box-shadow: 0 0 0 3px rgb(37 99 235 / 8%) !important;
+}
+
+.price-save-state {
+    color: var(--polish-green-strong) !important;
+}
+
+/* Slightly richer semantic feedback globally, still flat. */
+.form-message-success {
+    border-color: var(--polish-green-border) !important;
+    color: var(--polish-green-strong) !important;
+    background: var(--polish-green-soft) !important;
+}
+
+.form-message-error {
+    border-color: var(--polish-red-border) !important;
+    color: #b42318 !important;
+    background: var(--polish-red-soft) !important;
+}
+
+.dictionary-count {
+    border-color: var(--polish-blue-border) !important;
+    color: var(--polish-blue-strong) !important;
+    background: var(--polish-blue-soft) !important;
+}
+
+@media (max-width: 1050px) {
+    .negotiation-policy-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .negotiation-policy-card {
+        width: 100%;
+    }
+}
+
+@media (max-width: 760px) {
+    .counter-rule-fallback,
+    .counter-rule-row,
+    .reaction-editor-compact:has(.reaction-wait-field) {
+        grid-template-columns: 1fr !important;
+    }
+
+    .price-sheet-row:not(.price-sheet-header) {
+        padding: 9px !important;
+    }
+}

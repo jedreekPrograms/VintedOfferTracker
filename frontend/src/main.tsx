@@ -7,6 +7,7 @@ import "./styles/commercial-ui.css";
 import "./styles/commercial-ui-details.css";
 import "./styles/negotiation-response-policies.css";
 import "./styles/premium-ui.css";
+import "./styles/screen-polish-v2.css";
 
 const rootElement = document.getElementById("root");
 
