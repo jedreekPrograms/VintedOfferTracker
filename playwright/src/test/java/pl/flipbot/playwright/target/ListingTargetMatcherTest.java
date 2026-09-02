@@ -74,6 +74,24 @@ public class ListingTargetMatcherTest {
     }
 
     @Test
+    public void vintedModelRejectsGalaxyTabBacklogWithoutGenerationKey() {
+        assertEquals(
+                ListingTargetAssessment.MISMATCH,
+                matcher.assessVisibleText(
+                        "Samsung Galaxy Tab Active 3",
+                        samsungVintedModel("Galaxy S25")
+                )
+        );
+        assertEquals(
+                ListingTargetAssessment.MISMATCH,
+                matcher.assessVisibleText(
+                        "Samsung Galaxy Tab S",
+                        samsungVintedModel("Galaxy S25")
+                )
+        );
+    }
+
+    @Test
     public void vintedModelRejectsDifferentFamily() {
         assertEquals(
                 ListingTargetAssessment.MISMATCH,
