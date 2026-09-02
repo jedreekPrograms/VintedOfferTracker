@@ -41,6 +41,26 @@ public class VintedModelTargetGuardTest {
     }
 
     @Test
+    public void rejectsGalaxyTabActive3WithoutPhoneModelKey() {
+        assertTrue(
+                guard.findConclusiveMismatch(
+                        "Galaxy S25",
+                        "Samsung Galaxy Tab Active 3"
+                ).isPresent()
+        );
+    }
+
+    @Test
+    public void rejectsGalaxyTabSWithoutGenerationKey() {
+        assertTrue(
+                guard.findConclusiveMismatch(
+                        "Galaxy S25",
+                        "Samsung Galaxy Tab S"
+                ).isPresent()
+        );
+    }
+
+    @Test
     public void rejectsDifferentSSeriesModel() {
         assertTrue(
                 guard.findConclusiveMismatch(

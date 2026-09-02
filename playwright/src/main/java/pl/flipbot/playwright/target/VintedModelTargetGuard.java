@@ -47,6 +47,20 @@ public final class VintedModelTargetGuard {
             Set.of("sm");
 
     /*
+     * Vinted's Samsung model labels can sometimes identify the product family
+     * without containing a generation key we can safely parse. For example:
+     * "Galaxy Tab Active 3" and "Galaxy Tab S" are conclusively tablet-family
+     * entries, even though neither exposes an S-series phone key such as s24/s25.
+     *
+     * Keep this list intentionally narrow. Generic seller wording such as
+     * "tablet i ladowarka" is still ambiguous and must use stronger live-item
+     * evidence; only the explicit Vinted model-family token "tab" is treated as
+     * conclusive family evidence here.
+     */
+    private static final Set<String> EXPLICIT_PRODUCT_FAMILY_TOKENS =
+            Set.of("tab");
+
+    /*
      * Only known model-family words may be joined with a following number.
      * Without this bound, generic seller text such as "telefon 128 GB" would
      * incorrectly create a fake model key "telefon128".
@@ -72,6 +86,16 @@ public final class VintedModelTargetGuard {
     ) {
         List<String> targetTokens = tokenize(configuredModel);
         List<String> observedTokens = tokenize(observedText);
+
+        Optional<String> familyMismatch = findExplicitFamilyMismatch(
+                targetTokens,
+                observedTokens,
+                configuredModel,
+                observedText
+        );
+        if (familyMismatch.isPresent()) {
+            return familyMismatch;
+        }
 
         Set<String> targetKeys = extractModelKeys(targetTokens);
         Set<String> observedKeys = extractModelKeys(observedTokens);
@@ -130,6 +154,15 @@ public final class VintedModelTargetGuard {
         List<String> targetTokens = tokenize(configuredModel);
         List<String> observedTokens = tokenize(observedText);
 
+        if (findExplicitFamilyMismatch(
+                targetTokens,
+                observedTokens,
+                configuredModel,
+                observedText
+        ).isPresent()) {
+            return false;
+        }
+
         Set<String> targetKeys = extractModelKeys(targetTokens);
         Set<String> observedKeys = extractModelKeys(observedTokens);
 
@@ -155,6 +188,47 @@ public final class VintedModelTargetGuard {
         unexpectedObservedVariants.removeAll(targetVariants);
 
         return unexpectedObservedVariants.isEmpty();
+    }
+
+    private Optional<String> findExplicitFamilyMismatch(
+            List<String> targetTokens,
+            List<String> observedTokens,
+            String configuredModel,
+            String observedText
+    ) {
+        Set<String> targetFamilies = extractExplicitProductFamilies(targetTokens);
+        Set<String> observedFamilies = extractExplicitProductFamilies(observedTokens);
+
+        if (observedFamilies.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Set<String> unexpectedFamilies = new LinkedHashSet<>(observedFamilies);
+        unexpectedFamilies.removeAll(targetFamilies);
+
+        if (unexpectedFamilies.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(
+                "observed text contains explicit product family "
+                        + unexpectedFamilies
+                        + " that is not part of configured model '"
+                        + normalizeVisibleText(configuredModel)
+                        + "' (observed='"
+                        + normalizeVisibleText(observedText)
+                        + "')"
+        );
+    }
+
+    private Set<String> extractExplicitProductFamilies(List<String> tokens) {
+        Set<String> families = new LinkedHashSet<>();
+        for (String token : tokens) {
+            if (EXPLICIT_PRODUCT_FAMILY_TOKENS.contains(token)) {
+                families.add(token);
+            }
+        }
+        return families;
     }
 
     private Set<String> extractModelKeys(List<String> tokens) {
