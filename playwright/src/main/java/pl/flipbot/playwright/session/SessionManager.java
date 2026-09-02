@@ -4,10 +4,8 @@ import com.microsoft.playwright.BrowserContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -60,24 +58,28 @@ public class SessionManager {
     }
 
     /**
-     * Removes an unusable session from the active slot without destroying it.
+     * Preserves a recovery snapshot without ever removing the active session.
      *
-     * <p>A stored session may contain valid authentication cookies even when
-     * Playwright cannot restore the complete storageState. Deleting that file
-     * makes manual recovery impossible and can force an unnecessary login.
-     * Instead, quarantine it under sessions/backups before a clean context is
-     * allowed to continue.</p>
+     * <p>The historical method name is kept temporarily because the browser
+     * context recovery path already calls it, but its contract is deliberately
+     * non-destructive: sessions/bot-X.json remains exactly where it is.</p>
      *
-     * <p>If preservation fails, this method deliberately throws. Continuing
-     * with a clean context in that situation could later overwrite the only
-     * copy of the user's session.</p>
+     * <p>This matters especially for Vinted session-block cooldowns. A stored
+     * session can still contain valid authentication cookies even if one
+     * Playwright context restore fails. If a subsequent clean-context attempt
+     * reaches a Vinted session-block page, the scheduler must only wait; it must
+     * not destroy or quarantine the user's recoverable storageState.</p>
+     *
+     * <p>A timestamped copy is written under sessions/backups before recovery
+     * continues. If the backup cannot be created, this method fails closed so
+     * recovery cannot proceed without a preserved copy.</p>
      */
     public void invalidateSession(Long botId) {
         Path source = sessionFile(botId);
 
         if (!Files.exists(source)) {
             log.warn(
-                    "[SESSION] Stored session for bot {} disappeared before it could be preserved: {}",
+                    "[SESSION] Stored session for bot {} disappeared before a recovery backup could be created: {}",
                     botId,
                     source
             );
@@ -90,17 +92,18 @@ public class SessionManager {
             Files.createDirectories(backupDirectory);
 
             Path backup = nextBackupFile(botId, backupDirectory);
-            movePreservingSession(source, backup);
+            Files.copy(source, backup);
 
             log.warn(
-                    "[SESSION] Quarantined unusable stored session for bot {} instead of deleting it. backup={}",
+                    "[SESSION] Preserved recovery backup for bot {} without removing the active session. active={}, backup={}",
                     botId,
+                    source,
                     backup
             );
         } catch (IOException exception) {
             throw new IllegalStateException(
-                    "Could not preserve stored session for bot " + botId
-                            + "; refusing clean-context recovery so the original session is not lost.",
+                    "Could not back up stored session for bot " + botId
+                            + "; refusing clean-context recovery so the active session is not put at risk.",
                     exception
             );
         }
@@ -123,21 +126,6 @@ public class SessionManager {
         }
 
         return candidate;
-    }
-
-    private void movePreservingSession(
-            Path source,
-            Path backup
-    ) throws IOException {
-        try {
-            Files.move(
-                    source,
-                    backup,
-                    StandardCopyOption.ATOMIC_MOVE
-            );
-        } catch (AtomicMoveNotSupportedException exception) {
-            Files.move(source, backup);
-        }
     }
 
     public Path sessionFile(Long botId) {
