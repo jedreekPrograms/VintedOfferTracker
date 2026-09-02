@@ -3,13 +3,12 @@ package pl.flipbot.playwright.target;
 import org.junit.Test;
 
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 public class VintedSessionFailureClassifierTest {
 
     @Test
-    public void repeatedNoTransitionLoginUsesProtectiveCooldown() {
-        assertTrue(
+    public void repeatedNoTransitionLoginDoesNotClaimSessionBlock() {
+        assertFalse(
                 VintedSessionFailureClassifier.shouldUseProtectiveCooldown(
                         new IllegalStateException(
                                 "Vinted login form accepted three submit mechanisms without producing any observable authentication transition. Refusing to pretend that login or human verification happened."
@@ -19,8 +18,8 @@ public class VintedSessionFailureClassifierTest {
     }
 
     @Test
-    public void postLoginVerificationTimeoutUsesProtectiveCooldown() {
-        assertTrue(
+    public void postLoginVerificationTimeoutDoesNotClaimSessionBlock() {
+        assertFalse(
                 VintedSessionFailureClassifier.shouldUseProtectiveCooldown(
                         new RuntimeException(
                                 "wrapper",
@@ -33,7 +32,7 @@ public class VintedSessionFailureClassifierTest {
     }
 
     @Test
-    public void explicitCredentialAndUnrelatedFailuresStayGeneric() {
+    public void unrelatedFailuresStayGeneric() {
         assertFalse(
                 VintedSessionFailureClassifier.shouldUseProtectiveCooldown(
                         new IllegalStateException(
