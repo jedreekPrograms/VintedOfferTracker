@@ -57,9 +57,9 @@ class DailyOfferQuotaServiceTest {
         when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                 eq(3L), any(LocalDateTime.class), any(LocalDateTime.class)
         )).thenReturn(List.of());
-        when(reservationRepository.countByBotIdAndUsageDateAndActiveTrue(
+        when(reservationRepository.findAllByBotIdAndUsageDateAndActiveTrue(
                 eq(3L), any(LocalDate.class)
-        )).thenReturn(0L);
+        )).thenReturn(List.of());
 
         service = new DailyOfferQuotaService(
                 quotaRepository,
@@ -85,38 +85,31 @@ class DailyOfferQuotaServiceTest {
     }
 
     @Test
-    void durableAuditRepairsAQuotaUndercountConservatively() {
-        DailyOfferQuota quota = quota(2);
+    void auditAndReservationLedgerAreUnionedWithoutDoubleCountingRequestIds() {
+        UUID auditedOnly = UUID.randomUUID();
+        UUID overlap = UUID.randomUUID();
+        UUID reservationOnly = UUID.randomUUID();
+        DailyOfferQuota quota = quota(1);
+
         when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class)))
                 .thenReturn(Optional.of(quota));
         when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                 eq(3L), any(LocalDateTime.class), any(LocalDateTime.class)
         )).thenReturn(List.of(
-                audit(RealActionAuditOutcome.CONFIRMED),
-                audit(RealActionAuditOutcome.CONFIRMED),
-                audit(RealActionAuditOutcome.AMBIGUOUS),
-                audit(RealActionAuditOutcome.CONFIRMED)
+                audit(auditedOnly, RealActionAuditOutcome.CONFIRMED),
+                audit(overlap, RealActionAuditOutcome.AMBIGUOUS)
+        ));
+        when(reservationRepository.findAllByBotIdAndUsageDateAndActiveTrue(
+                eq(3L), any(LocalDate.class)
+        )).thenReturn(List.of(
+                activeReservation(overlap),
+                activeReservation(reservationOnly)
         ));
 
         DailyOfferQuotaResponse response = service.getQuota(3L);
 
-        assertEquals(4, response.used());
-        assertEquals(21, response.remaining());
-        verify(quotaRepository).save(quota);
-    }
-
-    @Test
-    void activeReservationLedgerAlsoRepairsAQuotaUndercount() {
-        DailyOfferQuota quota = quota(1);
-        when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class)))
-                .thenReturn(Optional.of(quota));
-        when(reservationRepository.countByBotIdAndUsageDateAndActiveTrue(
-                eq(3L), any(LocalDate.class)
-        )).thenReturn(3L);
-
-        DailyOfferQuotaResponse response = service.getQuota(3L);
-
         assertEquals(3, response.used());
+        assertEquals(22, response.remaining());
         verify(quotaRepository).save(quota);
     }
 
@@ -124,17 +117,14 @@ class DailyOfferQuotaServiceTest {
     void reservationReplayIsIdempotentAndDoesNotIncrementAgain() {
         UUID requestId = UUID.randomUUID();
         DailyOfferQuota quota = quota(7);
-        DailyOfferQuotaReservation reservation = DailyOfferQuotaReservation.builder()
-                .requestId(requestId)
-                .botId(3L)
-                .usageDate(LocalDate.now())
-                .active(true)
-                .createdAt(LocalDateTime.now())
-                .build();
+        DailyOfferQuotaReservation reservation = activeReservation(requestId);
 
         when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class)))
                 .thenReturn(Optional.of(quota));
         when(reservationRepository.findById(requestId)).thenReturn(Optional.of(reservation));
+        when(reservationRepository.findAllByBotIdAndUsageDateAndActiveTrue(
+                eq(3L), any(LocalDate.class)
+        )).thenReturn(List.of(reservation));
 
         OfferQuotaReservationResponse response = service.reserveSlot(3L, requestId);
 
@@ -153,7 +143,7 @@ class DailyOfferQuotaServiceTest {
         when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                 eq(3L), any(LocalDateTime.class), any(LocalDateTime.class)
         )).thenReturn(java.util.stream.IntStream.range(0, 25)
-                .mapToObj(index -> audit(RealActionAuditOutcome.CONFIRMED))
+                .mapToObj(index -> audit(UUID.randomUUID(), RealActionAuditOutcome.CONFIRMED))
                 .toList());
 
         OfferQuotaReservationResponse response = service.reserveSlot(3L, requestId);
@@ -167,14 +157,9 @@ class DailyOfferQuotaServiceTest {
     void repeatedReleaseOfInactiveReservationDoesNotDecrementAgain() {
         UUID requestId = UUID.randomUUID();
         DailyOfferQuota quota = quota(4);
-        DailyOfferQuotaReservation reservation = DailyOfferQuotaReservation.builder()
-                .requestId(requestId)
-                .botId(3L)
-                .usageDate(LocalDate.now())
-                .active(false)
-                .createdAt(LocalDateTime.now())
-                .releasedAt(LocalDateTime.now())
-                .build();
+        DailyOfferQuotaReservation reservation = activeReservation(requestId);
+        reservation.setActive(false);
+        reservation.setReleasedAt(LocalDateTime.now());
 
         when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class)))
                 .thenReturn(Optional.of(quota));
@@ -191,13 +176,18 @@ class DailyOfferQuotaServiceTest {
         UUID requestId = UUID.randomUUID();
         DailyOfferQuota quota = quota(5);
         DailyOfferQuotaReservation reservation = activeReservation(requestId);
+        RealActionAudit confirmed = audit(requestId, RealActionAuditOutcome.CONFIRMED);
 
         when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class)))
                 .thenReturn(Optional.of(quota));
         when(reservationRepository.findById(requestId)).thenReturn(Optional.of(reservation));
-        when(auditRepository.findByRequestId(requestId)).thenReturn(
-                Optional.of(audit(RealActionAuditOutcome.CONFIRMED))
-        );
+        when(auditRepository.findByRequestId(requestId)).thenReturn(Optional.of(confirmed));
+        when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                eq(3L), any(LocalDateTime.class), any(LocalDateTime.class)
+        )).thenReturn(List.of(confirmed));
+        when(reservationRepository.findAllByBotIdAndUsageDateAndActiveTrue(
+                eq(3L), any(LocalDate.class)
+        )).thenReturn(List.of(reservation));
 
         DailyOfferQuotaResponse response = service.releaseSlot(3L, requestId);
 
@@ -216,9 +206,14 @@ class DailyOfferQuotaServiceTest {
                 .thenReturn(Optional.of(quota));
         when(reservationRepository.findById(requestId)).thenReturn(Optional.of(reservation));
         when(auditRepository.findByRequestId(requestId)).thenReturn(Optional.empty());
-        when(reservationRepository.countByBotIdAndUsageDateAndActiveTrue(
+        when(reservationRepository.findAllByBotIdAndUsageDateAndActiveTrue(
                 eq(3L), any(LocalDate.class)
-        )).thenReturn(5L, 4L);
+        )).thenReturn(List.of(
+                activeReservation(UUID.randomUUID()),
+                activeReservation(UUID.randomUUID()),
+                activeReservation(UUID.randomUUID()),
+                activeReservation(UUID.randomUUID())
+        ));
 
         DailyOfferQuotaResponse response = service.releaseSlot(3L, requestId);
 
@@ -246,8 +241,12 @@ class DailyOfferQuotaServiceTest {
                 .build();
     }
 
-    private RealActionAudit audit(RealActionAuditOutcome outcome) {
+    private RealActionAudit audit(
+            UUID requestId,
+            RealActionAuditOutcome outcome
+    ) {
         return RealActionAudit.builder()
+                .requestId(requestId)
                 .botId(3L)
                 .backendListingId(100L)
                 .outcome(outcome)

@@ -18,8 +18,10 @@ import pl.flipbot.negotiation.quota.dto.OfferQuotaReservationResponse;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -213,22 +215,23 @@ public class DailyOfferQuotaService {
         reservationRepository.saveAndFlush(reservation);
 
         int usageFloorAfterRelease = getDurableUsageFloor(botId, usageDate);
-        int used = reconcileToUsageFloor(
-                bot,
-                usageDate,
-                quota,
-                usageFloorAfterRelease
-        );
 
-        DailyOfferQuota persistedQuota = dailyOfferQuotaRepository
-                .findByBot_IdAndUsageDate(botId, usageDate)
-                .orElse(null);
+        if (quota == null) {
+            int used = reconcileToUsageFloor(
+                    bot,
+                    usageDate,
+                    null,
+                    usageFloorAfterRelease
+            );
+            return createQuotaResponse(dailyLimit, used);
+        }
 
-        if (persistedQuota != null && persistedQuota.getUsedCount() > usageFloorAfterRelease) {
-            persistedQuota.setUsedCount(persistedQuota.getUsedCount() - 1);
-            dailyOfferQuotaRepository.save(persistedQuota);
-            used = persistedQuota.getUsedCount();
-        } else if (used <= usageFloorAfterRelease) {
+        reconcileExistingQuotaToUsageFloor(quota, usageFloorAfterRelease);
+
+        if (quota.getUsedCount() > usageFloorAfterRelease) {
+            quota.setUsedCount(quota.getUsedCount() - 1);
+            dailyOfferQuotaRepository.save(quota);
+        } else {
             log.warn(
                     "[OFFER QUOTA] Release for bot {} requestId={} cannot reduce used below durable floor {}.",
                     botId,
@@ -237,7 +240,7 @@ public class DailyOfferQuotaService {
             );
         }
 
-        return createQuotaResponse(dailyLimit, used);
+        return createQuotaResponse(dailyLimit, quota.getUsedCount());
     }
 
     private DailyOfferQuotaResponse getQuotaForDateWithoutRelocking(
@@ -308,43 +311,41 @@ public class DailyOfferQuotaService {
         );
     }
 
-    private int getDurableUsageFloor(Long botId, LocalDate usageDate) {
-        int audited = getAuditedUsageCount(botId, usageDate);
-        long activeReservations = reservationRepository
-                .countByBotIdAndUsageDateAndActiveTrue(botId, usageDate);
+    private int getDurableUsageFloor(
+            Long botId,
+            LocalDate usageDate
+    ) {
+        Set<UUID> durableRequestIds = new HashSet<>();
 
-        if (activeReservations > Integer.MAX_VALUE) {
-            throw new IllegalStateException(
-                    "Daily quota reservation count exceeds integer range for bot " + botId
-            );
+        for (RealActionAudit audit : getAuditedActions(botId, usageDate)) {
+            if ((audit.getOutcome() == RealActionAuditOutcome.CONFIRMED
+                    || audit.getOutcome() == RealActionAuditOutcome.AMBIGUOUS)
+                    && audit.getRequestId() != null) {
+                durableRequestIds.add(audit.getRequestId());
+            }
         }
 
-        return Math.max(audited, (int) activeReservations);
+        for (DailyOfferQuotaReservation reservation : reservationRepository
+                .findAllByBotIdAndUsageDateAndActiveTrue(botId, usageDate)) {
+            durableRequestIds.add(reservation.getRequestId());
+        }
+
+        return durableRequestIds.size();
     }
 
-    private int getAuditedUsageCount(Long botId, LocalDate usageDate) {
+    private List<RealActionAudit> getAuditedActions(
+            Long botId,
+            LocalDate usageDate
+    ) {
         LocalDateTime dayStart = usageDate.atStartOfDay();
         LocalDateTime nextDayStart = usageDate.plusDays(1).atStartOfDay();
 
-        List<RealActionAudit> audits = realActionAuditRepository
+        return realActionAuditRepository
                 .findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                         botId,
                         dayStart,
                         nextDayStart
                 );
-
-        long counted = audits.stream()
-                .filter(audit -> audit.getOutcome() == RealActionAuditOutcome.CONFIRMED
-                        || audit.getOutcome() == RealActionAuditOutcome.AMBIGUOUS)
-                .count();
-
-        if (counted > Integer.MAX_VALUE) {
-            throw new IllegalStateException(
-                    "Daily real-action audit count exceeds integer range for bot " + botId
-            );
-        }
-
-        return (int) counted;
     }
 
     private void validateReservationOwner(
