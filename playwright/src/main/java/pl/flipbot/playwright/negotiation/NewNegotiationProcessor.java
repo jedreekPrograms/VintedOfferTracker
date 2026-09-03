@@ -205,8 +205,7 @@ public class NewNegotiationProcessor {
                 desiredVerifiedCandidates
         );
 
-        List<ListingResponseDto> finalVerifiedListings =
-                finalVerification.verifiedListings();
+        List<ListingResponseDto> finalVerifiedListings = finalVerification.verifiedListings();
 
         if (finalVerifiedListings.isEmpty()) {
             log.warn(
@@ -297,11 +296,10 @@ public class NewNegotiationProcessor {
                 continue;
             }
 
-            var actionGuardRequestId =
-                    firstOfferActionGuardCoordinator.acquire(
-                            botId,
-                            listing
-                    );
+            var actionGuardRequestId = firstOfferActionGuardCoordinator.acquire(
+                    botId,
+                    listing
+            );
 
             if (actionGuardRequestId == null) {
                 firstOfferExecutor.cancelPreparedOfferSafely();
@@ -320,7 +318,10 @@ public class NewNegotiationProcessor {
             OfferQuotaReservationResponseDto quotaReservation;
 
             try {
-                quotaReservation = offerQuotaClient.reserveSlot(botId);
+                quotaReservation = offerQuotaClient.reserveSlot(
+                        botId,
+                        actionGuardRequestId
+                );
             } catch (Exception exception) {
                 firstOfferActionGuardCoordinator.releaseBeforeSubmitSafely(
                         botId,
@@ -353,13 +354,12 @@ public class NewNegotiationProcessor {
             }
 
             try {
-                NegotiationStartResult result =
-                        firstOfferExecutor.submitPreparedFirstNegotiation(listing);
+                NegotiationStartResult result = firstOfferExecutor
+                        .submitPreparedFirstNegotiation(listing);
 
                 if (result != NegotiationStartResult.STARTED) {
                     throw new IllegalStateException(
-                            "Unexpected negotiation start result after prepared submit: "
-                                    + result
+                            "Unexpected negotiation start result after prepared submit: " + result
                     );
                 }
 
@@ -412,8 +412,7 @@ public class NewNegotiationProcessor {
 
         if (currentPrice == null) {
             throw new IllegalStateException(
-                    "Cannot mark backend listing "
-                            + listing.id()
+                    "Cannot mark backend listing " + listing.id()
                             + " as SKIPPED_CANNOT_NEGOTIATE because its price is null"
             );
         }
@@ -466,13 +465,7 @@ public class NewNegotiationProcessor {
         );
 
         if (candidatesToCheck <= 0) {
-            return new FinalVerificationResult(
-                    List.of(),
-                    0,
-                    0,
-                    0,
-                    0
-            );
+            return new FinalVerificationResult(List.of(), 0, 0, 0, 0);
         }
 
         log.info(
@@ -519,13 +512,6 @@ public class NewNegotiationProcessor {
                         getConfiguredTargetLabel(configuration)
                 );
 
-                /*
-                 * retainTargetEligibleListings already rejected any conclusive
-                 * title conflict. The listing ID is actually present in the
-                 * current exact-filter result set, so it may pass this stage.
-                 * AdaptiveFirstOfferExecutor still performs the final live
-                 * structured Brand/Model check immediately before quota/submit.
-                 */
                 verifiedListings.add(listing);
                 continue;
             }
@@ -563,11 +549,10 @@ public class NewNegotiationProcessor {
             );
 
             try {
-                boolean matchesTarget =
-                        listingDetailTargetInspector.matchesConfiguredTarget(
-                                listing,
-                                configuration
-                        );
+                boolean matchesTarget = listingDetailTargetInspector.matchesConfiguredTarget(
+                        listing,
+                        configuration
+                );
 
                 if (matchesTarget) {
                     verifiedListings.add(listing);
@@ -588,14 +573,12 @@ public class NewNegotiationProcessor {
                             listing.listingId()
                     );
                 }
-
             } catch (VintedRateLimitException exception) {
                 log.warn(
                         "[RATE LIMIT] Vinted rate limit detected during mandatory final verification of marketplace listing {}. Stopping this work cycle.",
                         listing.listingId()
                 );
                 throw exception;
-
             } catch (ListingUnavailableDuringVerificationException exception) {
                 listingStatusUpdater.markUnavailable(
                         context.getBot().getId(),
@@ -605,7 +588,6 @@ public class NewNegotiationProcessor {
                         "[FINAL VERIFY] Marketplace listing {} became unavailable and was persisted as UNAVAILABLE. Verification continues with the next candidate.",
                         listing.listingId()
                 );
-
             } catch (Exception exception) {
                 failures++;
                 log.warn(
@@ -669,11 +651,8 @@ public class NewNegotiationProcessor {
                     currentScanListingIds
             );
 
-            ListingTargetAssessment catalogAssessment =
-                    listingTargetMatcher.assessCatalogListing(
-                            listing,
-                            configuration
-                    );
+            ListingTargetAssessment catalogAssessment = listingTargetMatcher
+                    .assessCatalogListing(listing, configuration);
 
             if (currentExactModelProof) {
                 if (catalogAssessment == ListingTargetAssessment.MISMATCH) {
@@ -696,11 +675,6 @@ public class NewNegotiationProcessor {
                 continue;
             }
 
-            /*
-             * From here down the candidate has NO current exact-model proof.
-             * It is either SEARCH_QUERY or a persisted VINTED_MODEL backlog row
-             * and must prove identity from stored text/URL or live item data.
-             */
             if (catalogAssessment == ListingTargetAssessment.MATCH) {
                 eligibleListings.add(listing);
                 matchedFromCatalogTitle++;
@@ -714,11 +688,8 @@ public class NewNegotiationProcessor {
                 continue;
             }
 
-            ListingTargetAssessment urlAssessment =
-                    listingTargetMatcher.assessListingUrl(
-                            listing,
-                            configuration
-                    );
+            ListingTargetAssessment urlAssessment = listingTargetMatcher
+                    .assessListingUrl(listing, configuration);
 
             if (urlAssessment == ListingTargetAssessment.MATCH) {
                 eligibleListings.add(listing);
@@ -739,11 +710,8 @@ public class NewNegotiationProcessor {
 
             if (cached) {
                 try {
-                    boolean cachedMatches =
-                            listingDetailTargetInspector.matchesConfiguredTarget(
-                                    listing,
-                                    configuration
-                            );
+                    boolean cachedMatches = listingDetailTargetInspector
+                            .matchesConfiguredTarget(listing, configuration);
 
                     if (cachedMatches) {
                         eligibleListings.add(listing);
@@ -781,11 +749,8 @@ public class NewNegotiationProcessor {
             detailRequestsThisCycle++;
 
             try {
-                boolean detailMatches =
-                        listingDetailTargetInspector.matchesConfiguredTarget(
-                                listing,
-                                configuration
-                        );
+                boolean detailMatches = listingDetailTargetInspector
+                        .matchesConfiguredTarget(listing, configuration);
 
                 if (detailMatches) {
                     eligibleListings.add(listing);
@@ -795,14 +760,12 @@ public class NewNegotiationProcessor {
                     listingStatusUpdater.markTargetMismatch(botId, listing);
                     persistedTargetMismatches++;
                 }
-
             } catch (VintedRateLimitException exception) {
                 log.warn(
                         "[RATE LIMIT] Vinted rate limit detected while inspecting marketplace listing {}. Stopping this work cycle immediately.",
                         listing.listingId()
                 );
                 throw exception;
-
             } catch (ListingUnavailableDuringVerificationException exception) {
                 listingStatusUpdater.markUnavailable(botId, listing);
                 persistedUnavailable++;
@@ -810,7 +773,6 @@ public class NewNegotiationProcessor {
                         "[TARGET DETAIL] Marketplace listing {} became unavailable during target inspection and was persisted as UNAVAILABLE.",
                         listing.listingId()
                 );
-
             } catch (Exception exception) {
                 detailInspectionFailures++;
                 log.warn(
