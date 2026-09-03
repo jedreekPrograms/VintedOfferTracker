@@ -7,14 +7,14 @@ import {
 import { Link } from "react-router-dom";
 
 import {
-    getBotOfferQuota,
+    getBotDailyActivity,
     getBotRuntimeState,
     getBots,
     startBot,
     stopBot,
 } from "../api/botsApi";
 import type {
-    BotOfferQuota,
+    BotDailyActivity,
     BotRuntimeState,
 } from "../api/botsApi";
 import AppDialog from "../components/AppDialog";
@@ -26,8 +26,8 @@ type LoadMode = "initial" | "background";
 
 function BotsPage() {
     const [bots, setBots] = useState<BotListItem[]>([]);
-    const [quotaByBotId, setQuotaByBotId] =
-        useState<Record<number, BotOfferQuota>>({});
+    const [activityByBotId, setActivityByBotId] =
+        useState<Record<number, BotDailyActivity>>({});
     const [runtimeByBotId, setRuntimeByBotId] =
         useState<Record<number, BotRuntimeState>>({});
     const [nowMs, setNowMs] = useState(() => Date.now());
@@ -53,39 +53,42 @@ function BotsPage() {
 
             const supplementaryResults = await Promise.all(
                 loadedBots.map(async (bot) => {
-                    const [quotaResult, runtimeResult] = await Promise.allSettled([
-                        getBotOfferQuota(bot.id),
+                    const [activityResult, runtimeResult] = await Promise.allSettled([
+                        getBotDailyActivity(bot.id),
                         getBotRuntimeState(bot.id),
                     ]);
 
-                    if (quotaResult.status === "rejected") {
-                        console.error(`Nie udało się pobrać quota dla bota ${bot.id}.`, quotaResult.reason);
+                    if (activityResult.status === "rejected") {
+                        console.error(
+                            `Nie udało się pobrać dzisiejszej aktywności bota ${bot.id}.`,
+                            activityResult.reason,
+                        );
                     }
                     if (runtimeResult.status === "rejected") {
-                        console.error(`Nie udało się pobrać runtime dla bota ${bot.id}.`, runtimeResult.reason);
+                        console.error(`Nie udało się pobrać runtime bota ${bot.id}.`, runtimeResult.reason);
                     }
 
                     return {
                         botId: bot.id,
-                        quota: quotaResult.status === "fulfilled" ? quotaResult.value : null,
+                        activity: activityResult.status === "fulfilled" ? activityResult.value : null,
                         runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
                     };
                 }),
             );
 
-            const nextQuotaByBotId: Record<number, BotOfferQuota> = {};
+            const nextActivityByBotId: Record<number, BotDailyActivity> = {};
             const nextRuntimeByBotId: Record<number, BotRuntimeState> = {};
 
             for (const result of supplementaryResults) {
-                if (result.quota !== null) {
-                    nextQuotaByBotId[result.botId] = result.quota;
+                if (result.activity !== null) {
+                    nextActivityByBotId[result.botId] = result.activity;
                 }
                 if (result.runtime !== null) {
                     nextRuntimeByBotId[result.botId] = result.runtime;
                 }
             }
 
-            setQuotaByBotId(nextQuotaByBotId);
+            setActivityByBotId(nextActivityByBotId);
             setRuntimeByBotId(nextRuntimeByBotId);
             setNowMs(Date.now());
         } catch (error) {
@@ -113,25 +116,49 @@ function BotsPage() {
             return;
         }
 
-        const refreshRuntime = async () => {
+        const refreshSupplementaryData = async () => {
             const results = await Promise.all(
                 bots.map(async (bot) => {
-                    try {
-                        return {
-                            botId: bot.id,
-                            runtime: await getBotRuntimeState(bot.id),
-                        };
-                    } catch (error) {
-                        console.error(`Nie udało się odświeżyć runtime bota ${bot.id}.`, error);
-                        return null;
+                    const [activityResult, runtimeResult] = await Promise.allSettled([
+                        getBotDailyActivity(bot.id),
+                        getBotRuntimeState(bot.id),
+                    ]);
+
+                    if (activityResult.status === "rejected") {
+                        console.error(
+                            `Nie udało się odświeżyć dzisiejszej aktywności bota ${bot.id}.`,
+                            activityResult.reason,
+                        );
                     }
+                    if (runtimeResult.status === "rejected") {
+                        console.error(
+                            `Nie udało się odświeżyć runtime bota ${bot.id}.`,
+                            runtimeResult.reason,
+                        );
+                    }
+
+                    return {
+                        botId: bot.id,
+                        activity: activityResult.status === "fulfilled" ? activityResult.value : null,
+                        runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
+                    };
                 }),
             );
+
+            setActivityByBotId((previous) => {
+                const next = { ...previous };
+                for (const result of results) {
+                    if (result.activity !== null) {
+                        next[result.botId] = result.activity;
+                    }
+                }
+                return next;
+            });
 
             setRuntimeByBotId((previous) => {
                 const next = { ...previous };
                 for (const result of results) {
-                    if (result !== null) {
+                    if (result.runtime !== null) {
                         next[result.botId] = result.runtime;
                     }
                 }
@@ -141,7 +168,7 @@ function BotsPage() {
         };
 
         const timer = window.setInterval(() => {
-            void refreshRuntime();
+            void refreshSupplementaryData();
         }, 5_000);
 
         return () => window.clearInterval(timer);
@@ -252,7 +279,7 @@ function BotsPage() {
                     <p className="page-eyebrow">Zarządzanie</p>
                     <h1 className="page-title">Boty</h1>
                     <p className="page-description">
-                        Zarządzaj botami, ich aktualnym stanem, konfiguracją oraz dziennym limitem ofert.
+                        Zarządzaj botami, ich aktualnym stanem, negocjacjami oraz dziennym limitem realnych akcji ofertowych.
                     </p>
                 </div>
 
@@ -279,7 +306,7 @@ function BotsPage() {
                     <div>
                         <h2 className="content-card-title">Wszystkie boty</h2>
                         <p className="content-card-text">
-                            Zwykłe boty negocjacyjne zapisane obecnie w backendzie.
+                            Statystyki dzienne są liczone od 00:00 w strefie Europe/Warsaw i odświeżają się automatycznie.
                         </p>
                     </div>
 
@@ -336,7 +363,10 @@ function BotsPage() {
                                     <th>Bot</th>
                                     <th>Konto</th>
                                     <th>Status</th>
-                                    <th>Dzisiejsze oferty</th>
+                                    <th>Limit dzienny</th>
+                                    <th>Aktywne negocjacje</th>
+                                    <th>Nowe dziś</th>
+                                    <th>Kroki dziś</th>
                                     <th>ID</th>
                                     <th className="bots-actions-column">Akcje</th>
                                 </tr>
@@ -345,7 +375,7 @@ function BotsPage() {
                                 {bots.map((bot) => {
                                     const isRunning = bot.status.toUpperCase() === "RUNNING";
                                     const isActionInProgress = actionBotId === bot.id;
-                                    const quota = quotaByBotId[bot.id];
+                                    const activity = activityByBotId[bot.id];
                                     const runtime = runtimeByBotId[bot.id];
 
                                     return (
@@ -366,8 +396,21 @@ function BotsPage() {
                                                     nowMs={nowMs}
                                                 />
                                             </td>
-                                            <td data-label="Dzisiejsze oferty">
-                                                {quota ? <BotOfferQuotaCell quota={quota} /> : <span>Brak danych</span>}
+                                            <td data-label="Limit dzienny">
+                                                {activity
+                                                    ? <BotDailyLimitCell activity={activity} />
+                                                    : <span>Brak danych</span>}
+                                            </td>
+                                            <td data-label="Aktywne negocjacje">
+                                                <strong>{activity?.activeNegotiations ?? "—"}</strong>
+                                            </td>
+                                            <td data-label="Nowe dziś">
+                                                <strong>{activity?.newNegotiationsToday ?? "—"}</strong>
+                                            </td>
+                                            <td data-label="Kroki dziś">
+                                                {activity
+                                                    ? <BotNegotiationStepsCell activity={activity} />
+                                                    : <span>Brak danych</span>}
                                             </td>
                                             <td data-label="ID">
                                                 <span className="bot-id">#{bot.id}</span>
@@ -431,26 +474,54 @@ function BotsPage() {
     );
 }
 
-function BotOfferQuotaCell({ quota }: { quota: BotOfferQuota }) {
-    const safeLimit = Math.max(quota.limit, 1);
-    const safeUsed = Math.min(Math.max(quota.used, 0), safeLimit);
-    const percentage = Math.round((safeUsed / safeLimit) * 100);
+function BotDailyLimitCell({ activity }: { activity: BotDailyActivity }) {
+    const safeLimit = Math.max(activity.dailyLimit, 1);
+    const safeUsed = Math.min(Math.max(activity.dailyLimitUsed, 0), safeLimit);
+    const percentage = activity.dailyLimit > 0
+        ? Math.round((safeUsed / safeLimit) * 100)
+        : 0;
 
     return (
         <div className="bot-quota-cell">
             <div className="bot-quota-header">
-                <strong className="bot-quota-value">{quota.used} / {quota.limit}</strong>
+                <strong className="bot-quota-value">
+                    {activity.dailyLimitUsed} / {activity.dailyLimit}
+                </strong>
                 <span className="bot-quota-percentage">{percentage}%</span>
             </div>
             <progress
                 className="bot-quota-progress"
                 max={safeLimit}
                 value={safeUsed}
-                aria-label={`Wykorzystano ${quota.used} z ${quota.limit} ofert`}
+                aria-label={`Wykorzystano ${activity.dailyLimitUsed} z ${activity.dailyLimit} dziennego limitu realnych akcji ofertowych`}
             />
             <span className="bot-quota-remaining">
-                Pozostało: <strong>{quota.remaining}</strong>
+                Pozostało: <strong>{activity.dailyLimitRemaining}</strong>
             </span>
+            <span className="bot-quota-remaining">
+                Audyt: <strong>{activity.confirmedActionsToday}</strong> potw.
+                {activity.ambiguousActionsToday > 0
+                    ? ` · ${activity.ambiguousActionsToday} niejedn.`
+                    : ""}
+            </span>
+            {activity.usedSlotsWithoutAuditYet > 0 && (
+                <span className="bot-quota-remaining">
+                    W toku / bez audytu: <strong>{activity.usedSlotsWithoutAuditYet}</strong>
+                </span>
+            )}
+        </div>
+    );
+}
+
+function BotNegotiationStepsCell({ activity }: { activity: BotDailyActivity }) {
+    const total = activity.nextStepsInNegotiationsStartedToday
+        + activity.nextStepsInOlderNegotiations;
+
+    return (
+        <div className="bot-name-cell">
+            <strong>{total}</strong>
+            <span>Dziś rozpoczęte: {activity.nextStepsInNegotiationsStartedToday}</span>
+            <span>Starsze: {activity.nextStepsInOlderNegotiations}</span>
         </div>
     );
 }
