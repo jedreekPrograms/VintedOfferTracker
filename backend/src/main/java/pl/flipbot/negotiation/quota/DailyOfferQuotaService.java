@@ -317,17 +317,37 @@ public class DailyOfferQuotaService {
     ) {
         Set<UUID> durableRequestIds = new HashSet<>();
 
-        for (RealActionAudit audit : getAuditedActions(botId, usageDate)) {
-            if ((audit.getOutcome() == RealActionAuditOutcome.CONFIRMED
-                    || audit.getOutcome() == RealActionAuditOutcome.AMBIGUOUS)
-                    && audit.getRequestId() != null) {
-                durableRequestIds.add(audit.getRequestId());
-            }
-        }
-
         for (DailyOfferQuotaReservation reservation : reservationRepository
                 .findAllByBotIdAndUsageDateAndActiveTrue(botId, usageDate)) {
             durableRequestIds.add(reservation.getRequestId());
+        }
+
+        for (RealActionAudit audit : getAuditedActions(botId, usageDate)) {
+            if ((audit.getOutcome() != RealActionAuditOutcome.CONFIRMED
+                    && audit.getOutcome() != RealActionAuditOutcome.AMBIGUOUS)
+                    || audit.getRequestId() == null) {
+                continue;
+            }
+
+            DailyOfferQuotaReservation reservation = reservationRepository
+                    .findById(audit.getRequestId())
+                    .orElse(null);
+
+            if (reservation == null) {
+                // Legacy audit from before the reservation ledger existed: its audit
+                // timestamp is the only durable day attribution available.
+                durableRequestIds.add(audit.getRequestId());
+                continue;
+            }
+
+            validateReservationOwner(reservation, botId);
+
+            if (usageDate.equals(reservation.getUsageDate())) {
+                // Once a request has a ledger row, reservation usage_date is the
+                // source of truth. A confirmation just after midnight must not
+                // charge the same real action against the next day's /25 limit.
+                durableRequestIds.add(audit.getRequestId());
+            }
         }
 
         return durableRequestIds.size();
