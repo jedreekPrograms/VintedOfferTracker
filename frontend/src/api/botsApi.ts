@@ -17,6 +17,22 @@ export interface BotOfferQuota {
     remaining: number;
 }
 
+export interface BotDailyActivity {
+    botId: number;
+    date: string;
+    timeZone: string;
+    dailyLimit: number;
+    dailyLimitUsed: number;
+    dailyLimitRemaining: number;
+    activeNegotiations: number;
+    newNegotiationsToday: number;
+    nextStepsInNegotiationsStartedToday: number;
+    nextStepsInOlderNegotiations: number;
+    confirmedActionsToday: number;
+    ambiguousActionsToday: number;
+    usedSlotsWithoutAuditYet: number;
+}
+
 export interface BotRuntimeState {
     botId: number;
     runtimeStatus: "IDLE" | "QUEUED" | "WORKING" | "COOLDOWN" | "ERROR";
@@ -90,6 +106,23 @@ export async function getBotOfferQuota(
     );
 
     return response.json() as Promise<BotOfferQuota>;
+}
+
+export async function getBotDailyActivity(
+    botId: number,
+): Promise<BotDailyActivity> {
+    const response = await fetch(`${BOTS_BASE_URL}/${botId}/activity/today`);
+
+    if (response.status === 404) {
+        throw new Error(`Nie znaleziono bota ${botId}.`);
+    }
+
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać dzisiejszej aktywności bota ${botId}. Status HTTP: ${response.status}.`,
+    );
+
+    return response.json() as Promise<BotDailyActivity>;
 }
 
 export async function getBotRuntimeState(
