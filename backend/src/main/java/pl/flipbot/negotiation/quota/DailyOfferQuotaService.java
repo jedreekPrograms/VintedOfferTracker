@@ -19,6 +19,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -26,71 +28,102 @@ import java.util.List;
 public class DailyOfferQuotaService {
 
     private static final int HARD_MAX_DAILY_OFFER_LIMIT = 25;
-
-    private static final ZoneId QUOTA_ZONE =
-            ZoneId.of("Europe/Warsaw");
+    private static final ZoneId QUOTA_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DailyOfferQuotaRepository dailyOfferQuotaRepository;
-
+    private final DailyOfferQuotaReservationRepository reservationRepository;
     private final BotRepository botRepository;
-
     private final JdbcTemplate jdbcTemplate;
-
     private final RealActionAuditRepository realActionAuditRepository;
 
     @Transactional
-    public DailyOfferQuotaResponse getQuota(
-            Long botId
-    ) {
+    public DailyOfferQuotaResponse getQuota(Long botId) {
         lockBotRow(botId);
 
         Bot bot = getBot(botId);
-        int dailyLimit = resolveDailyLimit(bot);
         LocalDate today = getToday();
-        int auditFloor = getAuditedUsageFloor(botId, today);
-
         DailyOfferQuota quota = dailyOfferQuotaRepository
                 .findByBot_IdAndUsageDate(botId, today)
                 .orElse(null);
+        int usageFloor = getDurableUsageFloor(botId, today);
+        int used = reconcileToUsageFloor(bot, today, quota, usageFloor);
 
-        int used = reconcileToAuditFloor(
-                bot,
-                today,
-                quota,
-                auditFloor
-        );
-
-        return createQuotaResponse(
-                dailyLimit,
-                used
-        );
+        return createQuotaResponse(resolveDailyLimit(bot), used);
     }
 
     @Transactional
     public OfferQuotaReservationResponse reserveSlot(
-            Long botId
+            Long botId,
+            UUID requestId
     ) {
+        Objects.requireNonNull(requestId, "Quota request id cannot be null");
         lockBotRow(botId);
 
         Bot bot = getBot(botId);
         int dailyLimit = resolveDailyLimit(bot);
         LocalDate today = getToday();
-        int auditFloor = getAuditedUsageFloor(botId, today);
 
         DailyOfferQuota quota = dailyOfferQuotaRepository
                 .findByBot_IdAndUsageDate(botId, today)
-                .orElseGet(
-                        () -> DailyOfferQuota.builder()
-                                .bot(bot)
-                                .usageDate(today)
-                                .usedCount(0)
-                                .build()
-                );
+                .orElseGet(() -> DailyOfferQuota.builder()
+                        .bot(bot)
+                        .usageDate(today)
+                        .usedCount(0)
+                        .build());
 
-        reconcileExistingQuotaToAuditFloor(
+        reconcileExistingQuotaToUsageFloor(
                 quota,
-                auditFloor
+                getDurableUsageFloor(botId, today)
         );
+
+        DailyOfferQuotaReservation existing = reservationRepository
+                .findById(requestId)
+                .orElse(null);
+
+        if (existing != null) {
+            validateReservationOwner(existing, botId);
+
+            if (!existing.getUsageDate().equals(today)) {
+                log.warn(
+                        "[OFFER QUOTA] Refusing stale reservation replay across quota days. bot={}, requestId={}, originalDate={}, today={}",
+                        botId,
+                        requestId,
+                        existing.getUsageDate(),
+                        today
+                );
+                return createReservationResponse(
+                        false,
+                        dailyLimit,
+                        quota.getUsedCount()
+                );
+            }
+
+            if (existing.isActive()) {
+                log.info(
+                        "[OFFER QUOTA] Idempotent reservation replay for bot {} requestId={}. used={}/{}",
+                        botId,
+                        requestId,
+                        quota.getUsedCount(),
+                        dailyLimit
+                );
+                return createReservationResponse(
+                        true,
+                        dailyLimit,
+                        quota.getUsedCount()
+                );
+            }
+
+            log.warn(
+                    "[OFFER QUOTA] Refusing replay of an already released reservation. bot={}, requestId={}",
+                    botId,
+                    requestId
+            );
+            return createReservationResponse(
+                    false,
+                    dailyLimit,
+                    quota.getUsedCount()
+            );
+        }
 
         if (quota.getUsedCount() >= dailyLimit) {
             return createReservationResponse(
@@ -100,10 +133,17 @@ public class DailyOfferQuotaService {
             );
         }
 
-        quota.setUsedCount(
-                quota.getUsedCount() + 1
+        reservationRepository.saveAndFlush(
+                DailyOfferQuotaReservation.builder()
+                        .requestId(requestId)
+                        .botId(botId)
+                        .usageDate(today)
+                        .active(true)
+                        .createdAt(LocalDateTime.now(QUOTA_ZONE))
+                        .build()
         );
 
+        quota.setUsedCount(quota.getUsedCount() + 1);
         dailyOfferQuotaRepository.save(quota);
 
         return createReservationResponse(
@@ -115,116 +155,174 @@ public class DailyOfferQuotaService {
 
     @Transactional
     public DailyOfferQuotaResponse releaseSlot(
-            Long botId
+            Long botId,
+            UUID requestId
     ) {
+        Objects.requireNonNull(requestId, "Quota request id cannot be null");
         lockBotRow(botId);
 
         Bot bot = getBot(botId);
         int dailyLimit = resolveDailyLimit(bot);
-        LocalDate today = getToday();
-        int auditFloor = getAuditedUsageFloor(botId, today);
-
-        DailyOfferQuota quota = dailyOfferQuotaRepository
-                .findByBot_IdAndUsageDate(botId, today)
+        DailyOfferQuotaReservation reservation = reservationRepository
+                .findById(requestId)
                 .orElse(null);
 
-        if (quota == null) {
-            int used = reconcileToAuditFloor(
-                    bot,
-                    today,
-                    null,
-                    auditFloor
+        if (reservation == null) {
+            log.warn(
+                    "[OFFER QUOTA] Idempotent release ignored because no reservation exists. bot={}, requestId={}",
+                    botId,
+                    requestId
             );
-            return createQuotaResponse(
-                    dailyLimit,
+            return getQuotaForDateWithoutRelocking(bot, getToday());
+        }
+
+        validateReservationOwner(reservation, botId);
+        LocalDate usageDate = reservation.getUsageDate();
+        DailyOfferQuota quota = dailyOfferQuotaRepository
+                .findByBot_IdAndUsageDate(botId, usageDate)
+                .orElse(null);
+
+        if (!reservation.isActive()) {
+            int used = reconcileToUsageFloor(
+                    bot,
+                    usageDate,
+                    quota,
+                    getDurableUsageFloor(botId, usageDate)
+            );
+            return createQuotaResponse(dailyLimit, used);
+        }
+
+        if (realActionAuditRepository.findByRequestId(requestId).isPresent()) {
+            int used = reconcileToUsageFloor(
+                    bot,
+                    usageDate,
+                    quota,
+                    getDurableUsageFloor(botId, usageDate)
+            );
+            log.warn(
+                    "[OFFER QUOTA] Refusing to release audited real action. bot={}, requestId={}, used={}",
+                    botId,
+                    requestId,
                     used
             );
+            return createQuotaResponse(dailyLimit, used);
         }
 
-        reconcileExistingQuotaToAuditFloor(
+        reservation.setActive(false);
+        reservation.setReleasedAt(LocalDateTime.now(QUOTA_ZONE));
+        reservationRepository.saveAndFlush(reservation);
+
+        int usageFloorAfterRelease = getDurableUsageFloor(botId, usageDate);
+        int used = reconcileToUsageFloor(
+                bot,
+                usageDate,
                 quota,
-                auditFloor
+                usageFloorAfterRelease
         );
 
-        if (quota.getUsedCount() > auditFloor) {
-            quota.setUsedCount(
-                    quota.getUsedCount() - 1
-            );
-            dailyOfferQuotaRepository.save(quota);
-        } else {
+        DailyOfferQuota persistedQuota = dailyOfferQuotaRepository
+                .findByBot_IdAndUsageDate(botId, usageDate)
+                .orElse(null);
+
+        if (persistedQuota != null && persistedQuota.getUsedCount() > usageFloorAfterRelease) {
+            persistedQuota.setUsedCount(persistedQuota.getUsedCount() - 1);
+            dailyOfferQuotaRepository.save(persistedQuota);
+            used = persistedQuota.getUsedCount();
+        } else if (used <= usageFloorAfterRelease) {
             log.warn(
-                    "[OFFER QUOTA] Refusing to release bot {} below audited daily floor {}. Persisted used={}",
+                    "[OFFER QUOTA] Release for bot {} requestId={} cannot reduce used below durable floor {}.",
                     botId,
-                    auditFloor,
-                    quota.getUsedCount()
+                    requestId,
+                    usageFloorAfterRelease
             );
         }
 
-        return createQuotaResponse(
-                dailyLimit,
-                quota.getUsedCount()
-        );
+        return createQuotaResponse(dailyLimit, used);
     }
 
-    private int reconcileToAuditFloor(
+    private DailyOfferQuotaResponse getQuotaForDateWithoutRelocking(
+            Bot bot,
+            LocalDate usageDate
+    ) {
+        DailyOfferQuota quota = dailyOfferQuotaRepository
+                .findByBot_IdAndUsageDate(bot.getId(), usageDate)
+                .orElse(null);
+        int used = reconcileToUsageFloor(
+                bot,
+                usageDate,
+                quota,
+                getDurableUsageFloor(bot.getId(), usageDate)
+        );
+        return createQuotaResponse(resolveDailyLimit(bot), used);
+    }
+
+    private int reconcileToUsageFloor(
             Bot bot,
             LocalDate usageDate,
             DailyOfferQuota quota,
-            int auditFloor
+            int usageFloor
     ) {
         if (quota == null) {
-            if (auditFloor <= 0) {
+            if (usageFloor <= 0) {
                 return 0;
             }
 
             DailyOfferQuota repaired = DailyOfferQuota.builder()
                     .bot(bot)
                     .usageDate(usageDate)
-                    .usedCount(auditFloor)
+                    .usedCount(usageFloor)
                     .build();
             dailyOfferQuotaRepository.save(repaired);
 
             log.error(
-                    "[OFFER QUOTA] Missing daily quota row for bot {} on {} despite {} audited real actions. Recreated conservatively from audit.",
+                    "[OFFER QUOTA] Missing quota row for bot {} on {} despite durable usage floor {}. Recreated conservatively.",
                     bot.getId(),
                     usageDate,
-                    auditFloor
+                    usageFloor
             );
-            return auditFloor;
+            return usageFloor;
         }
 
-        reconcileExistingQuotaToAuditFloor(
-                quota,
-                auditFloor
-        );
+        reconcileExistingQuotaToUsageFloor(quota, usageFloor);
         return quota.getUsedCount();
     }
 
-    private void reconcileExistingQuotaToAuditFloor(
+    private void reconcileExistingQuotaToUsageFloor(
             DailyOfferQuota quota,
-            int auditFloor
+            int usageFloor
     ) {
-        if (quota.getUsedCount() >= auditFloor) {
+        if (quota.getUsedCount() >= usageFloor) {
             return;
         }
 
         int previous = quota.getUsedCount();
-        quota.setUsedCount(auditFloor);
+        quota.setUsedCount(usageFloor);
         dailyOfferQuotaRepository.save(quota);
 
         log.error(
-                "[OFFER QUOTA] Repaired undercount for bot {} on {} from {} to audited floor {}.",
+                "[OFFER QUOTA] Repaired undercount for bot {} on {} from {} to durable floor {}.",
                 quota.getBot().getId(),
                 quota.getUsageDate(),
                 previous,
-                auditFloor
+                usageFloor
         );
     }
 
-    private int getAuditedUsageFloor(
-            Long botId,
-            LocalDate usageDate
-    ) {
+    private int getDurableUsageFloor(Long botId, LocalDate usageDate) {
+        int audited = getAuditedUsageCount(botId, usageDate);
+        long activeReservations = reservationRepository
+                .countByBotIdAndUsageDateAndActiveTrue(botId, usageDate);
+
+        if (activeReservations > Integer.MAX_VALUE) {
+            throw new IllegalStateException(
+                    "Daily quota reservation count exceeds integer range for bot " + botId
+            );
+        }
+
+        return Math.max(audited, (int) activeReservations);
+    }
+
+    private int getAuditedUsageCount(Long botId, LocalDate usageDate) {
         LocalDateTime dayStart = usageDate.atStartOfDay();
         LocalDateTime nextDayStart = usageDate.plusDays(1).atStartOfDay();
 
@@ -242,19 +340,29 @@ public class DailyOfferQuotaService {
 
         if (counted > Integer.MAX_VALUE) {
             throw new IllegalStateException(
-                    "Daily real-action audit count exceeds integer range for bot "
-                            + botId
+                    "Daily real-action audit count exceeds integer range for bot " + botId
             );
         }
 
         return (int) counted;
     }
 
+    private void validateReservationOwner(
+            DailyOfferQuotaReservation reservation,
+            Long botId
+    ) {
+        if (!Objects.equals(reservation.getBotId(), botId)) {
+            throw new IllegalStateException(
+                    "Quota reservation requestId " + reservation.getRequestId()
+                            + " belongs to bot " + reservation.getBotId()
+                            + ", not bot " + botId
+            );
+        }
+    }
+
     private Bot getBot(Long botId) {
         return botRepository.findById(botId)
-                .orElseThrow(
-                        () -> new BotNotFoundException(botId)
-                );
+                .orElseThrow(() -> new BotNotFoundException(botId));
     }
 
     private int resolveDailyLimit(Bot bot) {
@@ -263,22 +371,15 @@ public class DailyOfferQuotaService {
             return 0;
         }
 
-        int configuredLimit =
-                bot.getConfiguration().getDailyNegotiationBudget();
-
+        int configuredLimit = bot.getConfiguration().getDailyNegotiationBudget();
         if (configuredLimit <= 0) {
             return 0;
         }
 
-        return Math.min(
-                configuredLimit,
-                HARD_MAX_DAILY_OFFER_LIMIT
-        );
+        return Math.min(configuredLimit, HARD_MAX_DAILY_OFFER_LIMIT);
     }
 
-    private void lockBotRow(
-            Long botId
-    ) {
+    private void lockBotRow(Long botId) {
         try {
             jdbcTemplate.queryForObject(
                     """
@@ -299,10 +400,7 @@ public class DailyOfferQuotaService {
         return LocalDate.now(QUOTA_ZONE);
     }
 
-    private DailyOfferQuotaResponse createQuotaResponse(
-            int limit,
-            int used
-    ) {
+    private DailyOfferQuotaResponse createQuotaResponse(int limit, int used) {
         return new DailyOfferQuotaResponse(
                 limit,
                 used,
