@@ -27,4 +27,11 @@ public interface RealActionAuditRepository
             RealActionAuditOutcome outcome,
             LocalDateTime createdAt
     );
+
+    List<RealActionAudit>
+    findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+            Long botId,
+            LocalDateTime createdAtFrom,
+            LocalDateTime createdAtTo
+    );
 }

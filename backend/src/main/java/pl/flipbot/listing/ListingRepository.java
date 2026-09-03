@@ -81,6 +81,11 @@ public interface ListingRepository
             ListingStatus status
     );
 
+    long countByBotIdAndStatus(
+            Long botId,
+            ListingStatus status
+    );
+
     List<Listing> findAllByBotIdAndListingIdIn(
             Long botId,
             Collection<String> listingIds
