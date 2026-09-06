@@ -94,7 +94,9 @@ function PriceMatrixPage() {
             setDrafts(nextDrafts);
             setExpandedBrandIds(new Set(loadedBrands.map((brand) => brand.id)));
         } catch (error) {
-            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać cennika modeli."));
+            setErrorMessage(
+                getErrorMessage(error, "Nie udało się pobrać cennika modeli."),
+            );
         } finally {
             setIsLoading(false);
         }
@@ -104,12 +106,17 @@ function PriceMatrixPage() {
         try {
             const planning = await getModelPlanning();
             const nextPlanningByModel: Record<number, ModelPlanning> = {};
+
             for (const item of planning) {
                 nextPlanningByModel[item.modelId] = item;
             }
+
             setPlanningByModel(nextPlanningByModel);
         } catch (error) {
-            console.error("Nie udało się automatycznie odświeżyć statystyk rynku.", error);
+            console.error(
+                "Nie udało się automatycznie odświeżyć statystyk rynku.",
+                error,
+            );
         }
     }, []);
 
@@ -122,22 +129,26 @@ function PriceMatrixPage() {
             () => void refreshPlanning(),
             PLANNING_REFRESH_INTERVAL_MS,
         );
+
         return () => window.clearInterval(intervalId);
     }, [refreshPlanning]);
 
     const modelCount = useMemo(
-        () => Object.values(modelsByBrand).reduce((sum, models) => sum + models.length, 0),
+        () => Object.values(modelsByBrand)
+            .reduce((sum, models) => sum + models.length, 0),
         [modelsByBrand],
     );
 
     function toggleBrand(brandId: number) {
         setExpandedBrandIds((current) => {
             const next = new Set(current);
+
             if (next.has(brandId)) {
                 next.delete(brandId);
             } else {
                 next.add(brandId);
             }
+
             return next;
         });
     }
@@ -159,6 +170,7 @@ function PriceMatrixPage() {
 
     async function saveModel(model: DictionaryModel) {
         const draft = drafts[model.id];
+
         if (draft === undefined || savingModelId !== null) {
             return;
         }
@@ -204,7 +216,9 @@ function PriceMatrixPage() {
             && marketMaxResult.value !== null
             && marketMinResult.value > marketMaxResult.value
         ) {
-            setErrorMessage("Minimalna cena obserwacji nie może być większa od maksymalnej.");
+            setErrorMessage(
+                "Minimalna cena obserwacji nie może być większa od maksymalnej.",
+            );
             return;
         }
 
@@ -252,7 +266,9 @@ function PriceMatrixPage() {
                 await refreshPlanning();
             }
         } catch (error) {
-            setErrorMessage(getErrorMessage(error, "Nie udało się zapisać cen modelu."));
+            setErrorMessage(
+                getErrorMessage(error, "Nie udało się zapisać cen modelu."),
+            );
         } finally {
             setSavingModelId(null);
         }
@@ -265,14 +281,15 @@ function PriceMatrixPage() {
                     <p className="page-eyebrow">Planowanie zakupów</p>
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
-                        Min i max obserwacji ograniczają rynek liczony przez observera.
-                        Pierwszy pełny skan tworzy punkt startowy, a kolejne nieznane ID
-                        zasilają statystyki 24h i 7 dni. „Potrzebne boty” nadal pokazuje
-                        teoretyczną przepustowość przy 5 nowych rozmowach dziennie na bota,
-                        natomiast „Negocjacje / 7 dni” pokazują realnie wykorzystane sloty
-                        pierwszych ofert — również z zapisanej historii dziennych limitów.
+                        Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
+                        najnowsze oferty. „Dzisiaj” liczy od 00:00, „Ten tydzień” od
+                        poniedziałku 00:00, a „Ostatni pełny tydzień” obejmuje poprzedni
+                        poniedziałek–niedzielę. „Potrzebne boty” bazuje na pełnym poprzednim
+                        tygodniu; dopóki go nie ma, używana jest estymacja ze średniej dziennej
+                        z całego dostępnego okresu po baseline.
                     </p>
                 </div>
+
                 <div className="price-matrix-summary">
                     <strong>{modelCount}</strong>
                     <span>modeli</span>
@@ -329,7 +346,11 @@ interface BrandPriceSheetProps {
     savingModelId: number | null;
     savedModelId: number | null;
     onToggle: () => void;
-    onDraftChange: (modelId: number, field: keyof PriceDraft, value: string) => void;
+    onDraftChange: (
+        modelId: number,
+        field: keyof PriceDraft,
+        value: string,
+    ) => void;
     onSave: (model: DictionaryModel) => Promise<void>;
 }
 
@@ -355,10 +376,14 @@ function BrandPriceSheet({
             >
                 <span className="price-brand-heading">
                     <span className="price-brand-name">{brand.name}</span>
-                    <span className="price-brand-count">{formatModelCount(models.length)}</span>
+                    <span className="price-brand-count">
+                        {formatModelCount(models.length)}
+                    </span>
                 </span>
                 <span
-                    className={`price-brand-chevron ${expanded ? "price-brand-chevron-open" : ""}`}
+                    className={`price-brand-chevron ${
+                        expanded ? "price-brand-chevron-open" : ""
+                    }`}
                     aria-hidden="true"
                 >
                     ▾
@@ -373,9 +398,9 @@ function BrandPriceSheet({
                         <div>Sprzedaż</div>
                         <div>Min obserwacji</div>
                         <div>Max obserwacji</div>
-                        <div>Nowe / 24h</div>
-                        <div>Oferty / 7 dni</div>
-                        <div>Negocjacje / 7 dni</div>
+                        <div>Dzisiaj</div>
+                        <div>Ten tydzień</div>
+                        <div>Ostatni pełny tydzień</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
                     </div>
@@ -404,7 +429,9 @@ function BrandPriceSheet({
                                     disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) => onDraftChange(model.id, "proposedOfferPrice", value)}
+                                    onChange={(value) =>
+                                        onDraftChange(model.id, "proposedOfferPrice", value)
+                                    }
                                     onBlur={() => void onSave(model)}
                                 />
                                 <PriceInput
@@ -414,7 +441,9 @@ function BrandPriceSheet({
                                     disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) => onDraftChange(model.id, "expectedResalePrice", value)}
+                                    onChange={(value) =>
+                                        onDraftChange(model.id, "expectedResalePrice", value)
+                                    }
                                     onBlur={() => void onSave(model)}
                                 />
                                 <PriceInput
@@ -424,7 +453,9 @@ function BrandPriceSheet({
                                     disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) => onDraftChange(model.id, "marketMinPrice", value)}
+                                    onChange={(value) =>
+                                        onDraftChange(model.id, "marketMinPrice", value)
+                                    }
                                     onBlur={() => void onSave(model)}
                                 />
                                 <PriceInput
@@ -434,23 +465,21 @@ function BrandPriceSheet({
                                     disabled={savingModelId !== null && savingModelId !== model.id}
                                     saving={savingModelId === model.id}
                                     saved={savedModelId === model.id}
-                                    onChange={(value) => onDraftChange(model.id, "marketMaxPrice", value)}
+                                    onChange={(value) =>
+                                        onDraftChange(model.id, "marketMaxPrice", value)
+                                    }
                                     onBlur={() => void onSave(model)}
                                 />
 
-                                <Last24HoursMetricCell planning={planning} />
-                                <MarketMetricCell
-                                    label="Oferty / 7 dni"
-                                    value={planning?.offersLast7Days ?? null}
-                                    planning={planning}
-                                />
-                                <NegotiationUsageMetricCell planning={planning} />
-                                <MarketMetricCell
-                                    label="Potrzebne boty"
-                                    value={planning?.recommendedBots ?? null}
-                                    planning={planning}
-                                />
-                                <div className="price-metric-cell" data-label="Posiadane boty">
+                                <TodayMetricCell planning={planning} />
+                                <CurrentWeekMetricCell planning={planning} />
+                                <PreviousFullWeekMetricCell planning={planning} />
+                                <RecommendedBotsMetricCell planning={planning} />
+
+                                <div
+                                    className="price-metric-cell"
+                                    data-label="Posiadane boty"
+                                >
                                     <strong>{planning?.existingBots ?? 0}</strong>
                                     <span>utworzonych</span>
                                 </div>
@@ -463,72 +492,58 @@ function BrandPriceSheet({
     );
 }
 
-function NegotiationUsageMetricCell({
+function TodayMetricCell({
     planning,
 }: {
     planning: ModelPlanning | undefined;
 }) {
     return (
-        <div className="price-metric-cell" data-label="Negocjacje / 7 dni">
-            <strong>{planning?.negotiationsStartedLast7Days ?? 0}</strong>
-            <span>dzisiaj: {planning?.negotiationsStartedToday ?? 0}</span>
-            <span className="price-metric-note">faktycznie rozpoczęte</span>
-        </div>
+        <CalendarMetricCell
+            label="Dzisiaj"
+            planning={planning}
+            value={planning?.offersToday ?? null}
+            complete={planning?.todayWindowComplete ?? false}
+            completeText="od 00:00"
+            partialText="częściowy dzień od baseline"
+            showBaseline
+        />
     );
 }
 
-function Last24HoursMetricCell({
+function CurrentWeekMetricCell({
     planning,
 }: {
     planning: ModelPlanning | undefined;
 }) {
-    if (planning === undefined) {
-        return (
-            <div className="price-metric-cell" data-label="Nowe / 24h">
-                <strong>—</strong>
-                <span>Brak danych</span>
-            </div>
-        );
-    }
-
-    if (planning.offersLast24Hours === null) {
-        return (
-            <div className="price-metric-cell" data-label="Nowe / 24h">
-                <strong>—</strong>
-                <span>
-                    {planning.lastStatsUpdatedAt === null
-                        ? "Czeka na pierwszy skan"
-                        : "Czeka na pełny punkt startowy"}
-                </span>
-            </div>
-        );
-    }
-
     return (
-        <div className="price-metric-cell" data-label="Nowe / 24h">
-            <strong>{planning.offersLast24Hours}</strong>
-            <span>{planning.trackedDays === 0 ? "nowych od startu" : "ostatnie 24h"}</span>
-            {planning.baselineOffers !== null && (
-                <span className="price-metric-note">
-                    punkt startowy: {planning.baselineOffers} ofert
-                </span>
-            )}
-            {!planning.lastScanComplete && <span>Ostatni skan niepełny</span>}
-        </div>
+        <CalendarMetricCell
+            label="Ten tydzień"
+            planning={planning}
+            value={planning?.offersCurrentWeek ?? null}
+            complete={planning?.currentWeekWindowComplete ?? false}
+            completeText="od pon. 00:00"
+            partialText="częściowy tydzień od baseline"
+        />
     );
 }
 
-interface MarketMetricCellProps {
-    label: string;
-    value: number | null;
-    planning: ModelPlanning | undefined;
-}
-
-function MarketMetricCell({
+function CalendarMetricCell({
     label,
-    value,
     planning,
-}: MarketMetricCellProps) {
+    value,
+    complete,
+    completeText,
+    partialText,
+    showBaseline = false,
+}: {
+    label: string;
+    planning: ModelPlanning | undefined;
+    value: number | null;
+    complete: boolean;
+    completeText: string;
+    partialText: string;
+    showBaseline?: boolean;
+}) {
     if (planning === undefined) {
         return (
             <div className="price-metric-cell" data-label={label}>
@@ -538,14 +553,14 @@ function MarketMetricCell({
         );
     }
 
-    if (!planning.statsReady) {
+    if (value === null) {
         return (
             <div className="price-metric-cell" data-label={label}>
                 <strong>—</strong>
                 <span>
                     {planning.lastStatsUpdatedAt === null
                         ? "Czeka na pierwszy skan"
-                        : `Zbieranie danych ${planning.trackedDays}/7 dni`}
+                        : "Czeka na pełny baseline"}
                 </span>
             </div>
         );
@@ -553,8 +568,87 @@ function MarketMetricCell({
 
     return (
         <div className="price-metric-cell" data-label={label}>
-            <strong>{value ?? 0}</strong>
-            {!planning.lastScanComplete && <span>Ostatni skan niepełny</span>}
+            <strong>{value}</strong>
+            <span>{complete ? completeText : partialText}</span>
+            {showBaseline && planning.baselineOffers !== null && (
+                <span className="price-metric-note">
+                    punkt startowy: {planning.baselineOffers} ofert
+                </span>
+            )}
+            {!planning.lastScanComplete && (
+                <span className="price-metric-warning">Ostatni skan niepełny</span>
+            )}
+        </div>
+    );
+}
+
+function PreviousFullWeekMetricCell({
+    planning,
+}: {
+    planning: ModelPlanning | undefined;
+}) {
+    if (planning === undefined) {
+        return (
+            <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
+                <strong>—</strong>
+                <span>Brak danych</span>
+            </div>
+        );
+    }
+
+    if (!planning.previousFullWeekAvailable) {
+        return (
+            <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
+                <strong>—</strong>
+                <span>jeszcze brak pełnego tygodnia</span>
+                {planning.trackedDays > 0 && (
+                    <span className="price-metric-note">
+                        śledzenie: {planning.trackedDays} dni
+                    </span>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
+            <strong>{planning.offersPreviousFullWeek ?? 0}</strong>
+            <span>poprzedni pon.–niedz.</span>
+            {!planning.lastScanComplete && (
+                <span className="price-metric-warning">Ostatni skan niepełny</span>
+            )}
+        </div>
+    );
+}
+
+function RecommendedBotsMetricCell({
+    planning,
+}: {
+    planning: ModelPlanning | undefined;
+}) {
+    if (planning === undefined || planning.recommendedBots === null) {
+        return (
+            <div className="price-metric-cell" data-label="Potrzebne boty">
+                <strong>—</strong>
+                <span>Czeka na baseline</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="price-metric-cell" data-label="Potrzebne boty">
+            <strong>{planning.recommendedBots}</strong>
+            <span>
+                {planning.recommendationEstimated
+                    ? `estymacja: ${planning.recommendationWeeklyOffers ?? 0} ofert/tydz.`
+                    : `pełny tydzień: ${planning.recommendationWeeklyOffers ?? 0} ofert`}
+            </span>
+            {planning.recommendationEstimated && (
+                <span className="price-metric-note">
+                    średnia z {Math.max(planning.trackedDays, 1)} dni × 7
+                </span>
+            )}
+            <span className="price-metric-note">1 bot = 35 nowych rozmów/tydz.</span>
         </div>
     );
 }
@@ -600,10 +694,16 @@ function PriceInput({
                         }
                     }}
                 />
-                {value.trim().length > 0 && <span className="price-currency">zł</span>}
+                {value.trim().length > 0 && (
+                    <span className="price-currency">zł</span>
+                )}
             </div>
-            {saving && <span className="price-save-state">Zapisywanie...</span>}
-            {!saving && saved && <span className="price-save-state">Zapisano</span>}
+            {saving && (
+                <span className="price-save-state">Zapisywanie...</span>
+            )}
+            {!saving && saved && (
+                <span className="price-save-state">Zapisano</span>
+            )}
         </div>
     );
 }
@@ -623,14 +723,17 @@ function parseOptionalPositivePrice(
     errorMessage: string,
 ): ParsedPriceSuccess | ParsedPriceFailure {
     const normalized = rawValue.trim().replace(",", ".");
+
     if (normalized.length === 0) {
         return { valid: true, value: null };
     }
 
     const value = Number(normalized);
+
     if (!Number.isFinite(value) || value <= 0) {
         return { valid: false, errorMessage };
     }
+
     return { valid: true, value };
 }
 
@@ -651,6 +754,7 @@ function samePrice(left: number | null, right: number | null): boolean {
     if (left === null || right === null) {
         return left === right;
     }
+
     return Math.abs(left - right) < 0.0001;
 }
 
