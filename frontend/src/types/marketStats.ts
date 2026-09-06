@@ -1,13 +1,16 @@
 export interface ModelPlanning {
     modelId: number;
     baselineOffers: number | null;
-    offersLast24Hours: number | null;
-    offersLast7Days: number | null;
-    negotiationsStartedToday: number;
-    negotiationsStartedLast7Days: number;
+    offersToday: number | null;
+    offersCurrentWeek: number | null;
+    offersPreviousFullWeek: number | null;
     recommendedBots: number | null;
+    recommendationWeeklyOffers: number | null;
+    recommendationEstimated: boolean;
     existingBots: number;
-    statsReady: boolean;
+    todayWindowComplete: boolean;
+    currentWeekWindowComplete: boolean;
+    previousFullWeekAvailable: boolean;
     trackedDays: number;
     lastStatsUpdatedAt: string | null;
     lastScanComplete: boolean;
