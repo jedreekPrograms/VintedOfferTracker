@@ -2,6 +2,7 @@ package pl.flipbot.playwright.marketstats;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -66,6 +67,57 @@ public class MarketStatsRuntimeConfigTest {
                 MarketStatsRuntimeConfig.resolveObserverHeadless(
                         "yes",
                         "off"
+                )
+        );
+    }
+
+    @Test
+    public void defaultsToFifteenMinuteCooldown() {
+        assertEquals(
+                15L,
+                MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
+                        null,
+                        null
+                )
+        );
+    }
+
+    @Test
+    public void explicitMinuteCooldownWinsOverLegacyHours() {
+        assertEquals(
+                25L,
+                MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
+                        "25",
+                        "24"
+                )
+        );
+    }
+
+    @Test
+    public void legacyHoursRemainBackwardCompatible() {
+        assertEquals(
+                120L,
+                MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
+                        null,
+                        "2"
+                )
+        );
+    }
+
+    @Test
+    public void refreshCooldownIsClampedToSafeBounds() {
+        assertEquals(
+                5L,
+                MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
+                        "1",
+                        null
+                )
+        );
+        assertEquals(
+                1_440L,
+                MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
+                        "99999",
+                        null
                 )
         );
     }

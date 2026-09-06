@@ -22,6 +22,20 @@ public interface MarketListingObservationRepository
             LocalDateTime firstSeenAfter
     );
 
+    @Query("""
+            select count(observation)
+            from MarketListingObservation observation
+            where observation.model.id = :modelId
+              and observation.baseline = false
+              and observation.firstSeenAt >= :fromInclusive
+              and observation.firstSeenAt < :toExclusive
+            """)
+    long countNewListingsBetween(
+            @Param("modelId") Long modelId,
+            @Param("fromInclusive") LocalDateTime fromInclusive,
+            @Param("toExclusive") LocalDateTime toExclusive
+    );
+
     long countByModel_IdAndBaselineTrue(
             Long modelId
     );

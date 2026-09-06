@@ -55,9 +55,10 @@ public class MarketStatsManager implements AutoCloseable {
 
         log.info(
                 "[MARKET STATS] Dedicated collector is enabled. Observer is managed by the frontend. "
-                        + "First check in {}s, completed scans every {}h.",
+                        + "First check in {}s. After each completed full pass it waits at least {}m before starting another. "
+                        + "The collector is single-threaded, so long passes never overlap.",
                 INITIAL_DELAY_SECONDS,
-                config.intervalHours()
+                config.refreshCooldownMinutes()
         );
 
         executor.scheduleWithFixedDelay(
@@ -86,13 +87,13 @@ public class MarketStatsManager implements AutoCloseable {
                 }
 
                 log.info(
-                        "[MARKET STATS] A model is waiting for a fresh baseline. "
-                                + "Starting collection before the normal {}h interval.",
-                        config.intervalHours()
+                        "[MARKET STATS] A model is still waiting for a baseline. "
+                                + "Starting an early recovery pass instead of waiting for the normal {}m cooldown.",
+                        config.refreshCooldownMinutes()
                 );
             } catch (Exception exception) {
                 log.warn(
-                        "[MARKET STATS] Could not check whether an early baseline scan is needed. Keeping the normal schedule. reason={}",
+                        "[MARKET STATS] Could not check whether an early baseline pass is needed. Keeping the normal schedule. reason={}",
                         friendlyMessage(exception)
                 );
                 log.debug(
@@ -103,22 +104,34 @@ public class MarketStatsManager implements AutoCloseable {
             }
         }
 
+        long startedAtMillis = System.currentTimeMillis();
+
         try {
             new MarketStatsCollector(
                     config,
                     apiClient
             ).collectOnce();
 
+            long completedAtMillis = System.currentTimeMillis();
+            long durationSeconds = Math.max(
+                    0L,
+                    TimeUnit.MILLISECONDS.toSeconds(
+                            completedAtMillis - startedAtMillis
+                    )
+            );
+
             failureBackoffActive = false;
             nextAttemptAtMillis =
-                    System.currentTimeMillis()
-                            + TimeUnit.HOURS.toMillis(
-                            config.intervalHours()
+                    completedAtMillis
+                            + TimeUnit.MINUTES.toMillis(
+                            config.refreshCooldownMinutes()
                     );
 
             log.info(
-                    "[MARKET STATS] Collection completed. Next full scan in {}h.",
-                    config.intervalHours()
+                    "[MARKET STATS] Collection completed in {}s. Next full pass may start after {}m cooldown. "
+                            + "Effective start-to-start spacing automatically includes the duration of this pass.",
+                    durationSeconds,
+                    config.refreshCooldownMinutes()
             );
         } catch (Exception exception) {
             String message = exception.getMessage();

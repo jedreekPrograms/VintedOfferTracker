@@ -9,7 +9,7 @@ public record MarketStatsRuntimeConfig(
         boolean enabled,
         Long observerBotId,
         boolean headless,
-        long intervalHours,
+        long refreshCooldownMinutes,
         int maxListingsPerModel,
         int knownBoundarySize,
         long interModelDelayMillis
@@ -21,7 +21,9 @@ public record MarketStatsRuntimeConfig(
             "FLIPBOT_MARKET_STATS_HEADLESS";
     private static final String SCHEDULER_HEADLESS_ENV =
             "FLIPBOT_SCHEDULER_HEADLESS";
-    private static final String INTERVAL_HOURS_ENV =
+    private static final String REFRESH_MINUTES_ENV =
+            "FLIPBOT_MARKET_STATS_REFRESH_MINUTES";
+    private static final String LEGACY_INTERVAL_HOURS_ENV =
             "FLIPBOT_MARKET_STATS_INTERVAL_HOURS";
     private static final String MAX_LISTINGS_ENV =
             "FLIPBOT_MARKET_STATS_MAX_LISTINGS_PER_MODEL";
@@ -30,9 +32,15 @@ public record MarketStatsRuntimeConfig(
     private static final String INTER_MODEL_DELAY_ENV =
             "FLIPBOT_MARKET_STATS_INTER_MODEL_DELAY_MS";
 
+    private static final long DEFAULT_REFRESH_COOLDOWN_MINUTES = 15L;
+    private static final long MIN_REFRESH_COOLDOWN_MINUTES = 5L;
+    private static final long MAX_REFRESH_COOLDOWN_MINUTES = 1_440L;
+
     public static MarketStatsRuntimeConfig fromEnvironment() {
         String explicitObserverHeadless = System.getenv(HEADLESS_ENV);
         String schedulerHeadless = System.getenv(SCHEDULER_HEADLESS_ENV);
+        String explicitRefreshMinutes = System.getenv(REFRESH_MINUTES_ENV);
+        String legacyIntervalHours = System.getenv(LEGACY_INTERVAL_HOURS_ENV);
 
         MarketStatsRuntimeConfig config =
                 new MarketStatsRuntimeConfig(
@@ -42,7 +50,10 @@ public record MarketStatsRuntimeConfig(
                                 explicitObserverHeadless,
                                 schedulerHeadless
                         ),
-                        readLongInRange(INTERVAL_HOURS_ENV, 24L, 1L, 168L),
+                        resolveRefreshCooldownMinutes(
+                                explicitRefreshMinutes,
+                                legacyIntervalHours
+                        ),
                         readIntInRange(MAX_LISTINGS_ENV, 600, 50, 5_000),
                         readIntInRange(KNOWN_BOUNDARY_ENV, 20, 5, 100),
                         readLongInRange(INTER_MODEL_DELAY_ENV, 2_500L, 0L, 60_000L)
@@ -54,12 +65,20 @@ public record MarketStatsRuntimeConfig(
                 ? SCHEDULER_HEADLESS_ENV + " (inherited from normal workers)"
                 : "default=true";
 
+        String refreshSource = hasText(explicitRefreshMinutes)
+                ? REFRESH_MINUTES_ENV
+                : hasText(legacyIntervalHours)
+                ? LEGACY_INTERVAL_HOURS_ENV + " (legacy compatibility)"
+                : "default=" + DEFAULT_REFRESH_COOLDOWN_MINUTES + "m";
+
         log.info(
-                "[MARKET STATS CONFIG] enabled={}, observer=frontend-managed, headless={} [{}], interval={}h, maxListingsPerModel={}, knownBoundary={}, interModelDelay={}ms.",
+                "[MARKET STATS CONFIG] enabled={}, observer=frontend-managed, headless={} [{}], "
+                        + "refreshCooldown={}m [{}], maxListingsPerModel={}, knownBoundary={}, interModelDelay={}ms.",
                 config.enabled(),
                 config.headless(),
                 headlessSource,
-                config.intervalHours(),
+                config.refreshCooldownMinutes(),
+                refreshSource,
                 config.maxListingsPerModel(),
                 config.knownBoundarySize(),
                 config.interModelDelayMillis()
@@ -89,6 +108,35 @@ public record MarketStatsRuntimeConfig(
         }
 
         return true;
+    }
+
+    static long resolveRefreshCooldownMinutes(
+            String explicitMinutes,
+            String legacyHours
+    ) {
+        if (hasText(explicitMinutes)) {
+            return parseLongInRange(
+                    explicitMinutes,
+                    DEFAULT_REFRESH_COOLDOWN_MINUTES,
+                    MIN_REFRESH_COOLDOWN_MINUTES,
+                    MAX_REFRESH_COOLDOWN_MINUTES
+            );
+        }
+
+        if (hasText(legacyHours)) {
+            long hours = parseLongInRange(
+                    legacyHours,
+                    24L,
+                    1L,
+                    168L
+            );
+            return Math.min(
+                    hours * 60L,
+                    MAX_REFRESH_COOLDOWN_MINUTES
+            );
+        }
+
+        return DEFAULT_REFRESH_COOLDOWN_MINUTES;
     }
 
     private static boolean readBoolean(
@@ -156,9 +204,21 @@ public record MarketStatsRuntimeConfig(
             long minimum,
             long maximum
     ) {
-        String raw = System.getenv(name);
+        return parseLongInRange(
+                System.getenv(name),
+                fallback,
+                minimum,
+                maximum
+        );
+    }
 
-        if (raw == null || raw.isBlank()) {
+    private static long parseLongInRange(
+            String raw,
+            long fallback,
+            long minimum,
+            long maximum
+    ) {
+        if (!hasText(raw)) {
             return fallback;
         }
 
