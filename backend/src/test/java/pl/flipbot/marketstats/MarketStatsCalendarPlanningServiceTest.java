@@ -30,7 +30,7 @@ class MarketStatsCalendarPlanningServiceTest {
     private static final ZoneId WARSAW = ZoneId.of("Europe/Warsaw");
 
     @Test
-    void previousWeekCoverageCountsOnlyUniqueObservedListingsWithConfirmedFirstOffers() {
+    void calendarOfferCountsUseTheSameObservedWindowPopulationAsPreviousWeekCoverage() {
         DictionaryModelRepository modelRepository = mock(DictionaryModelRepository.class);
         BotConfigurationRepository configurationRepository = mock(BotConfigurationRepository.class);
         MarketModelScanStateRepository scanStateRepository = mock(MarketModelScanStateRepository.class);
@@ -142,6 +142,8 @@ class MarketStatsCalendarPlanningServiceTest {
 
         CalendarModelPlanningResponse result = service.getPlanning().getFirst();
 
+        assertEquals(3, result.offersToday());
+        assertEquals(3, result.offersCurrentWeek());
         assertEquals(3, result.offersPreviousFullWeek());
         assertEquals(1, result.negotiationsStartedPreviousFullWeek());
         assertEquals(2, result.existingBots());
