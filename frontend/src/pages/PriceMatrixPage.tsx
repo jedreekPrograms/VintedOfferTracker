@@ -20,6 +20,22 @@ import type { ModelPlanning } from "../types/marketStats";
 import "../styles/price-matrix.css";
 
 const PLANNING_REFRESH_INTERVAL_MS = 15_000;
+const PRICE_SHEET_GRID_STYLE = {
+    gridTemplateColumns: [
+        "minmax(168px, 1.35fr)",
+        "minmax(96px, 0.82fr)",
+        "minmax(84px, 0.70fr)",
+        "minmax(88px, 0.70fr)",
+        "minmax(88px, 0.70fr)",
+        "minmax(96px, 0.76fr)",
+        "minmax(104px, 0.80fr)",
+        "minmax(102px, 0.82fr)",
+        "minmax(108px, 0.84fr)",
+        "minmax(90px, 0.72fr)",
+        "minmax(90px, 0.72fr)",
+    ].join(" "),
+    minWidth: "1200px",
+};
 
 interface PriceDraft {
     proposedOfferPrice: string;
@@ -282,11 +298,14 @@ function PriceMatrixPage() {
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
                         Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
-                        najnowsze oferty. „Dzisiaj” liczy od 00:00, „Ten tydzień” od
-                        poniedziałku 00:00, a „Ostatni pełny tydzień” obejmuje poprzedni
-                        poniedziałek–niedzielę. „Potrzebne boty” bazuje na pełnym poprzednim
-                        tygodniu; dopóki go nie ma, używana jest estymacja ze średniej dziennej
-                        z całego dostępnego okresu po baseline.
+                        najnowsze oferty. „Odkryte dziś” liczy nowe oferty od 00:00,
+                        „Odkryte ten tydzień” od poniedziałku 00:00, a „Ostatni pełny
+                        tydzień” obejmuje poprzedni poniedziałek–niedzielę. „Rozpoczęte
+                        rozmowy” pokazują potwierdzone pierwsze oferty faktycznie wysłane
+                        przez boty: główna liczba jest z dzisiaj, a pod spodem z bieżącego
+                        tygodnia. „Potrzebne boty” bazuje na pełnym poprzednim tygodniu;
+                        dopóki go nie ma, używana jest estymacja ze średniej dziennej z
+                        całego dostępnego okresu po baseline.
                     </p>
                 </div>
 
@@ -392,15 +411,19 @@ function BrandPriceSheet({
 
             {expanded && (
                 <div className="price-brand-content">
-                    <div className="price-sheet-row price-sheet-header">
+                    <div
+                        className="price-sheet-row price-sheet-header"
+                        style={PRICE_SHEET_GRID_STYLE}
+                    >
                         <div>Model</div>
                         <div>Proponowana cena</div>
                         <div>Sprzedaż</div>
                         <div>Min obserwacji</div>
                         <div>Max obserwacji</div>
-                        <div>Dzisiaj</div>
-                        <div>Ten tydzień</div>
+                        <div>Odkryte dziś</div>
+                        <div>Odkryte ten tydzień</div>
                         <div>Ostatni pełny tydzień</div>
+                        <div>Rozpoczęte rozmowy</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
                     </div>
@@ -412,7 +435,11 @@ function BrandPriceSheet({
                         const planning = planningByModel[model.id];
 
                         return (
-                            <div className="price-sheet-row" key={model.id}>
+                            <div
+                                className="price-sheet-row"
+                                key={model.id}
+                                style={PRICE_SHEET_GRID_STYLE}
+                            >
                                 <div className="price-model-cell">
                                     <strong>{model.name}</strong>
                                     <span>
@@ -474,6 +501,7 @@ function BrandPriceSheet({
                                 <TodayMetricCell planning={planning} />
                                 <CurrentWeekMetricCell planning={planning} />
                                 <PreviousFullWeekMetricCell planning={planning} />
+                                <StartedConversationsMetricCell planning={planning} />
                                 <RecommendedBotsMetricCell planning={planning} />
 
                                 <div
@@ -499,7 +527,7 @@ function TodayMetricCell({
 }) {
     return (
         <CalendarMetricCell
-            label="Dzisiaj"
+            label="Odkryte dziś"
             planning={planning}
             value={planning?.offersToday ?? null}
             complete={planning?.todayWindowComplete ?? false}
@@ -517,7 +545,7 @@ function CurrentWeekMetricCell({
 }) {
     return (
         <CalendarMetricCell
-            label="Ten tydzień"
+            label="Odkryte ten tydzień"
             planning={planning}
             value={planning?.offersCurrentWeek ?? null}
             complete={planning?.currentWeekWindowComplete ?? false}
@@ -617,6 +645,31 @@ function PreviousFullWeekMetricCell({
             {!planning.lastScanComplete && (
                 <span className="price-metric-warning">Ostatni skan niepełny</span>
             )}
+        </div>
+    );
+}
+
+function StartedConversationsMetricCell({
+    planning,
+}: {
+    planning: ModelPlanning | undefined;
+}) {
+    if (planning === undefined) {
+        return (
+            <div className="price-metric-cell" data-label="Rozpoczęte rozmowy">
+                <strong>—</strong>
+                <span>Brak danych</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="price-metric-cell" data-label="Rozpoczęte rozmowy">
+            <strong>{planning.negotiationsStartedToday}</strong>
+            <span>dzisiaj</span>
+            <span className="price-metric-note">
+                ten tydzień: {planning.negotiationsStartedCurrentWeek}
+            </span>
         </div>
     );
 }
