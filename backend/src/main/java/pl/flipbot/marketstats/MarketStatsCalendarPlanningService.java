@@ -127,16 +127,24 @@ public class MarketStatsCalendarPlanningService {
 
         LocalDateTime baselineCompleteAt = state.getBaselineCompleteAt();
 
-        int offersToday = countNewListings(
+        /*
+         * Calendar columns must use the same population as the completed-week
+         * column: unique listings that the observer actually saw at any point
+         * in the requested window. Counting only baseline=false/firstSeenAt
+         * made long-lived baseline listings disappear from "today" and
+         * "current week", which could produce misleading 0 values while the
+         * observer was actively seeing a large catalog.
+         */
+        int offersToday = findObservedListingIds(
                 model.getId(),
                 windows.todayStart(),
                 windows.now()
-        );
-        int offersCurrentWeek = countNewListings(
+        ).size();
+        int offersCurrentWeek = findObservedListingIds(
                 model.getId(),
                 windows.currentWeekStart(),
                 windows.now()
-        );
+        ).size();
 
         boolean todayWindowComplete =
                 MarketStatsPlanningCalculator.coversWindowFrom(
@@ -167,13 +175,6 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            /*
-             * The denominator is the exact set of unique listings that existed
-             * at any point during the completed Monday-Sunday window. The
-             * numerator below is restricted to that same set of marketplace ids,
-             * so "started / opportunities" really describes coverage of those
-             * market opportunities rather than two unrelated counters.
-             */
             Set<String> previousWeekOpportunityIds =
                     findObservedListingIds(
                             model.getId(),

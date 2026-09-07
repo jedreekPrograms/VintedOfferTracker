@@ -297,16 +297,17 @@ function PriceMatrixPage() {
                     <p className="page-eyebrow">Planowanie zakupów</p>
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
-                        Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
-                        najnowsze oferty. „Odkryte dziś” liczy nowe oferty od 00:00,
-                        „Odkryte ten tydzień” od poniedziałku 00:00, a „Ostatni pełny
-                        tydzień” obejmuje poprzedni poniedziałek–niedzielę. „Rozpoczęte
-                        rozmowy” pokazują ile unikalnych ofert z dokładnie tego pełnego
-                        tygodnia dostało potwierdzony FIRST_OFFER oraz pokazują bieżący
-                        tydzień i dzisiejszy wynik. „Potrzebne boty” nie zakłada już 35
-                        rozmów tygodniowo na bota: skaluje rzeczywistą wydajność obecnej
-                        puli botów z ostatniego kompletnego tygodnia. Jeśli nie ma pełnego
-                        tygodnia albo żadnej rozpoczętej rozmowy, nie wymyślamy pojemności.
+                        Observer tworzy punkt startowy i regularnie odświeża rynek. „Oferty
+                        dziś” pokazują wszystkie unikalne oferty, które observer faktycznie
+                        widział od 00:00 — także znane wcześniej, jeśli nadal były widoczne.
+                        „Oferty ten tydzień” liczą tak samo od poniedziałku 00:00, a „Ostatni
+                        pełny tydzień” obejmuje poprzedni poniedziałek–niedzielę. Dzięki temu
+                        wszystkie trzy okresy używają tej samej definicji. „Rozpoczęte rozmowy”
+                        pokazują ile unikalnych ofert z dokładnie tego pełnego tygodnia dostało
+                        potwierdzony FIRST_OFFER oraz pokazują bieżący tydzień i dzisiejszy
+                        wynik. „Potrzebne boty” skaluje rzeczywistą wydajność obecnej puli botów
+                        z ostatniego kompletnego tygodnia. Jeśli nie ma pełnego tygodnia albo
+                        żadnej rozpoczętej rozmowy, nie wymyślamy pojemności.
                     </p>
                 </div>
 
@@ -421,8 +422,8 @@ function BrandPriceSheet({
                         <div>Sprzedaż</div>
                         <div>Min obserwacji</div>
                         <div>Max obserwacji</div>
-                        <div>Odkryte dziś</div>
-                        <div>Odkryte ten tydzień</div>
+                        <div>Oferty dziś</div>
+                        <div>Oferty ten tydzień</div>
                         <div>Ostatni pełny tydzień</div>
                         <div>Rozpoczęte rozmowy</div>
                         <div>Potrzebne boty</div>
@@ -528,12 +529,12 @@ function TodayMetricCell({
 }) {
     return (
         <CalendarMetricCell
-            label="Odkryte dziś"
+            label="Oferty dziś"
             planning={planning}
             value={planning?.offersToday ?? null}
             complete={planning?.todayWindowComplete ?? false}
-            completeText="od 00:00"
-            partialText="częściowy dzień od baseline"
+            completeText="widziane od 00:00"
+            partialText="widziane od uruchomienia obserwacji"
             showBaseline
         />
     );
@@ -546,12 +547,12 @@ function CurrentWeekMetricCell({
 }) {
     return (
         <CalendarMetricCell
-            label="Odkryte ten tydzień"
+            label="Oferty ten tydzień"
             planning={planning}
             value={planning?.offersCurrentWeek ?? null}
             complete={planning?.currentWeekWindowComplete ?? false}
-            completeText="od pon. 00:00"
-            partialText="częściowy tydzień od baseline"
+            completeText="widziane od pon. 00:00"
+            partialText="widziane od uruchomienia obserwacji"
         />
     );
 }
