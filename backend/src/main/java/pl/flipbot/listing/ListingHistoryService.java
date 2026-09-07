@@ -48,9 +48,12 @@ public class ListingHistoryService {
 
         Listing listing = getVisibleHistoryListing(listingId);
 
-        if (listing.getStatus() != ListingStatus.PURCHASED) {
+        boolean purchasedForHistory = listing.getStatus() == ListingStatus.PURCHASED
+                || listing.getHistoryOutcome() == ListingHistoryOutcome.PURCHASED_BY_ME;
+
+        if (!purchasedForHistory) {
             throw new IllegalStateException(
-                    "Purchase price can only be edited for PURCHASED history entries."
+                    "Purchase price can only be edited for history entries marked as purchased."
             );
         }
 
@@ -66,6 +69,19 @@ public class ListingHistoryService {
         );
 
         listing.setCurrentPrice(normalizedPrice);
+        listingRepository.save(listing);
+
+        return map(listing);
+    }
+
+    @Transactional
+    public ListingHistoryResponse updateOutcome(
+            Long listingId,
+            ListingHistoryOutcome outcome
+    ) {
+
+        Listing listing = getVisibleHistoryListing(listingId);
+        listing.setHistoryOutcome(outcome);
         listingRepository.save(listing);
 
         return map(listing);
@@ -113,6 +129,11 @@ public class ListingHistoryService {
             Listing listing
     ) {
 
+        ListingHistoryOutcome effectiveOutcome = listing.getHistoryOutcome();
+        if (effectiveOutcome == null && listing.getStatus() == ListingStatus.PURCHASED) {
+            effectiveOutcome = ListingHistoryOutcome.PURCHASED_BY_ME;
+        }
+
         return ListingHistoryResponse
                 .builder()
                 .id(
@@ -139,6 +160,11 @@ public class ListingHistoryService {
                 .status(
                         listing.getStatus()
                                 .name()
+                )
+                .outcome(
+                        effectiveOutcome == null
+                                ? null
+                                : effectiveOutcome.name()
                 )
                 .decisionAt(
                         listing.getDecisionAt()

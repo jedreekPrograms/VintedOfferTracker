@@ -41,6 +41,7 @@ class ListingHistoryServiceTest {
 
         assertEquals(1, history.size());
         assertEquals(1L, history.getFirst().getId());
+        assertEquals("PURCHASED_BY_ME", history.getFirst().getOutcome());
     }
 
     @Test
@@ -67,6 +68,36 @@ class ListingHistoryServiceTest {
                 IllegalStateException.class,
                 () -> service.updatePurchasePrice(11L, new BigDecimal("750"))
         );
+    }
+
+    @Test
+    void historyOutcomeCanBeChangedRetrospectively() {
+        Listing skipped = listing(13L, ListingStatus.SKIPPED_BY_USER, "1100.00");
+        when(listingRepository.findById(13L)).thenReturn(Optional.of(skipped));
+
+        ListingHistoryResponse response = service.updateOutcome(
+                13L,
+                ListingHistoryOutcome.SCAM
+        );
+
+        assertEquals(ListingHistoryOutcome.SCAM, skipped.getHistoryOutcome());
+        assertEquals("SCAM", response.getOutcome());
+        verify(listingRepository).save(skipped);
+    }
+
+    @Test
+    void retroactivelyPurchasedEntryCanHavePurchasePriceCorrected() {
+        Listing skipped = listing(14L, ListingStatus.SKIPPED_BY_USER, "1100.00");
+        skipped.setHistoryOutcome(ListingHistoryOutcome.PURCHASED_BY_ME);
+        when(listingRepository.findById(14L)).thenReturn(Optional.of(skipped));
+
+        ListingHistoryResponse response = service.updatePurchasePrice(
+                14L,
+                new BigDecimal("825")
+        );
+
+        assertEquals(new BigDecimal("825.00"), response.getCurrentPrice());
+        verify(listingRepository).save(skipped);
     }
 
     @Test

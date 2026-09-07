@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import pl.flipbot.listing.dto.ListingHistoryResponse;
+import pl.flipbot.listing.dto.UpdateHistoryOutcomeRequest;
 import pl.flipbot.listing.dto.UpdateHistoryPurchasePriceRequest;
 
 import java.util.List;
@@ -40,6 +41,20 @@ public class ListingHistoryController {
                 listingHistoryService.updatePurchasePrice(
                         listingId,
                         request.purchasePrice()
+                )
+        );
+    }
+
+    @PatchMapping("/{listingId}/outcome")
+    public ResponseEntity<ListingHistoryResponse> updateOutcome(
+            @PathVariable Long listingId,
+            @RequestBody UpdateHistoryOutcomeRequest request
+    ) {
+
+        return ResponseEntity.ok(
+                listingHistoryService.updateOutcome(
+                        listingId,
+                        request.outcome()
                 )
         );
     }

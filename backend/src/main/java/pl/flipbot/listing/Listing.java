@@ -80,6 +80,10 @@ public class Listing {
     @Column(name = "history_hidden", nullable = false)
     private boolean historyHidden;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "history_outcome", length = 40)
+    private ListingHistoryOutcome historyOutcome;
+
     @Column(name = "current_step_started_at")
     private LocalDateTime currentStepStartedAt;
 
