@@ -39,13 +39,11 @@ public class BotWorkerSlot implements Runnable {
     @Override
     public void run() {
         log.info(
-                "[SLOT {}] Starting reusable worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}.",
+                "[SLOT {}] Starting worker slot on thread {}. Each claimed job gets a fresh Playwright browser runtime which is closed before the slot waits again; headless={}.",
                 slotNumber,
                 Thread.currentThread().getName(),
                 config.schedulerHeadless()
         );
-
-        BrowserManager browserManager = null;
 
         try {
             while (!Thread.currentThread().isInterrupted()) {
@@ -90,26 +88,27 @@ public class BotWorkerSlot implements Runnable {
                             scheduler.workingCount()
                     );
 
-                    if (browserManager == null) {
-                        log.info(
-                                "[SLOT {}] Launching reusable Playwright browser runtime for the first claimed job. headless={}",
-                                slotNumber,
-                                config.schedulerHeadless()
-                        );
-                        browserManager = new BrowserManager(config.schedulerHeadless());
+                    log.info(
+                            "[BROWSER LIFECYCLE] Slot {} launching a fresh Playwright browser for bot {} / {}. The bot-specific stored session will be restored by BotContext and the browser will be closed when this job finishes.",
+                            slotNumber,
+                            botId,
+                            jobType
+                    );
+
+                    try (BrowserManager browserManager =
+                                 new BrowserManager(config.schedulerHeadless())) {
+                        BotDetailsDto bot = botApiClient.getBot(botId);
+                        ScheduledBotRunExecutor runExecutor =
+                                new ScheduledBotRunExecutor(bot, browserManager);
+
+                        runExecutor.executeJob(jobType);
                     }
-
-                    BotDetailsDto bot = botApiClient.getBot(botId);
-                    ScheduledBotRunExecutor runExecutor =
-                            new ScheduledBotRunExecutor(bot, browserManager);
-
-                    runExecutor.executeJob(jobType);
 
                     long durationMs = elapsedMillis(startedAtNanos);
                     telemetryReporter.runSucceeded(botId, durationMs);
 
                     log.info(
-                            "[SLOT {}] Bot {} completed {} in {} ms. Next normal {} interval={} seconds.",
+                            "[SLOT {}] Bot {} completed {} in {} ms. Browser runtime is closed; next normal {} interval={} seconds.",
                             slotNumber,
                             botId,
                             jobType,
@@ -258,23 +257,6 @@ public class BotWorkerSlot implements Runnable {
             );
 
         } finally {
-            if (browserManager != null) {
-                try {
-                    browserManager.close();
-                } catch (Exception exception) {
-                    log.warn(
-                            "[SLOT {}] Could not close Playwright browser runtime cleanly. reason={}",
-                            slotNumber,
-                            errorMessage(exception)
-                    );
-                    log.debug(
-                            "[SLOT {}] Full browser-runtime close error.",
-                            slotNumber,
-                            exception
-                    );
-                }
-            }
-
             log.info("[SLOT {}] Worker slot stopped.", slotNumber);
         }
     }
