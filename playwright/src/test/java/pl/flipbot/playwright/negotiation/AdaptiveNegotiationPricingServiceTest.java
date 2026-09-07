@@ -41,6 +41,25 @@ public class AdaptiveNegotiationPricingServiceTest {
     }
 
     @Test
+    public void firstAdaptiveRetryStillRefusesToCrossHardCap() {
+        BotConfigurationDto configuration = adaptiveConfiguration();
+        configuration.setMaxAutomaticOffer(new BigDecimal("1350.00"));
+
+        Optional<BigDecimal> effective = service.firstAdaptiveRetryPrice(
+                listing(
+                        "DISCOVERED",
+                        new BigDecimal("2250.00"),
+                        new BigDecimal("2250.00"),
+                        0
+                ),
+                configuration,
+                new BigDecimal("900.00")
+        );
+
+        assertFalse(effective.isPresent());
+    }
+
+    @Test
     public void exactVintedMinimumStillRoundsStrictlyIntoNextFiftyBucket() {
         assertEquals(
                 0,
@@ -142,7 +161,7 @@ public class AdaptiveNegotiationPricingServiceTest {
     }
 
     @Test
-    public void nextStepAboveGlobalCapIsNotGenerated() {
+    public void nextStepAboveGlobalCapIsClampedInsteadOfRemoved() {
         BotConfigurationDto configuration = adaptiveConfiguration();
         NegotiationStepDto stepFour = step(
                 4,
@@ -151,6 +170,88 @@ public class AdaptiveNegotiationPricingServiceTest {
                 "step 4"
         );
 
+        configuration.setNegotiationSteps(
+                List.of(
+                        configuration.getNegotiationSteps().get(0),
+                        configuration.getNegotiationSteps().get(1),
+                        configuration.getNegotiationSteps().get(2),
+                        stepFour
+                )
+        );
+
+        Optional<NegotiationStepDto> effective = service.adaptNextStep(
+                listing(
+                        "NEGOTIATING",
+                        new BigDecimal("2000.00"),
+                        new BigDecimal("1460.00"),
+                        3
+                ),
+                stepFour,
+                configuration
+        );
+
+        assertTrue(effective.isPresent());
+        assertEquals(
+                0,
+                new BigDecimal("1500.00").compareTo(
+                        effective.get().getOfferPrice()
+                )
+        );
+        assertEquals(
+                0,
+                new BigDecimal("1500.00").compareTo(
+                        effective.get().getMaxAcceptedCounterOffer()
+                )
+        );
+        assertEquals(4, effective.get().getStepNumber().intValue());
+        assertEquals("step 4", effective.get().getMessage());
+    }
+
+    @Test
+    public void laterConfiguredStepCanStayAtSamePriceOnceCapWasReached() {
+        BotConfigurationDto configuration = adaptiveConfiguration();
+        NegotiationStepDto configuredThird = configuration
+                .getNegotiationSteps()
+                .get(2);
+
+        Optional<NegotiationStepDto> effective = service.adaptNextStep(
+                listing(
+                        "NEGOTIATING",
+                        new BigDecimal("2000.00"),
+                        new BigDecimal("1500.00"),
+                        2
+                ),
+                configuredThird,
+                configuration
+        );
+
+        assertTrue(effective.isPresent());
+        assertEquals(
+                0,
+                new BigDecimal("1500.00").compareTo(
+                        effective.get().getOfferPrice()
+                )
+        );
+        assertEquals(
+                0,
+                new BigDecimal("1500.00").compareTo(
+                        effective.get().getMaxAcceptedCounterOffer()
+                )
+        );
+        assertEquals(3, effective.get().getStepNumber().intValue());
+        assertEquals("step 3", effective.get().getMessage());
+    }
+
+    @Test
+    public void loweredCapBelowAlreadySentOfferDoesNotGenerateLowerFollowUp() {
+        BotConfigurationDto configuration = adaptiveConfiguration();
+        configuration.setMaxAutomaticOffer(new BigDecimal("1400.00"));
+        NegotiationStepDto stepFour = step(
+                4,
+                "1200.00",
+                "1250.00",
+                "step 4"
+        );
         configuration.setNegotiationSteps(
                 List.of(
                         configuration.getNegotiationSteps().get(0),
