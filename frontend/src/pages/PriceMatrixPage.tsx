@@ -301,11 +301,12 @@ function PriceMatrixPage() {
                         najnowsze oferty. „Odkryte dziś” liczy nowe oferty od 00:00,
                         „Odkryte ten tydzień” od poniedziałku 00:00, a „Ostatni pełny
                         tydzień” obejmuje poprzedni poniedziałek–niedzielę. „Rozpoczęte
-                        rozmowy” pokazują potwierdzone pierwsze oferty faktycznie wysłane
-                        przez boty: główna liczba jest z dzisiaj, a pod spodem z bieżącego
-                        tygodnia. „Potrzebne boty” bazuje na pełnym poprzednim tygodniu;
-                        dopóki go nie ma, używana jest estymacja ze średniej dziennej z
-                        całego dostępnego okresu po baseline.
+                        rozmowy” pokazują ile unikalnych ofert z dokładnie tego pełnego
+                        tygodnia dostało potwierdzony FIRST_OFFER oraz pokazują bieżący
+                        tydzień i dzisiejszy wynik. „Potrzebne boty” nie zakłada już 35
+                        rozmów tygodniowo na bota: skaluje rzeczywistą wydajność obecnej
+                        puli botów z ostatniego kompletnego tygodnia. Jeśli nie ma pełnego
+                        tygodnia albo żadnej rozpoczętej rozmowy, nie wymyślamy pojemności.
                     </p>
                 </div>
 
@@ -663,12 +664,35 @@ function StartedConversationsMetricCell({
         );
     }
 
+    if (!planning.previousFullWeekAvailable) {
+        return (
+            <div className="price-metric-cell" data-label="Rozpoczęte rozmowy">
+                <strong>{planning.negotiationsStartedCurrentWeek}</strong>
+                <span>ten tydzień</span>
+                <span className="price-metric-note">
+                    dzisiaj: {planning.negotiationsStartedToday}
+                </span>
+                <span className="price-metric-note">
+                    pełny poprzedni tydzień: jeszcze brak danych
+                </span>
+            </div>
+        );
+    }
+
+    const opportunities = planning.offersPreviousFullWeek ?? 0;
+    const started = planning.negotiationsStartedPreviousFullWeek ?? 0;
+
     return (
         <div className="price-metric-cell" data-label="Rozpoczęte rozmowy">
-            <strong>{planning.negotiationsStartedToday}</strong>
-            <span>dzisiaj</span>
+            <strong>{started} / {opportunities}</strong>
+            <span>poprzedni pełny tydzień</span>
+            <span className="price-metric-note">
+                pokrycie: {formatCoverage(started, opportunities)}
+            </span>
             <span className="price-metric-note">
                 ten tydzień: {planning.negotiationsStartedCurrentWeek}
+                {" • "}
+                dzisiaj: {planning.negotiationsStartedToday}
             </span>
         </div>
     );
@@ -679,29 +703,83 @@ function RecommendedBotsMetricCell({
 }: {
     planning: ModelPlanning | undefined;
 }) {
-    if (planning === undefined || planning.recommendedBots === null) {
+    if (planning === undefined) {
         return (
             <div className="price-metric-cell" data-label="Potrzebne boty">
                 <strong>—</strong>
-                <span>Czeka na baseline</span>
+                <span>Brak danych</span>
             </div>
         );
     }
 
+    if (!planning.previousFullWeekAvailable) {
+        return (
+            <div className="price-metric-cell" data-label="Potrzebne boty">
+                <strong>—</strong>
+                <span>czeka na pełny tydzień</span>
+                {planning.recommendationEstimated
+                    && planning.recommendationWeeklyOffers !== null && (
+                    <span className="price-metric-note">
+                        popyt orientacyjny: {planning.recommendationWeeklyOffers} ofert/tydz.
+                    </span>
+                )}
+                <span className="price-metric-note">
+                    brak stałej „35 rozmów/bot”
+                </span>
+            </div>
+        );
+    }
+
+    const opportunities = planning.offersPreviousFullWeek ?? 0;
+    const started = planning.negotiationsStartedPreviousFullWeek ?? 0;
+
+    if (opportunities === 0) {
+        return (
+            <div className="price-metric-cell" data-label="Potrzebne boty">
+                <strong>0</strong>
+                <span>brak ofert w pełnym tygodniu</span>
+                <span className="price-metric-note">
+                    nie ma popytu do pokrycia
+                </span>
+            </div>
+        );
+    }
+
+    if (planning.recommendedBots === null) {
+        return (
+            <div className="price-metric-cell" data-label="Potrzebne boty">
+                <strong>—</strong>
+                <span>brak realnej wydajności</span>
+                <span className="price-metric-note">
+                    {started} rozmów / {planning.existingBots} obecnych botów
+                </span>
+                <span className="price-metric-note">
+                    bez udanego pełnego tygodnia nie zgadujemy pojemności
+                </span>
+            </div>
+        );
+    }
+
+    const empirical = planning.empiricalConversationsPerBotPreviousFullWeek;
+    const difference = planning.recommendedBots - planning.existingBots;
+
     return (
         <div className="price-metric-cell" data-label="Potrzebne boty">
             <strong>{planning.recommendedBots}</strong>
-            <span>
-                {planning.recommendationEstimated
-                    ? `estymacja: ${planning.recommendationWeeklyOffers ?? 0} ofert/tydz.`
-                    : `pełny tydzień: ${planning.recommendationWeeklyOffers ?? 0} ofert`}
-            </span>
-            {planning.recommendationEstimated && (
+            <span>z realnej wydajności</span>
+            {empirical !== null && (
                 <span className="price-metric-note">
-                    średnia z {Math.max(planning.trackedDays, 1)} dni × 7
+                    {empirical.toFixed(1)} rozm./bot/tydz.
                 </span>
             )}
-            <span className="price-metric-note">1 bot = 35 nowych rozmów/tydz.</span>
+            <span className="price-metric-note">
+                {started} z {opportunities} możliwości przy {planning.existingBots} botach
+            </span>
+            <span className="price-metric-note">
+                {difference > 0
+                    ? `wg danych brakuje ${difference}`
+                    : "obecna liczba pokryła wymagany poziom"}
+            </span>
         </div>
     );
 }
@@ -809,6 +887,14 @@ function samePrice(left: number | null, right: number | null): boolean {
     }
 
     return Math.abs(left - right) < 0.0001;
+}
+
+function formatCoverage(started: number, opportunities: number): string {
+    if (opportunities <= 0) {
+        return "—";
+    }
+
+    return `${((Math.max(started, 0) / opportunities) * 100).toFixed(1)}%`;
 }
 
 function formatModelCount(count: number): string {
