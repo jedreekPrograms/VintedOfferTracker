@@ -31,10 +31,11 @@ const PRICE_SHEET_GRID_STYLE = {
         "minmax(104px, 0.80fr)",
         "minmax(102px, 0.82fr)",
         "minmax(108px, 0.84fr)",
-        "minmax(90px, 0.72fr)",
+        "minmax(118px, 0.94fr)",
+        "minmax(104px, 0.84fr)",
         "minmax(90px, 0.72fr)",
     ].join(" "),
-    minWidth: "1200px",
+    minWidth: "1340px",
 };
 
 interface PriceDraft {
@@ -297,16 +298,14 @@ function PriceMatrixPage() {
                     <p className="page-eyebrow">Planowanie zakupów</p>
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
-                        Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
-                        najnowsze oferty. „Odkryte dziś” liczy nowe oferty od 00:00,
-                        „Odkryte ten tydzień” od poniedziałku 00:00, a „Ostatni pełny
-                        tydzień” obejmuje poprzedni poniedziałek–niedzielę. „Rozpoczęte
-                        rozmowy” pokazują ile unikalnych ofert z dokładnie tego pełnego
-                        tygodnia dostało potwierdzony FIRST_OFFER oraz pokazują bieżący
-                        tydzień i dzisiejszy wynik. „Potrzebne boty” nie zakłada już 35
-                        rozmów tygodniowo na bota: skaluje rzeczywistą wydajność obecnej
-                        puli botów z ostatniego kompletnego tygodnia. Jeśli nie ma pełnego
-                        tygodnia albo żadnej rozpoczętej rozmowy, nie wymyślamy pojemności.
+                        Observer śledzi oferty w ustawionym zakresie obserwacji. „Kolejka”
+                        pokazuje oferty nadal obecne na rynku, dla których żaden bot tego
+                        modelu nie ma jeszcze potwierdzonego FIRST_OFFER: teraz, na koniec
+                        wczoraj oraz na początku i końcu poprzedniego pełnego tygodnia.
+                        Dzięki temu widać, czy zaległość realnie rośnie czy maleje.
+                        „Potrzebne boty” bierze rzeczywistą liczbę rozpoczętych rozmów i
+                        zmianę kolejki z poprzedniego pełnego tygodnia; bilans dodatni
+                        oznacza brakujące boty, a ujemny liczbę botów nadmiarowych.
                     </p>
                 </div>
 
@@ -425,6 +424,7 @@ function BrandPriceSheet({
                         <div>Odkryte ten tydzień</div>
                         <div>Ostatni pełny tydzień</div>
                         <div>Rozpoczęte rozmowy</div>
+                        <div>Kolejka</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
                     </div>
@@ -503,6 +503,7 @@ function BrandPriceSheet({
                                 <CurrentWeekMetricCell planning={planning} />
                                 <PreviousFullWeekMetricCell planning={planning} />
                                 <StartedConversationsMetricCell planning={planning} />
+                                <QueueMetricCell planning={planning} />
                                 <RecommendedBotsMetricCell planning={planning} />
 
                                 <div
@@ -698,6 +699,48 @@ function StartedConversationsMetricCell({
     );
 }
 
+function QueueMetricCell({
+    planning,
+}: {
+    planning: ModelPlanning | undefined;
+}) {
+    if (planning === undefined || planning.unstartedQueueNow === null) {
+        return (
+            <div className="price-metric-cell" data-label="Kolejka">
+                <strong>—</strong>
+                <span>Brak pełnego skanu</span>
+            </div>
+        );
+    }
+
+    const sinceYesterday = differenceOrNull(
+        planning.unstartedQueueNow,
+        planning.unstartedQueueYesterdayEnd,
+    );
+    const previousWeekChange = differenceOrNull(
+        planning.unstartedQueuePreviousWeekEnd,
+        planning.unstartedQueuePreviousWeekStart,
+    );
+
+    return (
+        <div className="price-metric-cell" data-label="Kolejka">
+            <strong>{planning.unstartedQueueNow}</strong>
+            <span>teraz do rozpoczęcia</span>
+            <span className="price-metric-note">
+                wczoraj 24:00: {formatNullableMetric(planning.unstartedQueueYesterdayEnd)}
+                {sinceYesterday !== null && ` (${formatSigned(sinceYesterday)})`}
+            </span>
+            <span className="price-metric-note">
+                poprz. niedz. 24:00: {formatNullableMetric(planning.unstartedQueuePreviousWeekEnd)}
+            </span>
+            <span className="price-metric-note">
+                poprz. pon. 00:00: {formatNullableMetric(planning.unstartedQueuePreviousWeekStart)}
+                {previousWeekChange !== null && ` (${formatSigned(previousWeekChange)} przez tydz.)`}
+            </span>
+        </div>
+    );
+}
+
 function RecommendedBotsMetricCell({
     planning,
 }: {
@@ -724,26 +767,13 @@ function RecommendedBotsMetricCell({
                     </span>
                 )}
                 <span className="price-metric-note">
-                    brak stałej „35 rozmów/bot”
+                    bez pełnego trendu kolejki nie zgadujemy pojemności
                 </span>
             </div>
         );
     }
 
-    const opportunities = planning.offersPreviousFullWeek ?? 0;
     const started = planning.negotiationsStartedPreviousFullWeek ?? 0;
-
-    if (opportunities === 0) {
-        return (
-            <div className="price-metric-cell" data-label="Potrzebne boty">
-                <strong>0</strong>
-                <span>brak ofert w pełnym tygodniu</span>
-                <span className="price-metric-note">
-                    nie ma popytu do pokrycia
-                </span>
-            </div>
-        );
-    }
 
     if (planning.recommendedBots === null) {
         return (
@@ -754,31 +784,32 @@ function RecommendedBotsMetricCell({
                     {started} rozmów / {planning.existingBots} obecnych botów
                 </span>
                 <span className="price-metric-note">
-                    bez udanego pełnego tygodnia nie zgadujemy pojemności
+                    trend kolejki bez udanych startów nie daje wiarygodnej pojemności
                 </span>
             </div>
         );
     }
 
     const empirical = planning.empiricalConversationsPerBotPreviousFullWeek;
-    const difference = planning.recommendedBots - planning.existingBots;
+    const balance = planning.botBalance
+        ?? planning.recommendedBots - planning.existingBots;
 
     return (
         <div className="price-metric-cell" data-label="Potrzebne boty">
             <strong>{planning.recommendedBots}</strong>
-            <span>z realnej wydajności</span>
+            <span>z trendu kolejki</span>
             {empirical !== null && (
                 <span className="price-metric-note">
                     {empirical.toFixed(1)} rozm./bot/tydz.
                 </span>
             )}
+            {planning.recommendationWeeklyOffers !== null && (
+                <span className="price-metric-note">
+                    efektywny popyt: {planning.recommendationWeeklyOffers}/tydz.
+                </span>
+            )}
             <span className="price-metric-note">
-                {started} z {opportunities} możliwości przy {planning.existingBots} botach
-            </span>
-            <span className="price-metric-note">
-                {difference > 0
-                    ? `wg danych brakuje ${difference}`
-                    : "obecna liczba pokryła wymagany poziom"}
+                bilans: {formatSigned(balance)} {formatBotBalanceLabel(balance)}
             </span>
         </div>
     );
@@ -895,6 +926,35 @@ function formatCoverage(started: number, opportunities: number): string {
     }
 
     return `${((Math.max(started, 0) / opportunities) * 100).toFixed(1)}%`;
+}
+
+function differenceOrNull(
+    current: number | null,
+    previous: number | null,
+): number | null {
+    if (current === null || previous === null) {
+        return null;
+    }
+
+    return current - previous;
+}
+
+function formatNullableMetric(value: number | null): string {
+    return value === null ? "—" : String(value);
+}
+
+function formatSigned(value: number): string {
+    return value > 0 ? `+${value}` : String(value);
+}
+
+function formatBotBalanceLabel(balance: number): string {
+    if (balance > 0) {
+        return "brakujących";
+    }
+    if (balance < 0) {
+        return "nadmiarowych";
+    }
+    return "— liczba dobrana";
 }
 
 function formatModelCount(count: number): string {

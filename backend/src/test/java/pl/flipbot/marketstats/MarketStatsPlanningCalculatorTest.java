@@ -64,36 +64,63 @@ class MarketStatsPlanningCalculatorTest {
     }
 
     @Test
-    void recommendationScalesFromActuallyObservedThroughput() {
+    void queueGrowthIncreasesRequiredBotPool() {
         assertEquals(
-                16,
-                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
-                        72,
-                        18,
-                        4
+                48,
+                MarketStatsPlanningCalculator.effectiveWeeklyDemandFromQueueTrend(
+                        20,
+                        36,
+                        32
                 )
         );
         assertEquals(
-                8,
-                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
-                        72,
+                6,
+                MarketStatsPlanningCalculator.recommendedBotsFromQueueTrend(
+                        20,
                         36,
+                        32,
                         4
+                )
+        );
+    }
+
+    @Test
+    void queueShrinkageCanShowExcessBots() {
+        assertEquals(
+                12,
+                MarketStatsPlanningCalculator.effectiveWeeklyDemandFromQueueTrend(
+                        40,
+                        20,
+                        32
+                )
+        );
+        assertEquals(
+                2,
+                MarketStatsPlanningCalculator.recommendedBotsFromQueueTrend(
+                        40,
+                        20,
+                        32,
+                        4
+                )
+        );
+    }
+
+    @Test
+    void stableQueueKeepsObservedPoolAsRequirement() {
+        assertEquals(
+                32,
+                MarketStatsPlanningCalculator.effectiveWeeklyDemandFromQueueTrend(
+                        20,
+                        20,
+                        32
                 )
         );
         assertEquals(
                 4,
-                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
-                        72,
-                        72,
-                        4
-                )
-        );
-        assertEquals(
-                0,
-                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
-                        0,
-                        0,
+                MarketStatsPlanningCalculator.recommendedBotsFromQueueTrend(
+                        20,
+                        20,
+                        32,
                         4
                 )
         );
@@ -102,17 +129,28 @@ class MarketStatsPlanningCalculatorTest {
     @Test
     void recommendationDoesNotInventCapacityWithoutRealStarts() {
         assertNull(
-                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
-                        72,
+                MarketStatsPlanningCalculator.recommendedBotsFromQueueTrend(
+                        20,
+                        30,
                         0,
                         4
                 )
         );
         assertNull(
-                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
-                        72,
+                MarketStatsPlanningCalculator.recommendedBotsFromQueueTrend(
+                        20,
+                        30,
                         12,
                         0
+                )
+        );
+        assertEquals(
+                0,
+                MarketStatsPlanningCalculator.recommendedBotsFromQueueTrend(
+                        20,
+                        0,
+                        0,
+                        4
                 )
         );
     }
