@@ -68,24 +68,50 @@ final class MarketStatsPlanningCalculator {
     }
 
     /**
-     * Scales the actually observed bot pool to the number of bots that would
-     * have been needed to cover the whole completed week's opportunity set at
-     * the same realised throughput.
+     * Derives the effective amount of work that arrived during a completed
+     * week from what the pool actually processed and how the unstarted queue
+     * changed between Monday 00:00 and the following Monday 00:00.
      *
-     * Example: 4 bots opened 18 conversations out of 72 opportunities. Their
-     * realised throughput was 4.5 new conversations per bot/week, therefore
-     * covering all 72 at the same throughput would require 16 bots.
+     * handled + (queueEnd - queueStart)
      *
-     * No theoretical daily capacity is assumed here. Long-running
-     * negotiations, seller response times, retries and operational downtime are
-     * already reflected in the number of conversations the pool really opened.
+     * Example: 32 conversations were started and the queue grew from 20 to 36.
+     * Effective weekly demand was therefore 48 items. If the queue instead fell
+     * from 40 to 20, effective demand was 12 items. A negative result is clamped
+     * to zero because removals/expiry can make the reconstructed queue fall more
+     * than the number of conversations that were started.
      */
-    static Integer recommendedBotsFromObservedThroughput(
-            int weeklyOpportunities,
+    static int effectiveWeeklyDemandFromQueueTrend(
+            int queueStart,
+            int queueEnd,
+            int conversationsStarted
+    ) {
+        long effectiveDemand = Math.max(conversationsStarted, 0)
+                + (long) Math.max(queueEnd, 0)
+                - Math.max(queueStart, 0);
+
+        return safeInt(Math.max(effectiveDemand, 0L));
+    }
+
+    /**
+     * Estimates how many bots would have been needed for the effective demand
+     * seen in the completed week, using the pool's realised conversations per
+     * bot as the throughput unit. This makes queue growth increase the required
+     * pool and queue shrinkage decrease it instead of assuming that every
+     * observed listing had to be contacted in the same week.
+     */
+    static Integer recommendedBotsFromQueueTrend(
+            int queueStart,
+            int queueEnd,
             int conversationsStarted,
             int observedBotCount
     ) {
-        if (weeklyOpportunities <= 0) {
+        int effectiveDemand = effectiveWeeklyDemandFromQueueTrend(
+                queueStart,
+                queueEnd,
+                conversationsStarted
+        );
+
+        if (effectiveDemand == 0) {
             return 0;
         }
 
@@ -93,7 +119,7 @@ final class MarketStatsPlanningCalculator {
             return null;
         }
 
-        long numerator = (long) weeklyOpportunities * observedBotCount;
+        long numerator = (long) effectiveDemand * observedBotCount;
         long required = (numerator + conversationsStarted - 1L)
                 / conversationsStarted;
 
