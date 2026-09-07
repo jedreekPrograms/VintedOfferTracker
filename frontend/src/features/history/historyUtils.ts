@@ -1,4 +1,5 @@
 import type {
+    ListingHistoryOutcome,
     ListingHistoryResponse,
 } from "../../api/historyApi";
 
@@ -7,6 +8,17 @@ import type {
     HistorySort,
     HistoryViewFilters,
 } from "./historyTypes";
+
+export const HISTORY_OUTCOME_OPTIONS: Array<{
+    value: ListingHistoryOutcome;
+    label: string;
+}> = [
+    { value: "PURCHASED_BY_ME", label: "Kupiłem" },
+    { value: "SOLD_TO_OTHER", label: "Ktoś kupił przede mną" },
+    { value: "SCAM", label: "Oszustwo" },
+    { value: "PHONE_LOCKED", label: "Telefon z blokadą" },
+    { value: "OTHER", label: "Inne / ogólne" },
+];
 
 export function getHistoryBots(
     listings: ListingHistoryResponse[],
@@ -42,6 +54,21 @@ export function getFilteredHistory(
             }
 
             if (
+                filters.outcome === "UNCLASSIFIED"
+                && listing.outcome !== null
+            ) {
+                return false;
+            }
+
+            if (
+                filters.outcome !== "ALL"
+                && filters.outcome !== "UNCLASSIFIED"
+                && listing.outcome !== filters.outcome
+            ) {
+                return false;
+            }
+
+            if (
                 filters.botId !== "ALL"
                 && listing.botId !== Number(filters.botId)
             ) {
@@ -54,7 +81,10 @@ export function getFilteredHistory(
 
             return listing.title.toLowerCase().includes(normalizedSearch)
                 || listing.listingId.toLowerCase().includes(normalizedSearch)
-                || listing.botName.toLowerCase().includes(normalizedSearch);
+                || listing.botName.toLowerCase().includes(normalizedSearch)
+                || getHistoryOutcomeLabel(listing.outcome)
+                    .toLowerCase()
+                    .includes(normalizedSearch);
         })
         .sort((first, second) =>
             compareListings(first, second, filters.sort),
@@ -159,6 +189,32 @@ export function getHistoryFilterClassName(active: boolean): string {
     return active
         ? "history-filter history-filter-active"
         : "history-filter";
+}
+
+export function getHistoryOutcomeLabel(
+    outcome: ListingHistoryOutcome | null,
+): string {
+    if (outcome === null) {
+        return "Brak oznaczenia";
+    }
+
+    return HISTORY_OUTCOME_OPTIONS.find(option => option.value === outcome)?.label
+        ?? outcome;
+}
+
+export function parseHistoryOutcome(
+    value: string,
+): ListingHistoryOutcome | null {
+    switch (value) {
+        case "PURCHASED_BY_ME":
+        case "SOLD_TO_OTHER":
+        case "SCAM":
+        case "PHONE_LOCKED":
+        case "OTHER":
+            return value;
+        default:
+            return null;
+    }
 }
 
 export function parseHistorySort(value: string): HistorySort {

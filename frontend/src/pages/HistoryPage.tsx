@@ -7,6 +7,7 @@ import {
 
 import {
     getListingHistory,
+    type ListingHistoryOutcome,
     type ListingHistoryResponse,
 } from "../api/historyApi";
 import HistoryCard from "../features/history/HistoryCard";
@@ -14,6 +15,7 @@ import HistoryStatusFilters from "../features/history/HistoryStatusFilters";
 import HistoryToolbar from "../features/history/HistoryToolbar";
 import type {
     HistoryFilter,
+    HistoryOutcomeFilter,
     HistorySort,
 } from "../features/history/historyTypes";
 import {
@@ -22,12 +24,16 @@ import {
 } from "../features/history/historyUtils";
 
 const DEFAULT_FILTER: HistoryFilter = "ALL";
+const DEFAULT_OUTCOME_FILTER: HistoryOutcomeFilter = "ALL";
 const DEFAULT_BOT_ID = "ALL";
 const DEFAULT_SORT: HistorySort = "NEWEST";
 
 function HistoryPage() {
     const [listings, setListings] = useState<ListingHistoryResponse[]>([]);
     const [filter, setFilter] = useState<HistoryFilter>(DEFAULT_FILTER);
+    const [outcomeFilter, setOutcomeFilter] = useState<HistoryOutcomeFilter>(
+        DEFAULT_OUTCOME_FILTER,
+    );
     const [selectedBotId, setSelectedBotId] = useState(DEFAULT_BOT_ID);
     const [searchQuery, setSearchQuery] = useState("");
     const [sort, setSort] = useState<HistorySort>(DEFAULT_SORT);
@@ -63,6 +69,30 @@ function HistoryPage() {
         () => listings.filter(listing => listing.status === "SKIPPED_BY_USER").length,
         [listings],
     );
+    const purchasedByMeCount = useMemo(
+        () => countOutcome(listings, "PURCHASED_BY_ME"),
+        [listings],
+    );
+    const soldToOtherCount = useMemo(
+        () => countOutcome(listings, "SOLD_TO_OTHER"),
+        [listings],
+    );
+    const scamCount = useMemo(
+        () => countOutcome(listings, "SCAM"),
+        [listings],
+    );
+    const phoneLockedCount = useMemo(
+        () => countOutcome(listings, "PHONE_LOCKED"),
+        [listings],
+    );
+    const otherCount = useMemo(
+        () => countOutcome(listings, "OTHER"),
+        [listings],
+    );
+    const unclassifiedCount = useMemo(
+        () => listings.filter(listing => listing.outcome === null).length,
+        [listings],
+    );
     const bots = useMemo(
         () => getHistoryBots(listings),
         [listings],
@@ -70,20 +100,30 @@ function HistoryPage() {
     const filteredListings = useMemo(
         () => getFilteredHistory(listings, {
             status: filter,
+            outcome: outcomeFilter,
             botId: selectedBotId,
             searchQuery,
             sort,
         }),
-        [listings, filter, selectedBotId, searchQuery, sort],
+        [
+            listings,
+            filter,
+            outcomeFilter,
+            selectedBotId,
+            searchQuery,
+            sort,
+        ],
     );
 
     const filtersActive = filter !== DEFAULT_FILTER
+        || outcomeFilter !== DEFAULT_OUTCOME_FILTER
         || selectedBotId !== DEFAULT_BOT_ID
         || searchQuery.trim().length > 0
         || sort !== DEFAULT_SORT;
 
     function clearFilters() {
         setFilter(DEFAULT_FILTER);
+        setOutcomeFilter(DEFAULT_OUTCOME_FILTER);
         setSelectedBotId(DEFAULT_BOT_ID);
         setSearchQuery("");
         setSort(DEFAULT_SORT);
@@ -110,7 +150,7 @@ function HistoryPage() {
                     <p className="page-eyebrow">Archiwum decyzji</p>
                     <h1 className="page-title">Historia</h1>
                     <p className="page-description">
-                        Kupione i ręcznie odrzucone oferty po zakończeniu negocjacji.
+                        Oznaczaj faktyczny wynik każdej zakończonej oferty i filtruj historię pod własne statystyki.
                     </p>
                 </div>
 
@@ -132,10 +172,18 @@ function HistoryPage() {
 
             <HistoryStatusFilters
                 value={filter}
+                outcomeValue={outcomeFilter}
                 totalCount={listings.length}
                 purchasedCount={purchasedCount}
                 skippedCount={skippedCount}
+                purchasedByMeCount={purchasedByMeCount}
+                soldToOtherCount={soldToOtherCount}
+                scamCount={scamCount}
+                phoneLockedCount={phoneLockedCount}
+                otherCount={otherCount}
+                unclassifiedCount={unclassifiedCount}
                 onChange={setFilter}
+                onOutcomeChange={setOutcomeFilter}
             />
 
             <HistoryToolbar
@@ -180,6 +228,13 @@ function HistoryPage() {
             )}
         </section>
     );
+}
+
+function countOutcome(
+    listings: ListingHistoryResponse[],
+    outcome: ListingHistoryOutcome,
+): number {
+    return listings.filter(listing => listing.outcome === outcome).length;
 }
 
 interface HistoryEmptyStateProps {
