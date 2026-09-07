@@ -137,6 +137,11 @@ public class AdaptiveNegotiationPricingService {
     /**
      * Returns an effective next step. The configured message and step number
      * are kept unchanged; only price thresholds are scaled.
+     *
+     * Once a scaled next-step price reaches the global negotiation cap, the
+     * remaining configured steps are still allowed to run at that same cap.
+     * This preserves the configured timing/messages/reaction sequence without
+     * ever increasing the automatic offer beyond maxAutomaticOffer.
      */
     public Optional<NegotiationStepDto> adaptNextStep(
             ListingResponseDto listing,
@@ -170,32 +175,57 @@ public class AdaptiveNegotiationPricingService {
         BigDecimal rawNextOffer = actualCurrentOffer
                 .multiply(configuredRatio, CALCULATION_CONTEXT);
 
-        BigDecimal effectiveNextOffer = roundUp(
+        BigDecimal calculatedNextOffer = roundUp(
                 rawNextOffer,
                 NEXT_STEP_INCREMENT
         ).setScale(2, RoundingMode.UNNECESSARY);
 
-        if (effectiveNextOffer.compareTo(actualCurrentOffer) <= 0) {
+        if (calculatedNextOffer.compareTo(actualCurrentOffer) <= 0) {
             log.warn(
-                    "[ADAPTIVE PRICE] Cannot create an increasing next step for listing {}. Current actual={}, configured current={}, configured next={}, calculated next={}.",
+                    "[ADAPTIVE PRICE] Cannot create an increasing calculated next step for listing {}. Current actual={}, configured current={}, configured next={}, calculated next={}.",
                     listing.listingId(),
                     actualCurrentOffer,
                     configuredCurrentStep.getOfferPrice(),
                     configuredNextStep.getOfferPrice(),
-                    effectiveNextOffer
+                    calculatedNextOffer
             );
             return Optional.empty();
         }
 
-        if (exceedsGlobalCap(effectiveNextOffer, configuration)) {
+        BigDecimal cap = configuration.getMaxAutomaticOffer()
+                .setScale(2, RoundingMode.UNNECESSARY);
+        boolean cappedAtGlobalLimit = calculatedNextOffer.compareTo(cap) > 0;
+        BigDecimal effectiveNextOffer = cappedAtGlobalLimit
+                ? cap
+                : calculatedNextOffer;
+
+        /*
+         * A user may lower the hard cap while a negotiation is already active.
+         * We never turn a later step into a lower offer. Equality is intentional:
+         * once the cap has already been reached, subsequent configured steps may
+         * keep sending that same capped price while preserving their own timing,
+         * messages and reaction policies.
+         */
+        if (effectiveNextOffer.compareTo(actualCurrentOffer) < 0) {
             log.info(
-                    "[ADAPTIVE PRICE] Next step {} for listing {} would be {}, above global negotiation cap {}. No higher automatic offer will be sent.",
-                    configuredNextStep.getStepNumber(),
+                    "[ADAPTIVE PRICE] Listing {} already has actual offer {}, above the current global negotiation cap {}. No lower automatic follow-up will be generated for configured step {}.",
                     listing.listingId(),
-                    effectiveNextOffer,
-                    configuration.getMaxAutomaticOffer()
+                    actualCurrentOffer,
+                    cap,
+                    configuredNextStep.getStepNumber()
             );
             return Optional.empty();
+        }
+
+        if (cappedAtGlobalLimit) {
+            log.info(
+                    "[ADAPTIVE PRICE] Listing {} step {} would scale to {}, above global negotiation cap {}. Keeping the configured step but plateauing its offer at the hard cap {}.",
+                    listing.listingId(),
+                    configuredNextStep.getStepNumber(),
+                    calculatedNextOffer,
+                    cap,
+                    effectiveNextOffer
+            );
         }
 
         NegotiationStepDto effectiveStep = copyStep(configuredNextStep);
@@ -209,7 +239,7 @@ public class AdaptiveNegotiationPricingService {
         );
 
         log.info(
-                "[ADAPTIVE PRICE] Listing {} step {} scaled from configured {} to effective {} using previous actual offer {} and configured step ratio {}. Effective accepted counteroffer limit={}, global cap={}.",
+                "[ADAPTIVE PRICE] Listing {} step {} scaled from configured {} to effective {} using previous actual offer {} and configured step ratio {}. Effective accepted counteroffer limit={}, global cap={}, plateaued={}.",
                 listing.listingId(),
                 configuredNextStep.getStepNumber(),
                 configuredNextStep.getOfferPrice(),
@@ -217,7 +247,8 @@ public class AdaptiveNegotiationPricingService {
                 actualCurrentOffer,
                 configuredRatio,
                 effectiveStep.getMaxAcceptedCounterOffer(),
-                configuration.getMaxAutomaticOffer()
+                configuration.getMaxAutomaticOffer(),
+                cappedAtGlobalLimit
         );
 
         return Optional.of(effectiveStep);
