@@ -22,12 +22,6 @@ public interface RealActionAuditRepository
     );
 
     List<RealActionAudit>
-    findAllByActionTypeAndOutcomeOrderByCreatedAtAsc(
-            RealActionType actionType,
-            RealActionAuditOutcome outcome
-    );
-
-    List<RealActionAudit>
     findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
             RealActionType actionType,
             RealActionAuditOutcome outcome,

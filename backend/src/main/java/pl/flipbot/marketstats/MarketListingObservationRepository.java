@@ -62,18 +62,6 @@ public interface MarketListingObservationRepository
             @Param("toExclusive") LocalDateTime toExclusive
     );
 
-    @Query("""
-            select observation.marketplaceListingId
-            from MarketListingObservation observation
-            where observation.model.id = :modelId
-              and observation.firstSeenAt <= :at
-              and observation.lastSeenAt >= :at
-            """)
-    List<String> findListingIdsActiveAt(
-            @Param("modelId") Long modelId,
-            @Param("at") LocalDateTime at
-    );
-
     long countByModel_IdAndBaselineTrue(
             Long modelId
     );

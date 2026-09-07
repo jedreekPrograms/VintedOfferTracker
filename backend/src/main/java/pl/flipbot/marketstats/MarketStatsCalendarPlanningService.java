@@ -41,7 +41,7 @@ public class MarketStatsCalendarPlanningService {
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
         List<RealActionAudit> confirmedFirstOffers =
-                loadConfirmedFirstOffers();
+                loadConfirmedFirstOffers(windows);
 
         return modelRepository.findAll()
                 .stream()
@@ -114,12 +114,6 @@ public class MarketStatsCalendarPlanningService {
                     null,
                     null,
                     null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
                     true,
                     existingBots,
                     false,
@@ -160,55 +154,11 @@ public class MarketStatsCalendarPlanningService {
                         windows.previousWeekStart()
                 );
 
-        LocalDateTime queueMeasuredAt = state.getLastSuccessfulScanAt();
-        Integer unstartedQueueNow = null;
-        Integer unstartedQueueYesterdayEnd = null;
-        Integer unstartedQueuePreviousWeekStart = null;
-        Integer unstartedQueuePreviousWeekEnd = null;
-
-        if (queueMeasuredAt != null
-                && MarketStatsPlanningCalculator.coversWindowFrom(
-                baselineCompleteAt,
-                queueMeasuredAt
-        )) {
-            unstartedQueueNow = countUnstartedQueueAt(
-                    model.getId(),
-                    matchingBotIds,
-                    confirmedFirstOffers,
-                    queueMeasuredAt
-            );
-        }
-
-        if (todayWindowComplete) {
-            unstartedQueueYesterdayEnd = countUnstartedQueueAt(
-                    model.getId(),
-                    matchingBotIds,
-                    confirmedFirstOffers,
-                    windows.todayStart()
-            );
-        }
-
-        if (previousFullWeekAvailable) {
-            unstartedQueuePreviousWeekStart = countUnstartedQueueAt(
-                    model.getId(),
-                    matchingBotIds,
-                    confirmedFirstOffers,
-                    windows.previousWeekStart()
-            );
-            unstartedQueuePreviousWeekEnd = countUnstartedQueueAt(
-                    model.getId(),
-                    matchingBotIds,
-                    confirmedFirstOffers,
-                    windows.currentWeekStart()
-            );
-        }
-
         Integer offersPreviousFullWeek = null;
         Integer negotiationsStartedPreviousFullWeek = null;
         Double empiricalConversationsPerBotPreviousFullWeek = null;
         Integer recommendedBots = null;
-        Integer botBalance = null;
-        Integer recommendationWeeklyOffers;
+        int recommendationWeeklyOffers;
         boolean recommendationEstimated;
 
         int trackedDays = MarketStatsPlanningCalculator.trackedCalendarDays(
@@ -217,6 +167,13 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
+            /*
+             * The denominator is the exact set of unique listings that existed
+             * at any point during the completed Monday-Sunday window. The
+             * numerator below is restricted to that same set of marketplace ids,
+             * so "started / opportunities" really describes coverage of those
+             * market opportunities rather than two unrelated counters.
+             */
             Set<String> previousWeekOpportunityIds =
                     findObservedListingIds(
                             model.getId(),
@@ -237,30 +194,13 @@ public class MarketStatsCalendarPlanningService {
                             negotiationsStartedPreviousFullWeek,
                             existingBots
                     );
-
-            int queueStart = unstartedQueuePreviousWeekStart == null
-                    ? 0
-                    : unstartedQueuePreviousWeekStart;
-            int queueEnd = unstartedQueuePreviousWeekEnd == null
-                    ? 0
-                    : unstartedQueuePreviousWeekEnd;
-
-            recommendationWeeklyOffers =
-                    MarketStatsPlanningCalculator.effectiveWeeklyDemandFromQueueTrend(
-                            queueStart,
-                            queueEnd,
-                            negotiationsStartedPreviousFullWeek
-                    );
             recommendedBots =
-                    MarketStatsPlanningCalculator.recommendedBotsFromQueueTrend(
-                            queueStart,
-                            queueEnd,
+                    MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                            offersPreviousFullWeek,
                             negotiationsStartedPreviousFullWeek,
                             existingBots
                     );
-            botBalance = recommendedBots == null
-                    ? null
-                    : recommendedBots - existingBots;
+            recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
             int observedSinceBaseline = countNewListings(
@@ -285,14 +225,8 @@ public class MarketStatsCalendarPlanningService {
                 negotiationsStartedToday,
                 negotiationsStartedCurrentWeek,
                 negotiationsStartedPreviousFullWeek,
-                unstartedQueueNow,
-                unstartedQueueYesterdayEnd,
-                unstartedQueuePreviousWeekStart,
-                unstartedQueuePreviousWeekEnd,
-                queueMeasuredAt,
                 empiricalConversationsPerBotPreviousFullWeek,
                 recommendedBots,
-                botBalance,
                 recommendationWeeklyOffers,
                 recommendationEstimated,
                 existingBots,
@@ -305,11 +239,14 @@ public class MarketStatsCalendarPlanningService {
         );
     }
 
-    private List<RealActionAudit> loadConfirmedFirstOffers() {
+    private List<RealActionAudit> loadConfirmedFirstOffers(
+            MarketStatsPlanningCalculator.CalendarWindows windows
+    ) {
         return realActionAuditRepository
-                .findAllByActionTypeAndOutcomeOrderByCreatedAtAsc(
+                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
                         RealActionType.FIRST_OFFER,
-                        RealActionAuditOutcome.CONFIRMED
+                        RealActionAuditOutcome.CONFIRMED,
+                        windows.previousWeekStart()
                 );
     }
 
@@ -334,7 +271,14 @@ public class MarketStatsCalendarPlanningService {
         Set<String> uniqueListingIds = new HashSet<>();
 
         for (RealActionAudit audit : audits) {
-            if (!isConfirmedFirstOfferForAllowedBot(audit, allowedBotIds)) {
+            if (audit == null
+                    || audit.getBotId() == null
+                    || audit.getCreatedAt() == null
+                    || audit.getMarketplaceListingId() == null
+                    || audit.getMarketplaceListingId().isBlank()
+                    || audit.getActionType() != RealActionType.FIRST_OFFER
+                    || audit.getOutcome() != RealActionAuditOutcome.CONFIRMED
+                    || !allowedBotIds.contains(audit.getBotId())) {
                 continue;
             }
 
@@ -354,62 +298,6 @@ public class MarketStatsCalendarPlanningService {
         }
 
         return safeInt(uniqueListingIds.size());
-    }
-
-    private int countUnstartedQueueAt(
-            Long modelId,
-            List<Long> botIds,
-            List<RealActionAudit> audits,
-            LocalDateTime at
-    ) {
-        if (modelId == null || at == null) {
-            return 0;
-        }
-
-        Set<String> activeListingIds = new HashSet<>(
-                observationRepository.findListingIdsActiveAt(
-                        modelId,
-                        at
-                )
-        );
-
-        if (activeListingIds.isEmpty()
-                || botIds == null
-                || botIds.isEmpty()
-                || audits == null
-                || audits.isEmpty()) {
-            return safeInt(activeListingIds.size());
-        }
-
-        Set<Long> allowedBotIds = new HashSet<>(botIds);
-
-        for (RealActionAudit audit : audits) {
-            if (!isConfirmedFirstOfferForAllowedBot(audit, allowedBotIds)) {
-                continue;
-            }
-
-            if (audit.getCreatedAt().isAfter(at)) {
-                continue;
-            }
-
-            activeListingIds.remove(audit.getMarketplaceListingId());
-        }
-
-        return safeInt(activeListingIds.size());
-    }
-
-    private boolean isConfirmedFirstOfferForAllowedBot(
-            RealActionAudit audit,
-            Set<Long> allowedBotIds
-    ) {
-        return audit != null
-                && audit.getBotId() != null
-                && audit.getCreatedAt() != null
-                && audit.getMarketplaceListingId() != null
-                && !audit.getMarketplaceListingId().isBlank()
-                && audit.getActionType() == RealActionType.FIRST_OFFER
-                && audit.getOutcome() == RealActionAuditOutcome.CONFIRMED
-                && allowedBotIds.contains(audit.getBotId());
     }
 
     private Set<String> findObservedListingIds(
