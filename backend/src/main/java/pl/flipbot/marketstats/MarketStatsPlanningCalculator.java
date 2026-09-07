@@ -9,7 +9,6 @@ import java.time.temporal.TemporalAdjusters;
 final class MarketStatsPlanningCalculator {
 
     static final int DAYS_PER_WEEK = 7;
-    static final int NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
 
     private MarketStatsPlanningCalculator() {
     }
@@ -68,22 +67,55 @@ final class MarketStatsPlanningCalculator {
         return safeInt(projected);
     }
 
-    static int recommendedBots(int weeklyOffers) {
-        if (weeklyOffers <= 0) {
+    /**
+     * Scales the actually observed bot pool to the number of bots that would
+     * have been needed to cover the whole completed week's opportunity set at
+     * the same realised throughput.
+     *
+     * Example: 4 bots opened 18 conversations out of 72 opportunities. Their
+     * realised throughput was 4.5 new conversations per bot/week, therefore
+     * covering all 72 at the same throughput would require 16 bots.
+     *
+     * No theoretical daily capacity is assumed here. Long-running
+     * negotiations, seller response times, retries and operational downtime are
+     * already reflected in the number of conversations the pool really opened.
+     */
+    static Integer recommendedBotsFromObservedThroughput(
+            int weeklyOpportunities,
+            int conversationsStarted,
+            int observedBotCount
+    ) {
+        if (weeklyOpportunities <= 0) {
             return 0;
         }
 
-        int weeklyCapacityPerBot =
-                DAYS_PER_WEEK * NEW_CONVERSATIONS_PER_BOT_PER_DAY;
+        if (conversationsStarted <= 0 || observedBotCount <= 0) {
+            return null;
+        }
 
-        return (weeklyOffers + weeklyCapacityPerBot - 1)
-                / weeklyCapacityPerBot;
+        long numerator = (long) weeklyOpportunities * observedBotCount;
+        long required = (numerator + conversationsStarted - 1L)
+                / conversationsStarted;
+
+        return safeInt(required);
+    }
+
+    static Double observedConversationsPerBot(
+            int conversationsStarted,
+            int observedBotCount
+    ) {
+        if (observedBotCount <= 0) {
+            return null;
+        }
+
+        return Math.max(conversationsStarted, 0)
+                / (double) observedBotCount;
     }
 
     private static int safeInt(long value) {
         return value > Integer.MAX_VALUE
                 ? Integer.MAX_VALUE
-                : (int) value;
+                : (int) Math.max(value, 0L);
     }
 
     record CalendarWindows(

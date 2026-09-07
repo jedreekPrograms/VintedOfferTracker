@@ -17,10 +17,10 @@ import pl.flipbot.negotiation.guard.RealActionType;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -40,8 +40,8 @@ public class MarketStatsCalendarPlanningService {
         List<BotConfiguration> configurations = configurationRepository.findAll();
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
-        NegotiationStartsByBot negotiationStarts =
-                loadNegotiationStarts(windows);
+        List<RealActionAudit> confirmedFirstOffers =
+                loadConfirmedFirstOffers(windows);
 
         return modelRepository.findAll()
                 .stream()
@@ -60,7 +60,7 @@ public class MarketStatsCalendarPlanningService {
                         configurations,
                         now,
                         windows,
-                        negotiationStarts
+                        confirmedFirstOffers
                 ))
                 .toList();
     }
@@ -70,7 +70,7 @@ public class MarketStatsCalendarPlanningService {
             List<BotConfiguration> configurations,
             LocalDateTime now,
             MarketStatsPlanningCalculator.CalendarWindows windows,
-            NegotiationStartsByBot negotiationStarts
+            List<RealActionAudit> confirmedFirstOffers
     ) {
         MarketModelScanState state = scanStateRepository
                 .findById(model.getId())
@@ -86,13 +86,19 @@ public class MarketStatsCalendarPlanningService {
                 .toList();
 
         int existingBots = matchingBotIds.size();
-        int negotiationsStartedToday = sumNegotiationStarts(
+        int negotiationsStartedToday = countUniqueConfirmedStarts(
                 matchingBotIds,
-                negotiationStarts.todayByBot()
+                confirmedFirstOffers,
+                windows.todayStart(),
+                windows.now(),
+                null
         );
-        int negotiationsStartedCurrentWeek = sumNegotiationStarts(
+        int negotiationsStartedCurrentWeek = countUniqueConfirmedStarts(
                 matchingBotIds,
-                negotiationStarts.currentWeekByBot()
+                confirmedFirstOffers,
+                windows.currentWeekStart(),
+                windows.now(),
+                null
         );
 
         if (state == null || state.getBaselineCompleteAt() == null) {
@@ -104,6 +110,8 @@ public class MarketStatsCalendarPlanningService {
                     null,
                     negotiationsStartedToday,
                     negotiationsStartedCurrentWeek,
+                    null,
+                    null,
                     null,
                     null,
                     true,
@@ -147,6 +155,9 @@ public class MarketStatsCalendarPlanningService {
                 );
 
         Integer offersPreviousFullWeek = null;
+        Integer negotiationsStartedPreviousFullWeek = null;
+        Double empiricalConversationsPerBotPreviousFullWeek = null;
+        Integer recommendedBots = null;
         int recommendationWeeklyOffers;
         boolean recommendationEstimated;
 
@@ -157,20 +168,38 @@ public class MarketStatsCalendarPlanningService {
 
         if (previousFullWeekAvailable) {
             /*
-             * For a completed calendar week we want the set of unique market
-             * opportunities that actually existed at any point during that
-             * week, not only ids whose first-ever observation happened inside
-             * the week. This lets the planner reuse the historical observation
-             * data we already have: listings known before Monday but still
-             * present during the week seed the weekly inventory, while newly
-             * observed ids are naturally added once because observations are
-             * unique per model + marketplace listing id.
+             * The denominator is the exact set of unique listings that existed
+             * at any point during the completed Monday-Sunday window. The
+             * numerator below is restricted to that same set of marketplace ids,
+             * so "started / opportunities" really describes coverage of those
+             * market opportunities rather than two unrelated counters.
              */
-            offersPreviousFullWeek = countObservedListings(
-                    model.getId(),
+            Set<String> previousWeekOpportunityIds =
+                    findObservedListingIds(
+                            model.getId(),
+                            windows.previousWeekStart(),
+                            windows.currentWeekStart()
+                    );
+
+            offersPreviousFullWeek = previousWeekOpportunityIds.size();
+            negotiationsStartedPreviousFullWeek = countUniqueConfirmedStarts(
+                    matchingBotIds,
+                    confirmedFirstOffers,
                     windows.previousWeekStart(),
-                    windows.currentWeekStart()
+                    windows.currentWeekStart(),
+                    previousWeekOpportunityIds
             );
+            empiricalConversationsPerBotPreviousFullWeek =
+                    MarketStatsPlanningCalculator.observedConversationsPerBot(
+                            negotiationsStartedPreviousFullWeek,
+                            existingBots
+                    );
+            recommendedBots =
+                    MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                            offersPreviousFullWeek,
+                            negotiationsStartedPreviousFullWeek,
+                            existingBots
+                    );
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
@@ -187,10 +216,6 @@ public class MarketStatsCalendarPlanningService {
             recommendationEstimated = true;
         }
 
-        int recommendedBots = MarketStatsPlanningCalculator.recommendedBots(
-                recommendationWeeklyOffers
-        );
-
         return new CalendarModelPlanningResponse(
                 model.getId(),
                 state.getBaselineOfferCount(),
@@ -199,6 +224,8 @@ public class MarketStatsCalendarPlanningService {
                 offersPreviousFullWeek,
                 negotiationsStartedToday,
                 negotiationsStartedCurrentWeek,
+                negotiationsStartedPreviousFullWeek,
+                empiricalConversationsPerBotPreviousFullWeek,
                 recommendedBots,
                 recommendationWeeklyOffers,
                 recommendationEstimated,
@@ -212,60 +239,85 @@ public class MarketStatsCalendarPlanningService {
         );
     }
 
-    private NegotiationStartsByBot loadNegotiationStarts(
+    private List<RealActionAudit> loadConfirmedFirstOffers(
             MarketStatsPlanningCalculator.CalendarWindows windows
     ) {
-        Map<Long, Integer> todayByBot = new HashMap<>();
-        Map<Long, Integer> currentWeekByBot = new HashMap<>();
-
-        for (RealActionAudit audit : realActionAuditRepository
+        return realActionAuditRepository
                 .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
                         RealActionType.FIRST_OFFER,
                         RealActionAuditOutcome.CONFIRMED,
-                        windows.currentWeekStart()
-                )) {
-            if (audit.getBotId() == null || audit.getCreatedAt() == null) {
+                        windows.previousWeekStart()
+                );
+    }
+
+    private int countUniqueConfirmedStarts(
+            List<Long> botIds,
+            List<RealActionAudit> audits,
+            LocalDateTime fromInclusive,
+            LocalDateTime toExclusive,
+            Set<String> allowedMarketplaceListingIds
+    ) {
+        if (botIds == null
+                || botIds.isEmpty()
+                || audits == null
+                || audits.isEmpty()
+                || fromInclusive == null
+                || toExclusive == null
+                || !fromInclusive.isBefore(toExclusive)) {
+            return 0;
+        }
+
+        Set<Long> allowedBotIds = new HashSet<>(botIds);
+        Set<String> uniqueListingIds = new HashSet<>();
+
+        for (RealActionAudit audit : audits) {
+            if (audit == null
+                    || audit.getBotId() == null
+                    || audit.getCreatedAt() == null
+                    || audit.getMarketplaceListingId() == null
+                    || audit.getMarketplaceListingId().isBlank()
+                    || audit.getActionType() != RealActionType.FIRST_OFFER
+                    || audit.getOutcome() != RealActionAuditOutcome.CONFIRMED
+                    || !allowedBotIds.contains(audit.getBotId())) {
                 continue;
             }
 
             LocalDateTime createdAt = audit.getCreatedAt();
-            if (createdAt.isBefore(windows.currentWeekStart())
-                    || createdAt.isAfter(windows.now())) {
+            if (createdAt.isBefore(fromInclusive)
+                    || !createdAt.isBefore(toExclusive)) {
                 continue;
             }
 
-            Long botId = audit.getBotId();
-            currentWeekByBot.merge(botId, 1, this::safeAdd);
-
-            if (!createdAt.isBefore(windows.todayStart())) {
-                todayByBot.merge(botId, 1, this::safeAdd);
+            String marketplaceListingId = audit.getMarketplaceListingId();
+            if (allowedMarketplaceListingIds != null
+                    && !allowedMarketplaceListingIds.contains(marketplaceListingId)) {
+                continue;
             }
+
+            uniqueListingIds.add(marketplaceListingId);
         }
 
-        return new NegotiationStartsByBot(
-                Map.copyOf(todayByBot),
-                Map.copyOf(currentWeekByBot)
+        return safeInt(uniqueListingIds.size());
+    }
+
+    private Set<String> findObservedListingIds(
+            Long modelId,
+            LocalDateTime fromInclusive,
+            LocalDateTime toExclusive
+    ) {
+        if (fromInclusive == null
+                || toExclusive == null
+                || !fromInclusive.isBefore(toExclusive)) {
+            return Set.of();
+        }
+
+        return new HashSet<>(
+                observationRepository.findListingIdsObservedDuringWindow(
+                        modelId,
+                        fromInclusive,
+                        toExclusive
+                )
         );
-    }
-
-    private int sumNegotiationStarts(
-            List<Long> botIds,
-            Map<Long, Integer> startsByBot
-    ) {
-        long sum = 0L;
-
-        for (Long botId : botIds) {
-            sum += Math.max(startsByBot.getOrDefault(botId, 0), 0);
-        }
-
-        return safeInt(sum);
-    }
-
-    private int safeAdd(
-            int left,
-            int right
-    ) {
-        return safeInt((long) left + right);
     }
 
     private int countNewListings(
@@ -281,26 +333,6 @@ public class MarketStatsCalendarPlanningService {
 
         return safeInt(
                 observationRepository.countNewListingsBetween(
-                        modelId,
-                        fromInclusive,
-                        toExclusive
-                )
-        );
-    }
-
-    private int countObservedListings(
-            Long modelId,
-            LocalDateTime fromInclusive,
-            LocalDateTime toExclusive
-    ) {
-        if (fromInclusive == null
-                || toExclusive == null
-                || !fromInclusive.isBefore(toExclusive)) {
-            return 0;
-        }
-
-        return safeInt(
-                observationRepository.countListingsObservedDuringWindow(
                         modelId,
                         fromInclusive,
                         toExclusive
@@ -363,11 +395,5 @@ public class MarketStatsCalendarPlanningService {
         return value > Integer.MAX_VALUE
                 ? Integer.MAX_VALUE
                 : (int) Math.max(value, 0L);
-    }
-
-    private record NegotiationStartsByBot(
-            Map<Long, Integer> todayByBot,
-            Map<Long, Integer> currentWeekByBot
-    ) {
     }
 }

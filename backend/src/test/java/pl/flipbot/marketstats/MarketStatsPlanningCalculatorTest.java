@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MarketStatsPlanningCalculatorTest {
@@ -63,11 +64,74 @@ class MarketStatsPlanningCalculatorTest {
     }
 
     @Test
-    void recommendationUsesThirtyFiveNewConversationsPerBotPerWeek() {
-        assertEquals(0, MarketStatsPlanningCalculator.recommendedBots(0));
-        assertEquals(1, MarketStatsPlanningCalculator.recommendedBots(35));
-        assertEquals(2, MarketStatsPlanningCalculator.recommendedBots(36));
-        assertEquals(3, MarketStatsPlanningCalculator.recommendedBots(71));
+    void recommendationScalesFromActuallyObservedThroughput() {
+        assertEquals(
+                16,
+                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                        72,
+                        18,
+                        4
+                )
+        );
+        assertEquals(
+                8,
+                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                        72,
+                        36,
+                        4
+                )
+        );
+        assertEquals(
+                4,
+                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                        72,
+                        72,
+                        4
+                )
+        );
+        assertEquals(
+                0,
+                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                        0,
+                        0,
+                        4
+                )
+        );
+    }
+
+    @Test
+    void recommendationDoesNotInventCapacityWithoutRealStarts() {
+        assertNull(
+                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                        72,
+                        0,
+                        4
+                )
+        );
+        assertNull(
+                MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                        72,
+                        12,
+                        0
+                )
+        );
+    }
+
+    @Test
+    void observedConversationsPerBotUsesTheRealCompletedWeek() {
+        assertEquals(
+                4.5,
+                MarketStatsPlanningCalculator.observedConversationsPerBot(18, 4),
+                0.0001
+        );
+        assertEquals(
+                0.0,
+                MarketStatsPlanningCalculator.observedConversationsPerBot(0, 4),
+                0.0001
+        );
+        assertNull(
+                MarketStatsPlanningCalculator.observedConversationsPerBot(18, 0)
+        );
     }
 
     @Test
