@@ -30,7 +30,7 @@ class MarketStatsCalendarPlanningServiceTest {
     private static final ZoneId WARSAW = ZoneId.of("Europe/Warsaw");
 
     @Test
-    void previousWeekCoverageCountsOnlyUniqueObservedListingsWithConfirmedFirstOffers() {
+    void planningReconstructsHistoricalQueueAndSignedBotBalance() {
         DictionaryModelRepository modelRepository = mock(DictionaryModelRepository.class);
         BotConfigurationRepository configurationRepository = mock(BotConfigurationRepository.class);
         MarketModelScanStateRepository scanStateRepository = mock(MarketModelScanStateRepository.class);
@@ -118,12 +118,14 @@ class MarketStatsCalendarPlanningServiceTest {
                 any(LocalDateTime.class),
                 any(LocalDateTime.class)
         )).thenReturn(List.of("a", "b", "c"));
-        when(auditRepository
-                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
-                        eq(RealActionType.FIRST_OFFER),
-                        eq(RealActionAuditOutcome.CONFIRMED),
-                        any(LocalDateTime.class)
-                )).thenReturn(List.of(
+        when(observationRepository.findListingIdsActiveAt(
+                eq(model.getId()),
+                any(LocalDateTime.class)
+        )).thenReturn(List.of("a", "b", "c"));
+        when(auditRepository.findAllByActionTypeAndOutcomeOrderByCreatedAtAsc(
+                eq(RealActionType.FIRST_OFFER),
+                eq(RealActionAuditOutcome.CONFIRMED)
+        )).thenReturn(List.of(
                 observedAByBot1,
                 duplicateObservedAByBot2,
                 outsideObservedSet,
@@ -146,7 +148,16 @@ class MarketStatsCalendarPlanningServiceTest {
         assertEquals(1, result.negotiationsStartedPreviousFullWeek());
         assertEquals(2, result.existingBots());
         assertEquals(0.5, result.empiricalConversationsPerBotPreviousFullWeek(), 0.0001);
-        assertEquals(6, result.recommendedBots());
+
+        assertEquals(3, result.unstartedQueuePreviousWeekStart());
+        assertEquals(2, result.unstartedQueuePreviousWeekEnd());
+        assertEquals(1, result.unstartedQueueNow());
+        assertEquals(now, result.unstartedQueueMeasuredAt());
+
+        assertEquals(0, result.recommendationWeeklyOffers());
+        assertEquals(0, result.recommendedBots());
+        assertEquals(-2, result.botBalance());
+
         assertEquals(1, result.negotiationsStartedCurrentWeek());
         assertEquals(1, result.negotiationsStartedToday());
     }
