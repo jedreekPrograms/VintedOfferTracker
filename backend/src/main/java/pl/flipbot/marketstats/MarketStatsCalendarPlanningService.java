@@ -127,7 +127,17 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            offersPreviousFullWeek = countNewListings(
+            /*
+             * For a completed calendar week we want the set of unique market
+             * opportunities that actually existed at any point during that
+             * week, not only ids whose first-ever observation happened inside
+             * the week. This lets the planner reuse the historical observation
+             * data we already have: listings known before Monday but still
+             * present during the week seed the weekly inventory, while newly
+             * observed ids are naturally added once because observations are
+             * unique per model + marketplace listing id.
+             */
+            offersPreviousFullWeek = countObservedListings(
                     model.getId(),
                     windows.previousWeekStart(),
                     windows.currentWeekStart()
@@ -184,6 +194,26 @@ public class MarketStatsCalendarPlanningService {
 
         return safeInt(
                 observationRepository.countNewListingsBetween(
+                        modelId,
+                        fromInclusive,
+                        toExclusive
+                )
+        );
+    }
+
+    private int countObservedListings(
+            Long modelId,
+            LocalDateTime fromInclusive,
+            LocalDateTime toExclusive
+    ) {
+        if (fromInclusive == null
+                || toExclusive == null
+                || !fromInclusive.isBefore(toExclusive)) {
+            return 0;
+        }
+
+        return safeInt(
+                observationRepository.countListingsObservedDuringWindow(
                         modelId,
                         fromInclusive,
                         toExclusive
