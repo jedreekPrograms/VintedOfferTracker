@@ -81,7 +81,7 @@ public class NegotiationDecisionServiceAdaptiveTest {
     }
 
     @Test
-    public void globalCapStopsNextAutomaticEscalation() {
+    public void globalCapClampsNextAutomaticStepInsteadOfEndingNegotiation() {
         BotConfigurationDto configuration = adaptiveConfiguration("1350.00");
         ListingResponseDto listing = negotiatingListing("1250.00", 1);
 
@@ -92,9 +92,44 @@ public class NegotiationDecisionServiceAdaptiveTest {
         );
 
         assertEquals(
-                NegotiationDecisionType.MARK_REJECTED,
+                NegotiationDecisionType.SEND_NEXT_STEP,
                 decision.type()
         );
+        assertNotNull(decision.nextStep());
+        assertEquals(2, decision.nextStep().getStepNumber().intValue());
+        assertEquals(
+                0,
+                new BigDecimal("1350.00").compareTo(
+                        decision.nextStep().getOfferPrice()
+                )
+        );
+        assertEquals("second message", decision.nextStep().getMessage());
+    }
+
+    @Test
+    public void rejectionAfterCapWasReachedStillAdvancesStepAtSamePrice() {
+        BotConfigurationDto configuration = adaptiveConfiguration("1350.00");
+        ListingResponseDto listing = negotiatingListing("1350.00", 2);
+
+        NegotiationDecision decision = service.decide(
+                listing,
+                NegotiationConversationSnapshot.rejected("Odrzucono"),
+                configuration
+        );
+
+        assertEquals(
+                NegotiationDecisionType.SEND_NEXT_STEP,
+                decision.type()
+        );
+        assertNotNull(decision.nextStep());
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+        assertEquals(
+                0,
+                new BigDecimal("1350.00").compareTo(
+                        decision.nextStep().getOfferPrice()
+                )
+        );
+        assertEquals("third message", decision.nextStep().getMessage());
     }
 
     @Test
