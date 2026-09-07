@@ -189,8 +189,13 @@ public class MarketStatsCollector {
     ) {
         MarketplaceNavigator navigator = new MarketplaceNavigator(context);
         navigator.goToCatalog();
-        context.getPage().waitForLoadState();
 
+        /*
+         * goToCatalog() already navigates with DOMCONTENTLOADED and waits for
+         * the catalog shell. Waiting for Playwright's full LOAD state here can
+         * hang on slow/non-essential Vinted resources and abort the entire
+         * observer pass before the first model is scanned.
+         */
         dismissCookieBannerIfVisible(context);
 
         boolean authenticated =
