@@ -16,8 +16,7 @@ public class CategoryNavigator {
     private static final double RETRY_DELAY_MS = 2_000;
     private static final double FIRST_ROOT_OPTION_TIMEOUT_MS = 10_000;
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
-    private static final double CATEGORY_AUTO_PERSIST_TIMEOUT_MS = 1_500;
-    private static final double CATEGORY_CONFIRM_PERSIST_TIMEOUT_MS = 10_000;
+    private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
     private static final double CATEGORY_LEVEL_SETTLE_MS = 500;
 
     private final FilterActions actions;
@@ -163,64 +162,22 @@ public class CategoryNavigator {
     }
 
     private void ensureCategoryPersisted(List<String> categoryPath) {
-        if (actions.waitForUrlParameterPresent(
-                "catalog[]",
-                CATEGORY_AUTO_PERSIST_TIMEOUT_MS
+        if (actions.waitForCategoryFilterPersisted(
+                CATEGORY_PERSIST_TIMEOUT_MS
         )) {
             return;
         }
 
         String leafCategory = categoryPath.getLast();
 
-        /*
-         * Vinted normally persists the leaf category immediately, but the
-         * anonymous catalog can occasionally keep the category panel open and
-         * wait for its explicit confirmation button. This showed up in real
-         * observer runs as a correctly clicked leaf (for example "Tablety")
-         * followed by a false failure because catalog[] had not appeared
-         * within five seconds.
-         *
-         * Give the normal auto-persist path a short chance first. If it did
-         * not happen, explicitly confirm the current filter selection and then
-         * allow the URL more time to settle. We still fail closed unless
-         * catalog[] is actually present, so a wrong click can never be
-         * accepted as a valid target.
-         */
-        log.info(
-                "[FILTER CATEGORY] Leaf '{}' did not auto-persist yet. Trying explicit category confirmation before retrying the whole path.",
-                leafCategory
-        );
-
-        RuntimeException confirmFailure = null;
-
-        try {
-            actions.clickSelector(FilterSelectors.FILTER_SELECTION);
-        } catch (RuntimeException exception) {
-            confirmFailure = exception;
-            log.debug(
-                    "[FILTER CATEGORY] Explicit category confirmation was not actionable; waiting for delayed URL persistence instead.",
-                    exception
-            );
-        }
-
-        if (actions.waitForUrlParameterPresent(
-                "catalog[]",
-                CATEGORY_CONFIRM_PERSIST_TIMEOUT_MS
-        )) {
-            return;
-        }
-
         IllegalStateException persistenceFailure = new IllegalStateException(
-                "Vinted accepted the category clicks but did not persist catalog[] in the URL after auto-persist and explicit-confirm recovery"
+                "Vinted accepted the category clicks but the URL contains neither catalog[] nor a canonical /catalog/{id}-{slug} category path. Current URL: "
+                        + actions.currentUrl()
         );
-
-        if (confirmFailure != null) {
-            persistenceFailure.addSuppressed(confirmFailure);
-        }
 
         throw new CategorySelectionException(
                 leafCategory,
-                CATEGORY_CONFIRM_PERSIST_TIMEOUT_MS,
+                CATEGORY_PERSIST_TIMEOUT_MS,
                 persistenceFailure
         );
     }

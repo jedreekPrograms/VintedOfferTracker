@@ -960,6 +960,10 @@ public class FilterActions {
         page.waitForTimeout(milliseconds);
     }
 
+    public String currentUrl() {
+        return page.url();
+    }
+
     public boolean waitForUrlParameterPresent(
             String parameterName,
             double timeoutMilliseconds
@@ -978,6 +982,27 @@ public class FilterActions {
         }
 
         return false;
+    }
+
+    public boolean waitForCategoryFilterPersisted(double timeoutMilliseconds) {
+        long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
+
+        while (System.currentTimeMillis() <= deadline) {
+            assertStillOnVinted("waiting for category filter persistence");
+
+            if (hasCategoryFilterInUrl()) {
+                rememberCurrentVintedUrl();
+                return true;
+            }
+
+            page.waitForTimeout(200);
+        }
+
+        return false;
+    }
+
+    public boolean hasCategoryFilterInUrl() {
+        return MarketplaceUrls.hasCatalogSelection(page.url());
     }
 
     private boolean waitForUrlParameterValue(

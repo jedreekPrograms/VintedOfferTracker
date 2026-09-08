@@ -1,12 +1,18 @@
 package pl.flipbot.playwright.marketplace;
 
 import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public final class MarketplaceUrls {
 
     private static final String SESSION_REFRESH_PATH =
             "/session-refresh";
+
+    private static final Pattern CANONICAL_CATEGORY_PATH =
+            Pattern.compile("^/catalog/\\d+(?:-[^/]+)?/?$");
 
     private MarketplaceUrls() {
     }
@@ -56,6 +62,56 @@ public final class MarketplaceUrls {
             return path != null
                     && ("/catalog".equals(path)
                     || path.startsWith("/catalog/"));
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    /**
+     * Vinted exposes the selected category in two equivalent URL shapes.
+     * Authenticated catalog variants commonly use {@code catalog[]}, while
+     * the anonymous catalog can navigate to a canonical path such as
+     * {@code /catalog/3748-vcrs}. Both forms prove that a category is active.
+     */
+    public static boolean hasCatalogSelection(String rawUrl) {
+        if (!isCatalogUrl(rawUrl)) {
+            return false;
+        }
+
+        try {
+            URI uri = URI.create(rawUrl.trim());
+
+            if (CANONICAL_CATEGORY_PATH.matcher(uri.getPath()).matches()) {
+                return true;
+            }
+
+            String query = uri.getRawQuery();
+
+            if (query == null || query.isBlank()) {
+                return false;
+            }
+
+            for (String parameter : query.split("&")) {
+                int equalsIndex = parameter.indexOf('=');
+                String rawName = equalsIndex >= 0
+                        ? parameter.substring(0, equalsIndex)
+                        : parameter;
+                String rawValue = equalsIndex >= 0
+                        ? parameter.substring(equalsIndex + 1)
+                        : "";
+
+                if ("catalog[]".equals(URLDecoder.decode(
+                        rawName,
+                        StandardCharsets.UTF_8
+                )) && !URLDecoder.decode(
+                        rawValue,
+                        StandardCharsets.UTF_8
+                ).isBlank()) {
+                    return true;
+                }
+            }
+
+            return false;
         } catch (RuntimeException exception) {
             return false;
         }
