@@ -16,12 +16,15 @@ public class HumanVerificationHandler {
     private static final double VERIFICATION_TIMEOUT_MS = 180_000;
     private static final double POLL_INTERVAL_MS = 1_000;
     private static final double LOG_INTERVAL_MS = 15_000;
+    private static final int CLEAR_POLLS_REQUIRED = 3;
 
     private static final List<String> STRONG_VERIFICATION_TEXTS = List.of(
             "sprawdzanie, czy jesteś człowiekiem",
             "sprawdzanie czy jesteś człowiekiem",
             "potwierdź, że jesteś człowiekiem",
             "potwierdz, ze jestes czlowiekiem",
+            "przesuń w prawo, aby zabezpieczyć dostęp",
+            "przesun w prawo, aby zabezpieczyc dostep",
             "verify you are human",
             "verify that you are human",
             "checking if you are human",
@@ -38,7 +41,16 @@ public class HumanVerificationHandler {
                     + "iframe[src*='challenge-platform'], "
                     + "iframe[src*='hcaptcha.com'], "
                     + "iframe[src*='recaptcha'], "
-                    + "iframe[src*='turnstile']";
+                    + "iframe[src*='turnstile'], "
+                    + "iframe[src*='captcha-delivery.com/captcha'], "
+                    + "iframe[id^='ddChallengeBody'], "
+                    + "iframe[title='Verification system']";
+
+    private static final String VERIFICATION_CONTAINER_SELECTOR =
+            "div[id^='ddChallengeContainer']";
+
+    private static final String HEADLESS_RUNTIME_EXPRESSION =
+            "() => globalThis.__flipbotBrowserHeadless === true";
 
     private final CookieConsentHandler cookieConsentHandler = new CookieConsentHandler();
     private final VintedSessionBlockDetector sessionBlockDetector =
@@ -60,15 +72,75 @@ public class HumanVerificationHandler {
             return;
         }
 
-        log.warn(
-                "Human verification detected from visible positive page evidence. evidence={}. Bot actions are paused. Complete the verification manually if required.",
+        if (isHeadlessRuntime(page)) {
+            log.warn(
+                    "[CAPTCHA] Visible human verification detected in a headless browser. "
+                            + "The current context will save its session and close before a manual headed recovery window is opened. evidence={}",
+                    evidence
+            );
+            throw new HumanVerificationRequiredException(
+                    safePageUrl(page),
+                    evidence
+            );
+        }
+
+        waitUntilManuallyVerified(
+                page,
+                (long) VERIFICATION_TIMEOUT_MS,
                 evidence
+        );
+    }
+
+    public void waitUntilManuallyVerified(
+            Page page,
+            long timeoutMs
+    ) {
+        Objects.requireNonNull(page, "Page cannot be null");
+
+        if (timeoutMs <= 0L) {
+            throw new IllegalArgumentException(
+                    "Manual verification timeout must be positive"
+            );
+        }
+
+        sessionBlockDetector.throwIfBlocked(
+                page,
+                "starting manual human verification"
+        );
+        cookieConsentHandler.acceptAllIfVisible(page);
+        sessionBlockDetector.throwIfBlocked(
+                page,
+                "after manual verification consent check"
+        );
+
+        String evidence = verificationEvidence(page);
+        if (evidence == null) {
+            log.info(
+                    "[CAPTCHA] The challenge did not reappear in the visible recovery window. The refreshed session may continue."
+            );
+            return;
+        }
+
+        waitUntilManuallyVerified(page, timeoutMs, evidence);
+    }
+
+    private void waitUntilManuallyVerified(
+            Page page,
+            long timeoutMs,
+            String initialEvidence
+    ) {
+
+        log.warn(
+                "[CAPTCHA] Human verification is visible. Complete it manually in the opened browser window. evidence={}",
+                initialEvidence
         );
 
         double startedAt = System.currentTimeMillis();
-        double deadline = startedAt + VERIFICATION_TIMEOUT_MS;
+        double deadline = startedAt + timeoutMs;
         double nextLogTime = startedAt + LOG_INTERVAL_MS;
-        String latestEvidence = evidence;
+        String latestEvidence = initialEvidence;
+        String lastPositiveEvidence = initialEvidence;
+        int clearPolls = 0;
 
         while (System.currentTimeMillis() < deadline) {
             if (page.isClosed()) {
@@ -82,17 +154,31 @@ public class HumanVerificationHandler {
 
             latestEvidence = verificationEvidence(page);
             if (latestEvidence == null) {
-                log.info("Human verification evidence disappeared. Bot may continue.");
-                return;
+                clearPolls++;
+
+                if (clearPolls >= CLEAR_POLLS_REQUIRED) {
+                    log.info(
+                            "[CAPTCHA] Human verification evidence stayed absent for {} consecutive checks. The bot session may continue.",
+                            CLEAR_POLLS_REQUIRED
+                    );
+                    return;
+                }
+            } else {
+                lastPositiveEvidence = latestEvidence;
+                clearPolls = 0;
             }
 
             double currentTime = System.currentTimeMillis();
             if (currentTime >= nextLogTime) {
                 long elapsedSeconds = Math.round((currentTime - startedAt) / 1_000);
                 log.warn(
-                        "Still waiting for human verification. Elapsed time: {} seconds, evidence={}.",
+                        "Still waiting for human verification. Elapsed time: {} seconds, evidence={}, clearPolls={}/{}.",
                         elapsedSeconds,
-                        latestEvidence
+                        latestEvidence == null
+                                ? "temporarily absent"
+                                : latestEvidence,
+                        clearPolls,
+                        CLEAR_POLLS_REQUIRED
                 );
                 nextLogTime = currentTime + LOG_INTERVAL_MS;
             }
@@ -100,9 +186,9 @@ public class HumanVerificationHandler {
 
         throw new IllegalStateException(
                 "Human verification was not completed within "
-                        + Math.round(VERIFICATION_TIMEOUT_MS / 1_000)
+                        + Math.round(timeoutMs / 1_000.0)
                         + " seconds. Last evidence: "
-                        + latestEvidence
+                        + lastPositiveEvidence
         );
     }
 
@@ -118,6 +204,11 @@ public class HumanVerificationHandler {
         }
 
         try {
+            String containerEvidence = renderedVerificationContainerEvidence(page);
+            if (containerEvidence != null) {
+                return containerEvidence;
+            }
+
             String iframeEvidence = renderedVerificationIframeEvidence(page);
             if (iframeEvidence != null) {
                 return iframeEvidence;
@@ -149,6 +240,19 @@ public class HumanVerificationHandler {
         }
     }
 
+    private String renderedVerificationContainerEvidence(Page page) {
+        Locator containers = page.locator(VERIFICATION_CONTAINER_SELECTOR);
+        int count = containers.count();
+
+        for (int index = 0; index < count; index++) {
+            if (isRendered(containers.nth(index), 50, 30)) {
+                return "rendered DataDome challenge container";
+            }
+        }
+
+        return null;
+    }
+
     private String renderedVerificationIframeEvidence(Page page) {
         Locator iframes = page.locator(VERIFICATION_IFRAME_SELECTOR);
         int count = iframes.count();
@@ -156,25 +260,7 @@ public class HumanVerificationHandler {
         for (int index = 0; index < count; index++) {
             Locator iframe = iframes.nth(index);
             try {
-                if (!iframe.isVisible()) {
-                    continue;
-                }
-
-                Object result = iframe.evaluate(
-                        """
-                        element => {
-                          const rect = element.getBoundingClientRect();
-                          const style = window.getComputedStyle(element);
-                          return rect.width >= 100
-                              && rect.height >= 40
-                              && style.display !== 'none'
-                              && style.visibility !== 'hidden'
-                              && Number(style.opacity || '1') > 0;
-                        }
-                        """
-                );
-
-                if (!(result instanceof Boolean rendered) || !rendered) {
+                if (!isRendered(iframe, 100, 40)) {
                     continue;
                 }
 
@@ -192,12 +278,74 @@ public class HumanVerificationHandler {
         return null;
     }
 
+    private boolean isRendered(
+            Locator locator,
+            int minimumWidth,
+            int minimumHeight
+    ) {
+        try {
+            if (!locator.isVisible()) {
+                return false;
+            }
+
+            Object result = locator.evaluate(
+                    """
+                    (element, dimensions) => {
+                      const rect = element.getBoundingClientRect();
+                      const style = window.getComputedStyle(element);
+                      return rect.width >= dimensions.minimumWidth
+                          && rect.height >= dimensions.minimumHeight
+                          && style.display !== 'none'
+                          && style.visibility !== 'hidden'
+                          && Number(style.opacity || '1') > 0;
+                    }
+                    """,
+                    java.util.Map.of(
+                            "minimumWidth", minimumWidth,
+                            "minimumHeight", minimumHeight
+                    )
+            );
+
+            return result instanceof Boolean rendered && rendered;
+        } catch (PlaywrightException exception) {
+            log.debug(
+                    "Verification element changed while its visibility was being inspected."
+            );
+            return false;
+        }
+    }
+
+    private boolean isHeadlessRuntime(Page page) {
+        try {
+            Object result = page.evaluate(HEADLESS_RUNTIME_EXPRESSION);
+            return result instanceof Boolean headless && headless;
+        } catch (PlaywrightException exception) {
+            log.debug(
+                    "Could not read the FlipBot browser-mode marker while handling human verification. Keeping the current browser open for manual completion."
+            );
+            return false;
+        }
+    }
+
+    private String safePageUrl(Page page) {
+        try {
+            String url = page.url();
+            return url == null ? "" : url;
+        } catch (PlaywrightException exception) {
+            return "";
+        }
+    }
+
     static String matchingStrongText(String text) {
         return matchingText(safeLowerStatic(text), STRONG_VERIFICATION_TEXTS);
     }
 
     static String matchingTitleOnlyText(String text) {
         return matchingText(safeLowerStatic(text), VERIFICATION_TITLE_TEXTS);
+    }
+
+    static String verificationIframeSelector() {
+        return VERIFICATION_IFRAME_SELECTOR;
     }
 
     private static String matchingText(

@@ -4,6 +4,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class HumanVerificationHandlerTextTest {
 
@@ -13,6 +14,13 @@ public class HumanVerificationHandlerTextTest {
                 "verify you are human",
                 HumanVerificationHandler.matchingStrongText(
                         "Please VERIFY YOU ARE HUMAN before continuing"
+                )
+        );
+
+        assertEquals(
+                "przesuń w prawo, aby zabezpieczyć dostęp",
+                HumanVerificationHandler.matchingStrongText(
+                        "Przesuń w prawo, aby zabezpieczyć dostęp"
                 )
         );
     }
@@ -45,5 +53,14 @@ public class HumanVerificationHandlerTextTest {
                         "Security Check"
                 )
         );
+    }
+
+    @Test
+    public void dataDomeChallengeIframesAreIncludedInVisibleDetection() {
+        String selector = HumanVerificationHandler.verificationIframeSelector();
+
+        assertTrue(selector.contains("captcha-delivery.com/captcha"));
+        assertTrue(selector.contains("ddChallengeBody"));
+        assertTrue(selector.contains("Verification system"));
     }
 }
