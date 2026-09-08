@@ -14,30 +14,20 @@ import java.net.URI;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
 
-/**
- * Opens a temporary headed browser so a human can complete a challenge.
- *
- * <p>Only one recovery window is exposed at a time. The caller must first
- * close the failed headless context, which guarantees that bot-X.json is not
- * used concurrently by the invisible and visible browsers.</p>
- */
 @Slf4j
 public class ManualHumanVerificationRecovery {
 
     private static final double NAVIGATION_TIMEOUT_MS = 30_000;
     private static final double CHALLENGE_RENDER_GRACE_MS = 1_000;
-
-    private static final Semaphore VISIBLE_RECOVERY_WINDOW =
-            new Semaphore(1, true);
+    private static final Semaphore VISIBLE_RECOVERY_WINDOW = new Semaphore(1, true);
 
     private final ManualVerificationRuntimeConfig config;
     private final HumanVerificationHandler verificationHandler;
+    private final RemoteManualBrowserSessionRegistry remoteRegistry =
+            RemoteManualBrowserSessionRegistry.getInstance();
 
     public ManualHumanVerificationRecovery() {
-        this(
-                ManualVerificationRuntimeConfig.fromEnvironment(),
-                new HumanVerificationHandler()
-        );
+        this(ManualVerificationRuntimeConfig.fromEnvironment(), new HumanVerificationHandler());
     }
 
     ManualHumanVerificationRecovery(
@@ -45,10 +35,7 @@ public class ManualHumanVerificationRecovery {
             HumanVerificationHandler verificationHandler
     ) {
         this.config = Objects.requireNonNull(config, "Config cannot be null");
-        this.verificationHandler = Objects.requireNonNull(
-                verificationHandler,
-                "Verification handler cannot be null"
-        );
+        this.verificationHandler = Objects.requireNonNull(verificationHandler, "Verification handler cannot be null");
     }
 
     public void recover(
@@ -60,56 +47,46 @@ public class ManualHumanVerificationRecovery {
 
         Long botId = bot.getId();
         if (botId == null || botId <= 0L) {
-            throw new IllegalArgumentException(
-                    "Manual verification requires a bot with a positive ID"
-            );
+            throw new IllegalArgumentException("Manual verification requires a bot with a positive ID");
         }
 
         if (VISIBLE_RECOVERY_WINDOW.availablePermits() == 0) {
-            log.warn(
-                    "[CAPTCHA] Bot {} is waiting because another bot already has the single manual verification window.",
-                    botId
-            );
+            log.warn("[CAPTCHA] Bot {} is waiting because another bot already has the single manual verification window.", botId);
         }
 
         VISIBLE_RECOVERY_WINDOW.acquire();
 
         try {
             String recoveryUrl = recoveryUrl(challenge.challengeUrl());
-
             log.warn(
-                    "[CAPTCHA] Opening a visible browser for bot {} with the same bot-{}.json session. "
-                            + "Complete the challenge manually within {} seconds. url={}, evidence={}",
-                    botId,
-                    botId,
-                    config.timeoutSeconds(),
-                    recoveryUrl,
-                    challenge.evidence()
+                    "[CAPTCHA] Opening a visible browser for bot {} with the same bot-{}.json session. Complete the challenge manually within {} seconds. url={}, evidence={}",
+                    botId, botId, config.timeoutSeconds(), recoveryUrl, challenge.evidence()
             );
 
             try (BrowserManager browserManager = new BrowserManager(false);
                  BotContext context = new BotContext(bot, browserManager)) {
                 Page page = context.getPage();
+                remoteRegistry.open(botId);
 
-                if (requiresInteractiveLoginReplay(recoveryUrl)) {
-                    replayAuthenticationFlow(context, botId, recoveryUrl);
-                } else {
-                    navigateToChallenge(page, recoveryUrl);
-                    page.waitForTimeout(CHALLENGE_RENDER_GRACE_MS);
+                try {
+                    if (requiresInteractiveLoginReplay(recoveryUrl)) {
+                        replayAuthenticationFlow(context, botId, recoveryUrl);
+                    } else {
+                        navigateToChallenge(page, recoveryUrl);
+                        page.waitForTimeout(CHALLENGE_RENDER_GRACE_MS);
+                        remoteRegistry.process(page, botId);
+                        verificationHandler.waitUntilManuallyVerified(page, config.timeoutMillis());
+                    }
 
-                    verificationHandler.waitUntilManuallyVerified(
-                            page,
-                            config.timeoutMillis()
+                    context.saveSession();
+                    log.info(
+                            "[CAPTCHA] Manual verification finished for bot {}. The refreshed state was saved to the same bot-{}.json session.",
+                            botId, botId
                     );
+                } finally {
+                    remoteRegistry.releasePointer(page, botId);
+                    remoteRegistry.close(botId);
                 }
-
-                context.saveSession();
-
-                log.info(
-                        "[CAPTCHA] Manual verification finished for bot {}. The refreshed state was saved to the same bot-{}.json session.",
-                        botId,
-                        botId
-                );
             }
         } finally {
             VISIBLE_RECOVERY_WINDOW.release();
@@ -120,7 +97,6 @@ public class ManualHumanVerificationRecovery {
         if (MarketplaceUrls.isVintedUrl(challengeUrl)) {
             return challengeUrl.trim();
         }
-
         return MarketplaceUrls.HOME;
     }
 
@@ -128,13 +104,11 @@ public class ManualHumanVerificationRecovery {
         if (!MarketplaceUrls.isVintedUrl(recoveryUrl)) {
             return false;
         }
-
         try {
             String path = URI.create(recoveryUrl.trim()).getPath();
             if (path == null) {
                 return false;
             }
-
             return path.equals("/member/login")
                     || path.startsWith("/member/login/")
                     || path.equals("/member/register")
@@ -144,25 +118,15 @@ public class ManualHumanVerificationRecovery {
         }
     }
 
-    private void replayAuthenticationFlow(
-            BotContext context,
-            Long botId,
-            String recoveryUrl
-    ) {
+    private void replayAuthenticationFlow(BotContext context, Long botId, String recoveryUrl) {
         log.warn(
-                "[CAPTCHA] Bot {} challenge originated from Vinted authentication ({}). "
-                        + "Replaying the normal login flow in this visible browser so credential submission can render the CAPTCHA here instead of falsely accepting an empty pre-submit page.",
-                botId,
-                recoveryUrl
+                "[CAPTCHA] Bot {} challenge originated from Vinted authentication ({}). Replaying the normal login flow in this visible browser so credential submission can render the CAPTCHA here.",
+                botId, recoveryUrl
         );
-
         new LoginService(context).login();
     }
 
-    private void navigateToChallenge(
-            Page page,
-            String recoveryUrl
-    ) {
+    private void navigateToChallenge(Page page, String recoveryUrl) {
         try {
             page.navigate(
                     recoveryUrl,
@@ -171,11 +135,9 @@ public class ManualHumanVerificationRecovery {
                             .setTimeout(NAVIGATION_TIMEOUT_MS)
             );
         } catch (PlaywrightException exception) {
-            if (page.isClosed()
-                    || !verificationHandler.isHumanVerificationVisible(page)) {
+            if (page.isClosed() || !verificationHandler.isHumanVerificationVisible(page)) {
                 throw exception;
             }
-
             log.warn(
                     "[CAPTCHA] Navigation did not reach DOMContentLoaded, but the visible challenge is rendered. Keeping the recovery window open for manual completion. url={}",
                     safePageUrl(page)

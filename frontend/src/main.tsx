@@ -8,19 +8,13 @@ import "./styles/commercial-ui-details.css";
 import "./styles/negotiation-response-policies.css";
 import "./styles/price-matrix-edge-fix.css";
 import "./styles/mobile-app.css";
+import "./styles/mobile-captcha.css";
 
 const rootElement = document.getElementById("root");
-
-if (rootElement === null) {
-    throw new Error("Root element was not found");
-}
+if (rootElement === null) throw new Error("Root element was not found");
 
 createRoot(rootElement).render(
-    <StrictMode>
-        <BrowserRouter>
-            <App />
-        </BrowserRouter>
-    </StrictMode>,
+    <StrictMode><BrowserRouter><App /></BrowserRouter></StrictMode>,
 );
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
