@@ -6,9 +6,11 @@ import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
+import java.net.URI;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
 
@@ -89,13 +91,17 @@ public class ManualHumanVerificationRecovery {
                  BotContext context = new BotContext(bot, browserManager)) {
                 Page page = context.getPage();
 
-                navigateToChallenge(page, recoveryUrl);
-                page.waitForTimeout(CHALLENGE_RENDER_GRACE_MS);
+                if (requiresInteractiveLoginReplay(recoveryUrl)) {
+                    replayAuthenticationFlow(context, botId, recoveryUrl);
+                } else {
+                    navigateToChallenge(page, recoveryUrl);
+                    page.waitForTimeout(CHALLENGE_RENDER_GRACE_MS);
 
-                verificationHandler.waitUntilManuallyVerified(
-                        page,
-                        config.timeoutMillis()
-                );
+                    verificationHandler.waitUntilManuallyVerified(
+                            page,
+                            config.timeoutMillis()
+                    );
+                }
 
                 context.saveSession();
 
@@ -116,6 +122,41 @@ public class ManualHumanVerificationRecovery {
         }
 
         return MarketplaceUrls.HOME;
+    }
+
+    static boolean requiresInteractiveLoginReplay(String recoveryUrl) {
+        if (!MarketplaceUrls.isVintedUrl(recoveryUrl)) {
+            return false;
+        }
+
+        try {
+            String path = URI.create(recoveryUrl.trim()).getPath();
+            if (path == null) {
+                return false;
+            }
+
+            return path.equals("/member/login")
+                    || path.startsWith("/member/login/")
+                    || path.equals("/member/register")
+                    || path.startsWith("/member/register/");
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private void replayAuthenticationFlow(
+            BotContext context,
+            Long botId,
+            String recoveryUrl
+    ) {
+        log.warn(
+                "[CAPTCHA] Bot {} challenge originated from Vinted authentication ({}). "
+                        + "Replaying the normal login flow in this visible browser so credential submission can render the CAPTCHA here instead of falsely accepting an empty pre-submit page.",
+                botId,
+                recoveryUrl
+        );
+
+        new LoginService(context).login();
     }
 
     private void navigateToChallenge(
