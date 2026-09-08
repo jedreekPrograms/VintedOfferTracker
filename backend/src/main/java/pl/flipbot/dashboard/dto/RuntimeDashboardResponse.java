@@ -9,6 +9,7 @@ public record RuntimeDashboardResponse(
         long queuedCount,
         long workingCount,
         long cooldownCount,
+        long captchaRequiredCount,
         long errorCount,
         double averageLastRunDurationMs,
         List<RuntimeDashboardBotResponse> bots

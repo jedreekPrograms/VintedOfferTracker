@@ -5,5 +5,6 @@ public enum BotRuntimeStatus {
     QUEUED,
     WORKING,
     COOLDOWN,
+    CAPTCHA_REQUIRED,
     ERROR
 }

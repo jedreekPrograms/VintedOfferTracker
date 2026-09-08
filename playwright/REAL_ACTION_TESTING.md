@@ -182,6 +182,12 @@ FLIPBOT_MANUAL_VERIFICATION_TIMEOUT_SECONDS=600
 
 `FLIPBOT_WORKER_COUNT` is a concurrency cap, not a bot-count limit. You can have 100 RUNNING bots with 10 worker slots; jobs are queued and shared across those slots. Raising it toward 100 can create many simultaneous browser runtimes and should be load-tested gradually.
 
+When a headless job detects CAPTCHA, its first manual window opens immediately.
+If it is not completed within `FLIPBOT_MANUAL_VERIFICATION_TIMEOUT_SECONDS`,
+that bot stays paused in `CAPTCHA_REQUIRED` without automatic browser retries.
+Use `Zaakceptuj CAPTCHA` on the Runtime page to request another visible window;
+it always restores and updates that bot's existing `sessions/bot-X.json` file.
+
 ### Production action throughput
 
 Production mode additionally reads:

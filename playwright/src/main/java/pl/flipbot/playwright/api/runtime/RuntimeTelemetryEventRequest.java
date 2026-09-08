@@ -5,6 +5,7 @@ public record RuntimeTelemetryEventRequest(
         Long nextRunAtEpochMs,
         Long durationMs,
         Integer workerSlot,
-        String errorMessage
+        String errorMessage,
+        String challengeUrl
 ) {
 }

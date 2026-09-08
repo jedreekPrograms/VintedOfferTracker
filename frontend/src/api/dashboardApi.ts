@@ -25,6 +25,7 @@ export type RuntimeStatus =
     | "QUEUED"
     | "WORKING"
     | "COOLDOWN"
+    | "CAPTCHA_REQUIRED"
     | "ERROR";
 
 export interface RuntimeDashboardBot {
@@ -41,6 +42,8 @@ export interface RuntimeDashboardBot {
     workerSlot: number | null;
     sessionBlockedSince: string | null;
     sessionBlockCount: number;
+    captchaRequiredSince: string | null;
+    captchaRecoveryRequestedAt: string | null;
     updatedAt: string | null;
 }
 
@@ -51,6 +54,7 @@ export interface RuntimeDashboardResponse {
     queuedCount: number;
     workingCount: number;
     cooldownCount: number;
+    captchaRequiredCount: number;
     errorCount: number;
     averageLastRunDurationMs: number;
     bots: RuntimeDashboardBot[];
@@ -80,4 +84,16 @@ export async function getRuntimeDashboard(): Promise<RuntimeDashboardResponse> {
     );
 
     return response.json() as Promise<RuntimeDashboardResponse>;
+}
+
+export async function requestCaptchaRecovery(botId: number): Promise<void> {
+    const response = await fetch(
+        `/api/bots/${botId}/runtime/captcha-recovery`,
+        { method: "POST" },
+    );
+
+    await assertApiResponse(
+        response,
+        `Nie udało się otworzyć przeglądarki CAPTCHA dla bota #${botId}. Status HTTP: ${response.status}.`,
+    );
 }

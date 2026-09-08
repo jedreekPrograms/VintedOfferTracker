@@ -7,6 +7,7 @@ import {
 
 import {
     getRuntimeDashboard,
+    requestCaptchaRecovery,
     type RuntimeDashboardBot,
     type RuntimeDashboardResponse,
     type RuntimeStatus,
@@ -21,6 +22,7 @@ const runtimeStatuses: Array<RuntimeStatus | "ALL"> = [
     "WORKING",
     "QUEUED",
     "COOLDOWN",
+    "CAPTCHA_REQUIRED",
     "ERROR",
     "IDLE",
 ];
@@ -39,6 +41,7 @@ function RuntimeDashboardPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
+    const [captchaActionBotId, setCaptchaActionBotId] = useState<number | null>(null);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
         if (showLoading) {
@@ -61,6 +64,23 @@ function RuntimeDashboardPage() {
             }
         }
     }, []);
+
+    const openCaptchaRecovery = useCallback(async (botId: number) => {
+        setCaptchaActionBotId(botId);
+
+        try {
+            await requestCaptchaRecovery(botId);
+            await loadRuntime(false);
+        } catch (error) {
+            setErrorMessage(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się zlecić ręcznego rozwiązania CAPTCHA.",
+            );
+        } finally {
+            setCaptchaActionBotId(null);
+        }
+    }, [loadRuntime]);
 
     useEffect(() => {
         void loadRuntime(true);
@@ -175,6 +195,11 @@ function RuntimeDashboardPage() {
                             description="czasowo wstrzymane"
                         />
                         <RuntimeStat
+                            label="CAPTCHA"
+                            value={data.captchaRequiredCount}
+                            description="czekają na ręczną akceptację"
+                        />
+                        <RuntimeStat
                             label="ERROR"
                             value={data.errorCount}
                             description="ostatni job zakończył się błędem"
@@ -241,6 +266,8 @@ function RuntimeDashboardPage() {
                                             key={bot.botId}
                                             bot={bot}
                                             nowMs={nowMs}
+                                            captchaActionPending={captchaActionBotId === bot.botId}
+                                            onOpenCaptcha={openCaptchaRecovery}
                                         />
                                     ))}
                                 </tbody>
@@ -294,9 +321,13 @@ function RuntimeStat({
 function RuntimeRow({
     bot,
     nowMs,
+    captchaActionPending,
+    onOpenCaptcha,
 }: {
     bot: RuntimeDashboardBot;
     nowMs: number;
+    captchaActionPending: boolean;
+    onOpenCaptcha: (botId: number) => Promise<void>;
 }) {
     const sessionBlocked = bot.sessionBlockedSince !== null;
 
@@ -315,6 +346,8 @@ function RuntimeRow({
                 <RuntimeStateCell
                     bot={bot}
                     nowMs={nowMs}
+                    captchaActionPending={captchaActionPending}
+                    onOpenCaptcha={onOpenCaptcha}
                 />
             </TableCell>
             <TableCell label="Slot">
@@ -356,10 +389,50 @@ function RuntimeRow({
 function RuntimeStateCell({
     bot,
     nowMs,
+    captchaActionPending,
+    onOpenCaptcha,
 }: {
     bot: RuntimeDashboardBot;
     nowMs: number;
+    captchaActionPending: boolean;
+    onOpenCaptcha: (botId: number) => Promise<void>;
 }) {
+    if (bot.captchaRequiredSince !== null) {
+        const recoveryRequested =
+            bot.captchaRecoveryRequestedAt !== null;
+
+        return (
+            <div className="runtime-captcha-state">
+                <RuntimeBadge
+                    status={bot.runtimeStatus}
+                    label="CAPTCHA REQUIRED"
+                />
+                <div className="runtime-cell-secondary">
+                    Wstrzymany od {formatElapsedDuration(bot.captchaRequiredSince, nowMs)}
+                </div>
+                <button
+                    className="runtime-captcha-button"
+                    type="button"
+                    disabled={captchaActionPending || recoveryRequested}
+                    onClick={() => {
+                        void onOpenCaptcha(bot.botId);
+                    }}
+                >
+                    {captchaActionPending
+                        ? "Wysyłanie..."
+                        : recoveryRequested
+                            ? bot.runtimeStatus === "WORKING"
+                                ? "Obsługa CAPTCHA trwa..."
+                                : "Otwieranie przeglądarki..."
+                            : "Zaakceptuj CAPTCHA"}
+                </button>
+                <div className="runtime-captcha-help">
+                    Bez kliknięcia bot nie otworzy kolejnej przeglądarki.
+                </div>
+            </div>
+        );
+    }
+
     if (bot.sessionBlockedSince !== null) {
         return (
             <div>
