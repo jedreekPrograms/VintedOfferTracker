@@ -23,6 +23,7 @@ interface NavigationItem {
 type NavigationIcon =
     | "dashboard"
     | "runtime"
+    | "captcha"
     | "bots"
     | "create"
     | "offers"
@@ -46,6 +47,12 @@ const navigationItems: NavigationItem[] = [
         mobilePrimary: true,
     },
     {
+        label: "CAPTCHA",
+        path: "/captcha",
+        icon: "captcha",
+        mobilePrimary: true,
+    },
+    {
         label: "Boty",
         path: "/bots",
         icon: "bots",
@@ -62,7 +69,6 @@ const navigationItems: NavigationItem[] = [
         shortLabel: "Oferty",
         path: "/action-required",
         icon: "offers",
-        mobilePrimary: true,
     },
     {
         label: "Historia",
@@ -276,6 +282,15 @@ function NavIcon({ name }: { name: NavigationIcon }) {
         return (
             <svg {...common} className="navigation-icon-svg">
                 <path d="M4 13h3l2-7 4 13 2-6h5" />
+            </svg>
+        );
+    }
+
+    if (name === "captcha") {
+        return (
+            <svg {...common} className="navigation-icon-svg">
+                <path d="M12 3 5 6v5c0 4.7 2.8 8.3 7 10 4.2-1.7 7-5.3 7-10V6z" />
+                <path d="m9 12 2 2 4-5" />
             </svg>
         );
     }
