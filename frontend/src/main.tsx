@@ -9,6 +9,7 @@ import "./styles/commercial-ui-details.css";
 import "./styles/negotiation-response-policies.css";
 import "./styles/price-matrix-edge-fix.css";
 import "./styles/mobile-app.css";
+import "./styles/captcha-mobile.css";
 
 const rootElement = document.getElementById("root");
 
