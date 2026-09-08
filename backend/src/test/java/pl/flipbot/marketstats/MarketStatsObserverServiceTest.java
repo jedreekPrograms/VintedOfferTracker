@@ -1,6 +1,7 @@
 package pl.flipbot.marketstats;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
@@ -10,7 +11,6 @@ import pl.flipbot.marketstats.dto.MarketStatsObserverResponse;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -26,8 +26,8 @@ class MarketStatsObserverServiceTest {
         Bot legacyObserver = Bot.builder()
                 .id(77L)
                 .name("Legacy observer")
-                .email("legacy-observer@example.com")
-                .password("legacy-secret")
+                .email("legacy@example.invalid")
+                .password("placeholder")
                 .status(BotStatus.RUNNING)
                 .marketStatsObserver(true)
                 .build();
@@ -37,9 +37,7 @@ class MarketStatsObserverServiceTest {
         when(repository.save(any(Bot.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        MarketStatsObserverService service =
-                new MarketStatsObserverService(repository);
-
+        MarketStatsObserverService service = new MarketStatsObserverService(repository);
         MarketStatsObserverPlaywrightResponse response = service
                 .getObserverForPlaywright()
                 .orElseThrow();
@@ -48,7 +46,6 @@ class MarketStatsObserverServiceTest {
         assertEquals("Anonymous Market Observer", response.name());
         assertNull(response.email());
         assertNull(response.password());
-
         assertEquals("Anonymous Market Observer", legacyObserver.getName());
         assertNull(legacyObserver.getEmail());
         assertNull(legacyObserver.getPassword());
@@ -70,19 +67,20 @@ class MarketStatsObserverServiceTest {
                     return observer;
                 });
 
-        MarketStatsObserverService service =
-                new MarketStatsObserverService(repository);
-
-        MarketStatsObserverResponse response = service
-                .getObserver()
-                .orElseThrow();
+        MarketStatsObserverService service = new MarketStatsObserverService(repository);
+        MarketStatsObserverResponse response = service.getObserver().orElseThrow();
 
         assertEquals(91L, response.id());
         assertEquals("Anonymous Market Observer", response.name());
         assertNull(response.email());
 
-        Bot saved = org.mockito.ArgumentCaptor
-                .forClass(Bot.class)
-                .getValue();
+        ArgumentCaptor<Bot> observerCaptor = ArgumentCaptor.forClass(Bot.class);
+        verify(repository).save(observerCaptor.capture());
+        Bot savedObserver = observerCaptor.getValue();
+        assertEquals("Anonymous Market Observer", savedObserver.getName());
+        assertNull(savedObserver.getEmail());
+        assertNull(savedObserver.getPassword());
+        assertEquals(BotStatus.STOPPED, savedObserver.getStatus());
+        assertTrue(savedObserver.getMarketStatsObserver());
     }
 }
