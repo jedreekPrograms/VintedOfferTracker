@@ -8,6 +8,8 @@ import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.target.VintedRateLimitException;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
+import pl.flipbot.playwright.verification.HumanVerificationRequiredException;
+import pl.flipbot.playwright.verification.ManualHumanVerificationRecovery;
 
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +25,8 @@ public class BotWorkerSlot implements Runnable {
     private final RuntimeTelemetryReporter telemetryReporter;
 
     private final BotApiClient botApiClient = new BotApiClient();
+    private final ManualHumanVerificationRecovery manualVerificationRecovery =
+            new ManualHumanVerificationRecovery();
 
     public BotWorkerSlot(
             int slotNumber,
@@ -88,20 +92,30 @@ public class BotWorkerSlot implements Runnable {
                             scheduler.workingCount()
                     );
 
-                    log.info(
-                            "[BROWSER LIFECYCLE] Slot {} launching a fresh Playwright browser for bot {} / {}. The bot-specific stored session will be restored by BotContext and the browser will be closed when this job finishes.",
-                            slotNumber,
-                            botId,
-                            jobType
-                    );
+                    BotDetailsDto bot = botApiClient.getBot(botId);
 
-                    try (BrowserManager browserManager =
-                                 new BrowserManager(config.schedulerHeadless())) {
-                        BotDetailsDto bot = botApiClient.getBot(botId);
-                        ScheduledBotRunExecutor runExecutor =
-                                new ScheduledBotRunExecutor(bot, browserManager);
+                    try {
+                        executeJobInConfiguredBrowser(bot, jobType, false);
+                    } catch (HumanVerificationRequiredException challenge) {
+                        manualVerificationRecovery.recover(bot, challenge);
 
-                        runExecutor.executeJob(jobType);
+                        log.info(
+                                "[CAPTCHA] Restarting {} for bot {} in the configured headless browser after manual verification. The same refreshed bot-{}.json session will be restored.",
+                                jobType,
+                                botId,
+                                botId
+                        );
+
+                        try {
+                            executeJobInConfiguredBrowser(bot, jobType, true);
+                        } catch (HumanVerificationRequiredException repeatedChallenge) {
+                            throw new IllegalStateException(
+                                    "Human verification reappeared immediately after manual completion for bot "
+                                            + botId
+                                            + ". The job will use the normal failure retry instead of opening repeated windows.",
+                                    repeatedChallenge
+                            );
+                        }
                     }
 
                     long durationMs = elapsedMillis(startedAtNanos);
@@ -258,6 +272,30 @@ public class BotWorkerSlot implements Runnable {
 
         } finally {
             log.info("[SLOT {}] Worker slot stopped.", slotNumber);
+        }
+    }
+
+    private void executeJobInConfiguredBrowser(
+            BotDetailsDto bot,
+            ScheduledJobType jobType,
+            boolean postVerificationRetry
+    ) {
+        log.info(
+                "[BROWSER LIFECYCLE] Slot {} launching a fresh Playwright browser for bot {} / {}. "
+                        + "The bot-specific stored session will be restored by BotContext and the browser will be closed when this job finishes. headless={}, postVerificationRetry={}.",
+                slotNumber,
+                bot.getId(),
+                jobType,
+                config.schedulerHeadless(),
+                postVerificationRetry
+        );
+
+        try (BrowserManager browserManager =
+                     new BrowserManager(config.schedulerHeadless())) {
+            ScheduledBotRunExecutor runExecutor =
+                    new ScheduledBotRunExecutor(bot, browserManager);
+
+            runExecutor.executeJob(jobType);
         }
     }
 

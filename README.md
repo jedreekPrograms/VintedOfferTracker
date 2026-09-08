@@ -484,9 +484,16 @@ FLIPBOT_FAILURE_RETRY_SECONDS
 FLIPBOT_RATE_LIMIT_RETRY_SECONDS
 FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS
 FLIPBOT_SCHEDULER_HEADLESS
+FLIPBOT_MANUAL_VERIFICATION_TIMEOUT_SECONDS
 ```
 
 Defaults are intentionally conservative and validated against allowed ranges at startup.
+When a visible CAPTCHA is detected during a headless bot job, only that bot's
+context is closed and reopened in a headed browser with the same
+`sessions/bot-X.json` state. The job resumes in headless mode after manual
+completion. Recovery windows are serialized so multiple bots cannot open a
+wall of CAPTCHA windows. The manual timeout defaults to 600 seconds and accepts
+values from 30 to 3600 seconds.
 
 ---
 

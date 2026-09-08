@@ -17,6 +17,7 @@ import pl.flipbot.playwright.probe.SandboxCloneLoginService;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
 import pl.flipbot.playwright.target.VintedSessionFailureClassifier;
+import pl.flipbot.playwright.verification.HumanVerificationRequiredException;
 
 @Slf4j
 public class ScheduledBotRunExecutor {
@@ -65,6 +66,7 @@ public class ScheduledBotRunExecutor {
         Long botId = bot.getId();
         BotContext context = new BotContext(bot, browserManager);
         boolean loginReady = false;
+        boolean verificationStateMustBeSaved = false;
 
         try {
             if (jobType == ScheduledJobType.PRICE_PROBE) {
@@ -205,6 +207,9 @@ public class ScheduledBotRunExecutor {
                 }
             }
 
+        } catch (HumanVerificationRequiredException exception) {
+            verificationStateMustBeSaved = true;
+            throw exception;
         } catch (VintedSessionBlockedException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -248,7 +253,7 @@ public class ScheduledBotRunExecutor {
 
             throw exception;
         } finally {
-            if (loginReady) {
+            if (loginReady || verificationStateMustBeSaved) {
                 try {
                     context.saveSession();
                 } catch (Exception exception) {

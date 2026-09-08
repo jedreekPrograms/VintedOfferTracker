@@ -10,6 +10,9 @@ import java.nio.file.Path;
 @Slf4j
 public class BrowserManager implements AutoCloseable {
 
+    private static final String RUNTIME_MODE_FLAG =
+            "__flipbotBrowserHeadless";
+
     private final long ownerThreadId;
     private final String ownerThreadName;
     private final Playwright playwright;
@@ -68,6 +71,7 @@ public class BrowserManager implements AutoCloseable {
         }
 
         BrowserContext context = browser.newContext(options);
+        context.addInitScript(browserRuntimeModeScript(headless));
         context.addInitScript(VintedInformationalDialogGuard.script());
         context.addInitScript(OneTrustConsentGuard.script());
 
@@ -76,6 +80,14 @@ public class BrowserManager implements AutoCloseable {
         );
 
         return context;
+    }
+
+    static String browserRuntimeModeScript(boolean headless) {
+        return "Object.defineProperty(globalThis, '"
+                + RUNTIME_MODE_FLAG
+                + "', { value: "
+                + headless
+                + ", writable: false, configurable: false });";
     }
 
     @Override

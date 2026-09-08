@@ -177,6 +177,7 @@ FLIPBOT_FAILURE_RETRY_SECONDS=60
 FLIPBOT_RATE_LIMIT_RETRY_SECONDS=600
 FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS=30
 FLIPBOT_SCHEDULER_HEADLESS=true
+FLIPBOT_MANUAL_VERIFICATION_TIMEOUT_SECONDS=600
 ```
 
 `FLIPBOT_WORKER_COUNT` is a concurrency cap, not a bot-count limit. You can have 100 RUNNING bots with 10 worker slots; jobs are queued and shared across those slots. Raising it toward 100 can create many simultaneous browser runtimes and should be load-tested gradually.
