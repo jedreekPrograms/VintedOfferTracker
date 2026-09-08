@@ -8,3 +8,5 @@
 # Environment variables
 /frontend/.env
 /frontend/.env.*
+/mobile/.env
+/mobile/.env.*
