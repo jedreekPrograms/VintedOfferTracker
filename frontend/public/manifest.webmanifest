@@ -1,0 +1,19 @@
+{
+  "name": "FlipBot Mobile",
+  "short_name": "FlipBot",
+  "description": "Mobilny panel zarządzania FlipBotem działającym na komputerze.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f4f6fa",
+  "theme_color": "#172033",
+  "icons": [
+    {
+      "src": "/flipbot-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
