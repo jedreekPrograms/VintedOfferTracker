@@ -107,8 +107,7 @@ public class BotWorkerSlot implements Runnable {
                             manualVerificationRecovery.recover(bot, challenge);
                         } catch (InterruptedException exception) {
                             throw exception;
-                        } catch (VintedSessionBlockedException
-                                 | VintedRateLimitException exception) {
+                        } catch (VintedRateLimitException exception) {
                             throw exception;
                         } catch (Exception exception) {
                             throw new CaptchaPauseException(
