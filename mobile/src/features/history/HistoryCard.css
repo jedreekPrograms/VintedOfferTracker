@@ -1,0 +1,180 @@
+.history-card-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.history-card-badges {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+.history-outcome-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 3px 8px;
+    border: 1px solid #cfd8e6;
+    border-radius: 999px;
+    background: #f7f9fc;
+    color: #445169;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.history-outcome-filter-section {
+    margin-top: 12px;
+}
+
+.history-outcome-filter-title {
+    display: block;
+    margin-bottom: 7px;
+    color: #7c8594;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.history-outcome-filters {
+    flex-wrap: wrap;
+}
+
+.history-outcome-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #edf0f4;
+}
+
+.history-outcome-editor > label {
+    color: #5f6878;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.history-outcome-editor-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.history-outcome-editor select {
+    min-width: min(280px, 100%);
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid #dfe4eb;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #263142;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.history-outcome-editor select:focus {
+    border-color: #7fc9b1;
+    outline: 0;
+    box-shadow: 0 0 0 3px rgba(49, 157, 122, 0.1);
+}
+
+.history-outcome-editor select:disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
+.history-outcome-editor small {
+    color: #8a93a2;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.history-price-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 4px;
+}
+
+.history-price-input-wrap {
+    display: flex;
+    align-items: center;
+    width: min(170px, 100%);
+    border: 1px solid #dfe4eb;
+    border-radius: 9px;
+    background: #ffffff;
+    overflow: hidden;
+}
+
+.history-price-input-wrap:focus-within {
+    border-color: #7fc9b1;
+    box-shadow: 0 0 0 3px rgba(49, 157, 122, 0.1);
+}
+
+.history-price-input-wrap input {
+    min-width: 0;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #1e7b5d;
+    font: inherit;
+    font-weight: 750;
+}
+
+.history-price-input-wrap span {
+    padding-right: 10px;
+    color: #7c8594;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: none;
+}
+
+.history-price-editor-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.history-compact-button {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 11px;
+}
+
+.history-remove-button {
+    min-height: 38px;
+    padding: 0 13px;
+    border: 1px solid #efc7c7;
+    border-radius: 9px;
+    background: #fff7f7;
+    color: #b34545;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.history-remove-button:hover:not(:disabled) {
+    border-color: #df9f9f;
+    background: #fff0f0;
+}
+
+.history-remove-button:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.history-action-error {
+    margin-top: 14px;
+    padding: 9px 11px;
+    border: 1px solid #f0cccc;
+    border-radius: 9px;
+    background: #fff6f6;
+    color: #a93f3f;
+    font-size: 12px;
+}
