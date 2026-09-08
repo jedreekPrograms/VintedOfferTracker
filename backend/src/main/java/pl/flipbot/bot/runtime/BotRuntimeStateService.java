@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
+import pl.flipbot.bot.BotStatus;
 import pl.flipbot.bot.runtime.dto.BotRuntimeEventRequest;
 import pl.flipbot.bot.runtime.dto.BotRuntimeStateResponse;
 import pl.flipbot.exception.BotNotFoundException;
@@ -17,6 +18,7 @@ import java.time.Instant;
 public class BotRuntimeStateService {
 
     private static final int MAX_ERROR_LENGTH = 4_000;
+    private static final int MAX_CHALLENGE_URL_LENGTH = 2_000;
 
     private final BotRepository botRepository;
     private final BotRuntimeStateRepository runtimeStateRepository;
@@ -48,10 +50,53 @@ public class BotRuntimeStateService {
             case RUN_FAILED -> applyRunFailed(state, request, now);
             case RATE_LIMITED -> applyRateLimited(state, request, now);
             case SESSION_BLOCKED -> applySessionBlocked(state, request, now);
+            case CAPTCHA_REQUIRED -> applyCaptchaRequired(state, request, now);
+            case CAPTCHA_RECOVERY_STARTED -> applyCaptchaRecoveryStarted(
+                    state,
+                    request,
+                    now
+            );
+            case CAPTCHA_RECOVERY_SUCCEEDED -> applyCaptchaRecoverySucceeded(
+                    state,
+                    request,
+                    now
+            );
             case IDLE -> applyIdle(state);
         }
 
         state.setUpdatedAt(now);
+        return toResponse(runtimeStateRepository.save(state));
+    }
+
+    @Transactional
+    public BotRuntimeStateResponse requestCaptchaRecovery(Long botId) {
+        BotRuntimeState state = getOrCreateState(botId);
+        Instant now = Instant.now();
+
+        if (state.getCaptchaRequiredSince() == null) {
+            throw new IllegalStateException(
+                    "Bot does not currently require manual CAPTCHA verification."
+            );
+        }
+
+        Bot bot = botRepository.findById(botId)
+                .orElseThrow(() -> new BotNotFoundException(botId));
+
+        if (bot.getStatus() != BotStatus.RUNNING) {
+            throw new IllegalStateException(
+                    "Start the bot before requesting manual CAPTCHA verification."
+            );
+        }
+
+        if (state.getCaptchaRecoveryRequestedAt() == null) {
+            state.setCaptchaRecoveryRequestedAt(now);
+        }
+
+        state.setRuntimeStatus(BotRuntimeStatus.CAPTCHA_REQUIRED);
+        state.setNextRunAt(null);
+        state.setWorkerSlot(null);
+        state.setUpdatedAt(now);
+
         return toResponse(runtimeStateRepository.save(state));
     }
 
@@ -98,6 +143,13 @@ public class BotRuntimeStateService {
             return;
         }
 
+        if (state.getCaptchaRequiredSince() != null) {
+            state.setRuntimeStatus(BotRuntimeStatus.CAPTCHA_REQUIRED);
+            state.setNextRunAt(null);
+            state.setWorkerSlot(null);
+            return;
+        }
+
         state.setRuntimeStatus(BotRuntimeStatus.QUEUED);
         state.setNextRunAt(requestedNextRunAt);
         state.setWorkerSlot(null);
@@ -134,6 +186,7 @@ public class BotRuntimeStateService {
         state.setLastError(null);
         state.setWorkerSlot(null);
         clearSessionBlockEpisode(state);
+        clearCaptchaEpisode(state);
     }
 
     private void applyRunFailed(
@@ -191,6 +244,65 @@ public class BotRuntimeStateService {
         state.setConsecutiveFailures(0);
         state.setLastError(normalizeError(request.getErrorMessage()));
         state.setWorkerSlot(null);
+        clearCaptchaEpisode(state);
+    }
+
+    private void applyCaptchaRequired(
+            BotRuntimeState state,
+            BotRuntimeEventRequest request,
+            Instant now
+    ) {
+        if (state.getCaptchaRequiredSince() == null) {
+            state.setCaptchaRequiredSince(now);
+        }
+
+        String challengeUrl = normalizeChallengeUrl(request.getChallengeUrl());
+        if (challengeUrl != null) {
+            state.setCaptchaChallengeUrl(challengeUrl);
+        }
+
+        state.setRuntimeStatus(BotRuntimeStatus.CAPTCHA_REQUIRED);
+        state.setLastRunFinishedAt(now);
+        state.setLastRunDurationMs(safeDuration(request.getDurationMs()));
+        state.setNextRunAt(null);
+        state.setConsecutiveFailures(0);
+        state.setLastError(normalizeError(request.getErrorMessage()));
+        state.setWorkerSlot(null);
+        state.setCaptchaRecoveryRequestedAt(null);
+        clearSessionBlockEpisode(state);
+    }
+
+    private void applyCaptchaRecoveryStarted(
+            BotRuntimeState state,
+            BotRuntimeEventRequest request,
+            Instant now
+    ) {
+        if (state.getCaptchaRequiredSince() == null) {
+            throw new IllegalStateException(
+                    "Cannot start CAPTCHA recovery when no CAPTCHA is required."
+            );
+        }
+
+        state.setRuntimeStatus(BotRuntimeStatus.WORKING);
+        state.setLastRunStartedAt(now);
+        state.setNextRunAt(null);
+        state.setWorkerSlot(request.getWorkerSlot());
+    }
+
+    private void applyCaptchaRecoverySucceeded(
+            BotRuntimeState state,
+            BotRuntimeEventRequest request,
+            Instant now
+    ) {
+        state.setRuntimeStatus(BotRuntimeStatus.IDLE);
+        state.setLastRunFinishedAt(now);
+        state.setLastRunDurationMs(safeDuration(request.getDurationMs()));
+        state.setNextRunAt(null);
+        state.setConsecutiveFailures(0);
+        state.setLastError(null);
+        state.setWorkerSlot(null);
+        clearSessionBlockEpisode(state);
+        clearCaptchaEpisode(state);
     }
 
     private void applyIdle(BotRuntimeState state) {
@@ -199,11 +311,18 @@ public class BotRuntimeStateService {
         state.setWorkerSlot(null);
         state.setLastError(null);
         clearSessionBlockEpisode(state);
+        clearCaptchaEpisode(state);
     }
 
     private void clearSessionBlockEpisode(BotRuntimeState state) {
         state.setSessionBlockedSince(null);
         state.setSessionBlockCount(0);
+    }
+
+    private void clearCaptchaEpisode(BotRuntimeState state) {
+        state.setCaptchaRequiredSince(null);
+        state.setCaptchaRecoveryRequestedAt(null);
+        state.setCaptchaChallengeUrl(null);
     }
 
     private Long safeDuration(Long durationMs) {
@@ -232,6 +351,19 @@ public class BotRuntimeStateService {
         return normalized.substring(0, MAX_ERROR_LENGTH);
     }
 
+    private String normalizeChallengeUrl(String challengeUrl) {
+        if (challengeUrl == null || challengeUrl.isBlank()) {
+            return null;
+        }
+
+        String normalized = challengeUrl.trim();
+        if (normalized.length() <= MAX_CHALLENGE_URL_LENGTH) {
+            return normalized;
+        }
+
+        return normalized.substring(0, MAX_CHALLENGE_URL_LENGTH);
+    }
+
     private BotRuntimeStateResponse toResponse(BotRuntimeState state) {
         return BotRuntimeStateResponse.builder()
                 .botId(state.getBotId())
@@ -245,6 +377,11 @@ public class BotRuntimeStateService {
                 .workerSlot(state.getWorkerSlot())
                 .sessionBlockedSince(state.getSessionBlockedSince())
                 .sessionBlockCount(state.getSessionBlockCount())
+                .captchaRequiredSince(state.getCaptchaRequiredSince())
+                .captchaRecoveryRequestedAt(
+                        state.getCaptchaRecoveryRequestedAt()
+                )
+                .captchaChallengeUrl(state.getCaptchaChallengeUrl())
                 .updatedAt(state.getUpdatedAt())
                 .build();
     }

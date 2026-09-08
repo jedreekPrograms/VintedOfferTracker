@@ -55,6 +55,11 @@ public class BotWorkerSlot implements Runnable {
                 Long botId = task.botId();
                 ScheduledJobType jobType = task.jobType();
 
+                if (jobType == ScheduledJobType.CAPTCHA_RECOVERY) {
+                    executeRequestedCaptchaRecovery(botId);
+                    continue;
+                }
+
                 Long persistedBlockDelayMillis = persistedSessionBlockDelay(botId);
                 if (persistedBlockDelayMillis != null && persistedBlockDelayMillis > 0L) {
                     log.warn(
@@ -78,6 +83,7 @@ public class BotWorkerSlot implements Runnable {
 
                 boolean delayAllJobs = false;
                 boolean reportQueuedAfterRun = true;
+                boolean captchaPaused = false;
                 long startedAtNanos = System.nanoTime();
 
                 telemetryReporter.runStarted(botId, slotNumber);
@@ -97,7 +103,19 @@ public class BotWorkerSlot implements Runnable {
                     try {
                         executeJobInConfiguredBrowser(bot, jobType, false);
                     } catch (HumanVerificationRequiredException challenge) {
-                        manualVerificationRecovery.recover(bot, challenge);
+                        try {
+                            manualVerificationRecovery.recover(bot, challenge);
+                        } catch (InterruptedException exception) {
+                            throw exception;
+                        } catch (VintedSessionBlockedException
+                                 | VintedRateLimitException exception) {
+                            throw exception;
+                        } catch (Exception exception) {
+                            throw new CaptchaPauseException(
+                                    challenge,
+                                    exception
+                            );
+                        }
 
                         log.info(
                                 "[CAPTCHA] Restarting {} for bot {} in the configured headless browser after manual verification. The same refreshed bot-{}.json session will be restored.",
@@ -109,11 +127,11 @@ public class BotWorkerSlot implements Runnable {
                         try {
                             executeJobInConfiguredBrowser(bot, jobType, true);
                         } catch (HumanVerificationRequiredException repeatedChallenge) {
-                            throw new IllegalStateException(
-                                    "Human verification reappeared immediately after manual completion for bot "
-                                            + botId
-                                            + ". The job will use the normal failure retry instead of opening repeated windows.",
-                                    repeatedChallenge
+                            throw new CaptchaPauseException(
+                                    repeatedChallenge,
+                                    new IllegalStateException(
+                                            "Human verification reappeared immediately after manual completion."
+                                    )
                             );
                         }
                     }
@@ -130,6 +148,29 @@ public class BotWorkerSlot implements Runnable {
                             jobType,
                             config.normalDelaySeconds(jobType)
                     );
+
+                } catch (CaptchaPauseException exception) {
+                    captchaPaused = true;
+                    persistCaptchaPause(
+                            botId,
+                            elapsedMillis(startedAtNanos),
+                            exception.challenge(),
+                            exception.reason()
+                    );
+
+                    log.warn(
+                            "[CAPTCHA] Bot {} is paused after the initial visible window was not completed. No scheduled job or browser will retry automatically. Use 'Zaakceptuj CAPTCHA' in Runtime when someone is at the computer.",
+                            botId
+                    );
+                    log.debug(
+                            "[CAPTCHA] Full pause reason for bot {} during {}.",
+                            botId,
+                            jobType,
+                            exception
+                    );
+
+                } catch (InterruptedException exception) {
+                    throw exception;
 
                 } catch (VintedSessionBlockedException exception) {
                     delayAllJobs = true;
@@ -244,13 +285,15 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                 } finally {
-                    scheduler.completeRun(
-                            botId,
-                            jobType,
-                            nextDelayMillis,
-                            delayAllJobs,
-                            reportQueuedAfterRun
-                    );
+                    if (!captchaPaused) {
+                        scheduler.completeRun(
+                                botId,
+                                jobType,
+                                nextDelayMillis,
+                                delayAllJobs,
+                                reportQueuedAfterRun
+                        );
+                    }
                 }
             }
 
@@ -273,6 +316,127 @@ public class BotWorkerSlot implements Runnable {
         } finally {
             log.info("[SLOT {}] Worker slot stopped.", slotNumber);
         }
+    }
+
+    private void executeRequestedCaptchaRecovery(Long botId)
+            throws InterruptedException {
+        long startedAtNanos = System.nanoTime();
+        String challengeUrl = null;
+
+        try {
+            RuntimeTelemetryStateResponse state =
+                    telemetryReporter.currentState(botId);
+            challengeUrl = state == null
+                    ? null
+                    : state.captchaChallengeUrl();
+
+            telemetryReporter.captchaRecoveryStarted(botId, slotNumber);
+
+            BotDetailsDto bot = botApiClient.getBot(botId);
+            HumanVerificationRequiredException challenge =
+                    new HumanVerificationRequiredException(
+                            challengeUrl,
+                            "manual recovery requested from Runtime"
+                    );
+
+            log.warn(
+                    "[CAPTCHA] Runtime recovery requested for bot {}. Opening the single visible recovery window with the same bot-{}.json session.",
+                    botId,
+                    botId
+            );
+
+            manualVerificationRecovery.recover(bot, challenge);
+
+            long durationMs = elapsedMillis(startedAtNanos);
+            telemetryReporter.captchaRecoverySucceeded(botId, durationMs);
+            scheduler.completeCaptchaRecovery(botId, true);
+
+            log.info(
+                    "[CAPTCHA] Bot {} passed manual verification in {} ms. Normal scheduled jobs are enabled again.",
+                    botId,
+                    durationMs
+            );
+        } catch (InterruptedException exception) {
+            scheduler.completeCaptchaRecovery(botId, false);
+            throw exception;
+        } catch (VintedSessionBlockedException exception) {
+            try {
+                RuntimeTelemetryReporter.SessionBlockCooldown cooldown =
+                        telemetryReporter.sessionBlocked(
+                                botId,
+                                elapsedMillis(startedAtNanos),
+                                errorMessage(exception)
+                        );
+                scheduler.completeCaptchaRecovery(botId, true);
+
+                log.warn(
+                        "[SESSION BLOCK] Manual CAPTCHA recovery for bot {} reached a Vinted session block instead. CAPTCHA pause was cleared and all normal jobs will respect cooldown attempt #{} until {}.",
+                        botId,
+                        cooldown.attemptNumber(),
+                        cooldown.nextRunAtEpochMs()
+                );
+            } catch (Exception telemetryException) {
+                HumanVerificationRequiredException challenge =
+                        new HumanVerificationRequiredException(
+                                challengeUrl,
+                                "manual recovery reached a session block"
+                        );
+                persistCaptchaPause(
+                        botId,
+                        elapsedMillis(startedAtNanos),
+                        challenge,
+                        telemetryException
+                );
+            }
+        } catch (Exception exception) {
+            HumanVerificationRequiredException challenge =
+                    new HumanVerificationRequiredException(
+                            challengeUrl,
+                            "manual recovery requested from Runtime"
+                    );
+
+            persistCaptchaPause(
+                    botId,
+                    elapsedMillis(startedAtNanos),
+                    challenge,
+                    exception
+            );
+
+            log.warn(
+                    "[CAPTCHA] Manual recovery for bot {} was not completed. The visible browser is closed and the bot remains paused until the Runtime button is clicked again. reason={}",
+                    botId,
+                    errorMessage(exception)
+            );
+            log.debug(
+                    "[CAPTCHA] Full requested-recovery failure for bot {}.",
+                    botId,
+                    exception
+            );
+        }
+    }
+
+    private void persistCaptchaPause(
+            Long botId,
+            long durationMs,
+            HumanVerificationRequiredException challenge,
+            Exception reason
+    ) {
+        try {
+            telemetryReporter.captchaRequired(
+                    botId,
+                    durationMs,
+                    errorMessage(reason),
+                    challenge.challengeUrl()
+            );
+        } catch (Exception telemetryException) {
+            log.error(
+                    "[CAPTCHA] Could not persist CAPTCHA_REQUIRED for bot {}. The in-memory scheduler still pauses it for this process. reason={}",
+                    botId,
+                    errorMessage(telemetryException)
+            );
+        }
+
+        scheduler.pauseForCaptcha(botId);
     }
 
     private void executeJobInConfiguredBrowser(
@@ -341,5 +505,28 @@ public class BotWorkerSlot implements Runnable {
                 .trim();
 
         return exception.getClass().getSimpleName() + ": " + firstLine;
+    }
+
+    private static final class CaptchaPauseException extends RuntimeException {
+
+        private final HumanVerificationRequiredException challenge;
+        private final Exception reason;
+
+        private CaptchaPauseException(
+                HumanVerificationRequiredException challenge,
+                Exception cause
+        ) {
+            super(cause);
+            this.challenge = challenge;
+            this.reason = cause;
+        }
+
+        private HumanVerificationRequiredException challenge() {
+            return challenge;
+        }
+
+        private Exception reason() {
+            return reason;
+        }
     }
 }

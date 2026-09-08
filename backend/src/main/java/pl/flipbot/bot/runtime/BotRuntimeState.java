@@ -55,6 +55,15 @@ public class BotRuntimeState {
     @Column(name = "session_block_count", nullable = false)
     private int sessionBlockCount;
 
+    @Column(name = "captcha_required_since")
+    private Instant captchaRequiredSince;
+
+    @Column(name = "captcha_recovery_requested_at")
+    private Instant captchaRecoveryRequestedAt;
+
+    @Column(name = "captcha_challenge_url", columnDefinition = "text")
+    private String captchaChallengeUrl;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 }

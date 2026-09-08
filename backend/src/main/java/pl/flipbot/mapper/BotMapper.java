@@ -56,6 +56,8 @@ public class BotMapper {
         return RunningBotResponse.builder()
                 .id(bot.getId())
                 .hasActiveNegotiations(hasActiveNegotiations)
+                .captchaRequired(false)
+                .captchaRecoveryRequested(false)
                 .build();
     }
 }

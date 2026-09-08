@@ -204,6 +204,9 @@ public class ScheduledBotRunExecutor {
                     case PRICE_PROBE -> throw new IllegalStateException(
                             "PRICE_PROBE must use the isolated probe execution path."
                     );
+                    case CAPTCHA_RECOVERY -> throw new IllegalStateException(
+                            "CAPTCHA_RECOVERY must use the manual recovery execution path."
+                    );
                 }
             }
 

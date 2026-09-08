@@ -92,6 +92,9 @@ public record WorkerRuntimeConfig(
             case NEGOTIATION_CHECK -> negotiationCheckIntervalSeconds;
             case CATALOG_SCAN -> catalogScanIntervalSeconds;
             case PRICE_PROBE -> priceProbeIntervalSeconds;
+            case CAPTCHA_RECOVERY -> throw new IllegalArgumentException(
+                    "CAPTCHA_RECOVERY has no automatic interval."
+            );
         };
     }
 

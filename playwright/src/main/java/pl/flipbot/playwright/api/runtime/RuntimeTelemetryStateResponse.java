@@ -6,6 +6,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public record RuntimeTelemetryStateResponse(
         String nextRunAt,
         Integer sessionBlockCount,
-        String sessionBlockedSince
+        String sessionBlockedSince,
+        String captchaRequiredSince,
+        String captchaRecoveryRequestedAt,
+        String captchaChallengeUrl
 ) {
 }

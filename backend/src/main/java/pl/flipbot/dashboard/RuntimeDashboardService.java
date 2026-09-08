@@ -53,6 +53,10 @@ public class RuntimeDashboardService {
         long queuedCount = countStatus(rows, BotRuntimeStatus.QUEUED);
         long workingCount = countStatus(rows, BotRuntimeStatus.WORKING);
         long cooldownCount = countStatus(rows, BotRuntimeStatus.COOLDOWN);
+        long captchaRequiredCount = countStatus(
+                rows,
+                BotRuntimeStatus.CAPTCHA_REQUIRED
+        );
         long errorCount = countStatus(rows, BotRuntimeStatus.ERROR);
 
         double averageLastRunDurationMs =
@@ -70,6 +74,7 @@ public class RuntimeDashboardService {
                 queuedCount,
                 workingCount,
                 cooldownCount,
+                captchaRequiredCount,
                 errorCount,
                 averageLastRunDurationMs,
                 rows
@@ -99,6 +104,10 @@ public class RuntimeDashboardService {
                 runtime == null ? null : runtime.getWorkerSlot(),
                 runtime == null ? null : runtime.getSessionBlockedSince(),
                 runtime == null ? 0 : runtime.getSessionBlockCount(),
+                runtime == null ? null : runtime.getCaptchaRequiredSince(),
+                runtime == null
+                        ? null
+                        : runtime.getCaptchaRecoveryRequestedAt(),
                 runtime == null ? null : runtime.getUpdatedAt()
         );
     }
@@ -129,10 +138,11 @@ public class RuntimeDashboardService {
     private int statusPriority(String status) {
         return switch (status) {
             case "ERROR" -> 0;
-            case "WORKING" -> 1;
-            case "COOLDOWN" -> 2;
-            case "QUEUED" -> 3;
-            default -> 4;
+            case "CAPTCHA_REQUIRED" -> 1;
+            case "WORKING" -> 2;
+            case "COOLDOWN" -> 3;
+            case "QUEUED" -> 4;
+            default -> 5;
         };
     }
 }

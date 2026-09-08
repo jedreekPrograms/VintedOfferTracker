@@ -16,6 +16,8 @@ public record RuntimeDashboardBotResponse(
         Integer workerSlot,
         Instant sessionBlockedSince,
         int sessionBlockCount,
+        Instant captchaRequiredSince,
+        Instant captchaRecoveryRequestedAt,
         Instant updatedAt
 ) {
 }
