@@ -61,7 +61,12 @@ public class HumanVerificationHandler {
     private final CaptchaControlClient captchaControlClient;
 
     public HumanVerificationHandler() {
-        this(null, null);
+        this(
+                MobileCaptchaControlScope.currentBotId(),
+                MobileCaptchaControlScope.currentBotId() == null
+                        ? null
+                        : new CaptchaControlClient()
+        );
     }
 
     public HumanVerificationHandler(Long mobileControlBotId) {
