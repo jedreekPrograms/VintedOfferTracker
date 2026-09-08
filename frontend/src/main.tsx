@@ -7,6 +7,7 @@ import "./styles/commercial-ui.css";
 import "./styles/commercial-ui-details.css";
 import "./styles/negotiation-response-policies.css";
 import "./styles/price-matrix-edge-fix.css";
+import "./styles/mobile-app.css";
 
 const rootElement = document.getElementById("root");
 
@@ -17,7 +18,13 @@ if (rootElement === null) {
 createRoot(rootElement).render(
     <StrictMode>
         <BrowserRouter>
-            <App></App>
+            <App />
         </BrowserRouter>
     </StrictMode>,
 );
+
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+    window.addEventListener("load", () => {
+        void navigator.serviceWorker.register("/sw.js");
+    });
+}

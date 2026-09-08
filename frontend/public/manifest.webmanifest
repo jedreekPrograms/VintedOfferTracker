@@ -1,0 +1,39 @@
+{
+  "id": "/",
+  "name": "FlipBot",
+  "short_name": "FlipBot",
+  "description": "Mobilny panel zarządzania FlipBotem, botami i runtime.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f4f6fa",
+  "theme_color": "#172033",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Runtime",
+      "short_name": "Runtime",
+      "url": "/runtime"
+    },
+    {
+      "name": "Boty",
+      "short_name": "Boty",
+      "url": "/bots"
+    },
+    {
+      "name": "Oferty do kupienia",
+      "short_name": "Oferty",
+      "url": "/action-required"
+    }
+  ]
+}
