@@ -4,6 +4,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.api.runtime.CaptchaControlClient;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 
 import java.util.List;
@@ -15,6 +16,7 @@ public class HumanVerificationHandler {
 
     private static final double VERIFICATION_TIMEOUT_MS = 180_000;
     private static final double POLL_INTERVAL_MS = 1_000;
+    private static final double MOBILE_POLL_INTERVAL_MS = 120;
     private static final double LOG_INTERVAL_MS = 15_000;
     private static final int CLEAR_POLLS_REQUIRED = 3;
 
@@ -55,6 +57,41 @@ public class HumanVerificationHandler {
     private final CookieConsentHandler cookieConsentHandler = new CookieConsentHandler();
     private final VintedSessionBlockDetector sessionBlockDetector =
             new VintedSessionBlockDetector();
+    private final Long mobileControlBotId;
+    private final CaptchaControlClient captchaControlClient;
+
+    public HumanVerificationHandler() {
+        this(
+                MobileCaptchaControlScope.currentBotId(),
+                MobileCaptchaControlScope.currentBotId() == null
+                        ? null
+                        : new CaptchaControlClient()
+        );
+    }
+
+    public HumanVerificationHandler(Long mobileControlBotId) {
+        this(
+                Objects.requireNonNull(
+                        mobileControlBotId,
+                        "Mobile CAPTCHA control bot ID cannot be null"
+                ),
+                new CaptchaControlClient()
+        );
+
+        if (mobileControlBotId <= 0L) {
+            throw new IllegalArgumentException(
+                    "Mobile CAPTCHA control requires a positive bot ID"
+            );
+        }
+    }
+
+    HumanVerificationHandler(
+            Long mobileControlBotId,
+            CaptchaControlClient captchaControlClient
+    ) {
+        this.mobileControlBotId = mobileControlBotId;
+        this.captchaControlClient = captchaControlClient;
+    }
 
     public void waitUntilVerified(Page page) {
         Objects.requireNonNull(page, "Page cannot be null");
@@ -135,6 +172,11 @@ public class HumanVerificationHandler {
                 initialEvidence
         );
 
+        MobileCaptchaDragController mobileControl = createMobileControl(page);
+        if (mobileControl != null) {
+            mobileControl.markReady();
+        }
+
         double startedAt = System.currentTimeMillis();
         double deadline = startedAt + timeoutMs;
         double nextLogTime = startedAt + LOG_INTERVAL_MS;
@@ -142,46 +184,70 @@ public class HumanVerificationHandler {
         String lastPositiveEvidence = initialEvidence;
         int clearPolls = 0;
 
-        while (System.currentTimeMillis() < deadline) {
-            if (page.isClosed()) {
-                throw new IllegalStateException("Browser page was closed during human verification");
-            }
+        try {
+            while (System.currentTimeMillis() < deadline) {
+                if (page.isClosed()) {
+                    throw new IllegalStateException("Browser page was closed during human verification");
+                }
 
-            page.waitForTimeout(POLL_INTERVAL_MS);
-            sessionBlockDetector.throwIfBlocked(page, "waiting for human verification");
-            cookieConsentHandler.acceptAllIfVisible(page);
-            sessionBlockDetector.throwIfBlocked(page, "after verification-page consent check");
+                page.waitForTimeout(
+                        mobileControl == null
+                                ? POLL_INTERVAL_MS
+                                : MOBILE_POLL_INTERVAL_MS
+                );
 
-            latestEvidence = verificationEvidence(page);
-            if (latestEvidence == null) {
-                clearPolls++;
+                if (mobileControl != null) {
+                    mobileControl.tick();
+                }
 
-                if (clearPolls >= CLEAR_POLLS_REQUIRED) {
-                    log.info(
-                            "[CAPTCHA] Human verification evidence stayed absent for {} consecutive checks. The bot session may continue.",
+                sessionBlockDetector.throwIfBlocked(page, "waiting for human verification");
+                cookieConsentHandler.acceptAllIfVisible(page);
+                sessionBlockDetector.throwIfBlocked(page, "after verification-page consent check");
+
+                latestEvidence = verificationEvidence(page);
+                if (latestEvidence == null) {
+                    clearPolls++;
+
+                    if (clearPolls >= CLEAR_POLLS_REQUIRED) {
+                        if (mobileControl != null) {
+                            mobileControl.complete();
+                        }
+
+                        log.info(
+                                "[CAPTCHA] Human verification evidence stayed absent for {} consecutive checks. The bot session may continue.",
+                                CLEAR_POLLS_REQUIRED
+                        );
+                        return;
+                    }
+                } else {
+                    lastPositiveEvidence = latestEvidence;
+                    clearPolls = 0;
+                }
+
+                double currentTime = System.currentTimeMillis();
+                if (currentTime >= nextLogTime) {
+                    long elapsedSeconds = Math.round((currentTime - startedAt) / 1_000);
+                    log.warn(
+                            "Still waiting for human verification. Elapsed time: {} seconds, evidence={}, clearPolls={}/{}.",
+                            elapsedSeconds,
+                            latestEvidence == null
+                                    ? "temporarily absent"
+                                    : latestEvidence,
+                            clearPolls,
                             CLEAR_POLLS_REQUIRED
                     );
-                    return;
+                    nextLogTime = currentTime + LOG_INTERVAL_MS;
                 }
-            } else {
-                lastPositiveEvidence = latestEvidence;
-                clearPolls = 0;
             }
+        } catch (RuntimeException exception) {
+            if (mobileControl != null) {
+                mobileControl.fail();
+            }
+            throw exception;
+        }
 
-            double currentTime = System.currentTimeMillis();
-            if (currentTime >= nextLogTime) {
-                long elapsedSeconds = Math.round((currentTime - startedAt) / 1_000);
-                log.warn(
-                        "Still waiting for human verification. Elapsed time: {} seconds, evidence={}, clearPolls={}/{}.",
-                        elapsedSeconds,
-                        latestEvidence == null
-                                ? "temporarily absent"
-                                : latestEvidence,
-                        clearPolls,
-                        CLEAR_POLLS_REQUIRED
-                );
-                nextLogTime = currentTime + LOG_INTERVAL_MS;
-            }
+        if (mobileControl != null) {
+            mobileControl.fail();
         }
 
         throw new IllegalStateException(
@@ -189,6 +255,18 @@ public class HumanVerificationHandler {
                         + Math.round(timeoutMs / 1_000.0)
                         + " seconds. Last evidence: "
                         + lastPositiveEvidence
+        );
+    }
+
+    private MobileCaptchaDragController createMobileControl(Page page) {
+        if (mobileControlBotId == null || captchaControlClient == null) {
+            return null;
+        }
+
+        return new MobileCaptchaDragController(
+                page,
+                mobileControlBotId,
+                captchaControlClient
         );
     }
 

@@ -60,6 +60,22 @@ export interface RuntimeDashboardResponse {
     bots: RuntimeDashboardBot[];
 }
 
+export type CaptchaControlStatus =
+    | "IDLE"
+    | "PREPARING"
+    | "READY"
+    | "HOLDING"
+    | "COMPLETED"
+    | "FAILED";
+
+export interface CaptchaControlState {
+    botId: number;
+    status: CaptchaControlStatus;
+    updatedAt: string | null;
+    holdHeartbeatAt: string | null;
+    message: string | null;
+}
+
 export async function getDashboardStats(
     period: DashboardPeriod,
 ): Promise<DashboardStatsResponse> {
@@ -96,4 +112,54 @@ export async function requestCaptchaRecovery(botId: number): Promise<void> {
         response,
         `Nie udało się otworzyć przeglądarki CAPTCHA dla bota #${botId}. Status HTTP: ${response.status}.`,
     );
+}
+
+export async function getCaptchaControlState(
+    botId: number,
+): Promise<CaptchaControlState> {
+    const response = await fetch(
+        `/api/bots/${botId}/runtime/captcha-control`,
+    );
+
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać stanu sterowania CAPTCHA dla bota #${botId}. Status HTTP: ${response.status}.`,
+    );
+
+    return response.json() as Promise<CaptchaControlState>;
+}
+
+export async function startCaptchaHold(
+    botId: number,
+): Promise<CaptchaControlState> {
+    return postCaptchaControl(botId, "hold/start");
+}
+
+export async function heartbeatCaptchaHold(
+    botId: number,
+): Promise<CaptchaControlState> {
+    return postCaptchaControl(botId, "hold/heartbeat");
+}
+
+export async function endCaptchaHold(
+    botId: number,
+): Promise<CaptchaControlState> {
+    return postCaptchaControl(botId, "hold/end");
+}
+
+async function postCaptchaControl(
+    botId: number,
+    action: string,
+): Promise<CaptchaControlState> {
+    const response = await fetch(
+        `/api/bots/${botId}/runtime/captcha-control/${action}`,
+        { method: "POST" },
+    );
+
+    await assertApiResponse(
+        response,
+        `Nie udało się wysłać sterowania CAPTCHA dla bota #${botId}. Status HTTP: ${response.status}.`,
+    );
+
+    return response.json() as Promise<CaptchaControlState>;
 }
