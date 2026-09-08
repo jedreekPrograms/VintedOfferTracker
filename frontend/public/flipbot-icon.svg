@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FlipBot">
+  <rect width="512" height="512" rx="112" fill="#172033"/>
+  <rect x="112" y="112" width="288" height="288" rx="76" fill="#ffffff"/>
+  <path d="M190 176h151v52H246v48h84v50h-84v92h-56z" fill="#172033"/>
+</svg>
