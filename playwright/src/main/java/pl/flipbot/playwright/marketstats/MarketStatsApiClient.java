@@ -16,6 +16,9 @@ import java.util.Map;
 
 public class MarketStatsApiClient extends ApiClient {
 
+    private static final String ANONYMOUS_OBSERVER_NAME =
+            "Anonymous Market Observer";
+
     private final Map<Long, MarketStatsTargetDto> loadedTargets =
             new HashMap<>();
 
@@ -33,7 +36,31 @@ public class MarketStatsApiClient extends ApiClient {
         }
 
         requireSuccess(response, "load market-stats observer bot");
-        return readBody(response, BotDetailsDto.class);
+
+        BotDetailsDto observer = readBody(
+                response,
+                BotDetailsDto.class
+        );
+
+        if (observer == null || observer.getId() == null) {
+            throw new ApiException(
+                    "Market statistics observer response did not contain a valid bot id."
+            );
+        }
+
+        /*
+         * Market collection is intentionally anonymous and read-only. Do not
+         * let a legacy database row/name make BotContext treat this as a normal
+         * account and restore an obsolete sessions/bot-X.json. Canonicalizing
+         * the technical identity here guarantees that the anonymous observer
+         * path and its UI-stability guards are used even when local Flyway
+         * migrations were not replayed.
+         */
+        observer.setName(ANONYMOUS_OBSERVER_NAME);
+        observer.setEmail(null);
+        observer.setPassword(null);
+
+        return observer;
     }
 
     public List<MarketStatsTargetDto> getTargets() {
