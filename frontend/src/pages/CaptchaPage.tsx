@@ -39,9 +39,7 @@ function CaptchaPage() {
             if (selectedBot !== null) {
                 const fresh = captchaBots.find(bot => bot.botId === selectedBot.botId) ?? null;
                 setSelectedBot(fresh);
-                if (fresh === null) {
-                    setRemoteState(null);
-                }
+                if (fresh === null) setRemoteState(null);
             }
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : "Nie udało się pobrać kolejki CAPTCHA.");
@@ -62,7 +60,6 @@ function CaptchaPage() {
 
         let cancelled = false;
         const botId = selectedBot.botId;
-
         const refresh = async () => {
             try {
                 const state = await getRemoteCaptchaState(botId);
@@ -105,9 +102,7 @@ function CaptchaPage() {
         lastLoadedFrame.current = 0;
         setError(null);
         try {
-            if (bot.captchaRecoveryRequestedAt === null) {
-                await requestCaptchaRecovery(bot.botId);
-            }
+            if (bot.captchaRecoveryRequestedAt === null) await requestCaptchaRecovery(bot.botId);
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : "Nie udało się uruchomić ręcznej sesji CAPTCHA.");
         } finally {
@@ -121,9 +116,7 @@ function CaptchaPage() {
                 <div>
                     <p className="page-eyebrow">Ręczna weryfikacja</p>
                     <h1 className="page-title">CAPTCHA</h1>
-                    <p className="page-description">
-                        Otwórz zatrzymaną sesję i wykonaj gest bezpośrednio na obrazie przeglądarki działającej na komputerze.
-                    </p>
+                    <p className="page-description">Otwórz zatrzymaną sesję i wykonaj gest bezpośrednio na obrazie przeglądarki działającej na komputerze.</p>
                 </div>
                 <span className="captcha-queue-counter">{bots.length}</span>
             </header>
@@ -175,12 +168,7 @@ function CaptchaQueue({ bots, startingBotId, onOpen }: {
                         <strong>{bot.name}</strong>
                         <span>Bot #{bot.botId} · CAPTCHA REQUIRED</span>
                     </div>
-                    <button
-                        className="primary-button captcha-solve-button"
-                        type="button"
-                        disabled={startingBotId === bot.botId}
-                        onClick={() => void onOpen(bot)}
-                    >
+                    <button className="primary-button captcha-solve-button" type="button" disabled={startingBotId === bot.botId} onClick={() => void onOpen(bot)}>
                         {startingBotId === bot.botId ? "Uruchamianie..." : "Rozwiąż"}
                     </button>
                 </article>
@@ -199,7 +187,8 @@ function RemoteCaptchaViewer({ bot, state, frameUrl, onBack }: {
     const pointerActive = useRef(false);
 
     const coordinates = (event: ReactPointerEvent<HTMLDivElement>) => {
-        const rect = event.currentTarget.getBoundingClientRect();
+        const image = event.currentTarget.querySelector("img");
+        const rect = image?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
         return {
             x: Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width))),
             y: Math.min(1, Math.max(0, (event.clientY - rect.top) / Math.max(1, rect.height))),
@@ -214,6 +203,7 @@ function RemoteCaptchaViewer({ bot, state, frameUrl, onBack }: {
     const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
         if (!state?.active || frameUrl === null) return;
         pointerActive.current = true;
+        lastMoveAt.current = performance.now();
         event.currentTarget.setPointerCapture(event.pointerId);
         send("DOWN", event);
     };
@@ -230,9 +220,7 @@ function RemoteCaptchaViewer({ bot, state, frameUrl, onBack }: {
         if (!pointerActive.current) return;
         pointerActive.current = false;
         send("UP", event);
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-        }
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     };
 
     return (

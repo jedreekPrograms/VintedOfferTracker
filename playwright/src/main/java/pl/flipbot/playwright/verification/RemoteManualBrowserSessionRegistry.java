@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class RemoteManualBrowserSessionRegistry {
 
     private static final long FRAME_INTERVAL_MS = 350L;
+    private static final long STALE_POINTER_RELEASE_MS = 750L;
     private static final RemoteManualBrowserSessionRegistry INSTANCE =
             new RemoteManualBrowserSessionRegistry();
 
@@ -28,6 +29,8 @@ public final class RemoteManualBrowserSessionRegistry {
 
     private volatile Long activeBotId;
     private volatile long lastFrameCapturedAt;
+    private volatile long lastPointerCommandAt;
+    private boolean pointerDown;
 
     private RemoteManualBrowserSessionRegistry() {
     }
@@ -43,6 +46,8 @@ public final class RemoteManualBrowserSessionRegistry {
         latestFrame.set(null);
         frameVersion.set(0L);
         lastFrameCapturedAt = 0L;
+        lastPointerCommandAt = 0L;
+        pointerDown = false;
     }
 
     public synchronized void close(Long botId) {
@@ -53,6 +58,8 @@ public final class RemoteManualBrowserSessionRegistry {
         pointerCommands.clear();
         latestFrame.set(null);
         lastFrameCapturedAt = 0L;
+        lastPointerCommandAt = 0L;
+        pointerDown = false;
     }
 
     public Long stateForActiveBot() {
@@ -87,6 +94,7 @@ public final class RemoteManualBrowserSessionRegistry {
             throw new IllegalStateException("No active manual browser session for bot " + botId);
         }
         command.validate();
+        lastPointerCommandAt = System.currentTimeMillis();
         pointerCommands.add(command);
     }
 
@@ -100,6 +108,8 @@ public final class RemoteManualBrowserSessionRegistry {
         drainPointerCommands(page, botId, viewport[0], viewport[1]);
 
         long now = System.currentTimeMillis();
+        releaseStalePointer(page, now);
+
         if (now - lastFrameCapturedAt < FRAME_INTERVAL_MS) {
             return;
         }
@@ -120,10 +130,14 @@ public final class RemoteManualBrowserSessionRegistry {
         if (!Objects.equals(activeBotId, botId) || page == null || page.isClosed()) {
             return;
         }
-        try {
-            page.mouse().up();
-        } catch (RuntimeException ignored) {
-            // Best-effort fail-safe when the page is already navigating/closing.
+        if (pointerDown) {
+            try {
+                page.mouse().up();
+            } catch (RuntimeException ignored) {
+                // Best-effort fail-safe when the page is already navigating/closing.
+            } finally {
+                pointerDown = false;
+            }
         }
     }
 
@@ -139,12 +153,31 @@ public final class RemoteManualBrowserSessionRegistry {
             page.mouse().move(x, y);
 
             switch (command.type()) {
-                case DOWN -> page.mouse().down();
+                case DOWN -> {
+                    if (!pointerDown) {
+                        page.mouse().down();
+                        pointerDown = true;
+                    }
+                }
                 case MOVE -> {
                     // The real user's pointer position is already applied above.
                 }
-                case UP -> page.mouse().up();
+                case UP -> {
+                    if (pointerDown) {
+                        page.mouse().up();
+                        pointerDown = false;
+                    }
+                }
             }
+        }
+    }
+
+    private void releaseStalePointer(Page page, long now) {
+        if (pointerDown
+                && lastPointerCommandAt > 0L
+                && now - lastPointerCommandAt > STALE_POINTER_RELEASE_MS) {
+            page.mouse().up();
+            pointerDown = false;
         }
     }
 
