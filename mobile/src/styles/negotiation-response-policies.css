@@ -1,0 +1,223 @@
+.negotiation-response-policy {
+    margin-top: 22px;
+    border-top: 1px solid #e4e8f0;
+    padding-top: 20px;
+}
+
+.negotiation-response-policy-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.negotiation-response-policy-heading h3 {
+    margin: 4px 0 0;
+    color: #202b42;
+    font-size: 15px;
+}
+
+.negotiation-response-policy-eyebrow {
+    margin: 0;
+    color: #7f899e;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.negotiation-policy-badge {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    padding: 6px 9px;
+    color: #566278;
+    background: #eef1f6;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.negotiation-policy-note {
+    margin-bottom: 14px;
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #657087;
+    background: #f7f8fb;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.negotiation-policy-grid {
+    display: grid;
+    grid-template-columns: minmax(250px, 0.8fr) minmax(420px, 1.5fr);
+    gap: 12px;
+}
+
+.negotiation-policy-card {
+    min-width: 0;
+    border: 1px solid #dde3ed;
+    border-radius: 13px;
+    padding: 15px;
+    background: #fbfcfe;
+}
+
+.negotiation-policy-card-wide {
+    background: #ffffff;
+}
+
+.negotiation-policy-card-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.negotiation-policy-card-title strong {
+    display: block;
+    color: #273149;
+    font-size: 12px;
+}
+
+.negotiation-policy-card-title p {
+    margin: 5px 0 0;
+    color: #8490a5;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.negotiation-policy-icon {
+    display: inline-flex;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: #263149;
+    background: #edf0f6;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.reaction-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+}
+
+.reaction-editor-compact {
+    grid-template-columns: minmax(190px, 1fr) minmax(110px, 0.45fr);
+    align-items: end;
+}
+
+.counter-rule-fallback {
+    display: grid;
+    grid-template-columns: minmax(150px, 0.8fr) minmax(320px, 1.4fr);
+    align-items: end;
+    gap: 14px;
+    border-radius: 11px;
+    padding: 12px;
+    background: #f3f5f9;
+}
+
+.counter-rule-fallback > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.counter-rule-fallback strong {
+    color: #364057;
+    font-size: 11px;
+}
+
+.counter-rule-fallback span {
+    color: #8993a7;
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.counter-rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 12px;
+}
+
+.counter-rule-row {
+    display: grid;
+    grid-template-columns: minmax(125px, 0.45fr) minmax(330px, 1.35fr) auto;
+    align-items: end;
+    gap: 10px;
+    border: 1px solid #e6eaf1;
+    border-radius: 11px;
+    padding: 11px;
+    background: #ffffff;
+}
+
+.counter-rule-threshold {
+    min-width: 0;
+}
+
+.input-with-suffix {
+    display: flex;
+    align-items: stretch;
+}
+
+.input-with-suffix .form-input {
+    min-width: 0;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.input-with-suffix > span {
+    display: inline-flex;
+    min-width: 38px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #d6ddea;
+    border-left: 0;
+    border-radius: 0 10px 10px 0;
+    color: #7c879c;
+    background: #f4f6f9;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.counter-rule-remove {
+    min-height: 39px;
+    align-self: end;
+}
+
+.counter-rule-add {
+    margin-top: 12px;
+}
+
+.negotiation-policy-footnote {
+    margin: 11px 0 0;
+    color: #8792a6;
+    font-size: 10px;
+    line-height: 1.55;
+}
+
+@media (max-width: 1050px) {
+    .negotiation-policy-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 760px) {
+    .negotiation-response-policy-heading {
+        flex-direction: column;
+    }
+
+    .reaction-editor-compact,
+    .counter-rule-fallback,
+    .counter-rule-row {
+        grid-template-columns: 1fr;
+    }
+
+    .counter-rule-remove {
+        justify-self: flex-start;
+    }
+}
