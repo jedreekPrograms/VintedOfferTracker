@@ -88,16 +88,23 @@ public class ManualHumanVerificationRecovery {
             );
 
             try (BrowserManager browserManager = new BrowserManager(false);
-                 BotContext context = new BotContext(bot, browserManager)) {
+                 BotContext context = new BotContext(bot, browserManager);
+                 MobileCaptchaControlScope ignored = MobileCaptchaControlScope.open(botId)) {
                 Page page = context.getPage();
+                HumanVerificationHandler activeVerificationHandler =
+                        new HumanVerificationHandler();
 
                 if (requiresInteractiveLoginReplay(recoveryUrl)) {
                     replayAuthenticationFlow(context, botId, recoveryUrl);
                 } else {
-                    navigateToChallenge(page, recoveryUrl);
+                    navigateToChallenge(
+                            page,
+                            recoveryUrl,
+                            activeVerificationHandler
+                    );
                     page.waitForTimeout(CHALLENGE_RENDER_GRACE_MS);
 
-                    verificationHandler.waitUntilManuallyVerified(
+                    activeVerificationHandler.waitUntilManuallyVerified(
                             page,
                             config.timeoutMillis()
                     );
@@ -161,7 +168,8 @@ public class ManualHumanVerificationRecovery {
 
     private void navigateToChallenge(
             Page page,
-            String recoveryUrl
+            String recoveryUrl,
+            HumanVerificationHandler activeVerificationHandler
     ) {
         try {
             page.navigate(
@@ -172,7 +180,7 @@ public class ManualHumanVerificationRecovery {
             );
         } catch (PlaywrightException exception) {
             if (page.isClosed()
-                    || !verificationHandler.isHumanVerificationVisible(page)) {
+                    || !activeVerificationHandler.isHumanVerificationVisible(page)) {
                 throw exception;
             }
 
