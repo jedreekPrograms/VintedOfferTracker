@@ -101,21 +101,17 @@ public class MarketStatsCalendarPlanningService {
                 windows.now()
         );
 
-        boolean todayWindowComplete =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.todayStart()
-                );
-        boolean currentWeekWindowComplete =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.currentWeekStart()
-                );
-        boolean previousFullWeekAvailable =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.previousWeekStart()
-                );
+        /*
+         * first_seen_at now carries the publication time read from the Vinted
+         * listing detail page. A completed baseline therefore reconstructs the
+         * calendar windows immediately instead of waiting until FlipBot itself
+         * has been running since midnight / Monday.
+         */
+        boolean catalogWindowComplete =
+                Boolean.TRUE.equals(state.getLastScanComplete());
+        boolean todayWindowComplete = catalogWindowComplete;
+        boolean currentWeekWindowComplete = catalogWindowComplete;
+        boolean previousFullWeekAvailable = catalogWindowComplete;
 
         Integer offersPreviousFullWeek = null;
         int recommendationWeeklyOffers;
@@ -135,15 +131,15 @@ public class MarketStatsCalendarPlanningService {
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
-            int observedSinceBaseline = countNewListings(
+            int observedCurrentWeek = countNewListings(
                     model.getId(),
-                    baselineCompleteAt,
+                    windows.currentWeekStart(),
                     windows.now()
             );
             recommendationWeeklyOffers =
                     MarketStatsPlanningCalculator.projectWeeklyOffers(
-                            observedSinceBaseline,
-                            trackedDays
+                            observedCurrentWeek,
+                            Math.max(trackedDays, 1)
                     );
             recommendationEstimated = true;
         }
