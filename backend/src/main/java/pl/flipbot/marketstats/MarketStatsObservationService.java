@@ -10,6 +10,7 @@ import pl.flipbot.marketstats.dto.MarketObservationBatchResponse;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,6 +25,7 @@ import java.util.Objects;
 public class MarketStatsObservationService {
 
     private static final int OBSERVATION_RETENTION_DAYS = 30;
+    private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DictionaryModelRepository modelRepository;
     private final MarketModelScanStateRepository scanStateRepository;
@@ -63,7 +65,7 @@ public class MarketStatsObservationService {
             );
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(MARKET_STATS_ZONE);
         Map<String, LocalDateTime> publishedAtByListingId =
                 parsePublishedAtByListingId(
                         listingIds,
@@ -115,7 +117,12 @@ public class MarketStatsObservationService {
             MarketListingObservation existing = existingById.get(listingId);
 
             if (existing != null) {
-                existing.setFirstSeenAt(publishedAt);
+                /*
+                 * On this isolated observer branch first_seen_at intentionally
+                 * stores the Vinted publication moment. Keep the first resolved
+                 * value stable: relative labels such as "15 godzin temu" are
+                 * rounded by Vinted and would otherwise drift on every pass.
+                 */
                 existing.setLastSeenAt(now);
                 changed.add(existing);
                 continue;
