@@ -287,8 +287,9 @@ function PriceMatrixPage() {
                         poniedziałek–niedzielę. Nowe ogłoszenia są przypisywane do tych okien
                         według czasu „Dodane” z Vinted; jeśli nie uda się go odczytać,
                         bezpiecznym fallbackiem pozostaje pierwsze wykrycie przez observera.
-                        Przy pełnym tygodniu pokazujemy też liczbę ofert, dla których naprawdę
-                        potwierdzono wysłanie pierwszej wiadomości negocjacyjnej.
+                        Osobna kolumna pokazuje, dla ilu ofert danego modelu naprawdę
+                        potwierdzono wysłanie pierwszej wiadomości negocjacyjnej w poprzednim
+                        pełnym tygodniu.
                     </p>
                 </div>
 
@@ -403,6 +404,7 @@ function BrandPriceSheet({
                         <div>Dzisiaj</div>
                         <div>Ten tydzień</div>
                         <div>Ostatni pełny tydzień</div>
+                        <div>Rozpoczęte negocjacje</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
                     </div>
@@ -476,6 +478,7 @@ function BrandPriceSheet({
                                 <TodayMetricCell planning={planning} />
                                 <CurrentWeekMetricCell planning={planning} />
                                 <PreviousFullWeekMetricCell planning={planning} />
+                                <NegotiationsStartedMetricCell planning={planning} />
                                 <RecommendedBotsMetricCell planning={planning} />
 
                                 <div
@@ -603,9 +606,6 @@ function PreviousFullWeekMetricCell({
             <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
                 <strong>—</strong>
                 <span>jeszcze brak pełnego tygodnia</span>
-                <span className="price-metric-note">
-                    rozpoczęte negocjacje: {planning.negotiationsStartedPreviousFullWeek}
-                </span>
                 {planning.trackedDays > 0 && (
                     <span className="price-metric-note">
                         śledzenie: {planning.trackedDays} dni
@@ -619,12 +619,31 @@ function PreviousFullWeekMetricCell({
         <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
             <strong>{planning.offersPreviousFullWeek ?? 0}</strong>
             <span>poprzedni pon.–niedz.</span>
-            <span className="price-metric-note">
-                rozpoczęte negocjacje: {planning.negotiationsStartedPreviousFullWeek}
-            </span>
             {!planning.lastScanComplete && (
                 <span className="price-metric-warning">Ostatni skan niepełny</span>
             )}
+        </div>
+    );
+}
+
+function NegotiationsStartedMetricCell({
+    planning,
+}: {
+    planning: ModelPlanning | undefined;
+}) {
+    if (planning === undefined) {
+        return (
+            <div className="price-metric-cell" data-label="Rozpoczęte negocjacje">
+                <strong>—</strong>
+                <span>Brak danych</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="price-metric-cell" data-label="Rozpoczęte negocjacje">
+            <strong>{planning.negotiationsStartedPreviousFullWeek}</strong>
+            <span>poprzedni pon.–niedz.</span>
         </div>
     );
 }

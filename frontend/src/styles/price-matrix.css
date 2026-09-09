@@ -142,9 +142,10 @@
         minmax(90px, 0.72fr)
         minmax(94px, 0.74fr)
         minmax(102px, 0.82fr)
+        minmax(108px, 0.86fr)
         minmax(90px, 0.72fr)
         minmax(90px, 0.72fr);
-    min-width: 1080px;
+    min-width: 1190px;
     min-height: 56px;
     border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
