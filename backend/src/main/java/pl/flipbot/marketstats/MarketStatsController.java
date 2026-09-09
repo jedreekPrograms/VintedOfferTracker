@@ -15,6 +15,7 @@ public class MarketStatsController {
     private final MarketStatsService marketStatsService;
     private final MarketStatsCalendarPlanningService calendarPlanningService;
     private final MarketStatsScanTriggerService scanTriggerService;
+    private final MarketListingPublicationService listingPublicationService;
 
     @GetMapping("/planning")
     public List<CalendarModelPlanningResponse> getPlanning() {
@@ -44,6 +45,17 @@ public class MarketStatsController {
             @Valid @RequestBody MarketObservationBatchRequest request
     ) {
         return marketStatsService.recordObservations(
+                modelId,
+                request
+        );
+    }
+
+    @PostMapping("/models/{modelId}/publication-times")
+    public int recordPublicationTimes(
+            @PathVariable Long modelId,
+            @Valid @RequestBody MarketListingPublicationBatchRequest request
+    ) {
+        return listingPublicationService.recordPublicationTimes(
                 modelId,
                 request
         );

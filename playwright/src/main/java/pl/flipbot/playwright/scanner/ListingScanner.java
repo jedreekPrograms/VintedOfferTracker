@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.WaitForSelectorState;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketstats.MarketListingPublishedAtResolver;
 import pl.flipbot.playwright.scanner.model.Listing;
 import pl.flipbot.playwright.scanner.model.ListingSnapshot;
 
@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 
 @Slf4j
-@RequiredArgsConstructor
 public class ListingScanner {
 
     private static final double LISTINGS_TIMEOUT =
@@ -30,6 +29,13 @@ public class ListingScanner {
 
     private final ObjectMapper objectMapper =
             new ObjectMapper();
+
+    private final MarketListingPublishedAtResolver publishedAtResolver;
+
+    public ListingScanner(BotContext context) {
+        this.context = context;
+        this.publishedAtResolver = new MarketListingPublishedAtResolver(context);
+    }
 
     public List<Listing> scan() {
 
@@ -150,6 +156,8 @@ public class ListingScanner {
                 new ArrayList<>(
                         uniqueListings.values()
                 );
+
+        publishedAtResolver.captureIfNeeded(listings);
 
         log.info(
                 "Listing scan completed. Parsed: {}, skipped: {}",
