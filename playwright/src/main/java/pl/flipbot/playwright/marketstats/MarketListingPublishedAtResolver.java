@@ -47,78 +47,6 @@ public class MarketListingPublishedAtResolver {
                             .some(unit => lower.includes(unit));
                 };
 
-                /*
-                 * Current Vinted item pages hydrate the item in page scripts.
-                 * When available, created_at_ts is substantially better than
-                 * the rounded visible label (for example "8 godz."). Match it
-                 * only in a small neighbourhood of this exact marketplace id
-                 * so a recommendation or seller timestamp cannot be selected.
-                 */
-                const hydratedCreatedAt = (html, listingId) => {
-                    const id = String(listingId ?? "").trim();
-                    if (!id) {
-                        return null;
-                    }
-
-                    const variants = [
-                        String(html ?? ""),
-                        String(html ?? "")
-                            .replace(/\\u0022/g, '"')
-                            .replace(/\\\"/g, '"')
-                    ];
-
-                    const idNeedles = [
-                        `"id":${id}`,
-                        `"id":"${id}"`,
-                        `"item_id":${id}`,
-                        `"item_id":"${id}"`
-                    ];
-
-                    for (const source of variants) {
-                        for (const needle of idNeedles) {
-                            let cursor = 0;
-
-                            while (cursor < source.length) {
-                                const idIndex = source.indexOf(needle, cursor);
-                                if (idIndex < 0) {
-                                    break;
-                                }
-
-                                const from = Math.max(0, idIndex - 20000);
-                                const to = Math.min(source.length, idIndex + 20000);
-                                const fragment = source.slice(from, to);
-                                const localIdIndex = idIndex - from;
-                                const timestampPattern = /"created_at_ts"\s*:\s*"([^"\\]+)"/g;
-
-                                let bestValue = null;
-                                let bestDistance = Number.POSITIVE_INFINITY;
-                                let match;
-
-                                while ((match = timestampPattern.exec(fragment)) !== null) {
-                                    const value = normalize(match[1]);
-                                    if (!value) {
-                                        continue;
-                                    }
-
-                                    const distance = Math.abs(match.index - localIdIndex);
-                                    if (distance < bestDistance) {
-                                        bestDistance = distance;
-                                        bestValue = value;
-                                    }
-                                }
-
-                                if (bestValue !== null) {
-                                    return bestValue;
-                                }
-
-                                cursor = idIndex + needle.length;
-                            }
-                        }
-                    }
-
-                    return null;
-                };
-
                 const jsonLdDate = (document) => {
                     const dateKeys = ["datePublished", "uploadDate", "dateCreated"];
 
@@ -268,12 +196,6 @@ public class MarketListingPublishedAtResolver {
                         }
 
                         const html = await response.text();
-
-                        const hydrated = hydratedCreatedAt(html, entry.id);
-                        if (hydrated) {
-                            return [entry.id, `ISO|${hydrated}`];
-                        }
-
                         const document = new DOMParser().parseFromString(
                             html,
                             "text/html"
