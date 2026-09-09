@@ -102,26 +102,24 @@ public class MarketStatsApiClient extends ApiClient {
         Map<String, String> publishedAtByListingId =
                 resolvePublicationTimes(requestedIds);
 
-        List<String> resolvedIds = requestedIds.stream()
-                .filter(publishedAtByListingId::containsKey)
-                .toList();
-
-        if (!requestedIds.isEmpty() && resolvedIds.isEmpty()) {
+        if (!requestedIds.isEmpty()
+                && publishedAtByListingId.size() != requestedIds.size()) {
             throw new ApiException(
-                    "Could not resolve Vinted publication time for any listing in model "
+                    "Resolved Vinted publication time for "
+                            + publishedAtByListingId.size()
+                            + " of "
+                            + requestedIds.size()
+                            + " listings in model "
                             + modelId
-                            + ". Refusing to record guessed timestamps."
+                            + ". Refusing to record a partial or guessed baseline."
             );
         }
 
-        boolean publicationTimesComplete =
-                resolvedIds.size() == requestedIds.size();
-
         return recordObservations(
                 modelId,
-                resolvedIds,
+                requestedIds,
                 publishedAtByListingId,
-                complete && publicationTimesComplete
+                complete
         );
     }
 
