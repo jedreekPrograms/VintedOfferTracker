@@ -9,6 +9,7 @@ import pl.flipbot.marketstats.dto.MarketListingPublicationBatchRequest;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -20,6 +21,15 @@ public class MarketListingPublicationService {
     private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final MarketListingObservationRepository observationRepository;
+
+    @Transactional(readOnly = true)
+    public List<String> getMissingPublicationListingIds(Long modelId) {
+        if (modelId == null || modelId <= 0) {
+            return List.of();
+        }
+
+        return observationRepository.findListingIdsMissingPublishedAt(modelId);
+    }
 
     @Transactional
     public int recordPublicationTimes(

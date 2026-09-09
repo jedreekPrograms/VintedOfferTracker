@@ -27,14 +27,25 @@ public interface MarketListingObservationRepository
             select count(*)
             from market_listing_observation observation
             where observation.model_id = :modelId
-              and observation.baseline = false
-              and coalesce(observation.published_at, observation.first_seen_at) >= :fromInclusive
-              and coalesce(observation.published_at, observation.first_seen_at) < :toExclusive
+              and observation.published_at is not null
+              and observation.published_at >= :fromInclusive
+              and observation.published_at < :toExclusive
             """, nativeQuery = true)
-    long countNewListingsBetween(
+    long countPublishedListingsBetween(
             @Param("modelId") Long modelId,
             @Param("fromInclusive") LocalDateTime fromInclusive,
             @Param("toExclusive") LocalDateTime toExclusive
+    );
+
+    @Query("""
+            select observation.marketplaceListingId
+            from MarketListingObservation observation
+            where observation.model.id = :modelId
+              and observation.publishedAt is null
+            order by observation.lastSeenAt desc
+            """)
+    List<String> findListingIdsMissingPublishedAt(
+            @Param("modelId") Long modelId
     );
 
     @Modifying

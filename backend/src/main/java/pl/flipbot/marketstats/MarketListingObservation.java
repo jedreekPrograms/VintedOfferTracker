@@ -38,6 +38,9 @@ public class MarketListingObservation {
     @Column(name = "last_seen_at", nullable = false)
     private LocalDateTime lastSeenAt;
 
+    @Column(name = "published_at")
+    private LocalDateTime publishedAt;
+
     @Column(nullable = false)
     private Boolean baseline;
 }

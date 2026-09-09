@@ -90,10 +90,27 @@ public class MarketStatsApiClient extends ApiClient {
                 KnownMarketListingIdsDto.class
         );
 
+        HttpResponse<String> missingPublicationResponse = get(
+                "/api/market-stats/models/"
+                        + modelId
+                        + "/missing-publication-listing-ids"
+        );
+        requireSuccess(
+                missingPublicationResponse,
+                "load listings missing Vinted publication time"
+        );
+
+        List<String> missingPublicationListingIds = readBody(
+                missingPublicationResponse,
+                new TypeReference<List<String>>() {
+                }
+        );
+
         MarketStatsObservationContext.begin(
                 modelId,
                 knownState.listingIds(),
-                knownState.baselineComplete()
+                knownState.baselineComplete(),
+                missingPublicationListingIds
         );
 
         return knownState;

@@ -39,6 +39,13 @@ public class MarketStatsController {
         return marketStatsService.getKnownListingIds(modelId);
     }
 
+    @GetMapping("/models/{modelId}/missing-publication-listing-ids")
+    public List<String> getMissingPublicationListingIds(
+            @PathVariable Long modelId
+    ) {
+        return listingPublicationService.getMissingPublicationListingIds(modelId);
+    }
+
     @PostMapping("/models/{modelId}/observations")
     public MarketObservationBatchResponse recordObservations(
             @PathVariable Long modelId,
