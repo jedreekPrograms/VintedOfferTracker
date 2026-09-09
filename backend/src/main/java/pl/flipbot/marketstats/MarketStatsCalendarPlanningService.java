@@ -12,7 +12,6 @@ import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
 import pl.flipbot.negotiation.audit.RealActionAudit;
 import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
 import pl.flipbot.negotiation.audit.RealActionAuditRepository;
-import pl.flipbot.negotiation.audit.RealActionMessageStatus;
 import pl.flipbot.negotiation.guard.RealActionType;
 
 import java.time.LocalDateTime;
@@ -113,12 +112,12 @@ public class MarketStatsCalendarPlanningService {
 
         LocalDateTime baselineCompleteAt = state.getBaselineCompleteAt();
 
-        int offersToday = countNewListings(
+        int offersToday = countPublishedListings(
                 model.getId(),
                 windows.todayStart(),
                 windows.now()
         );
-        int offersCurrentWeek = countNewListings(
+        int offersCurrentWeek = countPublishedListings(
                 model.getId(),
                 windows.currentWeekStart(),
                 windows.now()
@@ -150,7 +149,7 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            offersPreviousFullWeek = countNewListings(
+            offersPreviousFullWeek = countPublishedListings(
                     model.getId(),
                     windows.previousWeekStart(),
                     windows.currentWeekStart()
@@ -158,7 +157,7 @@ public class MarketStatsCalendarPlanningService {
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
-            int observedSinceBaseline = countNewListings(
+            int observedSinceBaseline = countPublishedListings(
                     model.getId(),
                     baselineCompleteAt,
                     windows.now()
@@ -207,7 +206,6 @@ public class MarketStatsCalendarPlanningService {
                 .stream()
                 .filter(audit -> audit.getCreatedAt() != null)
                 .filter(audit -> audit.getCreatedAt().isBefore(windows.currentWeekStart()))
-                .filter(audit -> audit.getMessageStatus() == RealActionMessageStatus.CONFIRMED)
                 .toList();
     }
 
@@ -231,7 +229,7 @@ public class MarketStatsCalendarPlanningService {
         );
     }
 
-    private int countNewListings(
+    private int countPublishedListings(
             Long modelId,
             LocalDateTime fromInclusive,
             LocalDateTime toExclusive
@@ -243,7 +241,7 @@ public class MarketStatsCalendarPlanningService {
         }
 
         return safeInt(
-                observationRepository.countNewListingsBetween(
+                observationRepository.countPublishedListingsBetween(
                         modelId,
                         fromInclusive,
                         toExclusive

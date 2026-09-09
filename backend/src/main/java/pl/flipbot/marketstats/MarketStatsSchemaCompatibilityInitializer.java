@@ -35,22 +35,28 @@ public class MarketStatsSchemaCompatibilityInitializer implements ApplicationRun
                     ADD COLUMN IF NOT EXISTS published_at TIMESTAMP
                 """);
 
-        jdbcTemplate.update("""
+        /*
+         * PR #159 temporarily backfilled published_at with first_seen_at only
+         * to keep the old calendar query operational. That value is not the
+         * Vinted publication time and makes a restart look as if old listings
+         * were published today. Clear only those synthetic equal-value rows;
+         * the observer will refill them from the actual Vinted item timestamp.
+         */
+        int clearedSynthetic = jdbcTemplate.update("""
                 UPDATE market_listing_observation
-                SET published_at = first_seen_at
-                WHERE published_at IS NULL
+                SET published_at = NULL
+                WHERE published_at = first_seen_at
                 """);
 
         jdbcTemplate.execute("""
-                CREATE INDEX IF NOT EXISTS idx_market_listing_observation_model_effective_published_at
-                    ON market_listing_observation (
-                        model_id,
-                        (COALESCE(published_at, first_seen_at))
-                    )
+                CREATE INDEX IF NOT EXISTS idx_market_listing_observation_model_published_at
+                    ON market_listing_observation (model_id, published_at)
+                    WHERE published_at IS NOT NULL
                 """);
 
         log.info(
-                "[MARKET STATS] Verified local schema compatibility for market_listing_observation.published_at."
+                "[MARKET STATS] Verified publication-time schema compatibility; cleared {} synthetic first-seen timestamps for Vinted backfill.",
+                clearedSynthetic
         );
     }
 
