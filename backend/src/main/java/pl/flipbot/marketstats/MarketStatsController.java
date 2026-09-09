@@ -13,6 +13,7 @@ import java.util.List;
 public class MarketStatsController {
 
     private final MarketStatsService marketStatsService;
+    private final MarketStatsObservationService observationService;
     private final MarketStatsCalendarPlanningService calendarPlanningService;
     private final MarketStatsScanTriggerService scanTriggerService;
 
@@ -43,7 +44,7 @@ public class MarketStatsController {
             @PathVariable Long modelId,
             @Valid @RequestBody MarketObservationBatchRequest request
     ) {
-        return marketStatsService.recordObservations(
+        return observationService.recordObservations(
                 modelId,
                 request
         );
