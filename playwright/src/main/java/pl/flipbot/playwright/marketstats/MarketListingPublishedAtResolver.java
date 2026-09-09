@@ -1,10 +1,11 @@
 package pl.flipbot.playwright.marketstats;
 
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.scanner.model.Listing;
 
+import java.net.URI;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -21,6 +22,7 @@ import java.util.regex.Pattern;
 final class MarketListingPublishedAtResolver {
 
     private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
+    private static final String VINTED_BASE_URL = "https://www.vinted.pl";
 
     private static final Pattern RELATIVE_PATTERN = Pattern.compile(
             "(?iu)(?:dodane|dodano|wystawione|uploaded|listed)\\s*[:\\-]?\\s*"
@@ -42,26 +44,33 @@ final class MarketListingPublishedAtResolver {
 
     Map<String, String> resolve(
             BotContext context,
-            List<Listing> listings
+            List<String> listingIds
     ) {
-        if (listings == null || listings.isEmpty()) {
+        if (listingIds == null || listingIds.isEmpty()) {
             return Map.of();
         }
 
         Page page = context.getPage();
+        Map<String, String> listingUrls = captureListingUrls(
+                page,
+                listingIds
+        );
         Map<String, String> result = new LinkedHashMap<>();
 
-        for (int index = 0; index < listings.size(); index++) {
-            Listing listing = listings.get(index);
+        for (int index = 0; index < listingIds.size(); index++) {
+            String listingId = listingIds.get(index);
 
-            if (listing == null
-                    || isBlank(listing.getId())
-                    || isBlank(listing.getUrl())) {
+            if (isBlank(listingId)) {
                 continue;
             }
 
+            String listingUrl = listingUrls.getOrDefault(
+                    listingId,
+                    VINTED_BASE_URL + "/items/" + listingId
+            );
+
             try {
-                page.navigate(listing.getUrl());
+                page.navigate(listingUrl);
                 page.waitForLoadState();
 
                 LocalDateTime referenceTime = LocalDateTime.now(MARKET_ZONE);
@@ -75,33 +84,96 @@ final class MarketListingPublishedAtResolver {
                 if (publishedAt.isEmpty()) {
                     log.warn(
                             "[MARKET STATS] Could not read Vinted publication age. listingId={}, url={}",
-                            listing.getId(),
-                            listing.getUrl()
+                            listingId,
+                            listingUrl
                     );
                     continue;
                 }
 
                 LocalDateTime resolved = publishedAt.get();
-                result.put(listing.getId(), resolved.toString());
+                result.put(listingId, resolved.toString());
 
                 log.info(
                         "[MARKET STATS] Publication time resolved. listingId={}, publishedAt={}, detail={}/{}.",
-                        listing.getId(),
+                        listingId,
                         resolved,
                         index + 1,
-                        listings.size()
+                        listingIds.size()
                 );
             } catch (RuntimeException exception) {
                 log.warn(
                         "[MARKET STATS] Could not inspect listing detail for publication time. listingId={}, url={}, reason={}",
-                        listing.getId(),
-                        listing.getUrl(),
+                        listingId,
+                        listingUrl,
                         safeMessage(exception)
                 );
             }
         }
 
         return Map.copyOf(result);
+    }
+
+    private Map<String, String> captureListingUrls(
+            Page page,
+            List<String> listingIds
+    ) {
+        Map<String, String> result = new LinkedHashMap<>();
+
+        for (String listingId : listingIds) {
+            if (isBlank(listingId)) {
+                continue;
+            }
+
+            try {
+                Locator links = page.locator(
+                        "a[href*='/items/" + listingId + "']"
+                );
+
+                if (links.count() == 0) {
+                    continue;
+                }
+
+                String href = links.first().getAttribute("href");
+                String absolute = absoluteVintedUrl(page.url(), href);
+
+                if (!isBlank(absolute)) {
+                    result.put(listingId, absolute);
+                }
+            } catch (RuntimeException exception) {
+                log.debug(
+                        "[MARKET STATS] Could not capture catalog URL for listing {}. Direct item URL fallback will be used.",
+                        listingId,
+                        exception
+                );
+            }
+        }
+
+        return result;
+    }
+
+    private String absoluteVintedUrl(
+            String currentUrl,
+            String href
+    ) {
+        if (isBlank(href)) {
+            return null;
+        }
+
+        try {
+            URI candidate = URI.create(href.trim());
+
+            if (candidate.isAbsolute()) {
+                return candidate.toString();
+            }
+
+            URI base = isBlank(currentUrl)
+                    ? URI.create(VINTED_BASE_URL)
+                    : URI.create(currentUrl);
+
+            return base.resolve(candidate).toString();
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     static Optional<LocalDateTime> parsePublishedAt(
