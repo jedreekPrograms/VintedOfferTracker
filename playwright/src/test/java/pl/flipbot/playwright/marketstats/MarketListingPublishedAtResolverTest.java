@@ -1,19 +1,19 @@
 package pl.flipbot.playwright.marketstats;
 
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
-class MarketListingPublishedAtResolverTest {
+public class MarketListingPublishedAtResolverTest {
 
     private static final LocalDateTime REFERENCE =
             LocalDateTime.of(2026, 9, 9, 16, 30);
 
     @Test
-    void parsesPolishHoursAgo() {
+    public void parsesPolishHoursAgo() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 9, 1, 30),
                 MarketListingPublishedAtResolver
@@ -23,7 +23,7 @@ class MarketListingPublishedAtResolverTest {
     }
 
     @Test
-    void parsesPolishMinutesAgoAcrossWhitespace() {
+    public void parsesPolishMinutesAgoAcrossWhitespace() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 9, 16, 25),
                 MarketListingPublishedAtResolver
@@ -33,7 +33,7 @@ class MarketListingPublishedAtResolverTest {
     }
 
     @Test
-    void parsesDaysAgoIntoCurrentWeek() {
+    public void parsesDaysAgoIntoCurrentWeek() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 8, 16, 30),
                 MarketListingPublishedAtResolver
@@ -43,7 +43,7 @@ class MarketListingPublishedAtResolverTest {
     }
 
     @Test
-    void parsesExplicitPolishDate() {
+    public void parsesExplicitPolishDate() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 2, 13, 45),
                 MarketListingPublishedAtResolver
@@ -53,7 +53,7 @@ class MarketListingPublishedAtResolverTest {
     }
 
     @Test
-    void rejectsPageWithoutPublicationLabel() {
+    public void rejectsPageWithoutPublicationLabel() {
         assertTrue(
                 MarketListingPublishedAtResolver
                         .parsePublishedAt("Ostatnie logowanie 15 minut temu", REFERENCE)
