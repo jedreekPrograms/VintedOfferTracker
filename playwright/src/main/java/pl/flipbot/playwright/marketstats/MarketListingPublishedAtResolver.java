@@ -2,6 +2,7 @@ package pl.flipbot.playwright.marketstats;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.WaitForSelectorState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
 
@@ -23,6 +24,7 @@ final class MarketListingPublishedAtResolver {
 
     private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
     private static final String VINTED_BASE_URL = "https://www.vinted.pl";
+    private static final double DETAIL_READY_TIMEOUT_MS = 12_000;
 
     private static final Pattern RELATIVE_PATTERN = Pattern.compile(
             "(?iu)(?:dodane|dodano|wystawione|uploaded|listed)\\s*[:\\-]?\\s*"
@@ -31,7 +33,9 @@ final class MarketListingPublishedAtResolver {
                     + "minut(?:a|y|ę|)?|min\\.?|minutes?|mins?|"
                     + "godzin(?:a|y|ę|)?|godz\\.?|hours?|hrs?|"
                     + "dzień|dnia|dni|days?|"
-                    + "tydzień|tygodnia|tygodnie|tygodni|weeks?)\\s*(?:temu|ago)?)"
+                    + "tydzień|tygodnia|tygodnie|tygodni|weeks?|"
+                    + "miesiąc|miesiace|miesiące|miesiecy|miesięcy|months?|"
+                    + "rok|lata|lat|years?)\\s*(?:temu|ago)?)"
     );
 
     private static final Pattern POLISH_DATE_PATTERN = Pattern.compile(
@@ -40,6 +44,12 @@ final class MarketListingPublishedAtResolver {
                     + "(stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|"
                     + "września|wrzesnia|października|pazdziernika|listopada|grudnia)"
                     + "\\s+(\\d{4})(?:\\s+(?:o\\s+)?(\\d{1,2}):(\\d{2}))?"
+    );
+
+    private static final Pattern NUMERIC_DATE_PATTERN = Pattern.compile(
+            "(?iu)(?:dodane|dodano|wystawione|uploaded|listed)\\s*[:\\-]?\\s*"
+                    + "(\\d{1,2})[./-](\\d{1,2})[./-](\\d{4})"
+                    + "(?:\\s+(?:o\\s+)?(\\d{1,2}):(\\d{2}))?"
     );
 
     Map<String, String> resolve(
@@ -71,7 +81,7 @@ final class MarketListingPublishedAtResolver {
 
             try {
                 page.navigate(listingUrl);
-                page.waitForLoadState();
+                waitForDetailPage(page, listingId);
 
                 LocalDateTime referenceTime = LocalDateTime.now(MARKET_ZONE);
                 String bodyText = page.locator("body").innerText();
@@ -83,9 +93,10 @@ final class MarketListingPublishedAtResolver {
 
                 if (publishedAt.isEmpty()) {
                     log.warn(
-                            "[MARKET STATS] Could not read Vinted publication age. listingId={}, url={}",
+                            "[MARKET STATS] Could not read Vinted publication age. listingId={}, url={}, finalUrl={}",
                             listingId,
-                            listingUrl
+                            listingUrl,
+                            page.url()
                     );
                     continue;
                 }
@@ -111,6 +122,38 @@ final class MarketListingPublishedAtResolver {
         }
 
         return Map.copyOf(result);
+    }
+
+    private void waitForDetailPage(
+            Page page,
+            String listingId
+    ) {
+        try {
+            page.locator("body").waitFor(
+                    new Locator.WaitForOptions()
+                            .setState(WaitForSelectorState.VISIBLE)
+                            .setTimeout(DETAIL_READY_TIMEOUT_MS)
+            );
+        } catch (RuntimeException ignored) {
+            // The body text read below is the final authority.
+        }
+
+        if (page.url() != null && page.url().contains("/session-refresh")) {
+            try {
+                page.waitForURL(
+                        url -> url != null
+                                && url.toString().contains("/items/" + listingId),
+                        new Page.WaitForURLOptions()
+                                .setTimeout(DETAIL_READY_TIMEOUT_MS)
+                );
+            } catch (RuntimeException exception) {
+                log.debug(
+                        "[MARKET STATS] Vinted session-refresh did not redirect to item {} within the detail timeout. finalUrl={}",
+                        listingId,
+                        page.url()
+                );
+            }
+        }
     }
 
     private Map<String, String> captureListingUrls(
@@ -241,6 +284,17 @@ final class MarketListingPublishedAtResolver {
                     || unit.startsWith("week")) {
                 return Optional.of(referenceTime.minusWeeks(amount));
             }
+
+            if (unit.startsWith("mies") || unit.startsWith("month")) {
+                return Optional.of(referenceTime.minusMonths(amount));
+            }
+
+            if (unit.equals("rok")
+                    || unit.equals("lata")
+                    || unit.equals("lat")
+                    || unit.startsWith("year")) {
+                return Optional.of(referenceTime.minusYears(amount));
+            }
         }
 
         Matcher polishDate = POLISH_DATE_PATTERN.matcher(bodyText);
@@ -252,6 +306,26 @@ final class MarketListingPublishedAtResolver {
 
             String hourGroup = polishDate.group(4);
             String minuteGroup = polishDate.group(5);
+            LocalTime time = hourGroup == null || minuteGroup == null
+                    ? LocalTime.MIDNIGHT
+                    : LocalTime.of(
+                            Integer.parseInt(hourGroup),
+                            Integer.parseInt(minuteGroup)
+                    );
+
+            return Optional.of(
+                    LocalDate.of(year, month, day).atTime(time)
+            );
+        }
+
+        Matcher numericDate = NUMERIC_DATE_PATTERN.matcher(bodyText);
+
+        if (numericDate.find()) {
+            int day = Integer.parseInt(numericDate.group(1));
+            int month = Integer.parseInt(numericDate.group(2));
+            int year = Integer.parseInt(numericDate.group(3));
+            String hourGroup = numericDate.group(4);
+            String minuteGroup = numericDate.group(5);
             LocalTime time = hourGroup == null || minuteGroup == null
                     ? LocalTime.MIDNIGHT
                     : LocalTime.of(
