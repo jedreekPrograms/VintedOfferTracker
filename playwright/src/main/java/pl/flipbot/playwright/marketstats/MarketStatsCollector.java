@@ -348,7 +348,7 @@ public class MarketStatsCollector {
             return new PreparedScan(
                     primaryBot,
                     primaryStrategy,
-                    !STRATEGY_DICTIONARY_FILTERS.equals(primaryStrategy)
+                    SEARCH_QUERY.equals(requestedTargetMode)
             );
         } catch (RuntimeException primaryFailure) {
             if (containsInterruptedException(primaryFailure)) {
