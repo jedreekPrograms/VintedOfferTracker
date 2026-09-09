@@ -4,19 +4,25 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.exception.ApiException;
 import pl.flipbot.playwright.marketstats.dto.KnownMarketListingIdsDto;
+import pl.flipbot.playwright.marketstats.dto.MarketListingPublicationBatchRequestDto;
 import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchRequestDto;
 import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchResponseDto;
 import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class MarketStatsApiClient extends ApiClient {
 
     private final Map<Long, MarketStatsTargetDto> loadedTargets =
+            new HashMap<>();
+
+    private final Map<Long, Map<String, String>> pendingPublicationTimes =
             new HashMap<>();
 
     public BotDetailsDto getObserverBot(
@@ -79,10 +85,18 @@ public class MarketStatsApiClient extends ApiClient {
         );
         requireSuccess(response, "load known market listing ids");
 
-        return readBody(
+        KnownMarketListingIdsDto knownState = readBody(
                 response,
                 KnownMarketListingIdsDto.class
         );
+
+        MarketStatsObservationContext.begin(
+                modelId,
+                knownState.listingIds(),
+                knownState.baselineComplete()
+        );
+
+        return knownState;
     }
 
     public MarketObservationBatchResponseDto recordObservations(
@@ -90,26 +104,86 @@ public class MarketStatsApiClient extends ApiClient {
             List<String> listingIds,
             boolean complete
     ) {
-        MarketStatsTargetDto target = loadedTargets.get(modelId);
+        try {
+            MarketStatsTargetDto target = loadedTargets.get(modelId);
+
+            HttpResponse<String> response = post(
+                    "/api/market-stats/models/"
+                            + modelId
+                            + "/observations",
+                    new MarketObservationBatchRequestDto(
+                            listingIds,
+                            complete,
+                            target == null ? null : target.minPrice(),
+                            target == null ? null : target.maxPrice()
+                    )
+            );
+
+            requireSuccess(response, "record market listing observations");
+
+            MarketObservationBatchResponseDto recorded = readBody(
+                    response,
+                    MarketObservationBatchResponseDto.class
+            );
+
+            rememberResolvedPublicationTimes(
+                    modelId,
+                    listingIds
+            );
+            flushPublicationTimes(modelId);
+
+            return recorded;
+        } finally {
+            MarketStatsObservationContext.clear(modelId);
+        }
+    }
+
+    private void rememberResolvedPublicationTimes(
+            Long modelId,
+            List<String> listingIds
+    ) {
+        Map<String, LocalDateTime> resolved =
+                MarketStatsObservationContext.resolvedFor(
+                        modelId,
+                        listingIds
+                );
+
+        if (resolved.isEmpty()) {
+            return;
+        }
+
+        Map<String, String> pending = pendingPublicationTimes
+                .computeIfAbsent(
+                        modelId,
+                        ignored -> new LinkedHashMap<>()
+                );
+
+        for (Map.Entry<String, LocalDateTime> entry : resolved.entrySet()) {
+            pending.put(
+                    entry.getKey(),
+                    entry.getValue().toString()
+            );
+        }
+    }
+
+    private void flushPublicationTimes(Long modelId) {
+        Map<String, String> pending = pendingPublicationTimes.get(modelId);
+
+        if (pending == null || pending.isEmpty()) {
+            return;
+        }
 
         HttpResponse<String> response = post(
                 "/api/market-stats/models/"
                         + modelId
-                        + "/observations",
-                new MarketObservationBatchRequestDto(
-                        listingIds,
-                        complete,
-                        target == null ? null : target.minPrice(),
-                        target == null ? null : target.maxPrice()
+                        + "/publication-times",
+                new MarketListingPublicationBatchRequestDto(
+                        Map.copyOf(pending)
                 )
         );
 
-        requireSuccess(response, "record market listing observations");
-
-        return readBody(
-                response,
-                MarketObservationBatchResponseDto.class
-        );
+        requireSuccess(response, "record market listing publication times");
+        pendingPublicationTimes.remove(modelId);
     }
 
     private void requireSuccess(

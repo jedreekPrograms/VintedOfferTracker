@@ -284,9 +284,12 @@ function PriceMatrixPage() {
                         Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
                         najnowsze oferty. „Dzisiaj” liczy od 00:00, „Ten tydzień” od
                         poniedziałku 00:00, a „Ostatni pełny tydzień” obejmuje poprzedni
-                        poniedziałek–niedzielę. „Potrzebne boty” bazuje na pełnym poprzednim
-                        tygodniu; dopóki go nie ma, używana jest estymacja ze średniej dziennej
-                        z całego dostępnego okresu po baseline.
+                        poniedziałek–niedzielę. Nowe ogłoszenia są przypisywane do tych okien
+                        według czasu „Dodane” z Vinted; jeśli nie uda się go odczytać,
+                        bezpiecznym fallbackiem pozostaje pierwsze wykrycie przez observera.
+                        Osobna kolumna pokazuje, dla ilu ofert danego modelu naprawdę
+                        potwierdzono wysłanie pierwszej wiadomości negocjacyjnej w poprzednim
+                        pełnym tygodniu.
                     </p>
                 </div>
 
@@ -401,6 +404,7 @@ function BrandPriceSheet({
                         <div>Dzisiaj</div>
                         <div>Ten tydzień</div>
                         <div>Ostatni pełny tydzień</div>
+                        <div>Rozpoczęte negocjacje</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
                     </div>
@@ -474,6 +478,7 @@ function BrandPriceSheet({
                                 <TodayMetricCell planning={planning} />
                                 <CurrentWeekMetricCell planning={planning} />
                                 <PreviousFullWeekMetricCell planning={planning} />
+                                <NegotiationsStartedMetricCell planning={planning} />
                                 <RecommendedBotsMetricCell planning={planning} />
 
                                 <div
@@ -621,6 +626,28 @@ function PreviousFullWeekMetricCell({
     );
 }
 
+function NegotiationsStartedMetricCell({
+    planning,
+}: {
+    planning: ModelPlanning | undefined;
+}) {
+    if (planning === undefined) {
+        return (
+            <div className="price-metric-cell" data-label="Rozpoczęte negocjacje">
+                <strong>—</strong>
+                <span>Brak danych</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="price-metric-cell" data-label="Rozpoczęte negocjacje">
+            <strong>{planning.negotiationsStartedPreviousFullWeek}</strong>
+            <span>poprzedni pon.–niedz.</span>
+        </div>
+    );
+}
+
 function RecommendedBotsMetricCell({
     planning,
 }: {
@@ -648,7 +675,6 @@ function RecommendedBotsMetricCell({
                     średnia z {Math.max(planning.trackedDays, 1)} dni × 7
                 </span>
             )}
-            <span className="price-metric-note">1 bot = 35 nowych rozmów/tydz.</span>
         </div>
     );
 }
