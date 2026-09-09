@@ -284,9 +284,11 @@ function PriceMatrixPage() {
                         Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
                         najnowsze oferty. „Dzisiaj” liczy od 00:00, „Ten tydzień” od
                         poniedziałku 00:00, a „Ostatni pełny tydzień” obejmuje poprzedni
-                        poniedziałek–niedzielę. „Potrzebne boty” bazuje na pełnym poprzednim
-                        tygodniu; dopóki go nie ma, używana jest estymacja ze średniej dziennej
-                        z całego dostępnego okresu po baseline.
+                        poniedziałek–niedzielę. Nowe ogłoszenia są przypisywane do tych okien
+                        według czasu „Dodane” z Vinted; jeśli nie uda się go odczytać,
+                        bezpiecznym fallbackiem pozostaje pierwsze wykrycie przez observera.
+                        Przy pełnym tygodniu pokazujemy też liczbę ofert, dla których naprawdę
+                        potwierdzono wysłanie pierwszej wiadomości negocjacyjnej.
                     </p>
                 </div>
 
@@ -601,6 +603,9 @@ function PreviousFullWeekMetricCell({
             <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
                 <strong>—</strong>
                 <span>jeszcze brak pełnego tygodnia</span>
+                <span className="price-metric-note">
+                    rozpoczęte negocjacje: {planning.negotiationsStartedPreviousFullWeek}
+                </span>
                 {planning.trackedDays > 0 && (
                     <span className="price-metric-note">
                         śledzenie: {planning.trackedDays} dni
@@ -614,6 +619,9 @@ function PreviousFullWeekMetricCell({
         <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
             <strong>{planning.offersPreviousFullWeek ?? 0}</strong>
             <span>poprzedni pon.–niedz.</span>
+            <span className="price-metric-note">
+                rozpoczęte negocjacje: {planning.negotiationsStartedPreviousFullWeek}
+            </span>
             {!planning.lastScanComplete && (
                 <span className="price-metric-warning">Ostatni skan niepełny</span>
             )}
@@ -648,7 +656,6 @@ function RecommendedBotsMetricCell({
                     średnia z {Math.max(planning.trackedDays, 1)} dni × 7
                 </span>
             )}
-            <span className="price-metric-note">1 bot = 35 nowych rozmów/tydz.</span>
         </div>
     );
 }
