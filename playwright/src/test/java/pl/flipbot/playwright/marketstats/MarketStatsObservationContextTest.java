@@ -1,22 +1,22 @@
 package pl.flipbot.playwright.marketstats;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
+import org.junit.After;
+import org.junit.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
-class MarketStatsObservationContextTest {
+public class MarketStatsObservationContextTest {
 
-    @AfterEach
-    void clearContext() {
+    @After
+    public void clearContext() {
         MarketStatsObservationContext.clear(null);
     }
 
     @Test
-    void baselineResolvesPublicationTimeForEveryVisibleListing() {
+    public void baselineResolvesPublicationTimeForEveryVisibleListing() {
         MarketStatsObservationContext.begin(
                 25L,
                 List.of("known-before-baseline"),
@@ -36,7 +36,7 @@ class MarketStatsObservationContextTest {
     }
 
     @Test
-    void completedBaselineResolvesOnlyNewOrMissingPublicationTimes() {
+    public void completedBaselineResolvesOnlyNewOrMissingPublicationTimes() {
         MarketStatsObservationContext.begin(
                 25L,
                 List.of("known-complete", "known-missing"),
