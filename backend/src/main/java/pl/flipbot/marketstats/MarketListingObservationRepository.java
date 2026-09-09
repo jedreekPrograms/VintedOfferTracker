@@ -26,7 +26,6 @@ public interface MarketListingObservationRepository
             select count(observation)
             from MarketListingObservation observation
             where observation.model.id = :modelId
-              and observation.baseline = false
               and observation.firstSeenAt >= :fromInclusive
               and observation.firstSeenAt < :toExclusive
             """)
