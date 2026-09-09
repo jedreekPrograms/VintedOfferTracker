@@ -88,6 +88,7 @@ public class MarketStatsApiClient extends ApiClient {
     public MarketObservationBatchResponseDto recordObservations(
             Long modelId,
             List<String> listingIds,
+            Map<String, String> publishedAtByListingId,
             boolean complete
     ) {
         MarketStatsTargetDto target = loadedTargets.get(modelId);
@@ -98,6 +99,7 @@ public class MarketStatsApiClient extends ApiClient {
                         + "/observations",
                 new MarketObservationBatchRequestDto(
                         listingIds,
+                        publishedAtByListingId,
                         complete,
                         target == null ? null : target.minPrice(),
                         target == null ? null : target.maxPrice()
