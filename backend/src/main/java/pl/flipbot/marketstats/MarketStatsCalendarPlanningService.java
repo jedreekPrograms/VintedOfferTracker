@@ -9,11 +9,18 @@ import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
+import pl.flipbot.negotiation.audit.RealActionAudit;
+import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
+import pl.flipbot.negotiation.audit.RealActionAuditRepository;
+import pl.flipbot.negotiation.guard.RealActionType;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -25,11 +32,15 @@ public class MarketStatsCalendarPlanningService {
     private final BotConfigurationRepository configurationRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
+    private final RealActionAuditRepository realActionAuditRepository;
 
     @Transactional(readOnly = true)
     public List<CalendarModelPlanningResponse> getPlanning() {
         LocalDateTime now = LocalDateTime.now(MARKET_STATS_ZONE);
+        MarketStatsPlanningCalculator.CalendarWindows windows =
+                MarketStatsPlanningCalculator.windows(now);
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        List<RealActionAudit> negotiationStarts = loadConfirmedNegotiationStarts(windows);
 
         return modelRepository.findAll()
                 .stream()
@@ -46,7 +57,8 @@ public class MarketStatsCalendarPlanningService {
                 .map(model -> toPlanningResponse(
                         model,
                         configurations,
-                        now
+                        negotiationStarts,
+                        windows
                 ))
                 .toList();
     }
@@ -54,16 +66,33 @@ public class MarketStatsCalendarPlanningService {
     private CalendarModelPlanningResponse toPlanningResponse(
             DictionaryModel model,
             List<BotConfiguration> configurations,
-            LocalDateTime now
+            List<RealActionAudit> negotiationStarts,
+            MarketStatsPlanningCalculator.CalendarWindows windows
     ) {
         MarketModelScanState state = scanStateRepository
                 .findById(model.getId())
                 .orElse(null);
 
-        int existingBots = safeInt(
-                configurations.stream()
-                        .filter(configuration -> matchesModel(model, configuration))
-                        .count()
+        Set<Long> matchingBotIds = configurations.stream()
+                .filter(configuration -> matchesModel(model, configuration))
+                .map(BotConfiguration::getBot)
+                .filter(Objects::nonNull)
+                .map(bot -> bot.getId())
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        int existingBots = safeInt(matchingBotIds.size());
+        int negotiationsStartedCurrentWeek = countStartedNegotiations(
+                matchingBotIds,
+                negotiationStarts,
+                windows.currentWeekStart(),
+                windows.now()
+        );
+        int negotiationsStartedPreviousFullWeek = countStartedNegotiations(
+                matchingBotIds,
+                negotiationStarts,
+                windows.previousWeekStart(),
+                windows.currentWeekStart()
         );
 
         if (state == null || state.getBaselineCompleteAt() == null) {
@@ -73,6 +102,8 @@ public class MarketStatsCalendarPlanningService {
                     null,
                     null,
                     null,
+                    negotiationsStartedCurrentWeek,
+                    negotiationsStartedPreviousFullWeek,
                     null,
                     null,
                     true,
@@ -87,8 +118,6 @@ public class MarketStatsCalendarPlanningService {
         }
 
         LocalDateTime baselineCompleteAt = state.getBaselineCompleteAt();
-        MarketStatsPlanningCalculator.CalendarWindows windows =
-                MarketStatsPlanningCalculator.windows(now);
 
         int offersToday = countNewListings(
                 model.getId(),
@@ -123,7 +152,7 @@ public class MarketStatsCalendarPlanningService {
 
         int trackedDays = MarketStatsPlanningCalculator.trackedCalendarDays(
                 baselineCompleteAt,
-                now
+                windows.now()
         );
 
         if (previousFullWeekAvailable) {
@@ -158,6 +187,8 @@ public class MarketStatsCalendarPlanningService {
                 offersToday,
                 offersCurrentWeek,
                 offersPreviousFullWeek,
+                negotiationsStartedCurrentWeek,
+                negotiationsStartedPreviousFullWeek,
                 recommendedBots,
                 recommendationWeeklyOffers,
                 recommendationEstimated,
@@ -168,6 +199,49 @@ public class MarketStatsCalendarPlanningService {
                 trackedDays,
                 state.getLastScanAt(),
                 Boolean.TRUE.equals(state.getLastScanComplete())
+        );
+    }
+
+    private List<RealActionAudit> loadConfirmedNegotiationStarts(
+            MarketStatsPlanningCalculator.CalendarWindows windows
+    ) {
+        return realActionAuditRepository
+                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                        RealActionType.FIRST_OFFER,
+                        RealActionAuditOutcome.CONFIRMED,
+                        windows.previousWeekStart()
+                )
+                .stream()
+                .filter(audit -> audit.getCreatedAt() != null)
+                .filter(audit -> audit.getCreatedAt().isBefore(windows.now()))
+                .toList();
+    }
+
+    private int countStartedNegotiations(
+            Set<Long> matchingBotIds,
+            List<RealActionAudit> negotiationStarts,
+            LocalDateTime fromInclusive,
+            LocalDateTime toExclusive
+    ) {
+        if (matchingBotIds.isEmpty()
+                || negotiationStarts.isEmpty()
+                || fromInclusive == null
+                || toExclusive == null
+                || !fromInclusive.isBefore(toExclusive)) {
+            return 0;
+        }
+
+        return safeInt(
+                negotiationStarts.stream()
+                        .filter(audit -> matchingBotIds.contains(audit.getBotId()))
+                        .filter(audit -> !audit.getCreatedAt().isBefore(fromInclusive))
+                        .filter(audit -> audit.getCreatedAt().isBefore(toExclusive))
+                        .map(RealActionAudit::getMarketplaceListingId)
+                        .filter(Objects::nonNull)
+                        .map(String::trim)
+                        .filter(listingId -> !listingId.isEmpty())
+                        .distinct()
+                        .count()
         );
     }
 
