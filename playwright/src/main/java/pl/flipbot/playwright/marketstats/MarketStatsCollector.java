@@ -41,11 +41,6 @@ public class MarketStatsCollector {
     private static final double SCROLL_WAIT_MS = 1_200;
     private static final int MAX_NO_GROWTH_ROUNDS = 2;
 
-    /*
-     * Used for broad SEARCH_QUERY discovery fallbacks. The strict target
-     * matcher remains the final authority before a marketplace listing id is
-     * counted. VINTED_MODEL never enters these text-search fallbacks.
-     */
     private static final Set<String> ACCESSORY_WORDS = Set.of(
             "etui",
             "case",
@@ -75,7 +70,6 @@ public class MarketStatsCollector {
         BotDetailsDto observerBot = apiClient.getObserverBot(
                 config.observerBotId()
         );
-
         List<MarketStatsTargetDto> targets = apiClient.getTargets();
 
         log.info(
@@ -91,20 +85,8 @@ public class MarketStatsCollector {
         try (BrowserManager browserManager = new BrowserManager(config.headless());
              BotContext context = new BotContext(observerBot, browserManager)) {
 
-            /*
-             * The market-statistics collector is strictly read-only and only
-             * needs the public catalog. BotContext already restores a stored
-             * observer storage-state file when one exists, so probe that
-             * restored session once. If it is authenticated we keep using it;
-             * otherwise continue anonymously immediately instead of spending
-             * up to 60 seconds on an interactive login that is not required
-             * for catalog collection.
-             */
             boolean authenticatedObserverSession =
-                    prepareObserverCatalogSession(
-                            context,
-                            observerBot
-                    );
+                    prepareObserverCatalogSession(context, observerBot);
 
             try {
                 for (int index = 0; index < targets.size(); index++) {
@@ -116,7 +98,6 @@ public class MarketStatsCollector {
                                 observerBot,
                                 target
                         );
-
                         recordedTargets++;
 
                         if (fallbackUsed) {
@@ -124,7 +105,6 @@ public class MarketStatsCollector {
                         }
                     } catch (Exception exception) {
                         failedTargets++;
-
                         log.error(
                                 "[MARKET STATS] Model scan failed. modelId={}, brand='{}', model='{}'. "
                                         + "Continuing with the next model; the whole collection will be retried sooner.",
@@ -162,8 +142,7 @@ public class MarketStatsCollector {
         }
 
         log.info(
-                "[MARKET STATS] Daily collection pass finished. targets={}, recorded={}, "
-                        + "fallback={}, failed={}.",
+                "[MARKET STATS] Daily collection pass finished. targets={}, recorded={}, fallback={}, failed={}.",
                 targets.size(),
                 recordedTargets,
                 fallbackTargets,
@@ -198,10 +177,7 @@ public class MarketStatsCollector {
                         context,
                         "[data-testid='header-conversations-button']"
                 )
-                        || hasVisible(
-                        context,
-                        "a[href*='/inbox']"
-                );
+                        || hasVisible(context, "a[href*='/inbox']");
 
         if (authenticated) {
             log.info(
@@ -221,15 +197,15 @@ public class MarketStatsCollector {
         return authenticated;
     }
 
-    private void dismissCookieBannerIfVisible(
-            BotContext context
-    ) {
+    private void dismissCookieBannerIfVisible(BotContext context) {
         try {
             var button = context.getPage().locator("#onetrust-accept-btn-handler");
 
             if (button.count() > 0 && button.first().isVisible()) {
                 button.first().click();
-                log.debug("[MARKET STATS] Accepted Vinted cookie banner before observer scan.");
+                log.debug(
+                        "[MARKET STATS] Accepted Vinted cookie banner before observer scan."
+                );
             }
         } catch (RuntimeException exception) {
             log.debug(
@@ -271,14 +247,11 @@ public class MarketStatsCollector {
         validateTarget(target);
 
         KnownMarketListingIdsDto knownState =
-                apiClient.getKnownListingIds(
-                        target.modelId()
-                );
+                apiClient.getKnownListingIds(target.modelId());
 
-        Set<String> knownListingIds =
-                knownState.listingIds() == null
-                        ? Set.of()
-                        : Set.copyOf(knownState.listingIds());
+        Set<String> knownListingIds = knownState.listingIds() == null
+                ? Set.of()
+                : Set.copyOf(knownState.listingIds());
 
         PreparedScan preparedScan = prepareScan(
                 context,
@@ -286,10 +259,17 @@ public class MarketStatsCollector {
                 target
         );
 
+        boolean trustVintedModelFilter =
+                VINTED_MODEL.equals(resolveTargetMode(target.targetMode()))
+                        && STRATEGY_DICTIONARY_FILTERS.equals(
+                                preparedScan.strategy()
+                        );
+
         ScanResult scanResult = scanCatalog(
                 context,
                 preparedScan.scanBot().getConfiguration(),
                 preparedScan.accessoryFiltering(),
+                trustVintedModelFilter,
                 knownListingIds,
                 knownState.baselineComplete()
         );
@@ -303,12 +283,13 @@ public class MarketStatsCollector {
 
         log.info(
                 "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', "
-                        + "strategy={}, minPrice={}, maxPrice={}, matched={}, knownBefore={}, "
+                        + "strategy={}, trustedVintedFilter={}, minPrice={}, maxPrice={}, matched={}, knownBefore={}, "
                         + "newObserved={}, complete={}, baselineMode={}.",
                 target.modelId(),
                 target.brandName(),
                 target.modelName(),
                 preparedScan.strategy(),
+                trustVintedModelFilter,
                 target.minPrice(),
                 target.maxPrice(),
                 scanResult.listingIds().size(),
@@ -331,13 +312,6 @@ public class MarketStatsCollector {
         boolean resolvedCategory = hasResolvedCategory(target);
         String requestedTargetMode = resolveTargetMode(target.targetMode());
 
-        /*
-         * A dictionary entry marked VINTED_MODEL is a hard contract. The
-         * observer is not allowed to silently turn it into a text search just
-         * because metadata or a UI filter is unavailable. Otherwise market
-         * statistics would represent a different target than the production
-         * bot. Fail this one model scan and retry later instead.
-         */
         if (VINTED_MODEL.equals(requestedTargetMode) && !resolvedCategory) {
             throw new IllegalStateException(
                     "VINTED_MODEL market target "
@@ -348,11 +322,7 @@ public class MarketStatsCollector {
             );
         }
 
-        BotDetailsDto primaryBot = buildScanBot(
-                observerBot,
-                target
-        );
-
+        BotDetailsDto primaryBot = buildScanBot(observerBot, target);
         String primaryStrategy = resolvedCategory
                 ? STRATEGY_DICTIONARY_FILTERS
                 : STRATEGY_GLOBAL_BRAND_TEXT;
@@ -378,7 +348,7 @@ public class MarketStatsCollector {
             return new PreparedScan(
                     primaryBot,
                     primaryStrategy,
-                    !STRATEGY_DICTIONARY_FILTERS.equals(primaryStrategy)
+                    SEARCH_QUERY.equals(requestedTargetMode)
             );
         } catch (RuntimeException primaryFailure) {
             if (containsInterruptedException(primaryFailure)) {
@@ -466,11 +436,14 @@ public class MarketStatsCollector {
             BotContext context,
             BotConfigurationDto targetConfiguration,
             boolean accessoryFiltering,
+            boolean trustVintedModelFilter,
             Set<String> knownListingIds,
             boolean baselineComplete
     ) {
         ListingScanner scanner = new ListingScanner(context);
         ListingTargetMatcher matcher = new ListingTargetMatcher();
+        MarketListingPublishedAtResolver publishedAtResolver =
+                new MarketListingPublishedAtResolver(context);
         LinkedHashMap<String, Listing> matched = new LinkedHashMap<>();
 
         int previousParsedCount = -1;
@@ -490,12 +463,13 @@ public class MarketStatsCollector {
                     continue;
                 }
 
-                if (matchesTarget(
-                        listing,
-                        targetConfiguration,
-                        accessoryFiltering,
-                        matcher
-                )) {
+                if (trustVintedModelFilter
+                        || matchesTarget(
+                                listing,
+                                targetConfiguration,
+                                accessoryFiltering,
+                                matcher
+                        )) {
                     matched.putIfAbsent(
                             listing.getId(),
                             listing
@@ -503,11 +477,20 @@ public class MarketStatsCollector {
                 }
             }
 
+            /*
+             * Publication-time enrichment belongs only to the market observer.
+             * ListingScanner remains the stable generic scanner used by normal
+             * bots; only listings accepted by this observer target are probed.
+             */
+            publishedAtResolver.captureIfNeeded(
+                    matched.values().stream().toList()
+            );
+
             if (!knownListingIds.isEmpty()
                     && containsKnownBoundary(
-                    matched.keySet(),
-                    knownListingIds
-            )) {
+                            matched.keySet(),
+                            knownListingIds
+                    )) {
                 complete = true;
                 break;
             }
@@ -540,22 +523,18 @@ public class MarketStatsCollector {
                 .limit(config.maxListingsPerModel())
                 .toList();
 
-        boolean hitLimit =
-                ids.size() >= config.maxListingsPerModel();
+        boolean hitLimit = ids.size() >= config.maxListingsPerModel();
 
         if (hitLimit) {
             if (!baselineComplete) {
                 complete = true;
-
                 log.info(
                         "[MARKET STATS] Baseline seed reached configured limit {}. "
                                 + "Treating the bounded newest-first seed as a complete baseline.",
                         config.maxListingsPerModel()
                 );
-
             } else if (!containsKnownBoundary(ids, knownListingIds)) {
                 complete = false;
-
                 log.warn(
                         "[MARKET STATS] Daily scan reached configured limit {} before the known-listing boundary. "
                                 + "This scan is incomplete.",
@@ -564,10 +543,7 @@ public class MarketStatsCollector {
             }
         }
 
-        return new ScanResult(
-                ids,
-                complete
-        );
+        return new ScanResult(ids, complete);
     }
 
     private boolean containsKnownBoundary(
@@ -636,9 +612,7 @@ public class MarketStatsCollector {
         ) == ListingTargetAssessment.MATCH;
     }
 
-    private boolean looksLikeAccessory(
-            Listing listing
-    ) {
+    private boolean looksLikeAccessory(Listing listing) {
         String normalized = normalizeForAccessoryCheck(
                 String.valueOf(listing.getTitle())
                         + " "
@@ -668,20 +642,14 @@ public class MarketStatsCollector {
         configuration.setMarketplace("VINTED");
 
         boolean resolvedCategory = hasResolvedCategory(target);
-
         configuration.setCategoryPath(
                 resolvedCategory
                         ? List.copyOf(target.categoryPath())
                         : List.of()
         );
-
         configuration.setBrand(target.brandName());
 
         if (!resolvedCategory) {
-            /*
-             * prepareScan already rejects VINTED_MODEL without a category, so
-             * this branch is exclusively a SEARCH_QUERY fallback.
-             */
             configuration.setTargetMode(SEARCH_QUERY);
             configuration.setModel(null);
             configuration.setSearchQuery(target.modelName());
@@ -699,11 +667,7 @@ public class MarketStatsCollector {
         }
 
         applyObserverPriceRange(configuration, target);
-
-        return buildBotWithConfiguration(
-                observerBot,
-                configuration
-        );
+        return buildBotWithConfiguration(observerBot, configuration);
     }
 
     private BotDetailsDto buildTextOnlyFallbackBot(
@@ -723,10 +687,7 @@ public class MarketStatsCollector {
         );
         applyObserverPriceRange(configuration, target);
 
-        return buildBotWithConfiguration(
-                observerBot,
-                configuration
-        );
+        return buildBotWithConfiguration(observerBot, configuration);
     }
 
     private void applyObserverPriceRange(
@@ -747,13 +708,10 @@ public class MarketStatsCollector {
         scanBot.setEmail(observerBot.getEmail());
         scanBot.setPassword(observerBot.getPassword());
         scanBot.setConfiguration(configuration);
-
         return scanBot;
     }
 
-    private void validateTarget(
-            MarketStatsTargetDto target
-    ) {
+    private void validateTarget(MarketStatsTargetDto target) {
         if (target == null
                 || target.modelId() == null
                 || target.modelId() <= 0
@@ -787,43 +745,32 @@ public class MarketStatsCollector {
         }
     }
 
-    private boolean hasResolvedCategory(
-            MarketStatsTargetDto target
-    ) {
+    private boolean hasResolvedCategory(MarketStatsTargetDto target) {
         return target.categoryResolved()
                 && target.categoryPath() != null
                 && !target.categoryPath().isEmpty();
     }
 
-    private String resolveTargetMode(
-            String rawTargetMode
-    ) {
-        if (SEARCH_QUERY.equals(rawTargetMode)) {
-            return SEARCH_QUERY;
-        }
-
-        return VINTED_MODEL;
+    private String resolveTargetMode(String rawTargetMode) {
+        return SEARCH_QUERY.equals(rawTargetMode)
+                ? SEARCH_QUERY
+                : VINTED_MODEL;
     }
 
-    private boolean containsInterruptedException(
-            Throwable throwable
-    ) {
+    private boolean containsInterruptedException(Throwable throwable) {
         Throwable current = throwable;
 
         while (current != null) {
             if (current instanceof InterruptedException) {
                 return true;
             }
-
             current = current.getCause();
         }
 
         return false;
     }
 
-    private String safeMessage(
-            Throwable throwable
-    ) {
+    private String safeMessage(Throwable throwable) {
         if (throwable == null
                 || throwable.getMessage() == null
                 || throwable.getMessage().isBlank()) {
@@ -835,15 +782,11 @@ public class MarketStatsCollector {
         return throwable.getMessage();
     }
 
-    private boolean isBlank(
-            String value
-    ) {
+    private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
 
-    private String normalizeForAccessoryCheck(
-            String value
-    ) {
+    private String normalizeForAccessoryCheck(String value) {
         String normalized = Normalizer.normalize(
                 value == null ? "" : value,
                 Normalizer.Form.NFD

@@ -284,9 +284,9 @@ function PriceMatrixPage() {
                         Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
                         najnowsze oferty. „Dzisiaj” liczy od 00:00, „Ten tydzień” od
                         poniedziałku 00:00, a „Ostatni pełny tydzień” obejmuje poprzedni
-                        poniedziałek–niedzielę. „Potrzebne boty” bazuje na pełnym poprzednim
-                        tygodniu; dopóki go nie ma, używana jest estymacja ze średniej dziennej
-                        z całego dostępnego okresu po baseline.
+                        poniedziałek–niedzielę. Liczby rozpoczętych rozmów są pobierane
+                        niezależnie z potwierdzonych pierwszych ofert zapisanych w bazie,
+                        więc nie zależą od baseline ani od poprawności skanów observera.
                     </p>
                 </div>
 
@@ -523,6 +523,11 @@ function CurrentWeekMetricCell({
             complete={planning?.currentWeekWindowComplete ?? false}
             completeText="od pon. 00:00"
             partialText="częściowy tydzień od baseline"
+            databaseNote={
+                planning === undefined
+                    ? undefined
+                    : `rozpoczęte rozmowy: ${planning.negotiationsStartedCurrentWeek}`
+            }
         />
     );
 }
@@ -535,6 +540,7 @@ function CalendarMetricCell({
     completeText,
     partialText,
     showBaseline = false,
+    databaseNote,
 }: {
     label: string;
     planning: ModelPlanning | undefined;
@@ -543,6 +549,7 @@ function CalendarMetricCell({
     completeText: string;
     partialText: string;
     showBaseline?: boolean;
+    databaseNote?: string;
 }) {
     if (planning === undefined) {
         return (
@@ -562,6 +569,9 @@ function CalendarMetricCell({
                         ? "Czeka na pierwszy skan"
                         : "Czeka na pełny baseline"}
                 </span>
+                {databaseNote !== undefined && (
+                    <span className="price-metric-note">{databaseNote}</span>
+                )}
             </div>
         );
     }
@@ -570,6 +580,9 @@ function CalendarMetricCell({
         <div className="price-metric-cell" data-label={label}>
             <strong>{value}</strong>
             <span>{complete ? completeText : partialText}</span>
+            {databaseNote !== undefined && (
+                <span className="price-metric-note">{databaseNote}</span>
+            )}
             {showBaseline && planning.baselineOffers !== null && (
                 <span className="price-metric-note">
                     punkt startowy: {planning.baselineOffers} ofert
@@ -600,10 +613,13 @@ function PreviousFullWeekMetricCell({
         return (
             <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
                 <strong>—</strong>
-                <span>jeszcze brak pełnego tygodnia</span>
+                <span>jeszcze brak pełnego tygodnia ofert</span>
+                <span className="price-metric-note">
+                    rozpoczęte rozmowy: {planning.negotiationsStartedPreviousFullWeek}
+                </span>
                 {planning.trackedDays > 0 && (
                     <span className="price-metric-note">
-                        śledzenie: {planning.trackedDays} dni
+                        śledzenie ofert: {planning.trackedDays} dni
                     </span>
                 )}
             </div>
@@ -614,6 +630,9 @@ function PreviousFullWeekMetricCell({
         <div className="price-metric-cell" data-label="Ostatni pełny tydzień">
             <strong>{planning.offersPreviousFullWeek ?? 0}</strong>
             <span>poprzedni pon.–niedz.</span>
+            <span className="price-metric-note">
+                rozpoczęte rozmowy: {planning.negotiationsStartedPreviousFullWeek}
+            </span>
             {!planning.lastScanComplete && (
                 <span className="price-metric-warning">Ostatni skan niepełny</span>
             )}

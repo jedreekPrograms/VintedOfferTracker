@@ -8,6 +8,8 @@ public record CalendarModelPlanningResponse(
         Integer offersToday,
         Integer offersCurrentWeek,
         Integer offersPreviousFullWeek,
+        Integer negotiationsStartedCurrentWeek,
+        Integer negotiationsStartedPreviousFullWeek,
         Integer recommendedBots,
         Integer recommendationWeeklyOffers,
         boolean recommendationEstimated,
