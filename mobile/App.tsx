@@ -18,14 +18,20 @@ import {
 import { WebView } from "react-native-webview";
 
 const STORAGE_KEY = "flipbot.mobile.serverUrl";
-const EXAMPLE_URL = "http://192.168.1.100:8081";
+const EXAMPLE_URL = "https://twoj-komputer.twoj-tailnet.ts.net";
 
 type ConnectionState = "idle" | "loading" | "online" | "offline";
 
 function normalizeUrl(value: string): string {
   let normalized = value.trim();
   if (!normalized) return "";
-  if (!/^https?:\/\//i.test(normalized)) normalized = `http://${normalized}`;
+
+  if (!/^https?:\/\//i.test(normalized)) {
+    normalized = normalized.toLowerCase().endsWith(".ts.net")
+      ? `https://${normalized}`
+      : `http://${normalized}`;
+  }
+
   return normalized.replace(/\/+$/, "");
 }
 
@@ -93,7 +99,7 @@ export default function App() {
     const normalized = normalizeUrl(candidate);
     if (!normalized) {
       setConnection("offline");
-      setConnectionMessage("Wpisz adres komputera z backendem FlipBot.");
+      setConnectionMessage("Wpisz prywatny adres FlipBot z Tailscale albo adres LAN komputera.");
       return false;
     }
 
@@ -106,12 +112,12 @@ export default function App() {
       const response = await fetch(normalized, { method: "GET", signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setConnection("online");
-      setConnectionMessage("Połączenie działa. Panel FlipBot jest dostępny z backendu.");
+      setConnectionMessage("Połączenie działa. Panel FlipBot jest dostępny z komputera.");
       return true;
     } catch {
       setConnection("offline");
       setConnectionMessage(
-        `Brak połączenia z ${normalized}. Sprawdź IP komputera, backend na porcie 8081, Wi-Fi i Zaporę Windows.`,
+        `Brak połączenia z ${normalized}. Sprawdź, czy PC jest online, backend działa i Tailscale jest połączony na obu urządzeniach.`,
       );
       return false;
     } finally {
@@ -238,7 +244,7 @@ export default function App() {
         <View style={styles.center}>
           <Text style={styles.emptyTitle}>Połącz aplikację z komputerem</Text>
           <Text style={styles.emptyText}>
-            Na PC uruchamiasz tylko to, co dotychczas: backend i Playwright. Backend udostępnia aplikacji ten sam panel webowy.
+            Na PC uruchamiasz FlipBot jak dotychczas: backend i Playwright. Tailscale daje prywatny dostęp do panelu z dowolnej sieci.
           </Text>
           <Pressable style={styles.primaryButton} onPress={() => setSettingsVisible(true)}>
             <Text style={styles.primaryButtonText}>Ustaw adres PC</Text>
@@ -266,10 +272,10 @@ export default function App() {
         <SafeAreaView style={styles.modalSafeArea}>
           <KeyboardAvoidingView style={styles.modalBody} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View>
-              <Text style={styles.modalEyebrow}>Połączenie lokalne</Text>
+              <Text style={styles.modalEyebrow}>Prywatny dostęp zdalny</Text>
               <Text style={styles.modalTitle}>Komputer jako serwer</Text>
               <Text style={styles.modalText}>
-                Wpisz IPv4 komputera z portem backendu 8081. Nie uruchamiasz osobno Vite ani żadnego nowego serwera.
+                Wpisz adres HTTPS pokazany przez Tailscale Serve. Wtedy panel działa przez LTE, 5G i dowolne Wi-Fi, nie tylko w domu.
               </Text>
             </View>
 
@@ -285,7 +291,7 @@ export default function App() {
                 style={styles.input}
               />
               <Text style={styles.help}>
-                Przykład: http://192.168.1.37:8081. Nie wpisuj localhost, bo na telefonie oznacza sam telefon.
+                Preferowany: https://nazwa-pc.nazwa-tailnetu.ts.net. Adres LAN typu http://192.168.x.x:8081 nadal działa tylko w domu.
               </Text>
             </View>
 
