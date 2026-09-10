@@ -35,7 +35,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Install dependencies
         run: npm install
