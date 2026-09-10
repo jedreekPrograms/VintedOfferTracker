@@ -44,6 +44,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Apply mobile-only UI polish
+        run: python scripts/patch_mobile_ui.py
+
+      - name: Type-check mobile app
+        run: npm run typecheck
+
       - name: Generate FlipBot launcher icon
         run: |
           python -m pip install --disable-pip-version-check pillow
