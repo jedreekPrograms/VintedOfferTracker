@@ -69,9 +69,10 @@ public class BrowserManager implements AutoCloseable {
 
         BrowserContext context = browser.newContext(options);
         context.addInitScript(VintedInformationalDialogGuard.script());
+        context.addInitScript(OneTrustConsentGuard.script());
 
         log.debug(
-                "[BROWSER UI] Vinted informational-dialog guard installed for new browser context."
+                "[BROWSER UI] Vinted informational-dialog and OneTrust consent guards installed for new browser context."
         );
 
         return context;
