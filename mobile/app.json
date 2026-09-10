@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "FlipBot",
+    "slug": "flipbot-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "platforms": ["android", "ios"],
+    "android": {
+      "package": "pl.flipbot.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "pl.flipbot.mobile",
+      "supportsTablet": true
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}
