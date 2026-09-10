@@ -42,14 +42,14 @@ jobs:
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean --no-install
 
-      - name: Build debug APK
+      - name: Build standalone APK
         shell: bash
         run: |
           cd android
           chmod +x gradlew
           for attempt in 1 2 3; do
             echo "Gradle build attempt ${attempt}/3"
-            if ./gradlew --no-daemon assembleDebug; then
+            if ./gradlew --no-daemon assembleRelease; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
@@ -61,7 +61,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: flipbot-mobile-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: flipbot-mobile-release-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
