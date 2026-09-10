@@ -1,0 +1,316 @@
+/*
+ * Mobile-app-only adjustments.
+ *
+ * The native wrapper adds the `flipbot-mobile-app` class to <html>.
+ * Desktop/browser rendering stays unchanged.
+ */
+
+html.flipbot-mobile-app,
+html.flipbot-mobile-app body,
+html.flipbot-mobile-app #root {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+html.flipbot-mobile-app body {
+    font-family:
+        Inter,
+        ui-sans-serif,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    font-size: 15px;
+    line-height: 1.45;
+    overscroll-behavior-x: none;
+}
+
+html.flipbot-mobile-app *,
+html.flipbot-mobile-app *::before,
+html.flipbot-mobile-app *::after {
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+html.flipbot-mobile-app img,
+html.flipbot-mobile-app svg,
+html.flipbot-mobile-app video,
+html.flipbot-mobile-app canvas,
+html.flipbot-mobile-app table {
+    max-width: 100%;
+}
+
+html.flipbot-mobile-app .flipbot-native-server-settings {
+    width: 100%;
+    border: 0;
+    font: inherit;
+    text-align: left;
+}
+
+@media (max-width: 980px) {
+    html.flipbot-mobile-app .sidebar {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        padding: 9px 12px;
+        box-shadow: 0 5px 18px rgb(15 23 42 / 18%);
+    }
+
+    html.flipbot-mobile-app .sidebar-topbar {
+        min-height: 44px;
+        gap: 10px;
+    }
+
+    html.flipbot-mobile-app .sidebar-header {
+        gap: 10px;
+    }
+
+    html.flipbot-mobile-app .sidebar-logo {
+        width: 36px;
+        height: 36px;
+        flex: 0 0 36px;
+        border-radius: 9px;
+        font-size: 17px;
+        line-height: 1;
+    }
+
+    html.flipbot-mobile-app .sidebar-title {
+        font-size: 17px;
+        line-height: 1.1;
+    }
+
+    html.flipbot-mobile-app .sidebar-subtitle {
+        display: none;
+    }
+
+    html.flipbot-mobile-app .mobile-navigation-toggle {
+        width: 40px;
+        height: 40px;
+        flex-basis: 40px;
+    }
+
+    html.flipbot-mobile-app .sidebar-navigation {
+        max-height: min(64vh, 470px);
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-top: 8px;
+        padding-top: 8px;
+        padding-bottom: 2px;
+    }
+
+    html.flipbot-mobile-app .navigation-link {
+        min-height: 42px;
+        display: flex;
+        align-items: center;
+        border-radius: 9px;
+        padding: 9px 11px;
+        font-size: 13px;
+        line-height: 1.2;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    html.flipbot-mobile-app .main-content {
+        width: 100%;
+        max-width: 100%;
+        padding: 16px 12px 28px;
+    }
+
+    html.flipbot-mobile-app .page {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    html.flipbot-mobile-app .page-header,
+    html.flipbot-mobile-app .page-header-with-action,
+    html.flipbot-mobile-app .bots-page-header,
+    html.flipbot-mobile-app .action-required-page-header {
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    html.flipbot-mobile-app .page-eyebrow {
+        margin-bottom: 6px;
+        font-size: 11px;
+        line-height: 1.2;
+        letter-spacing: 0.08em;
+    }
+
+    html.flipbot-mobile-app .page-title {
+        font-size: clamp(27px, 7.5vw, 32px);
+        line-height: 1.08;
+        letter-spacing: -0.025em;
+    }
+
+    html.flipbot-mobile-app .page-description {
+        margin-top: 9px;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+
+    html.flipbot-mobile-app .dashboard-section-header {
+        margin-bottom: 12px;
+    }
+
+    html.flipbot-mobile-app .dashboard-section-header h2,
+    html.flipbot-mobile-app .content-card-title {
+        font-size: 19px;
+        line-height: 1.2;
+    }
+
+    html.flipbot-mobile-app .dashboard-section-header p,
+    html.flipbot-mobile-app .content-card-text {
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    html.flipbot-mobile-app .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    html.flipbot-mobile-app .stat-card {
+        min-height: 124px;
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    html.flipbot-mobile-app .stat-label {
+        font-size: 11px;
+        line-height: 1.25;
+        letter-spacing: 0.04em;
+    }
+
+    html.flipbot-mobile-app .stat-value {
+        margin-top: 7px;
+        font-size: clamp(28px, 8vw, 34px);
+        line-height: 1;
+        overflow-wrap: anywhere;
+    }
+
+    html.flipbot-mobile-app .stat-description {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+
+    html.flipbot-mobile-app .content-card,
+    html.flipbot-mobile-app .empty-state,
+    html.flipbot-mobile-app .action-required-card,
+    html.flipbot-mobile-app .negotiation-step-card {
+        max-width: 100%;
+        padding: 16px;
+        border-radius: 14px;
+    }
+
+    html.flipbot-mobile-app .primary-button,
+    html.flipbot-mobile-app .secondary-button,
+    html.flipbot-mobile-app .bot-start-button,
+    html.flipbot-mobile-app .bot-stop-button,
+    html.flipbot-mobile-app .dashboard-period-button {
+        min-height: 42px;
+        max-width: 100%;
+        padding-inline: 14px;
+        font-size: 13px;
+        line-height: 1.15;
+    }
+
+    html.flipbot-mobile-app .dashboard-period-switch {
+        display: grid;
+        width: 100%;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    html.flipbot-mobile-app .dashboard-period-button {
+        width: 100%;
+        padding-inline: 5px;
+        white-space: nowrap;
+    }
+
+    html.flipbot-mobile-app .form-input,
+    html.flipbot-mobile-app .form-select,
+    html.flipbot-mobile-app .form-textarea,
+    html.flipbot-mobile-app .app-select-trigger {
+        width: 100%;
+        max-width: 100%;
+        min-height: 46px;
+        font-size: 14px;
+    }
+
+    html.flipbot-mobile-app .runtime-table-wrapper,
+    html.flipbot-mobile-app .bots-table-wrapper,
+    html.flipbot-mobile-app .price-matrix-table-wrapper {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html.flipbot-mobile-app .runtime-table td {
+        font-size: 13px;
+    }
+
+    html.flipbot-mobile-app .dictionary-list-item,
+    html.flipbot-mobile-app .dictionary-model-row,
+    html.flipbot-mobile-app .bot-selection-preview {
+        max-width: 100%;
+        overflow: hidden;
+    }
+}
+
+@media (max-width: 520px) {
+    html.flipbot-mobile-app .main-content {
+        padding: 14px 10px 24px;
+    }
+
+    html.flipbot-mobile-app .sidebar {
+        padding-inline: 10px;
+    }
+
+    html.flipbot-mobile-app .sidebar-navigation {
+        grid-template-columns: 1fr;
+    }
+
+    html.flipbot-mobile-app .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    html.flipbot-mobile-app .stat-card {
+        min-height: 118px;
+        padding: 13px 12px;
+    }
+
+    html.flipbot-mobile-app .content-card {
+        padding: 15px;
+    }
+
+    html.flipbot-mobile-app .dashboard-summary-grid,
+    html.flipbot-mobile-app .dictionary-management-grid,
+    html.flipbot-mobile-app .bot-form-grid,
+    html.flipbot-mobile-app .bot-filter-reference-grid {
+        grid-template-columns: 1fr;
+    }
+
+    html.flipbot-mobile-app .dashboard-period-switch {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    html.flipbot-mobile-app .page-header .primary-button,
+    html.flipbot-mobile-app .page-header .secondary-button,
+    html.flipbot-mobile-app .bots-list-header-actions > *,
+    html.flipbot-mobile-app .bot-form-actions .primary-button {
+        width: 100%;
+        align-self: stretch;
+    }
+}
+
+@media (max-width: 350px) {
+    html.flipbot-mobile-app .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
