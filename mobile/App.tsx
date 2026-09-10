@@ -1,14 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
@@ -21,6 +19,54 @@ const STORAGE_KEY = "flipbot.mobile.serverUrl";
 const EXAMPLE_URL = "https://twoj-komputer.twoj-tailnet.ts.net";
 
 type ConnectionState = "idle" | "loading" | "online" | "offline";
+
+const MOBILE_BRIDGE_SCRIPT = `
+(function () {
+  const root = document.documentElement;
+  root.classList.add('flipbot-mobile-app');
+  document.body && document.body.classList.add('flipbot-mobile-app-body');
+
+  let viewport = document.querySelector('meta[name="viewport"]');
+  if (!viewport) {
+    viewport = document.createElement('meta');
+    viewport.setAttribute('name', 'viewport');
+    document.head.appendChild(viewport);
+  }
+  viewport.setAttribute(
+    'content',
+    'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+  );
+
+  root.style.webkitTextSizeAdjust = '100%';
+
+  const installNativeSettingsLink = () => {
+    const navigation = document.querySelector('.sidebar-navigation');
+    if (!navigation || navigation.querySelector('.flipbot-native-server-settings')) {
+      return;
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'navigation-link flipbot-native-server-settings';
+    button.textContent = 'Ustawienia połączenia';
+    button.addEventListener('click', () => {
+      window.ReactNativeWebView?.postMessage(JSON.stringify({
+        type: 'open-server-settings'
+      }));
+    });
+    navigation.appendChild(button);
+  };
+
+  installNativeSettingsLink();
+
+  const observer = new MutationObserver(installNativeSettingsLink);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+})();
+true;
+`;
 
 function normalizeUrl(value: string): string {
   let normalized = value.trim();
@@ -52,14 +98,15 @@ export default function App() {
   const [connection, setConnection] = useState<ConnectionState>("idle");
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [canGoBack, setCanGoBack] = useState(false);
-  const [pageTitle, setPageTitle] = useState("FlipBot");
   const [webViewKey, setWebViewKey] = useState(0);
 
   useEffect(() => {
     let active = true;
+
     void AsyncStorage.getItem(STORAGE_KEY)
       .then((savedUrl) => {
         if (!active) return;
+
         if (savedUrl) {
           const normalized = normalizeUrl(savedUrl);
           setServerUrl(normalized);
@@ -72,6 +119,7 @@ export default function App() {
       .finally(() => {
         if (active) setBootstrapping(false);
       });
+
     return () => {
       active = false;
     };
@@ -86,17 +134,21 @@ export default function App() {
         }
         return false;
       }
+
       if (canGoBack) {
         webViewRef.current?.goBack();
         return true;
       }
+
       return false;
     });
+
     return () => subscription.remove();
   }, [canGoBack, serverUrl, settingsVisible]);
 
   const testConnection = useCallback(async (candidate: string) => {
     const normalized = normalizeUrl(candidate);
+
     if (!normalized) {
       setConnection("offline");
       setConnectionMessage("Wpisz prywatny adres FlipBot z Tailscale albo adres LAN komputera.");
@@ -105,12 +157,18 @@ export default function App() {
 
     setConnection("loading");
     setConnectionMessage("Sprawdzam połączenie z komputerem...");
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const response = await fetch(normalized, { method: "GET", signal: controller.signal });
+      const response = await fetch(normalized, {
+        method: "GET",
+        signal: controller.signal,
+      });
+
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
       setConnection("online");
       setConnectionMessage("Połączenie działa. Panel FlipBot jest dostępny z komputera.");
       return true;
@@ -127,11 +185,13 @@ export default function App() {
 
   const saveServer = useCallback(async () => {
     const normalized = normalizeUrl(draftUrl);
+
     if (!normalized) {
       setConnection("offline");
       setConnectionMessage("Adres serwera nie może być pusty.");
       return;
     }
+
     if (!(await testConnection(normalized))) return;
 
     await AsyncStorage.setItem(STORAGE_KEY, normalized);
@@ -141,56 +201,21 @@ export default function App() {
     setWebViewKey((current) => current + 1);
   }, [draftUrl, testConnection]);
 
-  const statusLabel = useMemo(() => {
-    if (connection === "online") return "PC online";
-    if (connection === "offline") return "Brak PC";
-    if (connection === "loading") return "Łączenie...";
-    return serverUrl ? "Panel" : "Konfiguracja";
-  }, [connection, serverUrl]);
-
   if (bootstrapping) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <View style={styles.appRoot}>
+        <StatusBar barStyle="light-content" backgroundColor="#172033" translucent={false} />
         <View style={styles.center}>
           <ActivityIndicator size="large" />
           <Text style={styles.bootText}>Uruchamianie FlipBot...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-
-      <View style={styles.toolbar}>
-        <View style={styles.toolbarTitleWrap}>
-          <Text style={styles.toolbarTitle} numberOfLines={1}>{pageTitle || "FlipBot"}</Text>
-          <View style={styles.statusRow}>
-            <View style={[
-              styles.statusDot,
-              connection === "online" && styles.statusDotOnline,
-              connection === "offline" && styles.statusDotOffline,
-            ]} />
-            <Text style={styles.statusText}>{statusLabel}</Text>
-          </View>
-        </View>
-
-        <Pressable style={styles.toolbarButton} onPress={() => webViewRef.current?.reload()}>
-          <Text style={styles.toolbarButtonText}>↻</Text>
-        </Pressable>
-        <Pressable
-          style={styles.toolbarButton}
-          onPress={() => {
-            setDraftUrl(serverUrl || EXAMPLE_URL);
-            setConnectionMessage(null);
-            setSettingsVisible(true);
-          }}
-        >
-          <Text style={styles.toolbarButtonText}>⚙</Text>
-        </Pressable>
-      </View>
+    <View style={styles.appRoot}>
+      <StatusBar barStyle="light-content" backgroundColor="#172033" translucent={false} />
 
       {serverUrl ? (
         <WebView
@@ -202,16 +227,22 @@ export default function App() {
           javaScriptEnabled
           domStorageEnabled
           cacheEnabled
+          cacheMode="LOAD_DEFAULT"
           sharedCookiesEnabled
           thirdPartyCookiesEnabled
           mixedContentMode="always"
           setSupportMultipleWindows={false}
-          allowsBackForwardNavigationGestures
+          textZoom={100}
+          androidLayerType="hardware"
+          overScrollMode="never"
+          bounces={false}
+          injectedJavaScriptBeforeContentLoaded={MOBILE_BRIDGE_SCRIPT}
+          injectedJavaScript={MOBILE_BRIDGE_SCRIPT}
           onLoadStart={() => {
             setConnection("loading");
             setConnectionMessage(null);
           }}
-          onLoadEnd={() => setConnection("online")}
+          onLoad={() => setConnection("online")}
           onError={() => {
             setConnection("offline");
             setConnectionMessage("Nie udało się załadować panelu z komputera.");
@@ -220,24 +251,32 @@ export default function App() {
             setConnection("offline");
             setConnectionMessage(`Serwer odpowiedział HTTP ${event.nativeEvent.statusCode}.`);
           }}
-          onNavigationStateChange={(state) => {
-            setCanGoBack(state.canGoBack);
-            if (state.title) setPageTitle(state.title);
+          onNavigationStateChange={(state) => setCanGoBack(state.canGoBack)}
+          onMessage={(event) => {
+            try {
+              const message = JSON.parse(event.nativeEvent.data) as { type?: string };
+              if (message.type === "open-server-settings") {
+                setDraftUrl(serverUrl || EXAMPLE_URL);
+                setConnectionMessage(null);
+                setSettingsVisible(true);
+              }
+            } catch {
+              // Ignore messages not produced by the native bridge.
+            }
           }}
           onShouldStartLoadWithRequest={(request) => {
             const target = request.url;
+
             if (
               target === "about:blank" ||
               target.startsWith("data:") ||
               target.startsWith("blob:") ||
               sameOrigin(target, serverUrl)
-            ) return true;
-
-            if (/^https?:\/\//i.test(target)) {
-              void Linking.openURL(target);
-              return false;
+            ) {
+              return true;
             }
-            return true;
+
+            return !/^https?:\/\//i.test(target);
           }}
         />
       ) : (
@@ -255,8 +294,13 @@ export default function App() {
       {connection === "offline" && !settingsVisible && connectionMessage ? (
         <View style={styles.connectionBanner}>
           <Text style={styles.connectionBannerText}>{connectionMessage}</Text>
-          <Pressable onPress={() => setSettingsVisible(true)}>
-            <Text style={styles.connectionBannerAction}>Ustawienia</Text>
+          <Pressable
+            onPress={() => {
+              setDraftUrl(serverUrl || EXAMPLE_URL);
+              setSettingsVisible(true);
+            }}
+          >
+            <Text style={styles.connectionBannerAction}>Ustawienia połączenia</Text>
           </Pressable>
         </View>
       ) : null}
@@ -269,8 +313,12 @@ export default function App() {
           if (serverUrl) setSettingsVisible(false);
         }}
       >
-        <SafeAreaView style={styles.modalSafeArea}>
-          <KeyboardAvoidingView style={styles.modalBody} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <View style={styles.modalRoot}>
+          <StatusBar barStyle="dark-content" backgroundColor="#f5f7fb" translucent={false} />
+          <KeyboardAvoidingView
+            style={styles.modalBody}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
             <View>
               <Text style={styles.modalEyebrow}>Prywatny dostęp zdalny</Text>
               <Text style={styles.modalTitle}>Komputer jako serwer</Text>
@@ -291,7 +339,7 @@ export default function App() {
                 style={styles.input}
               />
               <Text style={styles.help}>
-                Preferowany: https://nazwa-pc.nazwa-tailnetu.ts.net. Adres LAN typu http://192.168.x.x:8081 nadal działa tylko w domu.
+                Preferowany: https://nazwa-pc.nazwa-tailnetu.ts.net. Adres LAN typu http://192.168.x.x:8081 działa tylko w domu.
               </Text>
             </View>
 
@@ -311,6 +359,7 @@ export default function App() {
                   {connection === "loading" ? "Sprawdzam..." : "Testuj"}
                 </Text>
               </Pressable>
+
               <Pressable
                 style={styles.primaryButton}
                 disabled={connection === "loading"}
@@ -326,42 +375,21 @@ export default function App() {
               </Pressable>
             ) : null}
           </KeyboardAvoidingView>
-        </SafeAreaView>
+        </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#ffffff" },
-  modalSafeArea: { flex: 1, backgroundColor: "#f5f7fb" },
-  webView: { flex: 1, backgroundColor: "#f5f7fb" },
-  toolbar: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#dfe5ef",
-    backgroundColor: "#ffffff",
+  appRoot: {
+    flex: 1,
+    backgroundColor: "#172033",
   },
-  toolbarTitleWrap: { flex: 1, minWidth: 0 },
-  toolbarTitle: { color: "#172033", fontSize: 16, fontWeight: "700" },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
-  statusDot: { width: 7, height: 7, borderRadius: 99, backgroundColor: "#94a3b8" },
-  statusDotOnline: { backgroundColor: "#2f855a" },
-  statusDotOffline: { backgroundColor: "#b42318" },
-  statusText: { color: "#647089", fontSize: 11 },
-  toolbarButton: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    backgroundColor: "#f1f4f8",
+  webView: {
+    flex: 1,
+    backgroundColor: "#f5f7fb",
   },
-  toolbarButtonText: { color: "#172033", fontSize: 21, fontWeight: "700" },
   center: {
     flex: 1,
     alignItems: "center",
@@ -369,8 +397,17 @@ const styles = StyleSheet.create({
     padding: 28,
     backgroundColor: "#f5f7fb",
   },
-  bootText: { marginTop: 14, color: "#647089", fontSize: 14 },
-  emptyTitle: { color: "#172033", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  bootText: {
+    marginTop: 14,
+    color: "#647089",
+    fontSize: 14,
+  },
+  emptyTitle: {
+    color: "#172033",
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   emptyText: {
     maxWidth: 360,
     marginTop: 10,
@@ -390,14 +427,52 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff1f0",
     elevation: 4,
   },
-  connectionBannerText: { color: "#7a271a", fontSize: 12, lineHeight: 17 },
-  connectionBannerAction: { marginTop: 8, color: "#172033", fontWeight: "800" },
-  modalBody: { flex: 1, justifyContent: "center", gap: 24, padding: 24 },
-  modalEyebrow: { marginBottom: 6, color: "#647089", fontSize: 12, fontWeight: "800", letterSpacing: 0.8 },
-  modalTitle: { color: "#172033", fontSize: 28, fontWeight: "800" },
-  modalText: { marginTop: 10, color: "#647089", fontSize: 14, lineHeight: 21 },
-  field: { gap: 8 },
-  label: { color: "#37445d", fontSize: 13, fontWeight: "700" },
+  connectionBannerText: {
+    color: "#7a271a",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  connectionBannerAction: {
+    marginTop: 8,
+    color: "#172033",
+    fontWeight: "800",
+  },
+  modalRoot: {
+    flex: 1,
+    backgroundColor: "#f5f7fb",
+  },
+  modalBody: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 24,
+    padding: 24,
+  },
+  modalEyebrow: {
+    marginBottom: 6,
+    color: "#647089",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  modalTitle: {
+    color: "#172033",
+    fontSize: 28,
+    fontWeight: "800",
+  },
+  modalText: {
+    marginTop: 10,
+    color: "#647089",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  field: {
+    gap: 8,
+  },
+  label: {
+    color: "#37445d",
+    fontSize: 13,
+    fontWeight: "700",
+  },
   input: {
     minHeight: 50,
     borderWidth: 1,
@@ -408,33 +483,65 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     fontSize: 15,
   },
-  help: { color: "#7d899f", fontSize: 12, lineHeight: 18 },
-  message: { borderRadius: 12, padding: 13, backgroundColor: "#eef2f7" },
-  messageSuccess: { backgroundColor: "#ecfdf3" },
-  messageText: { color: "#37445d", fontSize: 12, lineHeight: 18 },
-  modalActions: { flexDirection: "row", gap: 10 },
+  help: {
+    color: "#7d899f",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  message: {
+    borderRadius: 12,
+    padding: 13,
+    backgroundColor: "#eef2f7",
+  },
+  messageSuccess: {
+    backgroundColor: "#ecfdf3",
+  },
+  messageText: {
+    color: "#37445d",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
   primaryButton: {
-    minHeight: 46,
+    minHeight: 48,
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 11,
+    borderRadius: 12,
     paddingHorizontal: 18,
     backgroundColor: "#172033",
   },
-  primaryButtonText: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
+  primaryButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
+  },
   secondaryButton: {
-    minHeight: 46,
+    minHeight: 48,
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "#cbd4e3",
-    borderRadius: 11,
+    borderRadius: 12,
     paddingHorizontal: 18,
     backgroundColor: "#ffffff",
   },
-  secondaryButtonText: { color: "#172033", fontSize: 14, fontWeight: "800" },
-  closeButton: { alignItems: "center", padding: 12 },
-  closeButtonText: { color: "#647089", fontSize: 14, fontWeight: "700" },
+  secondaryButtonText: {
+    color: "#172033",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  closeButton: {
+    alignSelf: "center",
+    padding: 10,
+  },
+  closeButtonText: {
+    color: "#647089",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });
