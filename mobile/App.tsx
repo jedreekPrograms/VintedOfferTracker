@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   BackHandler,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -276,7 +277,12 @@ export default function App() {
               return true;
             }
 
-            return !/^https?:\/\//i.test(target);
+            if (/^https?:\/\//i.test(target)) {
+              void Linking.openURL(target);
+              return false;
+            }
+
+            return true;
           }}
         />
       ) : (
