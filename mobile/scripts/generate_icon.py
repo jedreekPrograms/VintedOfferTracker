@@ -10,20 +10,21 @@ OUTPUT_DIR = Path(__file__).resolve().parents[1] / "assets"
 
 
 def draw_flipbot_f(draw: ImageDraw.ImageDraw, color: str) -> None:
-    # Block F matching the simple mark used by the web sidebar.
-    draw.rounded_rectangle((300, 230, 430, 800), radius=28, fill=color)
-    draw.rounded_rectangle((390, 230, 760, 360), radius=28, fill=color)
-    draw.rounded_rectangle((390, 455, 675, 575), radius=26, fill=color)
+    # Keep the mark well inside Android's adaptive-icon safe zone.
+    # Samsung launchers apply a fairly aggressive mask/crop, so the F is
+    # intentionally smaller than the web-sidebar mark.
+    draw.rounded_rectangle((340, 270, 450, 755), radius=24, fill=color)
+    draw.rounded_rectangle((420, 270, 700, 380), radius=24, fill=color)
+    draw.rounded_rectangle((420, 455, 645, 560), radius=22, fill=color)
 
 
 def create_regular_icon() -> Image.Image:
     image = Image.new("RGBA", (SIZE, SIZE), BACKGROUND)
     draw = ImageDraw.Draw(image)
 
-    # Subtle inner plate keeps the icon readable under different launcher masks.
     draw.rounded_rectangle(
-        (92, 92, 932, 932),
-        radius=220,
+        (112, 112, 912, 912),
+        radius=210,
         fill="#1C2940",
     )
     draw_flipbot_f(draw, FOREGROUND)
