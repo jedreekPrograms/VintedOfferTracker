@@ -3,6 +3,8 @@ from pathlib import Path
 APP_PATH = Path(__file__).resolve().parents[1] / "App.tsx"
 MARKER = "  root.style.webkitTextSizeAdjust = '100%';\n"
 STYLE_ID = "flipbot-mobile-app-styles"
+STATUS_BAR_DARK = '<StatusBar barStyle="light-content" backgroundColor="#172033" translucent={false} />'
+STATUS_BAR_LIGHT = '<StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />'
 
 INJECTION = r'''
 
@@ -90,17 +92,30 @@ INJECTION = r'''
 
 def main() -> None:
     source = APP_PATH.read_text(encoding="utf-8")
+    patched = source
+    changed = False
 
-    if STYLE_ID in source:
-        print("Mobile UI polish already present; nothing to patch.")
-        return
+    if STYLE_ID not in patched:
+        if MARKER not in patched:
+            raise RuntimeError("Could not find WebView text-size marker in App.tsx")
+        patched = patched.replace(MARKER, MARKER + INJECTION, 1)
+        changed = True
+        print("Applied mobile-only responsive polish to App.tsx")
+    else:
+        print("Mobile UI polish already present")
 
-    if MARKER not in source:
-        raise RuntimeError("Could not find WebView text-size marker in App.tsx")
+    status_count = patched.count(STATUS_BAR_DARK)
+    if status_count:
+        patched = patched.replace(STATUS_BAR_DARK, STATUS_BAR_LIGHT)
+        changed = True
+        print(f"Switched {status_count} native status bar instance(s) to white with dark icons")
+    elif STATUS_BAR_LIGHT in patched:
+        print("Native status bar is already white with dark icons")
+    else:
+        raise RuntimeError("Could not find expected native StatusBar configuration in App.tsx")
 
-    patched = source.replace(MARKER, MARKER + INJECTION, 1)
-    APP_PATH.write_text(patched, encoding="utf-8")
-    print("Applied mobile-only responsive polish to App.tsx")
+    if changed:
+        APP_PATH.write_text(patched, encoding="utf-8")
 
 
 if __name__ == "__main__":
