@@ -67,7 +67,33 @@ public class BrowserManager implements AutoCloseable {
             options.setStorageStatePath(storageState);
         }
 
-        BrowserContext context = browser.newContext(options);
+        BrowserContext context;
+
+        try {
+            context = browser.newContext(options);
+        } catch (RuntimeException exception) {
+            if (storageState == null) {
+                throw exception;
+            }
+
+            /*
+             * A stored bot session is authoritative. Do not expose the raw
+             * Playwright restore exception as a recoverable storage-state
+             * failure to BotContext, because that legacy path falls back to
+             * createContext(null) and can silently turn a logged-in bot into a
+             * fresh browser session. Keep the original error as suppressed
+             * diagnostic information, leave bot-X.json untouched and fail the
+             * job instead.
+             */
+            IllegalStateException guardedFailure = new IllegalStateException(
+                    "Stored bot session could not be restored from "
+                            + storageState
+                            + ". Refusing automatic clean browser context fallback; the saved session was left untouched."
+            );
+            guardedFailure.addSuppressed(exception);
+            throw guardedFailure;
+        }
+
         context.addInitScript(VintedInformationalDialogGuard.script());
 
         log.debug(
