@@ -16,6 +16,9 @@ import java.util.Map;
 
 public class MarketStatsApiClient extends ApiClient {
 
+    private static final String ANONYMOUS_OBSERVER_NAME =
+            "Anonymous Market Observer";
+
     private final Map<Long, MarketStatsTargetDto> loadedTargets =
             new HashMap<>();
 
@@ -33,7 +36,30 @@ public class MarketStatsApiClient extends ApiClient {
         }
 
         requireSuccess(response, "load market-stats observer bot");
-        return readBody(response, BotDetailsDto.class);
+
+        BotDetailsDto observer = readBody(
+                response,
+                BotDetailsDto.class
+        );
+
+        if (observer == null || observer.getId() == null) {
+            throw new ApiException(
+                    "Market statistics observer response did not contain a valid bot id."
+            );
+        }
+
+        /*
+         * Market statistics are intentionally collected without a Vinted
+         * account. Keep this as a Playwright-side safety net even if a legacy
+         * local database returns the old observer name or credentials. BotContext
+         * identifies this canonical technical identity and therefore refuses to
+         * restore or save sessions/bot-X.json for it.
+         */
+        observer.setName(ANONYMOUS_OBSERVER_NAME);
+        observer.setEmail(null);
+        observer.setPassword(null);
+
+        return observer;
     }
 
     public List<MarketStatsTargetDto> getTargets() {
