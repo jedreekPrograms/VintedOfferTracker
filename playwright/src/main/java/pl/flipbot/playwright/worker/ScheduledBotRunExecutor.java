@@ -65,6 +65,7 @@ public class ScheduledBotRunExecutor {
         Long botId = bot.getId();
         BotContext context = new BotContext(bot, browserManager);
         boolean loginReady = false;
+        boolean jobCompleted = false;
 
         try {
             if (jobType == ScheduledJobType.PRICE_PROBE) {
@@ -79,6 +80,7 @@ public class ScheduledBotRunExecutor {
                 new SandboxCloneLoginService(context, PRICE_PROBE_CONFIG).login();
                 loginReady = true;
                 new PriceProbeProcessor(context, PRICE_PROBE_CONFIG).processOne();
+                jobCompleted = true;
                 return;
             }
 
@@ -205,6 +207,7 @@ public class ScheduledBotRunExecutor {
                 }
             }
 
+            jobCompleted = true;
         } catch (VintedSessionBlockedException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -248,16 +251,21 @@ public class ScheduledBotRunExecutor {
 
             throw exception;
         } finally {
-            if (loginReady) {
+            if (loginReady && jobCompleted) {
                 try {
                     context.saveSession();
                 } catch (Exception exception) {
                     log.warn(
-                            "[SCHEDULED JOB] Could not save session for bot {} before closing its context.",
+                            "[SCHEDULED JOB] Could not save session for bot {} after a successful job; the previous active session remains protected.",
                             botId,
                             exception
                     );
                 }
+            } else if (loginReady) {
+                log.warn(
+                        "[SESSION] Bot {} job did not complete successfully. Refusing to persist the current browser state so a transient logout/error cannot replace the last-known-good session.",
+                        botId
+                );
             }
 
             log.info(
