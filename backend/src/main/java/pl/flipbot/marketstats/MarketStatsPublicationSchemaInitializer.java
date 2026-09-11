@@ -21,6 +21,18 @@ public class MarketStatsPublicationSchemaInitializer implements ApplicationRunne
                     ADD COLUMN IF NOT EXISTS published_at TIMESTAMP
                 """);
 
+        /*
+         * Some earlier development builds temporarily copied first_seen_at into
+         * published_at. That is observer time, not Vinted publication time.
+         * Clear only that exact synthetic shape so the read-only observer can
+         * backfill the real `Dodane ...` value from the item page.
+         */
+        int clearedSynthetic = jdbcTemplate.update("""
+                UPDATE market_listing_observation
+                SET published_at = NULL
+                WHERE published_at = first_seen_at
+                """);
+
         jdbcTemplate.execute("""
                 CREATE INDEX IF NOT EXISTS idx_market_listing_observation_model_published_at
                     ON market_listing_observation (model_id, published_at)
@@ -28,7 +40,8 @@ public class MarketStatsPublicationSchemaInitializer implements ApplicationRunne
                 """);
 
         log.info(
-                "[MARKET STATS] Verified publication-time schema compatibility for market_listing_observation."
+                "[MARKET STATS] Verified publication-time schema compatibility; cleared {} synthetic first-seen timestamps for Vinted backfill.",
+                clearedSynthetic
         );
     }
 }
