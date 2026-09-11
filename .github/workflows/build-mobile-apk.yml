@@ -45,7 +45,9 @@ jobs:
         run: npm install
 
       - name: Apply mobile-only UI polish
-        run: python scripts/patch_mobile_ui.py
+        run: |
+          python scripts/patch_mobile_ui.py
+          python scripts/patch_android_system_bars.py
 
       - name: Type-check mobile app
         run: npm run typecheck
