@@ -17,13 +17,15 @@ final class MarketStatsObservationContext {
     static void begin(
             Long modelId,
             Collection<String> knownListingIds,
-            Collection<String> missingPublicationListingIds
+            Collection<String> missingPublicationListingIds,
+            boolean refreshAllPublicationTimes
     ) {
         CURRENT.set(
                 new State(
                         modelId,
                         Set.copyOf(normalizeIds(knownListingIds)),
                         Set.copyOf(normalizeIds(missingPublicationListingIds)),
+                        refreshAllPublicationTimes,
                         new LinkedHashSet<>(),
                         new LinkedHashMap<>()
                 )
@@ -128,7 +130,8 @@ final class MarketStatsObservationContext {
             State state,
             String listingId
     ) {
-        return !state.knownListingIds().contains(listingId)
+        return state.refreshAllPublicationTimes()
+                || !state.knownListingIds().contains(listingId)
                 || state.missingPublicationListingIds().contains(listingId);
     }
 
@@ -152,6 +155,7 @@ final class MarketStatsObservationContext {
             Long modelId,
             Set<String> knownListingIds,
             Set<String> missingPublicationListingIds,
+            boolean refreshAllPublicationTimes,
             Set<String> attemptedListingIds,
             Map<String, LocalDateTime> publishedAtByListingId
     ) {
