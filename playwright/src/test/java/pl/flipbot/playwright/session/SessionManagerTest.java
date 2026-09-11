@@ -94,13 +94,18 @@ public class SessionManagerTest {
     }
 
     @Test
-    public void zeroByteSessionIsNotConsideredUsable()
+    public void zeroByteSessionFailsClosed()
             throws Exception {
         Path sessions = temporaryFolder.newFolder("zero-byte").toPath();
         SessionManager manager = new SessionManager(sessions);
         Files.createFile(manager.sessionFile(6L));
 
-        assertFalse(manager.sessionExists(6L));
+        try {
+            manager.sessionExists(6L);
+            fail("Zero-byte stored session should fail closed");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("Refusing to treat it as a missing session"));
+        }
     }
 
     @Test
