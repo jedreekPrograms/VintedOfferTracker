@@ -90,32 +90,28 @@ public class MarketStatsCalendarPlanningService {
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
 
-        int offersToday = countNewListings(
+        int offersToday = countPublishedListings(
                 model.getId(),
                 windows.todayStart(),
                 windows.now()
         );
-        int offersCurrentWeek = countNewListings(
+        int offersCurrentWeek = countPublishedListings(
                 model.getId(),
                 windows.currentWeekStart(),
                 windows.now()
         );
 
-        boolean todayWindowComplete =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.todayStart()
-                );
-        boolean currentWeekWindowComplete =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.currentWeekStart()
-                );
-        boolean previousFullWeekAvailable =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.previousWeekStart()
-                );
+        /*
+         * A complete observer pass now reads Vinted's own publication age for
+         * every accepted catalog listing. The first complete baseline can
+         * therefore reconstruct calendar windows immediately instead of
+         * waiting until FlipBot itself has been running since midnight/Monday.
+         */
+        boolean catalogWindowComplete =
+                Boolean.TRUE.equals(state.getLastScanComplete());
+        boolean todayWindowComplete = catalogWindowComplete;
+        boolean currentWeekWindowComplete = catalogWindowComplete;
+        boolean previousFullWeekAvailable = catalogWindowComplete;
 
         Integer offersPreviousFullWeek = null;
         int recommendationWeeklyOffers;
@@ -127,7 +123,7 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            offersPreviousFullWeek = countNewListings(
+            offersPreviousFullWeek = countPublishedListings(
                     model.getId(),
                     windows.previousWeekStart(),
                     windows.currentWeekStart()
@@ -135,7 +131,7 @@ public class MarketStatsCalendarPlanningService {
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
-            int observedSinceBaseline = countNewListings(
+            int observedSinceBaseline = countPublishedListings(
                     model.getId(),
                     baselineCompleteAt,
                     windows.now()
@@ -143,7 +139,7 @@ public class MarketStatsCalendarPlanningService {
             recommendationWeeklyOffers =
                     MarketStatsPlanningCalculator.projectWeeklyOffers(
                             observedSinceBaseline,
-                            trackedDays
+                            Math.max(trackedDays, 1)
                     );
             recommendationEstimated = true;
         }
@@ -171,7 +167,7 @@ public class MarketStatsCalendarPlanningService {
         );
     }
 
-    private int countNewListings(
+    private int countPublishedListings(
             Long modelId,
             LocalDateTime fromInclusive,
             LocalDateTime toExclusive
@@ -183,7 +179,7 @@ public class MarketStatsCalendarPlanningService {
         }
 
         return safeInt(
-                observationRepository.countNewListingsBetween(
+                observationRepository.countPublishedListingsBetween(
                         modelId,
                         fromInclusive,
                         toExclusive
