@@ -1,5 +1,7 @@
 package pl.flipbot.playwright.marketstats;
 
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
@@ -40,6 +42,7 @@ public class MarketStatsCollector {
             "TEXT_ONLY_FALLBACK";
 
     private static final double PAGE_WAIT_MS = 1_000;
+    private static final double CATALOG_PAGE_NAVIGATION_TIMEOUT_MS = 30_000;
     private static final int MAX_NO_GROWTH_PAGES = 2;
 
     private static final Set<String> ACCESSORY_WORDS = Set.of(
@@ -169,8 +172,13 @@ public class MarketStatsCollector {
     ) {
         MarketplaceNavigator navigator = new MarketplaceNavigator(context);
         navigator.goToCatalog();
-        context.getPage().waitForLoadState();
 
+        /*
+         * MarketplaceNavigator already waits for DOMContentLoaded and probes
+         * the catalog shell. Waiting for the browser LOAD state again is both
+         * redundant and unsafe on Vinted because ad/analytics resources can
+         * keep the document loading long after the catalog is usable.
+         */
         dismissCookieBannerIfVisible(context);
 
         boolean authenticated =
@@ -594,12 +602,14 @@ public class MarketStatsCollector {
         }
 
         try {
-            context.getPage().navigate(nextUrl);
-            context.getPage().waitForLoadState();
+            context.getPage().navigate(
+                    nextUrl,
+                    catalogPageNavigateOptions()
+            );
             context.getPage().waitForTimeout(PAGE_WAIT_MS);
 
             log.debug(
-                    "[MARKET STATS] Opened filtered catalog page {}. url={}",
+                    "[MARKET STATS] Opened filtered catalog page {} after DOMContentLoaded. url={}",
                     pageNumber,
                     context.getPage().url()
             );
@@ -614,6 +624,12 @@ public class MarketStatsCollector {
             );
             return false;
         }
+    }
+
+    static Page.NavigateOptions catalogPageNavigateOptions() {
+        return new Page.NavigateOptions()
+                .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                .setTimeout(CATALOG_PAGE_NAVIGATION_TIMEOUT_MS);
     }
 
     private boolean containsKnownBoundary(
