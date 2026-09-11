@@ -1,19 +1,24 @@
 package pl.flipbot.playwright.marketstats;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.exception.ApiException;
 import pl.flipbot.playwright.marketstats.dto.KnownMarketListingIdsDto;
+import pl.flipbot.playwright.marketstats.dto.MarketListingPublicationBatchRequestDto;
 import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchRequestDto;
 import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchResponseDto;
 import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 public class MarketStatsApiClient extends ApiClient {
 
     private static final String ANONYMOUS_OBSERVER_NAME =
@@ -48,13 +53,6 @@ public class MarketStatsApiClient extends ApiClient {
             );
         }
 
-        /*
-         * Market statistics are intentionally collected without a Vinted
-         * account. Keep this as a Playwright-side safety net even if a legacy
-         * local database returns the old observer name or credentials. BotContext
-         * identifies this canonical technical identity and therefore refuses to
-         * restore or save sessions/bot-X.json for it.
-         */
         observer.setName(ANONYMOUS_OBSERVER_NAME);
         observer.setEmail(null);
         observer.setPassword(null);
@@ -105,13 +103,109 @@ public class MarketStatsApiClient extends ApiClient {
         );
         requireSuccess(response, "load known market listing ids");
 
-        return readBody(
+        KnownMarketListingIdsDto knownState = readBody(
                 response,
                 KnownMarketListingIdsDto.class
         );
+
+        HttpResponse<String> missingPublicationResponse = get(
+                "/api/market-stats/models/"
+                        + modelId
+                        + "/missing-publication-listing-ids"
+        );
+        requireSuccess(
+                missingPublicationResponse,
+                "load listings missing Vinted publication time"
+        );
+
+        List<String> missingPublicationListingIds = readBody(
+                missingPublicationResponse,
+                new TypeReference<List<String>>() {
+                }
+        );
+
+        MarketStatsObservationContext.begin(
+                modelId,
+                knownState.listingIds(),
+                missingPublicationListingIds
+        );
+
+        return knownState;
     }
 
     public MarketObservationBatchResponseDto recordObservations(
+            Long modelId,
+            List<String> listingIds,
+            boolean complete
+    ) {
+        List<String> acceptedIds = listingIds == null
+                ? List.of()
+                : listingIds;
+
+        try {
+            boolean publicationComplete =
+                    MarketStatsObservationContext
+                            .publicationResolutionCompleteFor(
+                                    modelId,
+                                    acceptedIds
+                            );
+            boolean effectiveComplete = complete && publicationComplete;
+
+            if (complete && !publicationComplete) {
+                log.warn(
+                        "[MARKET STATS] Model {} catalog scan reached its normal completion boundary, "
+                                + "but at least one required Vinted publication time is still unresolved. "
+                                + "The scan will remain incomplete and be retried.",
+                        modelId
+                );
+            }
+
+            MarketObservationBatchResponseDto recorded;
+
+            if (acceptedIds.isEmpty()) {
+                recorded = postObservations(
+                        modelId,
+                        acceptedIds,
+                        effectiveComplete
+                );
+            } else {
+                /*
+                 * First persist the observed IDs with lastScanComplete=false.
+                 * New rows must exist before the publication-time update can
+                 * target them. Only after the publication timestamps have been
+                 * stored do we mark a fully resolved pass complete.
+                 */
+                recorded = postObservations(
+                        modelId,
+                        acceptedIds,
+                        false
+                );
+
+                flushResolvedPublicationTimes(
+                        modelId,
+                        acceptedIds
+                );
+
+                if (effectiveComplete) {
+                    recorded = postObservations(
+                            modelId,
+                            acceptedIds,
+                            true
+                    );
+                }
+            }
+
+            return recorded;
+        } finally {
+            MarketStatsObservationContext.clear(modelId);
+        }
+    }
+
+    public void clearObservationContext(Long modelId) {
+        MarketStatsObservationContext.clear(modelId);
+    }
+
+    private MarketObservationBatchResponseDto postObservations(
             Long modelId,
             List<String> listingIds,
             boolean complete
@@ -136,6 +230,55 @@ public class MarketStatsApiClient extends ApiClient {
                 response,
                 MarketObservationBatchResponseDto.class
         );
+    }
+
+    private void flushResolvedPublicationTimes(
+            Long modelId,
+            List<String> listingIds
+    ) {
+        Map<String, LocalDateTime> resolved =
+                MarketStatsObservationContext.resolvedFor(
+                        modelId,
+                        listingIds
+                );
+
+        if (resolved.isEmpty()) {
+            return;
+        }
+
+        Map<String, String> payload = new LinkedHashMap<>();
+
+        for (Map.Entry<String, LocalDateTime> entry : resolved.entrySet()) {
+            payload.put(
+                    entry.getKey(),
+                    entry.getValue().toString()
+            );
+        }
+
+        HttpResponse<String> response = post(
+                "/api/market-stats/models/"
+                        + modelId
+                        + "/publication-times",
+                new MarketListingPublicationBatchRequestDto(
+                        Map.copyOf(payload)
+                )
+        );
+
+        requireSuccess(response, "record market listing publication times");
+
+        Integer updated = readBody(response, Integer.class);
+
+        if (updated == null || updated < payload.size()) {
+            throw new ApiException(
+                    "Backend stored Vinted publication time for only "
+                            + updated
+                            + " of "
+                            + payload.size()
+                            + " resolved listings in model "
+                            + modelId
+                            + "."
+            );
+        }
     }
 
     private void requireSuccess(
