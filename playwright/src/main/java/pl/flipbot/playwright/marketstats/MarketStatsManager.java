@@ -36,6 +36,7 @@ public class MarketStatsManager implements AutoCloseable {
             new AtomicBoolean(false);
 
     private volatile long nextAttemptAtMillis = 0L;
+    private volatile int nextTargetStartIndex = 0;
 
     public void start() {
         if (!config.enabled()) {
@@ -52,7 +53,7 @@ public class MarketStatsManager implements AutoCloseable {
         log.info(
                 "[MARKET STATS] Dedicated collector is enabled. Observer is managed by the frontend. "
                         + "First check in {}s. After every pass it respects at least {}m normal cooldown; "
-                        + "failed/rate-limited passes back off for {}m. The collector is single-threaded, so long passes never overlap.",
+                        + "failed/rate-limited passes back off for {}m. Rate-limited passes resume from the model after the one that triggered backoff, so one large model cannot starve the rest of the queue.",
                 INITIAL_DELAY_SECONDS,
                 config.refreshCooldownMinutes(),
                 FAILURE_RETRY_MINUTES
@@ -73,23 +74,16 @@ public class MarketStatsManager implements AutoCloseable {
 
         long now = System.currentTimeMillis();
 
-        /*
-         * Do not bypass the configured cooldown just because a baseline or
-         * publication backfill is still incomplete. The observer is auxiliary
-         * read-only traffic and must not repeatedly hammer Vinted while normal
-         * bot jobs are running from the same machine/network.
-         */
         if (now < nextAttemptAtMillis) {
             return;
         }
 
         long startedAtMillis = System.currentTimeMillis();
+        ResumableMarketStatsApiClient apiClient =
+                new ResumableMarketStatsApiClient(nextTargetStartIndex);
 
         try {
-            new MarketStatsCollector(
-                    config,
-                    new MarketStatsApiClient()
-            ).collectOnce();
+            new MarketStatsCollector(config, apiClient).collectOnce();
 
             long completedAtMillis = System.currentTimeMillis();
             long durationSeconds = Math.max(
@@ -99,6 +93,7 @@ public class MarketStatsManager implements AutoCloseable {
                     )
             );
 
+            nextTargetStartIndex = 0;
             nextAttemptAtMillis =
                     completedAtMillis
                             + TimeUnit.MINUTES.toMillis(
@@ -106,8 +101,7 @@ public class MarketStatsManager implements AutoCloseable {
                     );
 
             log.info(
-                    "[MARKET STATS] Collection completed in {}s. Next full pass may start after {}m cooldown. "
-                            + "Effective start-to-start spacing automatically includes the duration of this pass.",
+                    "[MARKET STATS] Collection completed in {}s. All model targets were attempted; the next full pass returns to the normal target order after {}m cooldown.",
                     durationSeconds,
                     config.refreshCooldownMinutes()
             );
@@ -129,6 +123,32 @@ public class MarketStatsManager implements AutoCloseable {
                 return;
             }
 
+            if (containsTrafficBackoffMarker(exception)) {
+                int previousStartIndex = nextTargetStartIndex;
+                nextTargetStartIndex =
+                        apiClient.resumeIndexAfterCurrentTarget();
+                nextAttemptAtMillis =
+                        System.currentTimeMillis()
+                                + TimeUnit.MINUTES.toMillis(
+                                FAILURE_RETRY_MINUTES
+                        );
+
+                log.warn(
+                        "[MARKET STATS] Vinted requested traffic backoff. Pausing observer traffic for {} minutes. "
+                                + "This pass started at target index {} and the next pass will resume at target index {}, after the model that triggered the backoff. "
+                                + "Normal bot scheduling is unaffected. reason={}",
+                        FAILURE_RETRY_MINUTES,
+                        previousStartIndex,
+                        nextTargetStartIndex,
+                        friendlyMessage(exception)
+                );
+                log.debug(
+                        "[MARKET STATS] Full traffic-backoff failure.",
+                        exception
+                );
+                return;
+            }
+
             nextAttemptAtMillis =
                     System.currentTimeMillis()
                             + TimeUnit.MINUTES.toMillis(
@@ -136,8 +156,9 @@ public class MarketStatsManager implements AutoCloseable {
                     );
 
             log.error(
-                    "[MARKET STATS] Collection failed or Vinted requested backoff. Normal bot scheduling is unaffected. Retry in {} minutes. reason={}",
+                    "[MARKET STATS] Collection failed. Normal bot scheduling is unaffected. Retry in {} minutes from target index {}. reason={}",
                     FAILURE_RETRY_MINUTES,
+                    nextTargetStartIndex,
                     friendlyMessage(exception)
             );
             log.debug(
@@ -168,6 +189,23 @@ public class MarketStatsManager implements AutoCloseable {
     @Override
     public void close() {
         stop();
+    }
+
+    private boolean containsTrafficBackoffMarker(Throwable throwable) {
+        Throwable current = throwable;
+
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null
+                    && message.contains(
+                    MarketListingPublishedAtResolver.TRAFFIC_BACKOFF_MARKER
+            )) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        return false;
     }
 
     private String friendlyMessage(Throwable exception) {
