@@ -1,0 +1,219 @@
+.captcha-queue-counter {
+    display: grid;
+    min-width: 46px;
+    height: 46px;
+    place-items: center;
+    border-radius: 14px;
+    color: #fff;
+    background: #172033;
+    font-weight: 800;
+}
+
+.captcha-queue-list {
+    display: grid;
+    gap: 12px;
+}
+
+.captcha-queue-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+}
+
+.captcha-queue-order,
+.captcha-success-icon {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border-radius: 12px;
+    color: #172033;
+    background: #eef1f6;
+    font-weight: 900;
+}
+
+.captcha-success-icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    color: #287645;
+    background: #eaf7ef;
+    font-size: 24px;
+}
+
+.captcha-queue-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.captcha-queue-copy strong {
+    color: #263149;
+    font-size: 15px;
+}
+
+.captcha-queue-copy span {
+    color: #8792a6;
+    font-size: 11px;
+}
+
+.captcha-remote-card {
+    padding: 20px;
+}
+
+.captcha-remote-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.captcha-remote-header h2 {
+    margin: 9px 0 2px;
+    color: #202b42;
+}
+
+.captcha-remote-header p {
+    margin: 0;
+    color: #8a94a7;
+    font-size: 12px;
+}
+
+.captcha-back-button {
+    border: 0;
+    padding: 0;
+    color: #61708f;
+    background: transparent;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.captcha-live-badge {
+    border-radius: 999px;
+    padding: 7px 10px;
+    color: #80631c;
+    background: #fff8e5;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .04em;
+}
+
+.captcha-live-badge-online {
+    color: #287645;
+    background: #eaf7ef;
+}
+
+.captcha-remote-viewport {
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-height: 360px;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid #dfe4ed;
+    border-radius: 16px;
+    background: #111827;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.captcha-remote-viewport-live {
+    cursor: crosshair;
+}
+
+.captcha-remote-viewport img {
+    display: block;
+    width: 100%;
+    height: auto;
+    pointer-events: none;
+    user-select: none;
+}
+
+.captcha-remote-loading {
+    display: flex;
+    max-width: 420px;
+    flex-direction: column;
+    align-items: center;
+    padding: 36px 22px;
+    color: #fff;
+    text-align: center;
+}
+
+.captcha-remote-loading p {
+    margin: 8px 0 0;
+    color: #aeb8cc;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.captcha-spinner {
+    width: 28px;
+    height: 28px;
+    margin-bottom: 16px;
+    border: 3px solid rgb(255 255 255 / 18%);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: captcha-spin .8s linear infinite;
+}
+
+.captcha-gesture-help {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 14px;
+    border-radius: 12px;
+    padding: 13px 14px;
+    color: #4e5b72;
+    background: #f5f7fb;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.captcha-gesture-help strong {
+    color: #263149;
+}
+
+@keyframes captcha-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 760px) {
+    .captcha-page .page-header {
+        flex-direction: row;
+        align-items: flex-start;
+    }
+
+    .captcha-queue-card {
+        grid-template-columns: auto minmax(0, 1fr);
+        padding: 15px;
+    }
+
+    .captcha-solve-button {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
+
+    .captcha-remote-card {
+        margin: 0 -5px;
+        padding: 14px 10px;
+    }
+
+    .captcha-remote-viewport {
+        min-height: 300px;
+        border-radius: 13px;
+    }
+
+    .captcha-live-badge {
+        max-width: 120px;
+        text-align: center;
+    }
+}
+
+@media (max-width: 420px) {
+    .captcha-remote-viewport {
+        min-height: 245px;
+    }
+}

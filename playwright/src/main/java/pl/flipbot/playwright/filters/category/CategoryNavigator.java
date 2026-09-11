@@ -17,6 +17,7 @@ public class CategoryNavigator {
     private static final double FIRST_ROOT_OPTION_TIMEOUT_MS = 10_000;
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
     private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
+    private static final double CATEGORY_LEVEL_SETTLE_MS = 500;
 
     private final FilterActions actions;
 
@@ -40,20 +41,7 @@ public class CategoryNavigator {
                 );
 
                 selectCategoryPath(categoryPath, attempt);
-
-                if (!actions.waitForUrlParameterPresent(
-                        "catalog[]",
-                        CATEGORY_PERSIST_TIMEOUT_MS
-                )) {
-                    String leafCategory = categoryPath.getLast();
-                    throw new CategorySelectionException(
-                            leafCategory,
-                            CATEGORY_PERSIST_TIMEOUT_MS,
-                            new IllegalStateException(
-                                    "Vinted accepted the category clicks but did not persist catalog[] in the URL"
-                            )
-                    );
-                }
+                ensureCategoryPersisted(categoryPath);
 
                 log.info(
                         "[FILTER CATEGORY] Category selected and URL persistence verified: {}",
@@ -152,13 +140,16 @@ public class CategoryNavigator {
             );
 
             try {
-                actions.waitForOption(category, timeoutMs);
-                actions.selectOption(category);
+                selectCategoryLevel(category, timeoutMs);
 
                 log.info(
                         "[FILTER CATEGORY] Selected: {}",
                         category
                 );
+
+                if (index + 1 < categoryPath.size()) {
+                    actions.waitForTimeout(CATEGORY_LEVEL_SETTLE_MS);
+                }
 
             } catch (RuntimeException exception) {
                 throw new CategorySelectionException(
@@ -168,6 +159,86 @@ public class CategoryNavigator {
                 );
             }
         }
+    }
+
+    private void ensureCategoryPersisted(List<String> categoryPath) {
+        if (actions.waitForCategoryFilterPersisted(
+                CATEGORY_PERSIST_TIMEOUT_MS
+        )) {
+            return;
+        }
+
+        String leafCategory = categoryPath.getLast();
+
+        IllegalStateException persistenceFailure = new IllegalStateException(
+                "Vinted accepted the category clicks but the URL contains neither catalog[] nor a canonical /catalog/{id}-{slug} category path. Current URL: "
+                        + actions.currentUrl()
+        );
+
+        throw new CategorySelectionException(
+                leafCategory,
+                CATEGORY_PERSIST_TIMEOUT_MS,
+                persistenceFailure
+        );
+    }
+
+    private void selectCategoryLevel(
+            String category,
+            double timeoutMs
+    ) {
+        RuntimeException semanticFailure;
+
+        try {
+            actions.waitForOption(category, timeoutMs);
+            actions.selectOption(category);
+            return;
+        } catch (RuntimeException exception) {
+            semanticFailure = exception;
+        }
+
+        /*
+         * Vinted currently renders some nested category rows in the anonymous
+         * catalog without role=button. The old navigator could select the root
+         * (for example "Elektronika") and then wait forever for a nested row
+         * that was visibly present but exposed as a different DOM element.
+         *
+         * Keep the semantic button lookup as the preferred path. Only when it
+         * fails do we use Playwright's exact-text engine, scoped to a visible
+         * element and the first exact match. The selector is exact, not a
+         * substring match, and the whole category path still has to persist as
+         * catalog[] in the Vinted URL before the scan is accepted.
+         */
+        String fallbackSelector = exactVisibleTextSelector(category);
+
+        log.info(
+                "[FILTER CATEGORY] '{}' was not exposed as a visible button. Trying exact visible-text fallback.",
+                category
+        );
+
+        try {
+            actions.clickSelector(fallbackSelector);
+            log.info(
+                    "[FILTER CATEGORY] Selected '{}' through exact visible-text fallback.",
+                    category
+            );
+        } catch (RuntimeException fallbackFailure) {
+            fallbackFailure.addSuppressed(semanticFailure);
+            throw fallbackFailure;
+        }
+    }
+
+    static String exactVisibleTextSelector(String category) {
+        if (category == null || category.isBlank()) {
+            throw new IllegalArgumentException("Category label cannot be blank");
+        }
+
+        String escaped = category
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"");
+
+        return "*:text-is(\""
+                + escaped
+                + "\"):visible >> nth=0";
     }
 
     private void logSelectionFailure(

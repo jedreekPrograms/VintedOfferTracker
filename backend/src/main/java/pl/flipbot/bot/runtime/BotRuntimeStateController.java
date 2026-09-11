@@ -26,4 +26,11 @@ public class BotRuntimeStateController {
     ) {
         return runtimeStateService.applyEvent(botId, request);
     }
+
+    @PostMapping("/captcha-recovery")
+    public BotRuntimeStateResponse requestCaptchaRecovery(
+            @PathVariable Long botId
+    ) {
+        return runtimeStateService.requestCaptchaRecovery(botId);
+    }
 }

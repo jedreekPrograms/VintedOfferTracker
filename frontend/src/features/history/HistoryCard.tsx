@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import {
     removeHistoryEntry,
+    updateHistoryOutcome,
     updateHistoryPurchasePrice,
     type ListingHistoryResponse,
 } from "../../api/historyApi";
@@ -14,6 +15,9 @@ import {
     formatHistoryPercentage,
     formatHistoryPrice,
     getAbsoluteVintedUrl,
+    getHistoryOutcomeLabel,
+    HISTORY_OUTCOME_OPTIONS,
+    parseHistoryOutcome,
 } from "./historyUtils";
 
 interface HistoryCardProps {
@@ -30,6 +34,7 @@ function HistoryCard({
     const [editingPurchasePrice, setEditingPurchasePrice] = useState(false);
     const [purchasePriceDraft, setPurchasePriceDraft] = useState(String(listing.currentPrice));
     const [isSaving, setIsSaving] = useState(false);
+    const [isSavingOutcome, setIsSavingOutcome] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
     const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
@@ -37,6 +42,8 @@ function HistoryCard({
     const savings = calculateSavings(listing.originalPrice, listing.currentPrice);
     const discount = calculateDiscountPercentage(listing.originalPrice, listing.currentPrice);
     const purchased = listing.status === "PURCHASED";
+    const purchasedForBookkeeping = listing.outcome === "PURCHASED_BY_ME"
+        || (listing.outcome === null && purchased);
 
     async function savePurchasePrice() {
         const purchasePrice = Number(purchasePriceDraft.replace(",", ".").trim());
@@ -60,6 +67,29 @@ function HistoryCard({
             );
         } finally {
             setIsSaving(false);
+        }
+    }
+
+    async function saveOutcome(rawOutcome: string) {
+        if (isSavingOutcome) {
+            return;
+        }
+
+        const outcome = parseHistoryOutcome(rawOutcome);
+        setIsSavingOutcome(true);
+        setActionError(null);
+
+        try {
+            const updatedListing = await updateHistoryOutcome(listing.id, outcome);
+            onUpdated(updatedListing);
+        } catch (error) {
+            setActionError(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się zmienić oznaczenia.",
+            );
+        } finally {
+            setIsSavingOutcome(false);
         }
     }
 
@@ -96,13 +126,20 @@ function HistoryCard({
             <div className="history-card-main">
                 <div className="history-card-header">
                     <div>
-                        <span
-                            className={purchased
-                                ? "history-status history-status-purchased"
-                                : "history-status history-status-skipped"}
-                        >
-                            {purchased ? "✓ Kupione" : "✕ Odrzucone"}
-                        </span>
+                        <div className="history-card-badges">
+                            <span
+                                className={purchased
+                                    ? "history-status history-status-purchased"
+                                    : "history-status history-status-skipped"}
+                            >
+                                {purchased ? "✓ Kupione" : "✕ Odrzucone"}
+                            </span>
+                            {listing.outcome !== null && (
+                                <span className="history-outcome-badge">
+                                    {getHistoryOutcomeLabel(listing.outcome)}
+                                </span>
+                            )}
+                        </div>
                         <h2>{listing.title}</h2>
                     </div>
                     <div className="history-decision-date">
@@ -120,8 +157,8 @@ function HistoryCard({
                     </div>
                     <div className="history-price-arrow">→</div>
                     <div>
-                        <span>{purchased ? "Cena zakupu" : "Cena po negocjacji"}</span>
-                        {purchased && editingPurchasePrice ? (
+                        <span>{purchasedForBookkeeping ? "Cena zakupu" : "Cena po negocjacji"}</span>
+                        {purchasedForBookkeeping && editingPurchasePrice ? (
                             <form
                                 className="history-price-editor"
                                 onSubmit={(event) => {
@@ -178,7 +215,32 @@ function HistoryCard({
                     <HistoryDetail label="Bot" value={listing.botName} secondary={`#${listing.botId}`} />
                     <HistoryDetail label="Listing ID" value={listing.listingId} />
                     <HistoryDetail label="Krok negocjacji" value={String(listing.currentStep)} />
-                    <HistoryDetail label="Status" value={listing.status} />
+                    <HistoryDetail label="Status techniczny" value={listing.status} />
+                </div>
+
+                <div className="history-outcome-editor">
+                    <label htmlFor={`history-outcome-${listing.id}`}>
+                        Oznaczenie do statystyk
+                    </label>
+                    <div className="history-outcome-editor-row">
+                        <select
+                            id={`history-outcome-${listing.id}`}
+                            value={listing.outcome ?? ""}
+                            disabled={isSavingOutcome || isRemoving}
+                            onChange={(event) => void saveOutcome(event.target.value)}
+                        >
+                            <option value="">Brak oznaczenia</option>
+                            {HISTORY_OUTCOME_OPTIONS.map(option => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                        {isSavingOutcome && <small>Zapisywanie...</small>}
+                    </div>
+                    <small>
+                        Możesz zmieniać to oznaczenie także dla starych wpisów bez zmiany technicznego statusu bota.
+                    </small>
                 </div>
 
                 {actionError !== null && (
@@ -197,11 +259,11 @@ function HistoryCard({
                 >
                     Otwórz ofertę
                 </a>
-                {purchased && !editingPurchasePrice && (
+                {purchasedForBookkeeping && !editingPurchasePrice && (
                     <button
                         className="secondary-button"
                         type="button"
-                        disabled={isRemoving}
+                        disabled={isRemoving || isSavingOutcome}
                         onClick={() => {
                             setPurchasePriceDraft(String(listing.currentPrice));
                             setActionError(null);
@@ -214,7 +276,7 @@ function HistoryCard({
                 <button
                     className="history-remove-button"
                     type="button"
-                    disabled={isRemoving || isSaving}
+                    disabled={isRemoving || isSaving || isSavingOutcome}
                     onClick={() => setShowRemoveConfirmation(true)}
                 >
                     {isRemoving ? "Usuwanie..." : "Usuń z historii"}

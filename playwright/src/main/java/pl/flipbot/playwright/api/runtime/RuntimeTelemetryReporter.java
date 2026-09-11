@@ -28,19 +28,19 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
 
     public void queued(Long botId, long nextRunAtEpochMs) {
         send(botId, new RuntimeTelemetryEventRequest(
-                "QUEUED", nextRunAtEpochMs, null, null, null
+                "QUEUED", nextRunAtEpochMs, null, null, null, null
         ));
     }
 
     public void runStarted(Long botId, int workerSlot) {
         send(botId, new RuntimeTelemetryEventRequest(
-                "RUN_STARTED", null, null, workerSlot, null
+                "RUN_STARTED", null, null, workerSlot, null, null
         ));
     }
 
     public void runSucceeded(Long botId, long durationMs) {
         send(botId, new RuntimeTelemetryEventRequest(
-                "RUN_SUCCEEDED", null, durationMs, null, null
+                "RUN_SUCCEEDED", null, durationMs, null, null, null
         ));
     }
 
@@ -51,7 +51,7 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
             String errorMessage
     ) {
         send(botId, new RuntimeTelemetryEventRequest(
-                "RUN_FAILED", nextRunAtEpochMs, durationMs, null, errorMessage
+                "RUN_FAILED", nextRunAtEpochMs, durationMs, null, errorMessage, null
         ));
     }
 
@@ -62,7 +62,7 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
             String errorMessage
     ) {
         send(botId, new RuntimeTelemetryEventRequest(
-                "RATE_LIMITED", nextRunAtEpochMs, durationMs, null, errorMessage
+                "RATE_LIMITED", nextRunAtEpochMs, durationMs, null, errorMessage, null
         ));
     }
 
@@ -90,7 +90,8 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                 null,
                 durationMs,
                 null,
-                errorMessage
+                errorMessage,
+                null
         );
 
         RuntimeTelemetryStateResponse response = await(
@@ -118,8 +119,75 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
 
     public void idle(Long botId) {
         send(botId, new RuntimeTelemetryEventRequest(
-                "IDLE", null, null, null, null
+                "IDLE", null, null, null, null, null
         ));
+    }
+
+    public RuntimeTelemetryStateResponse captchaRequired(
+            Long botId,
+            long durationMs,
+            String errorMessage,
+            String challengeUrl
+    ) {
+        return sendSynchronously(
+                botId,
+                new RuntimeTelemetryEventRequest(
+                        "CAPTCHA_REQUIRED",
+                        null,
+                        durationMs,
+                        null,
+                        errorMessage,
+                        challengeUrl
+                ),
+                "persist CAPTCHA pause for bot " + botId
+        );
+    }
+
+    public RuntimeTelemetryStateResponse captchaRecoveryStarted(
+            Long botId,
+            int workerSlot
+    ) {
+        return sendSynchronously(
+                botId,
+                new RuntimeTelemetryEventRequest(
+                        "CAPTCHA_RECOVERY_STARTED",
+                        null,
+                        null,
+                        workerSlot,
+                        null,
+                        null
+                ),
+                "start CAPTCHA recovery for bot " + botId
+        );
+    }
+
+    public RuntimeTelemetryStateResponse captchaRecoverySucceeded(
+            Long botId,
+            long durationMs
+    ) {
+        return sendSynchronously(
+                botId,
+                new RuntimeTelemetryEventRequest(
+                        "CAPTCHA_RECOVERY_SUCCEEDED",
+                        null,
+                        durationMs,
+                        null,
+                        null,
+                        null
+                ),
+                "complete CAPTCHA recovery for bot " + botId
+        );
+    }
+
+    private RuntimeTelemetryStateResponse sendSynchronously(
+            Long botId,
+            RuntimeTelemetryEventRequest request,
+            String operation
+    ) {
+        return await(
+                submit(() -> client.sendEvent(botId, request)),
+                operation
+        );
     }
 
     private void send(Long botId, RuntimeTelemetryEventRequest request) {

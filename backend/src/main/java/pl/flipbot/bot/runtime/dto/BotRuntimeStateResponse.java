@@ -32,5 +32,11 @@ public class BotRuntimeStateResponse {
 
     private int sessionBlockCount;
 
+    private Instant captchaRequiredSince;
+
+    private Instant captchaRecoveryRequestedAt;
+
+    private String captchaChallengeUrl;
+
     private Instant updatedAt;
 }

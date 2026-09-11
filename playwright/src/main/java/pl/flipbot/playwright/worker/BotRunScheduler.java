@@ -41,18 +41,24 @@ public class BotRunScheduler {
     }
 
     public synchronized void reconcileRunningBots(
-            Map<Long, Boolean> runningBots
+            Map<Long, RunningBotScheduleState> runningBots
     ) {
 
-        Map<Long, Boolean> normalizedRunningBots =
+        Map<Long, RunningBotScheduleState> normalizedRunningBots =
                 new HashMap<>();
 
         runningBots.forEach(
-                (botId, hasActiveNegotiations) -> {
+                (botId, runtimeState) -> {
                     if (botId != null && botId > 0) {
                         normalizedRunningBots.put(
                                 botId,
-                                Boolean.TRUE.equals(hasActiveNegotiations)
+                                runtimeState == null
+                                        ? new RunningBotScheduleState(
+                                                false,
+                                                false,
+                                                false
+                                        )
+                                        : runtimeState
                         );
                     }
                 }
@@ -72,10 +78,10 @@ public class BotRunScheduler {
         long now = System.currentTimeMillis();
 
         normalizedRunningBots.forEach(
-                (botId, hasActiveNegotiations) ->
+                (botId, runtimeState) ->
                         enableOrRefreshBot(
                                 botId,
-                                hasActiveNegotiations,
+                                runtimeState,
                                 now
                         )
         );
@@ -130,6 +136,12 @@ public class BotRunScheduler {
             return;
         }
 
+        if (jobType == ScheduledJobType.CAPTCHA_RECOVERY) {
+            throw new IllegalArgumentException(
+                    "Use completeCaptchaRecovery for CAPTCHA_RECOVERY."
+            );
+        }
+
         if (!schedule.enabled) {
             schedules.remove(botId);
             telemetryReporter.idle(botId);
@@ -170,12 +182,68 @@ public class BotRunScheduler {
                                 PRICE_PROBE_CONFIG.enabled()
                                         ? readyAt
                                         : NEVER;
+                case CAPTCHA_RECOVERY -> throw new IllegalStateException(
+                        "CAPTCHA_RECOVERY cannot use normal completion."
+                );
             }
         }
 
         schedule.reportQueuedStatus = reportQueued;
         schedule.state = null;
 
+        enqueueEarliestJob(botId, schedule, now);
+    }
+
+    public synchronized void pauseForCaptcha(Long botId) {
+        BotSchedule schedule = schedules.get(botId);
+        if (schedule == null) {
+            return;
+        }
+
+        removeQueuedTask(botId);
+        schedule.captchaRequired = true;
+        schedule.captchaRecoveryRequested = false;
+        schedule.state = null;
+        schedule.queuedJobType = null;
+        schedule.queuedRunAtNanos = 0L;
+        schedule.reportQueuedStatus = false;
+    }
+
+    public synchronized void completeCaptchaRecovery(
+            Long botId,
+            boolean succeeded
+    ) {
+        BotSchedule schedule = schedules.get(botId);
+        if (schedule == null) {
+            return;
+        }
+
+        if (!schedule.enabled) {
+            schedules.remove(botId);
+            telemetryReporter.idle(botId);
+            return;
+        }
+
+        schedule.state = null;
+        schedule.queuedJobType = null;
+        schedule.queuedRunAtNanos = 0L;
+
+        if (!succeeded) {
+            schedule.captchaRequired = true;
+            schedule.captchaRecoveryRequested = false;
+            schedule.reportQueuedStatus = false;
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        schedule.captchaRequired = false;
+        schedule.captchaRecoveryRequested = false;
+        schedule.nextCatalogAtEpochMs = now;
+        schedule.nextNegotiationAtEpochMs =
+                schedule.hasActiveNegotiations ? now : NEVER;
+        schedule.nextPriceProbeAtEpochMs =
+                PRICE_PROBE_CONFIG.enabled() ? now : NEVER;
+        schedule.reportQueuedStatus = true;
         enqueueEarliestJob(botId, schedule, now);
     }
 
@@ -211,7 +279,7 @@ public class BotRunScheduler {
 
         schedule.enabled = false;
 
-        if (schedule.state == RunState.QUEUED) {
+        if (schedule.state != RunState.WORKING) {
             removeQueuedTask(botId);
             schedules.remove(botId);
             telemetryReporter.idle(botId);
@@ -220,9 +288,15 @@ public class BotRunScheduler {
 
     private void enableOrRefreshBot(
             Long botId,
-            boolean hasActiveNegotiations,
+            RunningBotScheduleState runtimeState,
             long now
     ) {
+
+        boolean hasActiveNegotiations =
+                runtimeState.hasActiveNegotiations();
+        boolean captchaRequired = runtimeState.captchaRequired();
+        boolean captchaRecoveryRequested =
+                captchaRequired && runtimeState.captchaRecoveryRequested();
 
         BotSchedule schedule = schedules.get(botId);
 
@@ -230,6 +304,8 @@ public class BotRunScheduler {
             BotSchedule newSchedule = new BotSchedule();
             newSchedule.enabled = true;
             newSchedule.hasActiveNegotiations = hasActiveNegotiations;
+            newSchedule.captchaRequired = captchaRequired;
+            newSchedule.captchaRecoveryRequested = captchaRecoveryRequested;
             newSchedule.nextCatalogAtEpochMs = now;
             newSchedule.nextNegotiationAtEpochMs =
                     hasActiveNegotiations ? now : NEVER;
@@ -244,12 +320,58 @@ public class BotRunScheduler {
 
         boolean negotiationsChanged =
                 schedule.hasActiveNegotiations != hasActiveNegotiations;
+        boolean captchaStateChanged =
+                schedule.captchaRequired != captchaRequired;
+        boolean recoveryRequestChanged =
+                schedule.captchaRecoveryRequested != captchaRecoveryRequested;
 
         schedule.enabled = true;
         schedule.hasActiveNegotiations = hasActiveNegotiations;
+        schedule.captchaRequired = captchaRequired;
+        schedule.captchaRecoveryRequested = captchaRecoveryRequested;
 
         if (!PRICE_PROBE_CONFIG.enabled()) {
             schedule.nextPriceProbeAtEpochMs = NEVER;
+        }
+
+        if (schedule.state == RunState.WORKING) {
+            return;
+        }
+
+        if (captchaRequired) {
+            if (schedule.state == RunState.QUEUED
+                    && schedule.queuedJobType == ScheduledJobType.CAPTCHA_RECOVERY
+                    && captchaRecoveryRequested) {
+                return;
+            }
+
+            if (schedule.state == RunState.QUEUED) {
+                removeQueuedTask(botId);
+                schedule.state = null;
+                schedule.queuedJobType = null;
+                schedule.queuedRunAtNanos = 0L;
+            }
+
+            if (captchaRecoveryRequested) {
+                enqueueEarliestJob(botId, schedule, now);
+            }
+            return;
+        }
+
+        if (captchaStateChanged || recoveryRequestChanged) {
+            schedule.nextCatalogAtEpochMs = now;
+            schedule.nextNegotiationAtEpochMs =
+                    hasActiveNegotiations ? now : NEVER;
+            schedule.nextPriceProbeAtEpochMs =
+                    PRICE_PROBE_CONFIG.enabled() ? now : NEVER;
+            schedule.reportQueuedStatus = true;
+
+            if (schedule.state == RunState.QUEUED) {
+                removeQueuedTask(botId);
+                schedule.state = null;
+            }
+            enqueueEarliestJob(botId, schedule, now);
+            return;
         }
 
         if (negotiationsChanged) {
@@ -271,6 +393,23 @@ public class BotRunScheduler {
     ) {
 
         if (!schedule.enabled) {
+            return;
+        }
+
+        if (schedule.captchaRequired) {
+            if (!schedule.captchaRecoveryRequested) {
+                return;
+            }
+
+            ScheduledBotTask recoveryTask = ScheduledBotTask.afterDelay(
+                    botId,
+                    ScheduledJobType.CAPTCHA_RECOVERY,
+                    0L
+            );
+            queue.offer(recoveryTask);
+            schedule.state = RunState.QUEUED;
+            schedule.queuedJobType = ScheduledJobType.CAPTCHA_RECOVERY;
+            schedule.queuedRunAtNanos = recoveryTask.runAtNanos();
             return;
         }
 
@@ -323,6 +462,8 @@ public class BotRunScheduler {
     private static final class BotSchedule {
         private boolean enabled;
         private boolean hasActiveNegotiations;
+        private boolean captchaRequired;
+        private boolean captchaRecoveryRequested;
         private RunState state;
         private long nextCatalogAtEpochMs;
         private long nextNegotiationAtEpochMs = NEVER;

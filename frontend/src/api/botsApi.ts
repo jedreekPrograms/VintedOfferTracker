@@ -35,7 +35,7 @@ export interface BotDailyActivity {
 
 export interface BotRuntimeState {
     botId: number;
-    runtimeStatus: "IDLE" | "QUEUED" | "WORKING" | "COOLDOWN" | "ERROR";
+    runtimeStatus: "IDLE" | "QUEUED" | "WORKING" | "COOLDOWN" | "CAPTCHA_REQUIRED" | "ERROR";
     lastRunStartedAt: string | null;
     lastRunFinishedAt: string | null;
     nextRunAt: string | null;
@@ -45,6 +45,9 @@ export interface BotRuntimeState {
     workerSlot: number | null;
     sessionBlockedSince: string | null;
     sessionBlockCount: number;
+    captchaRequiredSince: string | null;
+    captchaRecoveryRequestedAt: string | null;
+    captchaChallengeUrl: string | null;
     updatedAt: string | null;
 }
 

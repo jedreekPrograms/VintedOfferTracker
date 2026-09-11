@@ -1,12 +1,6 @@
-import {
-    assertApiResponse,
-} from "./apiError";
+import { assertApiResponse } from "./apiError";
 
-export type DashboardPeriod =
-    | "TODAY"
-    | "LAST_7_DAYS"
-    | "LAST_30_DAYS"
-    | "ALL";
+export type DashboardPeriod = "TODAY" | "LAST_7_DAYS" | "LAST_30_DAYS" | "ALL";
 
 export interface DashboardStatsResponse {
     activeBotsCount: number;
@@ -20,12 +14,7 @@ export interface DashboardStatsResponse {
     averageDiscountPercentage: number;
 }
 
-export type RuntimeStatus =
-    | "IDLE"
-    | "QUEUED"
-    | "WORKING"
-    | "COOLDOWN"
-    | "ERROR";
+export type RuntimeStatus = "IDLE" | "QUEUED" | "WORKING" | "COOLDOWN" | "CAPTCHA_REQUIRED" | "ERROR";
 
 export interface RuntimeDashboardBot {
     botId: number;
@@ -41,6 +30,8 @@ export interface RuntimeDashboardBot {
     workerSlot: number | null;
     sessionBlockedSince: string | null;
     sessionBlockCount: number;
+    captchaRequiredSince: string | null;
+    captchaRecoveryRequestedAt: string | null;
     updatedAt: string | null;
 }
 
@@ -51,33 +42,65 @@ export interface RuntimeDashboardResponse {
     queuedCount: number;
     workingCount: number;
     cooldownCount: number;
+    captchaRequiredCount: number;
     errorCount: number;
     averageLastRunDurationMs: number;
     bots: RuntimeDashboardBot[];
 }
 
-export async function getDashboardStats(
-    period: DashboardPeriod,
-): Promise<DashboardStatsResponse> {
-    const response = await fetch(
-        `/api/dashboard/stats?period=${encodeURIComponent(period)}`,
-    );
+export interface RemoteCaptchaState {
+    active: boolean;
+    botId: number | null;
+    screenshotAvailable: boolean;
+    frameVersion: number;
+    viewportWidth: number;
+    viewportHeight: number;
+}
 
-    await assertApiResponse(
-        response,
-        `Nie udało się pobrać statystyk dashboardu. Status HTTP: ${response.status}.`,
-    );
+export type RemotePointerType = "DOWN" | "MOVE" | "UP";
 
+export async function getDashboardStats(period: DashboardPeriod): Promise<DashboardStatsResponse> {
+    const response = await fetch(`/api/dashboard/stats?period=${encodeURIComponent(period)}`);
+    await assertApiResponse(response, `Nie udało się pobrać statystyk dashboardu. Status HTTP: ${response.status}.`);
     return response.json() as Promise<DashboardStatsResponse>;
 }
 
 export async function getRuntimeDashboard(): Promise<RuntimeDashboardResponse> {
     const response = await fetch("/api/dashboard/runtime");
-
-    await assertApiResponse(
-        response,
-        `Nie udało się pobrać stanu runtime. Status HTTP: ${response.status}.`,
-    );
-
+    await assertApiResponse(response, `Nie udało się pobrać stanu runtime. Status HTTP: ${response.status}.`);
     return response.json() as Promise<RuntimeDashboardResponse>;
+}
+
+export async function requestCaptchaRecovery(botId: number): Promise<void> {
+    const response = await fetch(`/api/bots/${botId}/runtime/captcha-recovery`, { method: "POST" });
+    await assertApiResponse(response, `Nie udało się otworzyć przeglądarki CAPTCHA dla bota #${botId}. Status HTTP: ${response.status}.`);
+}
+
+export async function getRemoteCaptchaState(botId: number): Promise<RemoteCaptchaState> {
+    const response = await fetch(`/api/bots/${botId}/runtime/captcha-remote/state`, { cache: "no-store" });
+    await assertApiResponse(response, `Nie udało się pobrać zdalnej sesji CAPTCHA. Status HTTP: ${response.status}.`);
+    return response.json() as Promise<RemoteCaptchaState>;
+}
+
+export async function getRemoteCaptchaScreenshot(botId: number, frameVersion: number): Promise<Blob> {
+    const response = await fetch(
+        `/api/bots/${botId}/runtime/captcha-remote/screenshot?v=${frameVersion}`,
+        { cache: "no-store" },
+    );
+    await assertApiResponse(response, `Nie udało się pobrać podglądu CAPTCHA. Status HTTP: ${response.status}.`);
+    return response.blob();
+}
+
+export async function sendRemoteCaptchaPointer(
+    botId: number,
+    type: RemotePointerType,
+    x: number,
+    y: number,
+): Promise<void> {
+    const response = await fetch(`/api/bots/${botId}/runtime/captcha-remote/pointer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, x, y }),
+    });
+    await assertApiResponse(response, `Nie udało się przekazać gestu do sesji CAPTCHA. Status HTTP: ${response.status}.`);
 }

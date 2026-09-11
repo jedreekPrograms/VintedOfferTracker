@@ -177,228 +177,277 @@ public class NewNegotiationProcessor {
             return;
         }
 
-        int desiredVerifiedCandidates = Math.min(
-                targetEligibleListings.size(),
-                Math.min(
-                        MAX_FINAL_VERIFICATIONS_PER_CYCLE,
-                        maximumOffersThisRun + PREPARATION_FALLBACK_CANDIDATES
-                )
-        );
-
         log.warn(
-                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final target verification will inspect up to {} candidates until {} verified candidate(s) are found ({} capacity + up to {} preparation fallbacks). Quota is reserved only after the form is fully prepared and submit is ready.",
+                "[REAL OFFER] Real offers are enabled. Bot {} has {} target-eligible DISCOVERED candidates. Backend allows {} new negotiations. This run is limited to {} real offer(s). Final target verification will keep advancing through the candidate pool in batches of up to {} until capacity is filled or every candidate has been tried. Each batch keeps up to {} preparation fallbacks beyond the remaining capacity. Quota is reserved only after the form is fully prepared and submit is ready.",
                 botId,
                 targetEligibleListings.size(),
                 allowedNewNegotiations,
                 maximumOffersThisRun,
                 MAX_FINAL_VERIFICATIONS_PER_CYCLE,
-                desiredVerifiedCandidates,
-                maximumOffersThisRun,
                 PREPARATION_FALLBACK_CANDIDATES
         );
 
-        FinalVerificationResult finalVerification = verifyFinalCandidates(
-                targetEligibleListings,
-                configuration,
-                currentScanListingIds,
-                MAX_FINAL_VERIFICATIONS_PER_CYCLE,
-                desiredVerifiedCandidates
-        );
-
-        List<ListingResponseDto> finalVerifiedListings = finalVerification.verifiedListings();
-
-        if (finalVerifiedListings.isEmpty()) {
-            log.warn(
-                    "[REAL OFFER] No candidate passed mandatory final target verification. No quota will be reserved and no offer will be sent."
-            );
-            return;
-        }
-
-        log.info(
-                "[REAL OFFER] {} candidate(s) passed mandatory final target verification. They may be tried in order until {} real negotiation(s) are started.",
-                finalVerifiedListings.size(),
-                maximumOffersThisRun
-        );
-
         int startedNegotiations = 0;
+        int candidateOffset = 0;
+        int checkedCandidates = 0;
+        int verifiedCandidates = 0;
 
-        for (ListingResponseDto listing : finalVerifiedListings) {
-            if (startedNegotiations >= maximumOffersThisRun) {
+        while (startedNegotiations < maximumOffersThisRun
+                && candidateOffset < targetEligibleListings.size()) {
+            int remainingCapacity = maximumOffersThisRun - startedNegotiations;
+            List<ListingResponseDto> remainingCandidates = targetEligibleListings.subList(
+                    candidateOffset,
+                    targetEligibleListings.size()
+            );
+            int desiredVerifiedCandidates = Math.min(
+                    remainingCandidates.size(),
+                    Math.min(
+                            MAX_FINAL_VERIFICATIONS_PER_CYCLE,
+                            remainingCapacity + PREPARATION_FALLBACK_CANDIDATES
+                    )
+            );
+
+            FinalVerificationResult finalVerification = verifyFinalCandidates(
+                    remainingCandidates,
+                    configuration,
+                    currentScanListingIds,
+                    MAX_FINAL_VERIFICATIONS_PER_CYCLE,
+                    desiredVerifiedCandidates
+            );
+
+            if (finalVerification.checked() <= 0) {
+                log.warn(
+                        "[REAL OFFER] Final verification made no progress at candidate offset {}. Stopping this run to avoid looping forever.",
+                        candidateOffset
+                );
                 break;
             }
 
-            NegotiationPreparationResult preparationResult;
+            candidateOffset += finalVerification.checked();
+            checkedCandidates += finalVerification.checked();
+            verifiedCandidates += finalVerification.verifiedListings().size();
 
-            try {
-                preparationResult = firstOfferExecutor.prepareFirstOffer(listing);
-            } catch (VintedRateLimitException exception) {
-                throw exception;
-            } catch (Exception exception) {
-                log.error(
-                        "[REAL OFFER PREPARE] Failed before quota reservation for marketplace listing {}: {}. No quota was reserved and no offer was sent. Trying the next verified candidate.",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
-                );
-                log.trace(
-                        "[REAL OFFER PREPARE] Full preparation error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.LISTING_UNAVAILABLE) {
-                listingStatusUpdater.markUnavailable(botId, listing);
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.TARGET_MISMATCH) {
-                listingStatusUpdater.markTargetMismatch(botId, listing);
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.OFFER_TOO_LOW) {
-                listingStatusUpdater.markOfferTooLow(botId, listing);
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.CANNOT_NEGOTIATE) {
-                markCannotNegotiate(botId, listing);
-                log.warn(
-                        "[REAL OFFER] Skipping marketplace listing {} because Vinted exposes no negotiation action for this account. Backend status is now SKIPPED_CANNOT_NEGOTIATE. Trying the next fully verified candidate. No quota was reserved.",
-                        listing.listingId()
+            if (finalVerification.verifiedListings().isEmpty()) {
+                log.info(
+                        "[REAL OFFER] Verification batch produced no usable candidate. Started={}/{}, checked={}/{}. Continuing with later candidates.",
+                        startedNegotiations,
+                        maximumOffersThisRun,
+                        checkedCandidates,
+                        targetEligibleListings.size()
                 );
                 continue;
             }
 
-            if (preparationResult != NegotiationPreparationResult.PREPARED) {
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                throw new IllegalStateException(
-                        "Unexpected negotiation preparation result: " + preparationResult
-                );
-            }
-
-            try {
-                firstOfferExecutor.assertPreparedOfferReady(listing);
-            } catch (Exception exception) {
-                log.error(
-                        "[REAL OFFER PREPARE] Prepared form became invalid before quota reservation for marketplace listing {}: {}. No quota was reserved. Trying the next verified candidate.",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
-                );
-                log.trace(
-                        "[REAL OFFER PREPARE] Full pre-quota readiness error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                continue;
-            }
-
-            var actionGuardRequestId = firstOfferActionGuardCoordinator.acquire(
-                    botId,
-                    listing
+            log.info(
+                    "[REAL OFFER] Verification batch passed {} candidate(s). They will be tried in order. Started so far: {}/{}; checked candidate pool: {}/{}.",
+                    finalVerification.verifiedListings().size(),
+                    startedNegotiations,
+                    maximumOffersThisRun,
+                    checkedCandidates,
+                    targetEligibleListings.size()
             );
 
-            if (actionGuardRequestId == null) {
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                log.warn(
-                        "[REAL OFFER] FIRST_OFFER action guard refused marketplace listing {} (for example because another bot already owns that marketplace negotiation). No quota was reserved and no real submit was attempted. Trying the next verified candidate instead of wasting this run's capacity.",
-                        listing.listingId()
-                );
-                continue;
-            }
+            for (ListingResponseDto listing : finalVerification.verifiedListings()) {
+                if (startedNegotiations >= maximumOffersThisRun) {
+                    break;
+                }
 
-            log.warn(
-                    "[REAL OFFER] Marketplace listing {} passed every pre-submit guard. Persistent FIRST_OFFER guard is acquired. Reserving quota now, immediately before the real submit click.",
-                    listing.listingId()
-            );
+                NegotiationPreparationResult preparationResult;
 
-            OfferQuotaReservationResponseDto quotaReservation;
+                try {
+                    preparationResult = firstOfferExecutor.prepareFirstOffer(listing);
+                } catch (VintedRateLimitException exception) {
+                    throw exception;
+                } catch (Exception exception) {
+                    log.error(
+                            "[REAL OFFER PREPARE] Failed before quota reservation for marketplace listing {}: {}. No quota was reserved and no offer was sent. Trying the next verified candidate.",
+                            listing.listingId(),
+                            getFriendlyErrorMessage(exception)
+                    );
+                    log.trace(
+                            "[REAL OFFER PREPARE] Full preparation error for marketplace listing {}.",
+                            listing.listingId(),
+                            exception
+                    );
+                    firstOfferExecutor.cancelPreparedOfferSafely();
+                    continue;
+                }
 
-            try {
-                quotaReservation = offerQuotaClient.reserveSlot(
-                        botId,
-                        actionGuardRequestId
-                );
-            } catch (Exception exception) {
-                firstOfferActionGuardCoordinator.releaseBeforeSubmitSafely(
-                        botId,
-                        listing,
-                        actionGuardRequestId,
-                        "quota reservation failed before real submit"
-                );
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                throw exception;
-            }
+                if (preparationResult == NegotiationPreparationResult.LISTING_UNAVAILABLE) {
+                    listingStatusUpdater.markUnavailable(botId, listing);
+                    continue;
+                }
 
-            if (!quotaReservation.reserved()) {
-                firstOfferActionGuardCoordinator.releaseBeforeSubmitSafely(
-                        botId,
-                        listing,
-                        actionGuardRequestId,
-                        "daily quota was not reserved"
-                );
+                if (preparationResult == NegotiationPreparationResult.TARGET_MISMATCH) {
+                    listingStatusUpdater.markTargetMismatch(botId, listing);
+                    continue;
+                }
 
-                log.warn(
-                        "[REAL OFFER] Daily offer quota exhausted for bot {}. Used: {}/{}, remaining: {}. Prepared form will be closed and no offer will be sent.",
-                        botId,
-                        quotaReservation.used(),
-                        quotaReservation.limit(),
-                        quotaReservation.remaining()
-                );
+                if (preparationResult == NegotiationPreparationResult.OFFER_TOO_LOW) {
+                    listingStatusUpdater.markOfferTooLow(botId, listing);
+                    continue;
+                }
 
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                return;
-            }
+                if (preparationResult == NegotiationPreparationResult.CANNOT_NEGOTIATE) {
+                    markCannotNegotiate(botId, listing);
+                    log.warn(
+                            "[REAL OFFER] Skipping marketplace listing {} because Vinted exposes no negotiation action for this account. Backend status is now SKIPPED_CANNOT_NEGOTIATE. Trying the next fully verified candidate. No quota was reserved.",
+                            listing.listingId()
+                    );
+                    continue;
+                }
 
-            try {
-                NegotiationStartResult result = firstOfferExecutor
-                        .submitPreparedFirstNegotiation(listing);
-
-                if (result != NegotiationStartResult.STARTED) {
+                if (preparationResult != NegotiationPreparationResult.PREPARED) {
+                    firstOfferExecutor.cancelPreparedOfferSafely();
                     throw new IllegalStateException(
-                            "Unexpected negotiation start result after prepared submit: " + result
+                            "Unexpected negotiation preparation result: " + preparationResult
                     );
                 }
 
-                firstOfferActionGuardCoordinator.releaseAfterConfirmedSuccessBestEffort(
+                try {
+                    firstOfferExecutor.assertPreparedOfferReady(listing);
+                } catch (Exception exception) {
+                    log.error(
+                            "[REAL OFFER PREPARE] Prepared form became invalid before quota reservation for marketplace listing {}: {}. No quota was reserved. Trying the next verified candidate.",
+                            listing.listingId(),
+                            getFriendlyErrorMessage(exception)
+                    );
+                    log.trace(
+                            "[REAL OFFER PREPARE] Full pre-quota readiness error for marketplace listing {}.",
+                            listing.listingId(),
+                            exception
+                    );
+                    firstOfferExecutor.cancelPreparedOfferSafely();
+                    continue;
+                }
+
+                var actionGuardRequestId = firstOfferActionGuardCoordinator.acquire(
                         botId,
-                        listing,
-                        actionGuardRequestId
+                        listing
                 );
 
-                startedNegotiations++;
+                if (actionGuardRequestId == null) {
+                    firstOfferExecutor.cancelPreparedOfferSafely();
+                    log.warn(
+                            "[REAL OFFER] FIRST_OFFER action guard refused marketplace listing {} (for example because another bot already owns that marketplace negotiation). No quota was reserved and no real submit was attempted. Trying the next verified candidate instead of wasting this run's capacity.",
+                            listing.listingId()
+                    );
+                    continue;
+                }
 
                 log.warn(
-                        "[REAL OFFER] Real negotiation STARTED for marketplace listing {}. Started during this run: {}/{}. Daily quota used: {}/{}, remaining: {}.",
-                        listing.listingId(),
-                        startedNegotiations,
-                        maximumOffersThisRun,
-                        quotaReservation.used(),
-                        quotaReservation.limit(),
-                        quotaReservation.remaining()
+                        "[REAL OFFER] Marketplace listing {} passed every pre-submit guard. Persistent FIRST_OFFER guard is acquired. Reserving quota now, immediately before the real submit click.",
+                        listing.listingId()
                 );
 
-            } catch (Exception exception) {
-                log.error(
-                        "[REAL OFFER] Failure occurred after quota reservation while submitting marketplace listing {}: {}. Quota will NOT be released automatically and FIRST_OFFER action guard will remain persisted because the real submit action may have been attempted.",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
+                OfferQuotaReservationResponseDto quotaReservation;
+
+                try {
+                    quotaReservation = offerQuotaClient.reserveSlot(
+                            botId,
+                            actionGuardRequestId
+                    );
+                } catch (Exception exception) {
+                    firstOfferActionGuardCoordinator.releaseBeforeSubmitSafely(
+                            botId,
+                            listing,
+                            actionGuardRequestId,
+                            "quota reservation failed before real submit"
+                    );
+                    firstOfferExecutor.cancelPreparedOfferSafely();
+                    throw exception;
+                }
+
+                if (!quotaReservation.reserved()) {
+                    firstOfferActionGuardCoordinator.releaseBeforeSubmitSafely(
+                            botId,
+                            listing,
+                            actionGuardRequestId,
+                            "daily quota was not reserved"
+                    );
+
+                    log.warn(
+                            "[REAL OFFER] Daily offer quota exhausted for bot {}. Used: {}/{}, remaining: {}. Prepared form will be closed and no offer will be sent.",
+                            botId,
+                            quotaReservation.used(),
+                            quotaReservation.limit(),
+                            quotaReservation.remaining()
+                    );
+
+                    firstOfferExecutor.cancelPreparedOfferSafely();
+                    return;
+                }
+
+                try {
+                    NegotiationStartResult result = firstOfferExecutor
+                            .submitPreparedFirstNegotiation(listing);
+
+                    if (result != NegotiationStartResult.STARTED) {
+                        throw new IllegalStateException(
+                                "Unexpected negotiation start result after prepared submit: " + result
+                        );
+                    }
+
+                    firstOfferActionGuardCoordinator.releaseAfterConfirmedSuccessBestEffort(
+                            botId,
+                            listing,
+                            actionGuardRequestId
+                    );
+
+                    startedNegotiations++;
+
+                    log.warn(
+                            "[REAL OFFER] Real negotiation STARTED for marketplace listing {}. Started during this run: {}/{}. Daily quota used: {}/{}, remaining: {}.",
+                            listing.listingId(),
+                            startedNegotiations,
+                            maximumOffersThisRun,
+                            quotaReservation.used(),
+                            quotaReservation.limit(),
+                            quotaReservation.remaining()
+                    );
+
+                } catch (Exception exception) {
+                    log.error(
+                            "[REAL OFFER] Failure occurred after quota reservation while submitting marketplace listing {}: {}. Quota will NOT be released automatically and FIRST_OFFER action guard will remain persisted because the real submit action may have been attempted.",
+                            listing.listingId(),
+                            getFriendlyErrorMessage(exception)
+                    );
+                    log.trace(
+                            "[REAL OFFER] Full post-reservation submission error for marketplace listing {}.",
+                            listing.listingId(),
+                            exception
+                    );
+                    throw exception;
+                }
+            }
+
+            if (startedNegotiations < maximumOffersThisRun
+                    && candidateOffset < targetEligibleListings.size()) {
+                log.info(
+                        "[REAL OFFER] Current verified batch did not fill capacity. Started={}/{}, checked={}/{}. Continuing deeper into the available candidate pool instead of ending the run early.",
+                        startedNegotiations,
+                        maximumOffersThisRun,
+                        checkedCandidates,
+                        targetEligibleListings.size()
                 );
-                log.trace(
-                        "[REAL OFFER] Full post-reservation submission error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-                throw exception;
             }
         }
 
+        if (startedNegotiations < maximumOffersThisRun
+                && candidateOffset >= targetEligibleListings.size()) {
+            log.info(
+                    "[REAL OFFER] Candidate pool exhausted before run capacity was filled. Started={}/{}, checked all {} target-eligible candidate(s).",
+                    startedNegotiations,
+                    maximumOffersThisRun,
+                    checkedCandidates
+            );
+        }
+
         log.info(
-                "[REAL OFFER] Finished real-offer processing. Started {} negotiation(s).",
-                startedNegotiations
+                "[REAL OFFER] Finished real-offer processing. Started {} negotiation(s). Checked {} candidate(s), {} passed final verification.",
+                startedNegotiations,
+                checkedCandidates,
+                verifiedCandidates
         );
     }
 

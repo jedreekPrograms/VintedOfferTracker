@@ -145,11 +145,7 @@ public class FilterService {
             );
 
 
-            requireUrlParameter(
-                    "catalog[]",
-                    "Category",
-                    URL_PERSIST_TIMEOUT_MS
-            );
+            requireCategoryFilter(URL_PERSIST_TIMEOUT_MS);
         }
 
 
@@ -851,9 +847,7 @@ public class FilterService {
 
         if (
                 hasCategory(bot)
-                        && !hasUrlParameter(
-                        "catalog[]"
-                )
+                        && !actions.hasCategoryFilterInUrl()
         ) {
 
             throw new IllegalStateException(
@@ -1058,6 +1052,25 @@ public class FilterService {
                         + " filter action finished, but URL parameter '"
                         + parameterName
                         + "' is missing. URL: "
+                        + page.url()
+        );
+    }
+
+
+    private void requireCategoryFilter(
+            double timeoutMilliseconds
+    ) {
+
+        if (actions.waitForCategoryFilterPersisted(timeoutMilliseconds)) {
+            log.info(
+                    "[FILTER VERIFY] Category persisted in URL as catalog[] or canonical catalog path. URL: {}",
+                    page.url()
+            );
+            return;
+        }
+
+        throw new IllegalStateException(
+                "Category filter action finished, but URL contains neither catalog[] nor a canonical /catalog/{id}-{slug} category path. URL: "
                         + page.url()
         );
     }

@@ -105,7 +105,7 @@ public class WorkerManager implements AutoCloseable {
         }
 
         try {
-            Map<Long, Boolean> runningBots =
+            Map<Long, RunningBotScheduleState> runningBots =
                     botApiClient.getRunningBots()
                             .stream()
                             .filter(
@@ -115,7 +115,11 @@ public class WorkerManager implements AutoCloseable {
                             .collect(
                                     Collectors.toMap(
                                             RunningBotDto::getId,
-                                            RunningBotDto::hasActiveNegotiations,
+                                            bot -> new RunningBotScheduleState(
+                                                    bot.hasActiveNegotiations(),
+                                                    bot.isCaptchaRequired(),
+                                                    bot.isCaptchaRecoveryRequested()
+                                            ),
                                             (left, right) -> left
                                     )
                             );
@@ -132,14 +136,21 @@ public class WorkerManager implements AutoCloseable {
             long activeNegotiationBots =
                     runningBots.values()
                             .stream()
-                            .filter(Boolean::booleanValue)
+                            .filter(RunningBotScheduleState::hasActiveNegotiations)
+                            .count();
+
+            long captchaPausedBots =
+                    runningBots.values()
+                            .stream()
+                            .filter(RunningBotScheduleState::captchaRequired)
                             .count();
 
             log.info(
-                    "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
+                    "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, captchaPausedBots={}, "
                             + "queued={}, working={}, activeSlots={}, maxSlots={}.",
                     scheduler.enabledBotCount(),
                     activeNegotiationBots,
+                    captchaPausedBots,
                     scheduler.queuedCount(),
                     scheduler.workingCount(),
                     currentStartedSlotCount(),

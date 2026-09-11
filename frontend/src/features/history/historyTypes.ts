@@ -1,10 +1,16 @@
 import type {
+    ListingHistoryOutcome,
     ListingHistoryStatus,
 } from "../../api/historyApi";
 
 export type HistoryFilter =
     | "ALL"
     | ListingHistoryStatus;
+
+export type HistoryOutcomeFilter =
+    | "ALL"
+    | "UNCLASSIFIED"
+    | ListingHistoryOutcome;
 
 export type HistorySort =
     | "NEWEST"
@@ -19,6 +25,7 @@ export interface HistoryBotOption {
 
 export interface HistoryViewFilters {
     status: HistoryFilter;
+    outcome: HistoryOutcomeFilter;
     botId: string;
     searchQuery: string;
     sort: HistorySort;

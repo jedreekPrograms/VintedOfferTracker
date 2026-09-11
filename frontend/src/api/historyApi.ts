@@ -6,6 +6,13 @@ export type ListingHistoryStatus =
     | "PURCHASED"
     | "SKIPPED_BY_USER";
 
+export type ListingHistoryOutcome =
+    | "PURCHASED_BY_ME"
+    | "SOLD_TO_OTHER"
+    | "SCAM"
+    | "PHONE_LOCKED"
+    | "OTHER";
+
 export interface ListingHistoryResponse {
     id: number;
     listingId: string;
@@ -15,6 +22,7 @@ export interface ListingHistoryResponse {
     currentPrice: number;
     currentStep: number;
     status: ListingHistoryStatus;
+    outcome: ListingHistoryOutcome | null;
     decisionAt: string | null;
     botId: number;
     botName: string;
@@ -49,6 +57,29 @@ export async function updateHistoryPurchasePrice(
     await assertApiResponse(
         response,
         `Nie udało się zmienić ceny zakupu. HTTP ${response.status}`,
+    );
+
+    return response.json() as Promise<ListingHistoryResponse>;
+}
+
+export async function updateHistoryOutcome(
+    listingId: number,
+    outcome: ListingHistoryOutcome | null,
+): Promise<ListingHistoryResponse> {
+    const response = await fetch(
+        `/api/listings/history/${listingId}/outcome`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ outcome }),
+        },
+    );
+
+    await assertApiResponse(
+        response,
+        `Nie udało się zmienić oznaczenia. HTTP ${response.status}`,
     );
 
     return response.json() as Promise<ListingHistoryResponse>;

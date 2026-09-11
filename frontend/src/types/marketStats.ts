@@ -4,6 +4,10 @@ export interface ModelPlanning {
     offersToday: number | null;
     offersCurrentWeek: number | null;
     offersPreviousFullWeek: number | null;
+    negotiationsStartedToday: number;
+    negotiationsStartedCurrentWeek: number;
+    negotiationsStartedPreviousFullWeek: number | null;
+    empiricalConversationsPerBotPreviousFullWeek: number | null;
     recommendedBots: number | null;
     recommendationWeeklyOffers: number | null;
     recommendationEstimated: boolean;

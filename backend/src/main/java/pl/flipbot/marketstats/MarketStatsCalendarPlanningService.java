@@ -9,11 +9,18 @@ import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
+import pl.flipbot.negotiation.audit.RealActionAudit;
+import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
+import pl.flipbot.negotiation.audit.RealActionAuditRepository;
+import pl.flipbot.negotiation.guard.RealActionType;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -25,11 +32,16 @@ public class MarketStatsCalendarPlanningService {
     private final BotConfigurationRepository configurationRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
+    private final RealActionAuditRepository realActionAuditRepository;
 
     @Transactional(readOnly = true)
     public List<CalendarModelPlanningResponse> getPlanning() {
         LocalDateTime now = LocalDateTime.now(MARKET_STATS_ZONE);
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        MarketStatsPlanningCalculator.CalendarWindows windows =
+                MarketStatsPlanningCalculator.windows(now);
+        List<RealActionAudit> confirmedFirstOffers =
+                loadConfirmedFirstOffers(windows);
 
         return modelRepository.findAll()
                 .stream()
@@ -46,7 +58,9 @@ public class MarketStatsCalendarPlanningService {
                 .map(model -> toPlanningResponse(
                         model,
                         configurations,
-                        now
+                        now,
+                        windows,
+                        confirmedFirstOffers
                 ))
                 .toList();
     }
@@ -54,16 +68,37 @@ public class MarketStatsCalendarPlanningService {
     private CalendarModelPlanningResponse toPlanningResponse(
             DictionaryModel model,
             List<BotConfiguration> configurations,
-            LocalDateTime now
+            LocalDateTime now,
+            MarketStatsPlanningCalculator.CalendarWindows windows,
+            List<RealActionAudit> confirmedFirstOffers
     ) {
         MarketModelScanState state = scanStateRepository
                 .findById(model.getId())
                 .orElse(null);
 
-        int existingBots = safeInt(
-                configurations.stream()
-                        .filter(configuration -> matchesModel(model, configuration))
-                        .count()
+        List<Long> matchingBotIds = configurations.stream()
+                .filter(configuration -> matchesModel(model, configuration))
+                .map(BotConfiguration::getBot)
+                .filter(Objects::nonNull)
+                .map(bot -> bot.getId())
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        int existingBots = matchingBotIds.size();
+        int negotiationsStartedToday = countUniqueConfirmedStarts(
+                matchingBotIds,
+                confirmedFirstOffers,
+                windows.todayStart(),
+                windows.now(),
+                null
+        );
+        int negotiationsStartedCurrentWeek = countUniqueConfirmedStarts(
+                matchingBotIds,
+                confirmedFirstOffers,
+                windows.currentWeekStart(),
+                windows.now(),
+                null
         );
 
         if (state == null || state.getBaselineCompleteAt() == null) {
@@ -71,6 +106,10 @@ public class MarketStatsCalendarPlanningService {
                     model.getId(),
                     null,
                     null,
+                    null,
+                    null,
+                    negotiationsStartedToday,
+                    negotiationsStartedCurrentWeek,
                     null,
                     null,
                     null,
@@ -87,19 +126,25 @@ public class MarketStatsCalendarPlanningService {
         }
 
         LocalDateTime baselineCompleteAt = state.getBaselineCompleteAt();
-        MarketStatsPlanningCalculator.CalendarWindows windows =
-                MarketStatsPlanningCalculator.windows(now);
 
-        int offersToday = countNewListings(
+        /*
+         * Calendar columns must use the same population as the completed-week
+         * column: unique listings that the observer actually saw at any point
+         * in the requested window. Counting only baseline=false/firstSeenAt
+         * made long-lived baseline listings disappear from "today" and
+         * "current week", which could produce misleading 0 values while the
+         * observer was actively seeing a large catalog.
+         */
+        int offersToday = findObservedListingIds(
                 model.getId(),
                 windows.todayStart(),
                 windows.now()
-        );
-        int offersCurrentWeek = countNewListings(
+        ).size();
+        int offersCurrentWeek = findObservedListingIds(
                 model.getId(),
                 windows.currentWeekStart(),
                 windows.now()
-        );
+        ).size();
 
         boolean todayWindowComplete =
                 MarketStatsPlanningCalculator.coversWindowFrom(
@@ -118,6 +163,9 @@ public class MarketStatsCalendarPlanningService {
                 );
 
         Integer offersPreviousFullWeek = null;
+        Integer negotiationsStartedPreviousFullWeek = null;
+        Double empiricalConversationsPerBotPreviousFullWeek = null;
+        Integer recommendedBots = null;
         int recommendationWeeklyOffers;
         boolean recommendationEstimated;
 
@@ -127,11 +175,32 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            offersPreviousFullWeek = countNewListings(
-                    model.getId(),
+            Set<String> previousWeekOpportunityIds =
+                    findObservedListingIds(
+                            model.getId(),
+                            windows.previousWeekStart(),
+                            windows.currentWeekStart()
+                    );
+
+            offersPreviousFullWeek = previousWeekOpportunityIds.size();
+            negotiationsStartedPreviousFullWeek = countUniqueConfirmedStarts(
+                    matchingBotIds,
+                    confirmedFirstOffers,
                     windows.previousWeekStart(),
-                    windows.currentWeekStart()
+                    windows.currentWeekStart(),
+                    previousWeekOpportunityIds
             );
+            empiricalConversationsPerBotPreviousFullWeek =
+                    MarketStatsPlanningCalculator.observedConversationsPerBot(
+                            negotiationsStartedPreviousFullWeek,
+                            existingBots
+                    );
+            recommendedBots =
+                    MarketStatsPlanningCalculator.recommendedBotsFromObservedThroughput(
+                            offersPreviousFullWeek,
+                            negotiationsStartedPreviousFullWeek,
+                            existingBots
+                    );
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
@@ -148,16 +217,16 @@ public class MarketStatsCalendarPlanningService {
             recommendationEstimated = true;
         }
 
-        int recommendedBots = MarketStatsPlanningCalculator.recommendedBots(
-                recommendationWeeklyOffers
-        );
-
         return new CalendarModelPlanningResponse(
                 model.getId(),
                 state.getBaselineOfferCount(),
                 offersToday,
                 offersCurrentWeek,
                 offersPreviousFullWeek,
+                negotiationsStartedToday,
+                negotiationsStartedCurrentWeek,
+                negotiationsStartedPreviousFullWeek,
+                empiricalConversationsPerBotPreviousFullWeek,
                 recommendedBots,
                 recommendationWeeklyOffers,
                 recommendationEstimated,
@@ -168,6 +237,87 @@ public class MarketStatsCalendarPlanningService {
                 trackedDays,
                 state.getLastScanAt(),
                 Boolean.TRUE.equals(state.getLastScanComplete())
+        );
+    }
+
+    private List<RealActionAudit> loadConfirmedFirstOffers(
+            MarketStatsPlanningCalculator.CalendarWindows windows
+    ) {
+        return realActionAuditRepository
+                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                        RealActionType.FIRST_OFFER,
+                        RealActionAuditOutcome.CONFIRMED,
+                        windows.previousWeekStart()
+                );
+    }
+
+    private int countUniqueConfirmedStarts(
+            List<Long> botIds,
+            List<RealActionAudit> audits,
+            LocalDateTime fromInclusive,
+            LocalDateTime toExclusive,
+            Set<String> allowedMarketplaceListingIds
+    ) {
+        if (botIds == null
+                || botIds.isEmpty()
+                || audits == null
+                || audits.isEmpty()
+                || fromInclusive == null
+                || toExclusive == null
+                || !fromInclusive.isBefore(toExclusive)) {
+            return 0;
+        }
+
+        Set<Long> allowedBotIds = new HashSet<>(botIds);
+        Set<String> uniqueListingIds = new HashSet<>();
+
+        for (RealActionAudit audit : audits) {
+            if (audit == null
+                    || audit.getBotId() == null
+                    || audit.getCreatedAt() == null
+                    || audit.getMarketplaceListingId() == null
+                    || audit.getMarketplaceListingId().isBlank()
+                    || audit.getActionType() != RealActionType.FIRST_OFFER
+                    || audit.getOutcome() != RealActionAuditOutcome.CONFIRMED
+                    || !allowedBotIds.contains(audit.getBotId())) {
+                continue;
+            }
+
+            LocalDateTime createdAt = audit.getCreatedAt();
+            if (createdAt.isBefore(fromInclusive)
+                    || !createdAt.isBefore(toExclusive)) {
+                continue;
+            }
+
+            String marketplaceListingId = audit.getMarketplaceListingId();
+            if (allowedMarketplaceListingIds != null
+                    && !allowedMarketplaceListingIds.contains(marketplaceListingId)) {
+                continue;
+            }
+
+            uniqueListingIds.add(marketplaceListingId);
+        }
+
+        return safeInt(uniqueListingIds.size());
+    }
+
+    private Set<String> findObservedListingIds(
+            Long modelId,
+            LocalDateTime fromInclusive,
+            LocalDateTime toExclusive
+    ) {
+        if (fromInclusive == null
+                || toExclusive == null
+                || !fromInclusive.isBefore(toExclusive)) {
+            return Set.of();
+        }
+
+        return new HashSet<>(
+                observationRepository.findListingIdsObservedDuringWindow(
+                        modelId,
+                        fromInclusive,
+                        toExclusive
+                )
         );
     }
 

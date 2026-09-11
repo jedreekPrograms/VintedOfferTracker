@@ -11,4 +11,10 @@ public class RunningBotResponse {
 
     private boolean hasActiveNegotiations;
 
+    private boolean captchaRequired;
+
+    private boolean captchaRecoveryRequested;
+
+    private String captchaChallengeUrl;
+
 }

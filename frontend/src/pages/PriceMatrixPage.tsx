@@ -20,6 +20,22 @@ import type { ModelPlanning } from "../types/marketStats";
 import "../styles/price-matrix.css";
 
 const PLANNING_REFRESH_INTERVAL_MS = 15_000;
+const PRICE_SHEET_GRID_STYLE = {
+    gridTemplateColumns: [
+        "minmax(168px, 1.35fr)",
+        "minmax(96px, 0.82fr)",
+        "minmax(84px, 0.70fr)",
+        "minmax(88px, 0.70fr)",
+        "minmax(88px, 0.70fr)",
+        "minmax(96px, 0.76fr)",
+        "minmax(104px, 0.80fr)",
+        "minmax(102px, 0.82fr)",
+        "minmax(108px, 0.84fr)",
+        "minmax(90px, 0.72fr)",
+        "minmax(90px, 0.72fr)",
+    ].join(" "),
+    minWidth: "1200px",
+};
 
 interface PriceDraft {
     proposedOfferPrice: string;
@@ -281,12 +297,17 @@ function PriceMatrixPage() {
                     <p className="page-eyebrow">Planowanie zakupów</p>
                     <h1 className="page-title">Cennik modeli</h1>
                     <p className="page-description">
-                        Observer najpierw tworzy punkt startowy, a potem regularnie sprawdza
-                        najnowsze oferty. „Dzisiaj” liczy od 00:00, „Ten tydzień” od
-                        poniedziałku 00:00, a „Ostatni pełny tydzień” obejmuje poprzedni
-                        poniedziałek–niedzielę. „Potrzebne boty” bazuje na pełnym poprzednim
-                        tygodniu; dopóki go nie ma, używana jest estymacja ze średniej dziennej
-                        z całego dostępnego okresu po baseline.
+                        Observer tworzy punkt startowy i regularnie odświeża rynek. „Oferty
+                        dziś” pokazują wszystkie unikalne oferty, które observer faktycznie
+                        widział od 00:00 — także znane wcześniej, jeśli nadal były widoczne.
+                        „Oferty ten tydzień” liczą tak samo od poniedziałku 00:00, a „Ostatni
+                        pełny tydzień” obejmuje poprzedni poniedziałek–niedzielę. Dzięki temu
+                        wszystkie trzy okresy używają tej samej definicji. „Rozpoczęte rozmowy”
+                        pokazują ile unikalnych ofert z dokładnie tego pełnego tygodnia dostało
+                        potwierdzony FIRST_OFFER oraz pokazują bieżący tydzień i dzisiejszy
+                        wynik. „Potrzebne boty” skaluje rzeczywistą wydajność obecnej puli botów
+                        z ostatniego kompletnego tygodnia. Jeśli nie ma pełnego tygodnia albo
+                        żadnej rozpoczętej rozmowy, nie wymyślamy pojemności.
                     </p>
                 </div>
 
@@ -392,15 +413,19 @@ function BrandPriceSheet({
 
             {expanded && (
                 <div className="price-brand-content">
-                    <div className="price-sheet-row price-sheet-header">
+                    <div
+                        className="price-sheet-row price-sheet-header"
+                        style={PRICE_SHEET_GRID_STYLE}
+                    >
                         <div>Model</div>
                         <div>Proponowana cena</div>
                         <div>Sprzedaż</div>
                         <div>Min obserwacji</div>
                         <div>Max obserwacji</div>
-                        <div>Dzisiaj</div>
-                        <div>Ten tydzień</div>
+                        <div>Oferty dziś</div>
+                        <div>Oferty ten tydzień</div>
                         <div>Ostatni pełny tydzień</div>
+                        <div>Rozpoczęte rozmowy</div>
                         <div>Potrzebne boty</div>
                         <div>Posiadane boty</div>
                     </div>
@@ -412,7 +437,11 @@ function BrandPriceSheet({
                         const planning = planningByModel[model.id];
 
                         return (
-                            <div className="price-sheet-row" key={model.id}>
+                            <div
+                                className="price-sheet-row"
+                                key={model.id}
+                                style={PRICE_SHEET_GRID_STYLE}
+                            >
                                 <div className="price-model-cell">
                                     <strong>{model.name}</strong>
                                     <span>
@@ -474,6 +503,7 @@ function BrandPriceSheet({
                                 <TodayMetricCell planning={planning} />
                                 <CurrentWeekMetricCell planning={planning} />
                                 <PreviousFullWeekMetricCell planning={planning} />
+                                <StartedConversationsMetricCell planning={planning} />
                                 <RecommendedBotsMetricCell planning={planning} />
 
                                 <div
@@ -499,12 +529,12 @@ function TodayMetricCell({
 }) {
     return (
         <CalendarMetricCell
-            label="Dzisiaj"
+            label="Oferty dziś"
             planning={planning}
             value={planning?.offersToday ?? null}
             complete={planning?.todayWindowComplete ?? false}
-            completeText="od 00:00"
-            partialText="częściowy dzień od baseline"
+            completeText="widziane od 00:00"
+            partialText="widziane od uruchomienia obserwacji"
             showBaseline
         />
     );
@@ -517,12 +547,12 @@ function CurrentWeekMetricCell({
 }) {
     return (
         <CalendarMetricCell
-            label="Ten tydzień"
+            label="Oferty ten tydzień"
             planning={planning}
             value={planning?.offersCurrentWeek ?? null}
             complete={planning?.currentWeekWindowComplete ?? false}
-            completeText="od pon. 00:00"
-            partialText="częściowy tydzień od baseline"
+            completeText="widziane od pon. 00:00"
+            partialText="widziane od uruchomienia obserwacji"
         />
     );
 }
@@ -621,34 +651,136 @@ function PreviousFullWeekMetricCell({
     );
 }
 
+function StartedConversationsMetricCell({
+    planning,
+}: {
+    planning: ModelPlanning | undefined;
+}) {
+    if (planning === undefined) {
+        return (
+            <div className="price-metric-cell" data-label="Rozpoczęte rozmowy">
+                <strong>—</strong>
+                <span>Brak danych</span>
+            </div>
+        );
+    }
+
+    if (!planning.previousFullWeekAvailable) {
+        return (
+            <div className="price-metric-cell" data-label="Rozpoczęte rozmowy">
+                <strong>{planning.negotiationsStartedCurrentWeek}</strong>
+                <span>ten tydzień</span>
+                <span className="price-metric-note">
+                    dzisiaj: {planning.negotiationsStartedToday}
+                </span>
+                <span className="price-metric-note">
+                    pełny poprzedni tydzień: jeszcze brak danych
+                </span>
+            </div>
+        );
+    }
+
+    const opportunities = planning.offersPreviousFullWeek ?? 0;
+    const started = planning.negotiationsStartedPreviousFullWeek ?? 0;
+
+    return (
+        <div className="price-metric-cell" data-label="Rozpoczęte rozmowy">
+            <strong>{started} / {opportunities}</strong>
+            <span>poprzedni pełny tydzień</span>
+            <span className="price-metric-note">
+                pokrycie: {formatCoverage(started, opportunities)}
+            </span>
+            <span className="price-metric-note">
+                ten tydzień: {planning.negotiationsStartedCurrentWeek}
+                {" • "}
+                dzisiaj: {planning.negotiationsStartedToday}
+            </span>
+        </div>
+    );
+}
+
 function RecommendedBotsMetricCell({
     planning,
 }: {
     planning: ModelPlanning | undefined;
 }) {
-    if (planning === undefined || planning.recommendedBots === null) {
+    if (planning === undefined) {
         return (
             <div className="price-metric-cell" data-label="Potrzebne boty">
                 <strong>—</strong>
-                <span>Czeka na baseline</span>
+                <span>Brak danych</span>
             </div>
         );
     }
 
+    if (!planning.previousFullWeekAvailable) {
+        return (
+            <div className="price-metric-cell" data-label="Potrzebne boty">
+                <strong>—</strong>
+                <span>czeka na pełny tydzień</span>
+                {planning.recommendationEstimated
+                    && planning.recommendationWeeklyOffers !== null && (
+                    <span className="price-metric-note">
+                        popyt orientacyjny: {planning.recommendationWeeklyOffers} ofert/tydz.
+                    </span>
+                )}
+                <span className="price-metric-note">
+                    brak stałej „35 rozmów/bot”
+                </span>
+            </div>
+        );
+    }
+
+    const opportunities = planning.offersPreviousFullWeek ?? 0;
+    const started = planning.negotiationsStartedPreviousFullWeek ?? 0;
+
+    if (opportunities === 0) {
+        return (
+            <div className="price-metric-cell" data-label="Potrzebne boty">
+                <strong>0</strong>
+                <span>brak ofert w pełnym tygodniu</span>
+                <span className="price-metric-note">
+                    nie ma popytu do pokrycia
+                </span>
+            </div>
+        );
+    }
+
+    if (planning.recommendedBots === null) {
+        return (
+            <div className="price-metric-cell" data-label="Potrzebne boty">
+                <strong>—</strong>
+                <span>brak realnej wydajności</span>
+                <span className="price-metric-note">
+                    {started} rozmów / {planning.existingBots} obecnych botów
+                </span>
+                <span className="price-metric-note">
+                    bez udanego pełnego tygodnia nie zgadujemy pojemności
+                </span>
+            </div>
+        );
+    }
+
+    const empirical = planning.empiricalConversationsPerBotPreviousFullWeek;
+    const difference = planning.recommendedBots - planning.existingBots;
+
     return (
         <div className="price-metric-cell" data-label="Potrzebne boty">
             <strong>{planning.recommendedBots}</strong>
-            <span>
-                {planning.recommendationEstimated
-                    ? `estymacja: ${planning.recommendationWeeklyOffers ?? 0} ofert/tydz.`
-                    : `pełny tydzień: ${planning.recommendationWeeklyOffers ?? 0} ofert`}
-            </span>
-            {planning.recommendationEstimated && (
+            <span>z realnej wydajności</span>
+            {empirical !== null && (
                 <span className="price-metric-note">
-                    średnia z {Math.max(planning.trackedDays, 1)} dni × 7
+                    {empirical.toFixed(1)} rozm./bot/tydz.
                 </span>
             )}
-            <span className="price-metric-note">1 bot = 35 nowych rozmów/tydz.</span>
+            <span className="price-metric-note">
+                {started} z {opportunities} możliwości przy {planning.existingBots} botach
+            </span>
+            <span className="price-metric-note">
+                {difference > 0
+                    ? `wg danych brakuje ${difference}`
+                    : "obecna liczba pokryła wymagany poziom"}
+            </span>
         </div>
     );
 }
@@ -756,6 +888,14 @@ function samePrice(left: number | null, right: number | null): boolean {
     }
 
     return Math.abs(left - right) < 0.0001;
+}
+
+function formatCoverage(started: number, opportunities: number): string {
+    if (opportunities <= 0) {
+        return "—";
+    }
+
+    return `${((Math.max(started, 0) / opportunities) * 100).toFixed(1)}%`;
 }
 
 function formatModelCount(count: number): string {

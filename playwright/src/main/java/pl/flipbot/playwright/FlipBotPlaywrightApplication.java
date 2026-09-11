@@ -2,64 +2,41 @@ package pl.flipbot.playwright;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.marketstats.MarketStatsManager;
+import pl.flipbot.playwright.verification.ManualBrowserControlServer;
 import pl.flipbot.playwright.worker.WorkerManager;
 
 @Slf4j
 public class FlipBotPlaywrightApplication {
 
-    public static void main(
-            String[] args
-    ) {
+    public static void main(String[] args) {
+        log.info("Starting FlipBot Playwright...");
 
-        log.info(
-                "Starting FlipBot Playwright..."
+        WorkerManager workerManager = new WorkerManager();
+        MarketStatsManager marketStatsManager = new MarketStatsManager();
+        ManualBrowserControlServer manualBrowserControlServer =
+                new ManualBrowserControlServer();
+
+        Thread shutdownHook = new Thread(
+                () -> {
+                    manualBrowserControlServer.close();
+                    marketStatsManager.stop();
+                    workerManager.stop();
+                },
+                "flipbot-shutdown"
         );
 
-
-        WorkerManager workerManager =
-                new WorkerManager();
-
-        MarketStatsManager marketStatsManager =
-                new MarketStatsManager();
-
-
-        Thread shutdownHook =
-                new Thread(
-                        () -> {
-                            marketStatsManager.stop();
-                            workerManager.stop();
-                        },
-                        "flipbot-shutdown"
-                );
-
-
-        Runtime.getRuntime()
-                .addShutdownHook(
-                        shutdownHook
-                );
-
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
 
         try {
-
+            manualBrowserControlServer.start();
             workerManager.start();
             marketStatsManager.start();
-
-
-            Thread.currentThread()
-                    .join();
-
+            Thread.currentThread().join();
         } catch (InterruptedException exception) {
-
-            Thread.currentThread()
-                    .interrupt();
-
-
-            log.info(
-                    "FlipBot Playwright main thread was interrupted."
-            );
-
+            Thread.currentThread().interrupt();
+            log.info("FlipBot Playwright main thread was interrupted.");
         } finally {
-
+            manualBrowserControlServer.close();
             marketStatsManager.stop();
             workerManager.stop();
         }

@@ -42,9 +42,17 @@ public class MarketStatsCollector {
     private static final int MAX_NO_GROWTH_ROUNDS = 2;
 
     /*
-     * Used for broad SEARCH_QUERY discovery fallbacks. The strict target
-     * matcher remains the final authority before a marketplace listing id is
-     * counted. VINTED_MODEL never enters these text-search fallbacks.
+     * Used only for broad SEARCH_QUERY discovery fallbacks. SEARCH_QUERY has
+     * no marketplace-owned exact-model population, so every listing still has
+     * to pass our conservative text/URL matcher and accessory guard.
+     *
+     * VINTED_MODEL is intentionally different: FilterService has already
+     * selected one exact Vinted model option and verified the resulting
+     * brand_collection_ids[] in the catalog URL before scanCatalog is entered.
+     * In that mode the current filtered catalog itself is the authoritative
+     * population for market statistics. Re-running the negotiation matcher on
+     * every tile would incorrectly discard valid catalog rows which do not
+     * expose enough identity in the card URL/title for a real-money action.
      */
     private static final Set<String> ACCESSORY_WORDS = Set.of(
             "etui",
@@ -189,8 +197,13 @@ public class MarketStatsCollector {
     ) {
         MarketplaceNavigator navigator = new MarketplaceNavigator(context);
         navigator.goToCatalog();
-        context.getPage().waitForLoadState();
 
+        /*
+         * goToCatalog() already navigates with DOMCONTENTLOADED and waits for
+         * the catalog shell. Waiting for Playwright's full LOAD state here can
+         * hang on slow/non-essential Vinted resources and abort the entire
+         * observer pass before the first model is scanned.
+         */
         dismissCookieBannerIfVisible(context);
 
         boolean authenticated =
@@ -472,6 +485,16 @@ public class MarketStatsCollector {
         ListingScanner scanner = new ListingScanner(context);
         ListingTargetMatcher matcher = new ListingTargetMatcher();
         LinkedHashMap<String, Listing> matched = new LinkedHashMap<>();
+        boolean verifiedVintedModelPopulation =
+                trustsVerifiedVintedCatalogPopulation(targetConfiguration);
+
+        if (verifiedVintedModelPopulation) {
+            log.info(
+                    "[MARKET STATS] Exact Vinted model filter was verified in the catalog URL. "
+                            + "Counting valid listing IDs from this filtered result set directly; "
+                            + "the stricter real-negotiation matcher is intentionally not re-applied."
+            );
+        }
 
         int previousParsedCount = -1;
         int noGrowthRounds = 0;
@@ -591,12 +614,23 @@ public class MarketStatsCollector {
         return false;
     }
 
-    private boolean matchesTarget(
+    boolean matchesTarget(
             Listing listing,
             BotConfigurationDto configuration,
             boolean accessoryFiltering,
             ListingTargetMatcher matcher
     ) {
+        /*
+         * This branch is safe only because FilterService fails closed unless
+         * the exact Vinted model selection persisted as brand_collection_ids[]
+         * before scanCatalog starts. Market statistics therefore trust the
+         * marketplace-owned result set. Real negotiation code still uses the
+         * strict matcher and live/detail guards unchanged.
+         */
+        if (trustsVerifiedVintedCatalogPopulation(configuration)) {
+            return true;
+        }
+
         if (accessoryFiltering && looksLikeAccessory(listing)) {
             return false;
         }
@@ -634,6 +668,13 @@ public class MarketStatsCollector {
                 candidate,
                 configuration
         ) == ListingTargetAssessment.MATCH;
+    }
+
+    static boolean trustsVerifiedVintedCatalogPopulation(
+            BotConfigurationDto configuration
+    ) {
+        return configuration != null
+                && VINTED_MODEL.equals(configuration.getTargetMode());
     }
 
     private boolean looksLikeAccessory(

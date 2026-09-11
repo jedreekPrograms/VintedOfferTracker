@@ -709,6 +709,48 @@ select:focus-visible,
     background: #fff3d9;
 }
 
+.runtime-badge-captcha_required {
+    color: #8d3d10;
+    background: #fff0e5;
+}
+
+.runtime-captcha-state {
+    min-width: 210px;
+}
+
+.runtime-captcha-button {
+    display: block;
+    margin-top: 9px;
+    border: 1px solid #cf5f1f;
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: #fff;
+    background: #d96a28;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.runtime-captcha-button:hover:not(:disabled) {
+    background: #bd5319;
+}
+
+.runtime-captcha-button:disabled {
+    border-color: #d6dce6;
+    color: #7c8799;
+    background: #eef1f5;
+    cursor: wait;
+}
+
+.runtime-captcha-help {
+    max-width: 230px;
+    margin-top: 6px;
+    color: #8a95a8;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
 .runtime-badge-queued,
 .runtime-badge-idle {
     color: #5c687d;

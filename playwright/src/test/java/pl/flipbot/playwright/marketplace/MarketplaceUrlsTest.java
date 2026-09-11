@@ -38,6 +38,35 @@ public class MarketplaceUrlsTest {
     }
 
     @Test
+    public void recognizesQueryAndCanonicalPathCategorySelections() {
+        assertTrue(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl/catalog?catalog[]=3661"
+        ));
+        assertTrue(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl/catalog?catalog%5B%5D=3661&order=newest_first"
+        ));
+        assertTrue(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl/catalog/3748-vcrs"
+        ));
+        assertTrue(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl/catalog/3748-vcrs?brand_ids[]=53"
+        ));
+
+        assertFalse(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl/catalog"
+        ));
+        assertFalse(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl/catalog/phones"
+        ));
+        assertFalse(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl/catalog?catalog[]="
+        ));
+        assertFalse(MarketplaceUrls.hasCatalogSelection(
+                "https://www.vinted.pl.evil.example/catalog/3748-vcrs"
+        ));
+    }
+
+    @Test
     public void recognizesOnlyTrustedVintedSessionRefreshUrls() {
         assertTrue(MarketplaceUrls.isSessionRefreshUrl(
                 "https://www.vinted.pl/session-refresh?ref_url=%2Fcatalog"

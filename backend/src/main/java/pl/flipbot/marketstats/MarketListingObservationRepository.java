@@ -36,6 +36,32 @@ public interface MarketListingObservationRepository
             @Param("toExclusive") LocalDateTime toExclusive
     );
 
+    @Query("""
+            select count(observation)
+            from MarketListingObservation observation
+            where observation.model.id = :modelId
+              and observation.firstSeenAt < :toExclusive
+              and observation.lastSeenAt >= :fromInclusive
+            """)
+    long countListingsObservedDuringWindow(
+            @Param("modelId") Long modelId,
+            @Param("fromInclusive") LocalDateTime fromInclusive,
+            @Param("toExclusive") LocalDateTime toExclusive
+    );
+
+    @Query("""
+            select observation.marketplaceListingId
+            from MarketListingObservation observation
+            where observation.model.id = :modelId
+              and observation.firstSeenAt < :toExclusive
+              and observation.lastSeenAt >= :fromInclusive
+            """)
+    List<String> findListingIdsObservedDuringWindow(
+            @Param("modelId") Long modelId,
+            @Param("fromInclusive") LocalDateTime fromInclusive,
+            @Param("toExclusive") LocalDateTime toExclusive
+    );
+
     long countByModel_IdAndBaselineTrue(
             Long modelId
     );
