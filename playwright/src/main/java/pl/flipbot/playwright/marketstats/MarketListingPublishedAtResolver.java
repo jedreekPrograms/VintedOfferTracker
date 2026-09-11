@@ -18,6 +18,9 @@ import java.util.Set;
 @Slf4j
 public class MarketListingPublishedAtResolver {
 
+    static final String TRAFFIC_BACKOFF_MARKER =
+            "MARKET_STATS_TRAFFIC_BACKOFF";
+
     private static final String ANONYMOUS_MARKET_OBSERVER_NAME =
             "Anonymous Market Observer";
     private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
@@ -124,15 +127,6 @@ public class MarketListingPublishedAtResolver {
                     return null;
                 };
 
-                /*
-                 * Vinted currently hydrates the exact item creation timestamp
-                 * as created_at_ts in page data. An older implementation used a
-                 * JavaScript regex here and was removed after Java text-block
-                 * escaping produced an invalid regex at runtime. This version
-                 * deliberately uses only indexOf/string scanning, so there is
-                 * no regex literal to break while still preferring the exact
-                 * timestamp over rounded labels such as "Dodane 1 dzień".
-                 */
                 const hydratedCreatedAt = (html, listingId) => {
                     const id = String(listingId ?? "").trim();
                     if (!id) {
@@ -322,7 +316,30 @@ public class MarketListingPublishedAtResolver {
                     return null;
                 };
 
+                const result = {};
+                let trafficBackoff = null;
+                let lastRequestStartedAt = 0;
+                const requestSpacingMs = 1000;
+
+                const paceRequest = async () => {
+                    const now = Date.now();
+                    const waitMs = Math.max(
+                        0,
+                        requestSpacingMs - (now - lastRequestStartedAt)
+                    );
+                    if (waitMs > 0) {
+                        await new Promise(resolve => setTimeout(resolve, waitMs));
+                    }
+                    lastRequestStartedAt = Date.now();
+                };
+
                 const fetchOne = async (entry) => {
+                    if (trafficBackoff) {
+                        return null;
+                    }
+
+                    await paceRequest();
+
                     const controller = new AbortController();
                     const timeout = setTimeout(() => controller.abort(), 7000);
 
@@ -337,11 +354,23 @@ public class MarketListingPublishedAtResolver {
                             }
                         });
 
+                        if (response.status === 429 || response.status === 403) {
+                            trafficBackoff = `HTTP_${response.status}`;
+                            return null;
+                        }
+
                         if (!response.ok) {
                             return null;
                         }
 
                         const html = await response.text();
+                        const lowerHtml = html.toLowerCase();
+
+                        if (lowerHtml.includes("access to this site is blocked for this computer")
+                                || lowerHtml.includes("twoja sesja została zablokowana")) {
+                            trafficBackoff = "BLOCK_PAGE";
+                            return null;
+                        }
 
                         const hydrated = hydratedCreatedAt(html, entry.id);
                         if (hydrated) {
@@ -369,36 +398,32 @@ public class MarketListingPublishedAtResolver {
                     }
                 };
 
-                const result = {};
-
-                const resolveBatch = async (batch, workerLimit) => {
-                    let cursor = 0;
-                    const workerCount = Math.min(workerLimit, batch.length);
-
-                    const worker = async () => {
-                        while (cursor < batch.length) {
-                            const index = cursor++;
-                            const resolved = await fetchOne(batch[index]);
-                            if (resolved) {
-                                result[resolved[0]] = resolved[1];
-                            }
+                const resolveSequentially = async (batch) => {
+                    for (const entry of batch) {
+                        if (trafficBackoff) {
+                            break;
                         }
-                    };
 
-                    await Promise.all(
-                        Array.from({ length: workerCount }, () => worker())
-                    );
+                        const resolved = await fetchOne(entry);
+                        if (resolved) {
+                            result[resolved[0]] = resolved[1];
+                        }
+                    }
                 };
 
-                await resolveBatch(entries, 3);
+                await resolveSequentially(entries);
 
                 const unresolved = entries.filter(
                     entry => result[entry.id] === undefined
                 );
 
-                if (unresolved.length > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 350));
-                    await resolveBatch(unresolved, 2);
+                if (!trafficBackoff && unresolved.length > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    await resolveSequentially(unresolved);
+                }
+
+                if (trafficBackoff) {
+                    result["__FLIPBOT_TRAFFIC_BACKOFF__"] = trafficBackoff;
                 }
 
                 return result;
@@ -458,6 +483,17 @@ public class MarketListingPublishedAtResolver {
                     }
             );
 
+            String trafficBackoff = payloads.remove(
+                    "__FLIPBOT_TRAFFIC_BACKOFF__"
+            );
+            if (trafficBackoff != null && !trafficBackoff.isBlank()) {
+                throw new IllegalStateException(
+                        TRAFFIC_BACKOFF_MARKER
+                                + ": Vinted asked the market observer to back off while reading publication details. signal="
+                                + trafficBackoff
+                );
+            }
+
             LocalDateTime observedAt = LocalDateTime.now(MARKET_ZONE);
             Set<String> resolvedIds = new HashSet<>();
 
@@ -488,20 +524,24 @@ public class MarketListingPublishedAtResolver {
                     .toList();
 
             log.info(
-                    "[MARKET STATS] Publication detail batch resolved {}/{} listing timestamps.",
+                    "[MARKET STATS] Publication detail batch resolved {}/{} listing timestamps with paced sequential requests.",
                     resolvedIds.size(),
                     entries.size()
             );
 
             if (!unresolvedIds.isEmpty()) {
                 log.warn(
-                        "[MARKET STATS] Publication timestamp still unresolved for {}/{} listings after retry. sampleIds={}",
+                        "[MARKET STATS] Publication timestamp still unresolved for {}/{} listings after paced retry. sampleIds={}",
                         unresolvedIds.size(),
                         entries.size(),
                         unresolvedIds.stream().limit(8).toList()
                 );
             }
         } catch (RuntimeException exception) {
+            if (containsTrafficBackoffMarker(exception)) {
+                throw exception;
+            }
+
             log.warn(
                     "[MARKET STATS] Could not inspect {} listing detail pages for Vinted publication time.",
                     entries.size(),
@@ -512,6 +552,20 @@ public class MarketListingPublishedAtResolver {
 
     static String extractPublishedAtScript() {
         return EXTRACT_PUBLISHED_AT_SCRIPT;
+    }
+
+    private boolean containsTrafficBackoffMarker(Throwable throwable) {
+        Throwable current = throwable;
+
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains(TRAFFIC_BACKOFF_MARKER)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        return false;
     }
 
     private boolean isAnonymousMarketObserver() {
