@@ -10,8 +10,6 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -39,9 +37,6 @@ public class SessionManager {
 
     private static final String BACKUP_DIRECTORY_NAME =
             "backups";
-
-    private static final DateTimeFormatter BACKUP_TIMESTAMP_FORMAT =
-            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS");
 
     private final Path sessionDirectory;
 
@@ -189,16 +184,6 @@ public class SessionManager {
         }
 
         try {
-            /*
-             * Never let Playwright write directly into the active bot-X.json.
-             * A failed/interrupted storageState write can truncate its target.
-             * Write to a sibling staging file first, validate it, and only then
-             * replace the active session.
-             *
-             * Cookies and localStorage are sufficient for the Vinted session.
-             * Persisting IndexedDB caused Playwright to save entries that could
-             * later fail BrowserContext creation with "Unable to restore IndexedDB".
-             */
             context.storageState(
                     new BrowserContext.StorageStateOptions()
                             .setPath(stagedSession)
@@ -228,7 +213,7 @@ public class SessionManager {
         );
 
         if (activeRoot != null) {
-            preserveBackup(botId, activeSession, "last-known-good");
+            preserveRotatingBackup(botId, activeSession, "last-known-good");
         }
 
         try {
@@ -330,17 +315,6 @@ public class SessionManager {
         }
     }
 
-    /**
-     * Preserves a recovery snapshot without ever removing the active session.
-     *
-     * <p>The historical method name is kept temporarily because the browser
-     * context recovery path already calls it, but its contract is deliberately
-     * non-destructive: sessions/bot-X.json remains exactly where it is.</p>
-     *
-     * <p>A timestamped copy is written under sessions/backups before recovery
-     * continues. If the backup cannot be created, this method fails closed so
-     * recovery cannot proceed without a preserved copy.</p>
-     */
     public void invalidateSession(Long botId) {
         Path source = sessionFile(botId);
 
@@ -353,10 +327,10 @@ public class SessionManager {
             return;
         }
 
-        preserveBackup(botId, source, "recovery");
+        preserveRotatingBackup(botId, source, "recovery");
     }
 
-    private void preserveBackup(
+    private void preserveRotatingBackup(
             Long botId,
             Path source,
             String reason
@@ -366,11 +340,17 @@ public class SessionManager {
         try {
             Files.createDirectories(backupDirectory);
 
-            Path backup = nextBackupFile(botId, backupDirectory);
-            Files.copy(source, backup);
+            Path backup = backupDirectory.resolve(
+                    "bot-" + botId + "-" + reason + ".json"
+            );
+            Files.copy(
+                    source,
+                    backup,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
 
-            log.warn(
-                    "[SESSION] Preserved {} backup for bot {} without removing the active session. active={}, backup={}",
+            log.debug(
+                    "[SESSION] Refreshed {} backup for bot {} without removing the active session. active={}, backup={}",
                     reason,
                     botId,
                     source,
@@ -383,25 +363,6 @@ public class SessionManager {
                     exception
             );
         }
-    }
-
-    private Path nextBackupFile(
-            Long botId,
-            Path backupDirectory
-    ) {
-        String timestamp = BACKUP_TIMESTAMP_FORMAT.format(LocalDateTime.now());
-        String baseName = "bot-" + botId + "-" + timestamp;
-        Path candidate = backupDirectory.resolve(baseName + ".json");
-
-        int suffix = 1;
-        while (Files.exists(candidate)) {
-            candidate = backupDirectory.resolve(
-                    baseName + "-" + suffix + ".json"
-            );
-            suffix++;
-        }
-
-        return candidate;
     }
 
     public Path sessionFile(Long botId) {
