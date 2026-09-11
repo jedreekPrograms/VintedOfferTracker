@@ -46,34 +46,16 @@ public class MarketStatsCollector {
     private static final int MAX_NO_GROWTH_PAGES = 2;
 
     private static final Set<String> ACCESSORY_WORDS = Set.of(
-            "etui",
-            "case",
-            "cover",
-            "pokrowiec",
-            "obudowa",
-            "szklo",
-            "folia",
-            "protector",
-            "ladowarka",
-            "charger",
-            "kabel",
-            "cable",
-            "uchwyt",
-            "holder",
-            "digitizer",
-            "czesci",
-            "parts",
-            "dummy",
-            "atrapa"
+            "etui", "case", "cover", "pokrowiec", "obudowa", "szklo",
+            "folia", "protector", "ladowarka", "charger", "kabel", "cable",
+            "uchwyt", "holder", "digitizer", "czesci", "parts", "dummy", "atrapa"
     );
 
     private final MarketStatsRuntimeConfig config;
     private final MarketStatsApiClient apiClient;
 
     public void collectOnce() {
-        BotDetailsDto observerBot = apiClient.getObserverBot(
-                config.observerBotId()
-        );
+        BotDetailsDto observerBot = apiClient.getObserverBot(config.observerBotId());
         List<MarketStatsTargetDto> targets = apiClient.getTargets();
 
         log.info(
@@ -97,21 +79,31 @@ public class MarketStatsCollector {
                     MarketStatsTargetDto target = targets.get(index);
 
                     try {
-                        boolean fallbackUsed = collectTarget(
-                                context,
-                                observerBot,
-                                target
-                        );
+                        boolean fallbackUsed = collectTarget(context, observerBot, target);
                         recordedTargets++;
 
                         if (fallbackUsed) {
                             fallbackTargets++;
                         }
                     } catch (Exception exception) {
+                        if (containsTrafficBackoffMarker(exception)) {
+                            log.warn(
+                                    "[MARKET STATS] Vinted requested traffic backoff while scanning modelId={} {} / {}. Aborting the whole observer pass immediately instead of continuing through more models.",
+                                    target == null ? null : target.modelId(),
+                                    target == null ? null : target.brandName(),
+                                    target == null ? null : target.modelName()
+                            );
+
+                            if (exception instanceof RuntimeException runtimeException) {
+                                throw runtimeException;
+                            }
+
+                            throw new IllegalStateException(exception);
+                        }
+
                         failedTargets++;
                         log.error(
-                                "[MARKET STATS] Model scan failed. modelId={}, brand='{}', model='{}'. "
-                                        + "Continuing with the next model; the whole collection will be retried sooner.",
+                                "[MARKET STATS] Model scan failed. modelId={}, brand='{}', model='{}'. Continuing with the next model; the whole collection will be retried after backoff.",
                                 target == null ? null : target.modelId(),
                                 target == null ? null : target.brandName(),
                                 target == null ? null : target.modelName(),
@@ -121,9 +113,7 @@ public class MarketStatsCollector {
 
                     if (index + 1 < targets.size()
                             && config.interModelDelayMillis() > 0) {
-                        context.getPage().waitForTimeout(
-                                config.interModelDelayMillis()
-                        );
+                        context.getPage().waitForTimeout(config.interModelDelayMillis());
                     }
                 }
             } finally {
@@ -138,8 +128,7 @@ public class MarketStatsCollector {
                     }
                 } else {
                     log.info(
-                            "[MARKET STATS] Observer collection ran without an authenticated session. "
-                                    + "Skipping session save so anonymous storage state cannot replace the saved observer session."
+                            "[MARKET STATS] Observer collection ran without an authenticated session. Skipping session save so anonymous storage state cannot replace the saved observer session."
                     );
                 }
             }
@@ -147,58 +136,36 @@ public class MarketStatsCollector {
 
         log.info(
                 "[MARKET STATS] Daily collection pass finished. targets={}, recorded={}, fallback={}, failed={}.",
-                targets.size(),
-                recordedTargets,
-                fallbackTargets,
-                failedTargets
+                targets.size(), recordedTargets, fallbackTargets, failedTargets
         );
 
         if (failedTargets > 0) {
             throw new IllegalStateException(
                     "Market statistics collection was incomplete: "
-                            + failedTargets
-                            + " of "
-                            + targets.size()
-                            + " model scans failed."
+                            + failedTargets + " of " + targets.size() + " model scans failed."
             );
         }
 
         log.info("[MARKET STATS] Daily collection finished successfully for all targets.");
     }
 
-    private boolean prepareObserverCatalogSession(
-            BotContext context,
-            BotDetailsDto observerBot
-    ) {
+    private boolean prepareObserverCatalogSession(BotContext context, BotDetailsDto observerBot) {
         MarketplaceNavigator navigator = new MarketplaceNavigator(context);
         navigator.goToCatalog();
-
-        /*
-         * MarketplaceNavigator already waits for DOMContentLoaded and probes
-         * the catalog shell. Waiting for the browser LOAD state again is both
-         * redundant and unsafe on Vinted because ad/analytics resources can
-         * keep the document loading long after the catalog is usable.
-         */
         dismissCookieBannerIfVisible(context);
 
         boolean authenticated =
-                hasVisible(
-                        context,
-                        "[data-testid='header-conversations-button']"
-                )
+                hasVisible(context, "[data-testid='header-conversations-button']")
                         || hasVisible(context, "a[href*='/inbox']");
 
         if (authenticated) {
             log.info(
-                    "[MARKET STATS] Observer bot {} restored an authenticated Vinted session. "
-                            + "Using it for this read-only collection; no interactive login is needed.",
+                    "[MARKET STATS] Observer bot {} restored an authenticated Vinted session. Using it for this read-only collection; no interactive login is needed.",
                     observerBot.getId()
             );
         } else {
             log.info(
-                    "[MARKET STATS] Observer bot {} has no verifiably authenticated stored Vinted session. "
-                            + "Continuing immediately with anonymous READ-ONLY catalog collection; "
-                            + "interactive login is intentionally skipped and anonymous state will not be saved.",
+                    "[MARKET STATS] Observer bot {} has no verifiably authenticated stored Vinted session. Continuing immediately with anonymous READ-ONLY catalog collection; interactive login is intentionally skipped and anonymous state will not be saved.",
                     observerBot.getId()
             );
         }
@@ -212,9 +179,7 @@ public class MarketStatsCollector {
 
             if (button.count() > 0 && button.first().isVisible()) {
                 button.first().click();
-                log.debug(
-                        "[MARKET STATS] Accepted Vinted cookie banner before observer scan."
-                );
+                log.debug("[MARKET STATS] Accepted Vinted cookie banner before observer scan.");
             }
         } catch (RuntimeException exception) {
             log.debug(
@@ -224,10 +189,7 @@ public class MarketStatsCollector {
         }
     }
 
-    private boolean hasVisible(
-            BotContext context,
-            String selector
-    ) {
+    private boolean hasVisible(BotContext context, String selector) {
         try {
             var locator = context.getPage().locator(selector);
             int count = locator.count();
@@ -256,24 +218,17 @@ public class MarketStatsCollector {
         validateTarget(target);
 
         try {
-            KnownMarketListingIdsDto knownState =
-                    apiClient.getKnownListingIds(target.modelId());
+            KnownMarketListingIdsDto knownState = apiClient.getKnownListingIds(target.modelId());
 
             Set<String> knownListingIds = knownState.listingIds() == null
                     ? Set.of()
                     : Set.copyOf(knownState.listingIds());
 
-            PreparedScan preparedScan = prepareScan(
-                    context,
-                    observerBot,
-                    target
-            );
+            PreparedScan preparedScan = prepareScan(context, observerBot, target);
 
             boolean trustVintedModelFilter =
                     VINTED_MODEL.equals(resolveTargetMode(target.targetMode()))
-                            && STRATEGY_DICTIONARY_FILTERS.equals(
-                                    preparedScan.strategy()
-                            );
+                            && STRATEGY_DICTIONARY_FILTERS.equals(preparedScan.strategy());
 
             ScanResult scanResult = scanCatalog(
                     context,
@@ -284,34 +239,21 @@ public class MarketStatsCollector {
                     knownState.baselineComplete()
             );
 
-            MarketObservationBatchResponseDto recorded =
-                    apiClient.recordObservations(
-                            target.modelId(),
-                            scanResult.listingIds(),
-                            scanResult.complete()
-                    );
+            MarketObservationBatchResponseDto recorded = apiClient.recordObservations(
+                    target.modelId(),
+                    scanResult.listingIds(),
+                    scanResult.complete()
+            );
 
             log.info(
-                    "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', "
-                            + "strategy={}, trustedVintedFilter={}, minPrice={}, maxPrice={}, matched={}, knownBefore={}, "
-                            + "newObserved={}, complete={}, baselineMode={}.",
-                    target.modelId(),
-                    target.brandName(),
-                    target.modelName(),
-                    preparedScan.strategy(),
-                    trustVintedModelFilter,
-                    target.minPrice(),
-                    target.maxPrice(),
-                    scanResult.listingIds().size(),
-                    knownListingIds.size(),
-                    recorded.newListings(),
-                    recorded.complete(),
-                    !knownState.baselineComplete()
+                    "[MARKET STATS] Model scan recorded. modelId={}, brand='{}', model='{}', strategy={}, trustedVintedFilter={}, minPrice={}, maxPrice={}, matched={}, knownBefore={}, newObserved={}, complete={}, baselineMode={}.",
+                    target.modelId(), target.brandName(), target.modelName(), preparedScan.strategy(),
+                    trustVintedModelFilter, target.minPrice(), target.maxPrice(),
+                    scanResult.listingIds().size(), knownListingIds.size(), recorded.newListings(),
+                    recorded.complete(), !knownState.baselineComplete()
             );
 
-            return !STRATEGY_DICTIONARY_FILTERS.equals(
-                    preparedScan.strategy()
-            );
+            return !STRATEGY_DICTIONARY_FILTERS.equals(preparedScan.strategy());
         } catch (RuntimeException exception) {
             apiClient.clearObservationContext(target.modelId());
             throw exception;
@@ -328,10 +270,7 @@ public class MarketStatsCollector {
 
         if (VINTED_MODEL.equals(requestedTargetMode) && !resolvedCategory) {
             throw new IllegalStateException(
-                    "VINTED_MODEL market target "
-                            + target.brandName()
-                            + " / "
-                            + target.modelName()
+                    "VINTED_MODEL market target " + target.brandName() + " / " + target.modelName()
                             + " has no resolved category. Exact Vinted model filtering is mandatory; refusing SEARCH_QUERY fallback."
             );
         }
@@ -343,21 +282,13 @@ public class MarketStatsCollector {
 
         if (!resolvedCategory) {
             log.warn(
-                    "[MARKET STATS] modelId={} {} / {} has no resolved category. "
-                            + "SEARCH_QUERY collector will try brand + text search without a category first.",
-                    target.modelId(),
-                    target.brandName(),
-                    target.modelName()
+                    "[MARKET STATS] modelId={} {} / {} has no resolved category. SEARCH_QUERY collector will try brand + text search without a category first.",
+                    target.modelId(), target.brandName(), target.modelName()
             );
         }
 
         try {
-            applyTargetFilters(
-                    context,
-                    target,
-                    primaryBot,
-                    primaryStrategy
-            );
+            applyTargetFilters(context, target, primaryBot, primaryStrategy);
 
             return new PreparedScan(
                     primaryBot,
@@ -370,52 +301,29 @@ public class MarketStatsCollector {
             }
 
             log.warn(
-                    "[MARKET STATS] Primary filter strategy failed for modelId={} {} / {}. "
-                            + "strategy={}, targetMode={}, reason={}",
-                    target.modelId(),
-                    target.brandName(),
-                    target.modelName(),
-                    primaryStrategy,
-                    requestedTargetMode,
-                    safeMessage(primaryFailure)
+                    "[MARKET STATS] Primary filter strategy failed for modelId={} {} / {}. strategy={}, targetMode={}, reason={}",
+                    target.modelId(), target.brandName(), target.modelName(),
+                    primaryStrategy, requestedTargetMode, safeMessage(primaryFailure)
             );
 
             if (VINTED_MODEL.equals(requestedTargetMode)) {
                 log.error(
-                        "[MARKET STATS] Exact Vinted model filter is mandatory for modelId={} {} / {}. "
-                                + "This target will FAIL CLOSED; no category-text or text-only fallback is allowed.",
-                        target.modelId(),
-                        target.brandName(),
-                        target.modelName()
+                        "[MARKET STATS] Exact Vinted model filter is mandatory for modelId={} {} / {}. This target will FAIL CLOSED; no category-text or text-only fallback is allowed.",
+                        target.modelId(), target.brandName(), target.modelName()
                 );
 
                 throw new IllegalStateException(
                         "Exact Vinted model filtering failed for "
-                                + target.brandName()
-                                + " / "
-                                + target.modelName()
+                                + target.brandName() + " / " + target.modelName()
                                 + "; refusing to collect statistics from a different search strategy.",
                         primaryFailure
                 );
             }
 
-            BotDetailsDto textOnlyBot = buildTextOnlyFallbackBot(
-                    observerBot,
-                    target
-            );
+            BotDetailsDto textOnlyBot = buildTextOnlyFallbackBot(observerBot, target);
+            applyTargetFilters(context, target, textOnlyBot, STRATEGY_TEXT_ONLY);
 
-            applyTargetFilters(
-                    context,
-                    target,
-                    textOnlyBot,
-                    STRATEGY_TEXT_ONLY
-            );
-
-            return new PreparedScan(
-                    textOnlyBot,
-                    STRATEGY_TEXT_ONLY,
-                    true
-            );
+            return new PreparedScan(textOnlyBot, STRATEGY_TEXT_ONLY, true);
         }
     }
 
@@ -429,17 +337,11 @@ public class MarketStatsCollector {
         FilterService filterService = new FilterService(context);
 
         log.info(
-                "[MARKET STATS] Applying target. modelId={}, strategy={}, categoryPath={}, brand='{}', "
-                        + "targetMode={}, model='{}', searchQuery='{}', minPrice={}, maxPrice={}.",
-                target.modelId(),
-                strategy,
-                scanBot.getConfiguration().getCategoryPath(),
-                scanBot.getConfiguration().getBrand(),
-                scanBot.getConfiguration().getTargetMode(),
-                scanBot.getConfiguration().getModel(),
-                scanBot.getConfiguration().getSearchQuery(),
-                scanBot.getConfiguration().getMinPrice(),
-                scanBot.getConfiguration().getMaxPrice()
+                "[MARKET STATS] Applying target. modelId={}, strategy={}, categoryPath={}, brand='{}', targetMode={}, model='{}', searchQuery='{}', minPrice={}, maxPrice={}.",
+                target.modelId(), strategy, scanBot.getConfiguration().getCategoryPath(),
+                scanBot.getConfiguration().getBrand(), scanBot.getConfiguration().getTargetMode(),
+                scanBot.getConfiguration().getModel(), scanBot.getConfiguration().getSearchQuery(),
+                scanBot.getConfiguration().getMinPrice(), scanBot.getConfiguration().getMaxPrice()
         );
 
         navigator.goToCatalog();
@@ -467,11 +369,7 @@ public class MarketStatsCollector {
 
         while (matched.size() < config.maxListingsPerModel()) {
             if (pageNumber > 1) {
-                if (!navigateToCatalogPage(
-                        context,
-                        filteredCatalogUrl,
-                        pageNumber
-                )) {
+                if (!navigateToCatalogPage(context, filteredCatalogUrl, pageNumber)) {
                     complete = false;
                     break;
                 }
@@ -493,21 +391,13 @@ public class MarketStatsCollector {
                 }
 
                 boolean accepted = trustVintedModelFilter
-                        || matchesTarget(
-                                listing,
-                                targetConfiguration,
-                                accessoryFiltering,
-                                matcher
-                        );
+                        || matchesTarget(listing, targetConfiguration, accessoryFiltering, matcher);
 
                 if (!accepted) {
                     continue;
                 }
 
-                Listing previous = matched.putIfAbsent(
-                        listing.getId(),
-                        listing
-                );
+                Listing previous = matched.putIfAbsent(listing.getId(), listing);
 
                 if (previous == null) {
                     newlyAccepted.add(listing);
@@ -518,17 +408,11 @@ public class MarketStatsCollector {
 
             log.info(
                     "[MARKET STATS] Catalog page {} inspected. loaded={}, acceptedNew={}, acceptedTotal={}.",
-                    pageNumber,
-                    loaded.size(),
-                    newlyAccepted.size(),
-                    matched.size()
+                    pageNumber, loaded.size(), newlyAccepted.size(), matched.size()
             );
 
             if (!knownListingIds.isEmpty()
-                    && containsKnownBoundary(
-                            matched.keySet(),
-                            knownListingIds
-                    )) {
+                    && containsKnownBoundary(matched.keySet(), knownListingIds)) {
                 complete = true;
                 break;
             }
@@ -562,8 +446,7 @@ public class MarketStatsCollector {
             complete = false;
 
             log.warn(
-                    "[MARKET STATS] Catalog scan reached configured limit {} before proving the end/known boundary. "
-                            + "The scan stays incomplete rather than pretending the partial catalog is a full model window.",
+                    "[MARKET STATS] Catalog scan reached configured limit {} before proving the end/known boundary. The scan stays incomplete rather than pretending the partial catalog is a full model window.",
                     config.maxListingsPerModel()
             );
         }
@@ -597,15 +480,11 @@ public class MarketStatsCollector {
         } else {
             nextUrl = filteredCatalogUrl
                     + (filteredCatalogUrl.contains("?") ? "&" : "?")
-                    + "page="
-                    + pageNumber;
+                    + "page=" + pageNumber;
         }
 
         try {
-            context.getPage().navigate(
-                    nextUrl,
-                    catalogPageNavigateOptions()
-            );
+            context.getPage().navigate(nextUrl, catalogPageNavigateOptions());
             context.getPage().waitForTimeout(PAGE_WAIT_MS);
 
             log.debug(
@@ -679,10 +558,7 @@ public class MarketStatsCollector {
         );
 
         ListingTargetAssessment catalogAssessment =
-                matcher.assessCatalogListing(
-                        candidate,
-                        configuration
-                );
+                matcher.assessCatalogListing(candidate, configuration);
 
         if (catalogAssessment == ListingTargetAssessment.MATCH) {
             return true;
@@ -692,17 +568,13 @@ public class MarketStatsCollector {
             return false;
         }
 
-        return matcher.assessListingUrl(
-                candidate,
-                configuration
-        ) == ListingTargetAssessment.MATCH;
+        return matcher.assessListingUrl(candidate, configuration)
+                == ListingTargetAssessment.MATCH;
     }
 
     private boolean looksLikeAccessory(Listing listing) {
         String normalized = normalizeForAccessoryCheck(
-                String.valueOf(listing.getTitle())
-                        + " "
-                        + String.valueOf(listing.getUrl())
+                String.valueOf(listing.getTitle()) + " " + String.valueOf(listing.getUrl())
         );
 
         if (normalized.isBlank()) {
@@ -720,18 +592,13 @@ public class MarketStatsCollector {
         return false;
     }
 
-    private BotDetailsDto buildScanBot(
-            BotDetailsDto observerBot,
-            MarketStatsTargetDto target
-    ) {
+    private BotDetailsDto buildScanBot(BotDetailsDto observerBot, MarketStatsTargetDto target) {
         BotConfigurationDto configuration = new BotConfigurationDto();
         configuration.setMarketplace("VINTED");
 
         boolean resolvedCategory = hasResolvedCategory(target);
         configuration.setCategoryPath(
-                resolvedCategory
-                        ? List.copyOf(target.categoryPath())
-                        : List.of()
+                resolvedCategory ? List.copyOf(target.categoryPath()) : List.of()
         );
         configuration.setBrand(target.brandName());
 
@@ -766,11 +633,7 @@ public class MarketStatsCollector {
         configuration.setBrand(null);
         configuration.setTargetMode(SEARCH_QUERY);
         configuration.setModel(null);
-        configuration.setSearchQuery(
-                target.brandName().trim()
-                        + " "
-                        + target.modelName().trim()
-        );
+        configuration.setSearchQuery(target.brandName().trim() + " " + target.modelName().trim());
         applyObserverPriceRange(configuration, target);
 
         return buildBotWithConfiguration(observerBot, configuration);
@@ -803,20 +666,16 @@ public class MarketStatsCollector {
                 || target.modelId() <= 0
                 || isBlank(target.brandName())
                 || isBlank(target.modelName())) {
-            throw new IllegalArgumentException(
-                    "Invalid market statistics target: " + target
-            );
+            throw new IllegalArgumentException("Invalid market statistics target: " + target);
         }
 
-        if (target.minPrice() != null
-                && target.minPrice().signum() <= 0) {
+        if (target.minPrice() != null && target.minPrice().signum() <= 0) {
             throw new IllegalArgumentException(
                     "Market statistics minimum price must be positive: " + target
             );
         }
 
-        if (target.maxPrice() != null
-                && target.maxPrice().signum() <= 0) {
+        if (target.maxPrice() != null && target.maxPrice().signum() <= 0) {
             throw new IllegalArgumentException(
                     "Market statistics maximum price must be positive: " + target
             );
@@ -838,9 +697,7 @@ public class MarketStatsCollector {
     }
 
     private String resolveTargetMode(String rawTargetMode) {
-        return SEARCH_QUERY.equals(rawTargetMode)
-                ? SEARCH_QUERY
-                : VINTED_MODEL;
+        return SEARCH_QUERY.equals(rawTargetMode) ? SEARCH_QUERY : VINTED_MODEL;
     }
 
     private boolean containsInterruptedException(Throwable throwable) {
@@ -856,13 +713,26 @@ public class MarketStatsCollector {
         return false;
     }
 
+    private boolean containsTrafficBackoffMarker(Throwable throwable) {
+        Throwable current = throwable;
+
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null
+                    && message.contains(MarketListingPublishedAtResolver.TRAFFIC_BACKOFF_MARKER)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        return false;
+    }
+
     private String safeMessage(Throwable throwable) {
         if (throwable == null
                 || throwable.getMessage() == null
                 || throwable.getMessage().isBlank()) {
-            return throwable == null
-                    ? "unknown error"
-                    : throwable.getClass().getSimpleName();
+            return throwable == null ? "unknown error" : throwable.getClass().getSimpleName();
         }
 
         return throwable.getMessage();
