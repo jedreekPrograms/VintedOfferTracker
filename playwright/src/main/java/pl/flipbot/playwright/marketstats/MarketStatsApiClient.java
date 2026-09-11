@@ -124,13 +124,49 @@ public class MarketStatsApiClient extends ApiClient {
                 }
         );
 
+        HttpResponse<String> fullScanResponse = get(
+                "/api/market-stats/models/"
+                        + modelId
+                        + "/full-catalog-scan-required"
+        );
+        requireSuccess(
+                fullScanResponse,
+                "check whether a full market catalog retry is required"
+        );
+
+        boolean fullCatalogScanRequired = Boolean.TRUE.equals(
+                readBody(fullScanResponse, Boolean.class)
+        );
+
         MarketStatsObservationContext.begin(
                 modelId,
                 knownState.listingIds(),
-                missingPublicationListingIds
+                missingPublicationListingIds,
+                fullCatalogScanRequired
         );
 
-        return knownState;
+        if (!fullCatalogScanRequired) {
+            return knownState;
+        }
+
+        log.info(
+                "[MARKET STATS] Model {} previous scan was incomplete (or baseline is unfinished). "
+                        + "Forcing a full filtered-catalog traversal and refreshing publication times for every visible listing before the known-listing boundary can be trusted again.",
+                modelId
+        );
+
+        /*
+         * MarketStatsCollector uses known listing ids only as an early-stop
+         * boundary. Keep the real ids in MarketStatsObservationContext above,
+         * but hide that boundary for this retry so the collector must walk the
+         * complete filtered catalog. Once the backend records a complete pass,
+         * later scans receive the normal known-id list again.
+         */
+        return new KnownMarketListingIdsDto(
+                knownState.modelId(),
+                List.of(),
+                knownState.baselineComplete()
+        );
     }
 
     public MarketObservationBatchResponseDto recordObservations(
