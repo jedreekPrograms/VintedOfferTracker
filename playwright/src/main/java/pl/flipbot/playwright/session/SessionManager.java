@@ -144,16 +144,31 @@ public class SessionManager {
 
     public boolean sessionExists(Long botId) {
         Path session = sessionFile(botId);
+
+        if (!Files.exists(session)) {
+            return false;
+        }
+
         try {
-            return Files.isRegularFile(session) && Files.size(session) > 0;
+            if (!Files.isRegularFile(session) || Files.size(session) == 0) {
+                throw new IllegalStateException(
+                        "Stored session for bot " + botId
+                                + " exists but is empty or is not a regular file: "
+                                + session
+                                + ". Refusing to treat it as a missing session because that could silently start a clean browser context."
+                );
+            }
+
+            JsonNode root = OBJECT_MAPPER.readTree(session.toFile());
+            SessionSnapshotValidator.validateShape(botId, root);
+            return true;
         } catch (IOException exception) {
-            log.warn(
-                    "[SESSION] Could not inspect stored session for bot {}: {}",
-                    botId,
-                    session,
+            throw new IllegalStateException(
+                    "Could not validate stored session for bot " + botId
+                            + ": " + session
+                            + ". Refusing clean-context fallback.",
                     exception
             );
-            return false;
         }
     }
 
@@ -200,7 +215,21 @@ public class SessionManager {
             Path stagedSession
     ) {
         Path activeSession = sessionFile(botId);
-        validateStagedSession(botId, stagedSession);
+        JsonNode stagedRoot = validateStagedSession(botId, stagedSession);
+        JsonNode activeRoot = readActiveSessionForReplacement(
+                botId,
+                activeSession
+        );
+
+        SessionSnapshotValidator.validateDoesNotLoseEstablishedCookies(
+                botId,
+                activeRoot,
+                stagedRoot
+        );
+
+        if (activeRoot != null) {
+            preserveBackup(botId, activeSession, "last-known-good");
+        }
 
         try {
             try {
@@ -232,7 +261,7 @@ public class SessionManager {
         }
     }
 
-    private void validateStagedSession(
+    private JsonNode validateStagedSession(
             Long botId,
             Path stagedSession
     ) {
@@ -247,20 +276,43 @@ public class SessionManager {
             }
 
             JsonNode root = OBJECT_MAPPER.readTree(stagedSession.toFile());
-            if (root == null
-                    || !root.isObject()
-                    || !root.path("cookies").isArray()
-                    || !root.path("origins").isArray()) {
-                throw new IllegalStateException(
-                        "Playwright produced an invalid storageState JSON for bot "
-                                + botId
-                                + "; refusing to replace the active session."
-                );
-            }
+            SessionSnapshotValidator.validateShape(botId, root);
+            return root;
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Could not validate staged session state for bot " + botId
                             + "; refusing to replace the active session.",
+                    exception
+            );
+        }
+    }
+
+    private JsonNode readActiveSessionForReplacement(
+            Long botId,
+            Path activeSession
+    ) {
+        if (!Files.exists(activeSession)) {
+            return null;
+        }
+
+        try {
+            if (!Files.isRegularFile(activeSession)
+                    || Files.size(activeSession) == 0) {
+                throw new IllegalStateException(
+                        "Active session for bot " + botId
+                                + " is empty or is not a regular file: "
+                                + activeSession
+                                + ". Refusing to replace or silently recover it."
+                );
+            }
+
+            JsonNode root = OBJECT_MAPPER.readTree(activeSession.toFile());
+            SessionSnapshotValidator.validateShape(botId, root);
+            return root;
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not read the active session for bot " + botId
+                            + "; refusing to replace the last-known-good file.",
                     exception
             );
         }
@@ -301,6 +353,14 @@ public class SessionManager {
             return;
         }
 
+        preserveBackup(botId, source, "recovery");
+    }
+
+    private void preserveBackup(
+            Long botId,
+            Path source,
+            String reason
+    ) {
         Path backupDirectory = sessionDirectory.resolve(BACKUP_DIRECTORY_NAME);
 
         try {
@@ -310,7 +370,8 @@ public class SessionManager {
             Files.copy(source, backup);
 
             log.warn(
-                    "[SESSION] Preserved recovery backup for bot {} without removing the active session. active={}, backup={}",
+                    "[SESSION] Preserved {} backup for bot {} without removing the active session. active={}, backup={}",
+                    reason,
                     botId,
                     source,
                     backup
@@ -318,7 +379,7 @@ public class SessionManager {
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Could not back up stored session for bot " + botId
-                            + "; refusing clean-context recovery so the active session is not put at risk.",
+                            + "; refusing session replacement/recovery so the active session is not put at risk.",
                     exception
             );
         }
