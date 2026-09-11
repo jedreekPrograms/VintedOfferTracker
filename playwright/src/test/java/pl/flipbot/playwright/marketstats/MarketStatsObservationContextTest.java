@@ -21,7 +21,8 @@ public class MarketStatsObservationContextTest {
         MarketStatsObservationContext.begin(
                 25L,
                 List.of("known"),
-                List.of()
+                List.of(),
+                false
         );
 
         assertFalse(MarketStatsObservationContext.claimPublicationResolution(
@@ -51,7 +52,8 @@ public class MarketStatsObservationContextTest {
         MarketStatsObservationContext.begin(
                 25L,
                 List.of("known-complete", "known-missing"),
-                List.of("known-missing")
+                List.of("known-missing"),
+                false
         );
 
         assertFalse(MarketStatsObservationContext.claimPublicationResolution(
@@ -59,6 +61,41 @@ public class MarketStatsObservationContextTest {
         ));
         assertTrue(MarketStatsObservationContext.claimPublicationResolution(
                 "known-missing"
+        ));
+    }
+
+    @Test
+    public void fullRetryRefreshesPublicationTimeForEveryVisibleListing() {
+        MarketStatsObservationContext.begin(
+                25L,
+                List.of("known-complete", "known-other"),
+                List.of(),
+                true
+        );
+
+        assertTrue(MarketStatsObservationContext.claimPublicationResolution(
+                "known-complete"
+        ));
+        assertTrue(MarketStatsObservationContext.claimPublicationResolution(
+                "known-other"
+        ));
+        assertFalse(MarketStatsObservationContext.publicationResolutionCompleteFor(
+                25L,
+                List.of("known-complete", "known-other")
+        ));
+
+        MarketStatsObservationContext.recordPublishedAt(
+                "known-complete",
+                LocalDateTime.of(2026, 9, 11, 12, 0)
+        );
+        MarketStatsObservationContext.recordPublishedAt(
+                "known-other",
+                LocalDateTime.of(2026, 9, 10, 12, 0)
+        );
+
+        assertTrue(MarketStatsObservationContext.publicationResolutionCompleteFor(
+                25L,
+                List.of("known-complete", "known-other")
         ));
     }
 }
