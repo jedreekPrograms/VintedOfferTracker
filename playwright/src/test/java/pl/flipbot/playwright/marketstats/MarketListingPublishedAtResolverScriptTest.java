@@ -15,4 +15,16 @@ public class MarketListingPublishedAtResolverScriptTest {
         assertTrue(script.contains("indexOf(timestampKey)"));
         assertFalse(script.contains("timestampPattern"));
     }
+
+    @Test
+    public void publicationRequestsArePacedSequentiallyAndStopOnBackoffSignals() {
+        String script = MarketListingPublishedAtResolver.extractPublishedAtScript();
+
+        assertTrue(script.contains("requestSpacingMs = 1000"));
+        assertTrue(script.contains("resolveSequentially"));
+        assertFalse(script.contains("Promise.all"));
+        assertTrue(script.contains("response.status === 429"));
+        assertTrue(script.contains("response.status === 403"));
+        assertTrue(script.contains("__FLIPBOT_TRAFFIC_BACKOFF__"));
+    }
 }

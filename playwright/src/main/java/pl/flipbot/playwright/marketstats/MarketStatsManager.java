@@ -12,13 +12,10 @@ public class MarketStatsManager implements AutoCloseable {
 
     private static final long INITIAL_DELAY_SECONDS = 30L;
     private static final long OBSERVER_POLL_SECONDS = 60L;
-    private static final long FAILURE_RETRY_MINUTES = 15L;
+    private static final long FAILURE_RETRY_MINUTES = 30L;
 
     private final MarketStatsRuntimeConfig config =
             MarketStatsRuntimeConfig.fromEnvironment();
-
-    private final MarketStatsApiClient apiClient =
-            new MarketStatsApiClient();
 
     private final ScheduledExecutorService executor =
             Executors.newSingleThreadScheduledExecutor(
@@ -39,7 +36,6 @@ public class MarketStatsManager implements AutoCloseable {
             new AtomicBoolean(false);
 
     private volatile long nextAttemptAtMillis = 0L;
-    private volatile boolean failureBackoffActive = false;
 
     public void start() {
         if (!config.enabled()) {
@@ -55,10 +51,11 @@ public class MarketStatsManager implements AutoCloseable {
 
         log.info(
                 "[MARKET STATS] Dedicated collector is enabled. Observer is managed by the frontend. "
-                        + "First check in {}s. After each completed full pass it waits at least {}m before starting another. "
-                        + "The collector is single-threaded, so long passes never overlap.",
+                        + "First check in {}s. After every pass it respects at least {}m normal cooldown; "
+                        + "failed/rate-limited passes back off for {}m. The collector is single-threaded, so long passes never overlap.",
                 INITIAL_DELAY_SECONDS,
-                config.refreshCooldownMinutes()
+                config.refreshCooldownMinutes(),
+                FAILURE_RETRY_MINUTES
         );
 
         executor.scheduleWithFixedDelay(
@@ -76,32 +73,14 @@ public class MarketStatsManager implements AutoCloseable {
 
         long now = System.currentTimeMillis();
 
+        /*
+         * Do not bypass the configured cooldown just because a baseline or
+         * publication backfill is still incomplete. The observer is auxiliary
+         * read-only traffic and must not repeatedly hammer Vinted while normal
+         * bot jobs are running from the same machine/network.
+         */
         if (now < nextAttemptAtMillis) {
-            if (failureBackoffActive) {
-                return;
-            }
-
-            try {
-                if (!apiClient.isScanNeeded()) {
-                    return;
-                }
-
-                log.info(
-                        "[MARKET STATS] A model is still waiting for a baseline. "
-                                + "Starting an early recovery pass instead of waiting for the normal {}m cooldown.",
-                        config.refreshCooldownMinutes()
-                );
-            } catch (Exception exception) {
-                log.warn(
-                        "[MARKET STATS] Could not check whether an early baseline pass is needed. Keeping the normal schedule. reason={}",
-                        friendlyMessage(exception)
-                );
-                log.debug(
-                        "[MARKET STATS] Full early-baseline check error.",
-                        exception
-                );
-                return;
-            }
+            return;
         }
 
         long startedAtMillis = System.currentTimeMillis();
@@ -109,7 +88,7 @@ public class MarketStatsManager implements AutoCloseable {
         try {
             new MarketStatsCollector(
                     config,
-                    apiClient
+                    new MarketStatsApiClient()
             ).collectOnce();
 
             long completedAtMillis = System.currentTimeMillis();
@@ -120,7 +99,6 @@ public class MarketStatsManager implements AutoCloseable {
                     )
             );
 
-            failureBackoffActive = false;
             nextAttemptAtMillis =
                     completedAtMillis
                             + TimeUnit.MINUTES.toMillis(
@@ -145,14 +123,12 @@ public class MarketStatsManager implements AutoCloseable {
                                 + "Create it on the Bots page; the collector will discover it automatically."
                 );
 
-                failureBackoffActive = false;
                 nextAttemptAtMillis =
                         System.currentTimeMillis()
                                 + TimeUnit.MINUTES.toMillis(1L);
                 return;
             }
 
-            failureBackoffActive = true;
             nextAttemptAtMillis =
                     System.currentTimeMillis()
                             + TimeUnit.MINUTES.toMillis(
@@ -160,7 +136,7 @@ public class MarketStatsManager implements AutoCloseable {
                     );
 
             log.error(
-                    "[MARKET STATS] Collection failed. Normal bot scheduling is unaffected. Retry in {} minutes. reason={}",
+                    "[MARKET STATS] Collection failed or Vinted requested backoff. Normal bot scheduling is unaffected. Retry in {} minutes. reason={}",
                     FAILURE_RETRY_MINUTES,
                     friendlyMessage(exception)
             );
