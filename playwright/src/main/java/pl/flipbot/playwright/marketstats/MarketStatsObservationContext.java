@@ -27,9 +27,45 @@ final class MarketStatsObservationContext {
                         Set.copyOf(normalizeIds(missingPublicationListingIds)),
                         refreshAllPublicationTimes,
                         new LinkedHashSet<>(),
+                        new LinkedHashSet<>(),
                         new LinkedHashMap<>()
                 )
         );
+    }
+
+    static void recordObservedListingId(String listingId) {
+        State state = CURRENT.get();
+
+        if (state == null || listingId == null || listingId.isBlank()) {
+            return;
+        }
+
+        state.observedListingIds().add(listingId.trim());
+    }
+
+    static Set<String> observedListingIds(Long modelId) {
+        State state = CURRENT.get();
+
+        if (state == null
+                || modelId == null
+                || !modelId.equals(state.modelId())) {
+            return Set.of();
+        }
+
+        return Set.copyOf(state.observedListingIds());
+    }
+
+    static boolean needsPublicationResolution(String listingId) {
+        State state = CURRENT.get();
+
+        if (state == null || listingId == null || listingId.isBlank()) {
+            return false;
+        }
+
+        String normalized = listingId.trim();
+
+        return needsPublicationResolution(state, normalized)
+                && !state.publishedAtByListingId().containsKey(normalized);
     }
 
     static boolean claimPublicationResolution(String listingId) {
@@ -41,7 +77,7 @@ final class MarketStatsObservationContext {
 
         String normalized = listingId.trim();
 
-        if (!needsPublicationResolution(state, normalized)) {
+        if (!needsPublicationResolution(normalized)) {
             return false;
         }
 
@@ -156,6 +192,7 @@ final class MarketStatsObservationContext {
             Set<String> knownListingIds,
             Set<String> missingPublicationListingIds,
             boolean refreshAllPublicationTimes,
+            Set<String> observedListingIds,
             Set<String> attemptedListingIds,
             Map<String, LocalDateTime> publishedAtByListingId
     ) {

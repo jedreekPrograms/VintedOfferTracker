@@ -138,11 +138,18 @@ public class MarketStatsApiClient extends ApiClient {
                 readBody(fullScanResponse, Boolean.class)
         );
 
+        /*
+         * A full catalog retry is about traversal completeness, not about
+         * re-downloading publication time for every already-resolved listing.
+         * Only new rows and rows explicitly missing published_at need another
+         * publication lookup. This keeps retries incremental and avoids turning
+         * one incomplete model into hundreds of repeated detail requests.
+         */
         MarketStatsObservationContext.begin(
                 modelId,
                 knownState.listingIds(),
                 missingPublicationListingIds,
-                fullCatalogScanRequired
+                false
         );
 
         if (!fullCatalogScanRequired) {
@@ -151,7 +158,7 @@ public class MarketStatsApiClient extends ApiClient {
 
         log.info(
                 "[MARKET STATS] Model {} previous scan was incomplete (or baseline is unfinished). "
-                        + "Forcing a full filtered-catalog traversal and refreshing publication times for every visible listing before the known-listing boundary can be trusted again.",
+                        + "Forcing a full filtered-catalog traversal. Already stored publication timestamps are reused; only new/missing timestamps are resolved again.",
                 modelId
         );
 
@@ -238,7 +245,31 @@ public class MarketStatsApiClient extends ApiClient {
     }
 
     public void clearObservationContext(Long modelId) {
-        MarketStatsObservationContext.clear(modelId);
+        try {
+            List<String> observedIds = MarketStatsObservationContext
+                    .observedListingIds(modelId)
+                    .stream()
+                    .toList();
+
+            if (!observedIds.isEmpty()) {
+                postObservations(modelId, observedIds, false);
+                flushResolvedPublicationTimes(modelId, observedIds);
+
+                log.info(
+                        "[MARKET STATS] Preserved partial progress for model {} after an interrupted scan. observedIds={}.",
+                        modelId,
+                        observedIds.size()
+                );
+            }
+        } catch (RuntimeException persistenceFailure) {
+            log.warn(
+                    "[MARKET STATS] Could not persist partial progress for model {} before clearing the interrupted observation context.",
+                    modelId,
+                    persistenceFailure
+            );
+        } finally {
+            MarketStatsObservationContext.clear(modelId);
+        }
     }
 
     private MarketObservationBatchResponseDto postObservations(

@@ -17,12 +17,12 @@ public class MarketListingPublishedAtResolverScriptTest {
     }
 
     @Test
-    public void publicationRequestsArePacedSequentiallyAndStopOnBackoffSignals() {
+    public void detailFallbackIsPacedSequentiallyAndStopsOnBackoffSignals() {
         String script = MarketListingPublishedAtResolver.extractPublishedAtScript();
 
-        assertTrue(script.contains("requestSpacingMs = 1000"));
-        assertTrue(script.contains("resolveSequentially"));
+        assertTrue(script.contains("requestSpacingMs = 2000"));
         assertFalse(script.contains("Promise.all"));
+        assertFalse(script.contains("resolveSequentially"));
         assertTrue(script.contains("response.status === 429"));
         assertTrue(script.contains("response.status === 403"));
         assertTrue(script.contains("__FLIPBOT_TRAFFIC_BACKOFF__"));

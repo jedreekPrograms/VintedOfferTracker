@@ -14,6 +14,8 @@ import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
+import pl.flipbot.playwright.session.SessionManager;
+import pl.flipbot.playwright.session.VintedSessionPersistenceGuard;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
 import pl.flipbot.playwright.target.VintedSessionFailureClassifier;
@@ -35,6 +37,8 @@ public class ScheduledBotRunExecutor {
     private final BrowserManager browserManager;
     private final VintedSessionBlockDetector sessionBlockDetector =
             new VintedSessionBlockDetector();
+    private final VintedSessionPersistenceGuard sessionPersistenceGuard =
+            new VintedSessionPersistenceGuard();
 
     public ScheduledBotRunExecutor(
             BotDetailsDto bot,
@@ -66,6 +70,7 @@ public class ScheduledBotRunExecutor {
         BotContext context = new BotContext(bot, browserManager);
         boolean loginReady = false;
         boolean jobCompleted = false;
+        boolean authenticatedCheckpointReady = false;
 
         try {
             if (jobType == ScheduledJobType.PRICE_PROBE) {
@@ -195,6 +200,23 @@ public class ScheduledBotRunExecutor {
             loginService.login();
             loginReady = true;
 
+            /*
+             * Capture a checkpoint immediately after LoginService has positively
+             * verified authentication. If Vinted sends the job through
+             * /session-refresh or login UI later, this becomes the safe rollback
+             * point instead of persisting the degraded end-of-job browser state.
+             *
+             * LoginService may already have saved an interactive login. Saving
+             * once more here intentionally rotates that freshly authenticated
+             * state into last-known-good as well.
+             */
+            context.saveSession();
+            authenticatedCheckpointReady = true;
+            log.debug(
+                    "[SESSION] Captured authenticated pre-job checkpoint for bot {}.",
+                    botId
+            );
+
             if (jobType == null) {
                 botRunExecutor.executeOneRun();
             } else {
@@ -234,6 +256,15 @@ public class ScheduledBotRunExecutor {
              */
             if (VintedSessionFailureClassifier.shouldUseProtectiveCooldown(exception)) {
                 String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
+
+                /*
+                 * If the active file had previously been saved from an unhealthy
+                 * session-refresh page, move it to the recovery slot and restore
+                 * the previous authenticated rotating checkpoint before the bot
+                 * enters cooldown. No clean browser state is fabricated.
+                 */
+                restoreLastKnownGoodSession(botId, "authentication stall");
+
                 log.warn(
                         "[SESSION BLOCK] Bot {} hit a repeated Vinted authentication stall during {}. Treating it as a protective session cooldown instead of RUN_FAILED so all bot jobs back off together.",
                         botId,
@@ -252,14 +283,43 @@ public class ScheduledBotRunExecutor {
             throw exception;
         } finally {
             if (loginReady && jobCompleted) {
-                try {
-                    context.saveSession();
-                } catch (Exception exception) {
-                    log.warn(
-                            "[SCHEDULED JOB] Could not save session for bot {} after a successful job; the previous active session remains protected.",
-                            botId,
-                            exception
-                    );
+                if (authenticatedCheckpointReady) {
+                    VintedSessionPersistenceGuard.Check check =
+                            sessionPersistenceGuard.check(context);
+
+                    if (check.healthy()) {
+                        try {
+                            context.saveSession();
+                        } catch (Exception exception) {
+                            log.warn(
+                                    "[SCHEDULED JOB] Could not save session for bot {} after a successful, authenticated job; the pre-job checkpoint remains protected.",
+                                    botId,
+                                    exception
+                            );
+                        }
+                    } else {
+                        log.warn(
+                                "[SESSION] Bot {} job returned normally but its final Vinted state is not safe to persist. Refusing to replace bot-{}.json and restoring the authenticated pre-job checkpoint. reason={}",
+                                botId,
+                                botId,
+                                check.reason()
+                        );
+                        restoreLastKnownGoodSession(
+                                botId,
+                                "unhealthy end-of-job authentication state"
+                        );
+                    }
+                } else {
+                    /* PRICE_PROBE keeps its existing isolated persistence path. */
+                    try {
+                        context.saveSession();
+                    } catch (Exception exception) {
+                        log.warn(
+                                "[SCHEDULED JOB] Could not save session for bot {} after a successful job; the previous active session remains protected.",
+                                botId,
+                                exception
+                        );
+                    }
                 }
             } else if (loginReady) {
                 log.warn(
@@ -283,6 +343,29 @@ public class ScheduledBotRunExecutor {
                         exception
                 );
             }
+        }
+    }
+
+    private void restoreLastKnownGoodSession(
+            Long botId,
+            String reason
+    ) {
+        try {
+            boolean restored = new SessionManager().restoreLastKnownGood(botId);
+            if (!restored) {
+                log.warn(
+                        "[SESSION] Bot {} could not roll back after {} because no last-known-good snapshot exists yet.",
+                        botId,
+                        reason
+                );
+            }
+        } catch (RuntimeException restoreFailure) {
+            log.error(
+                    "[SESSION] Failed to restore last-known-good state for bot {} after {}. Active session was not intentionally deleted.",
+                    botId,
+                    reason,
+                    restoreFailure
+            );
         }
     }
 

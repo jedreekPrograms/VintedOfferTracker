@@ -24,6 +24,7 @@ public class MarketListingPublishedAtResolver {
     private static final String ANONYMOUS_MARKET_OBSERVER_NAME =
             "Anonymous Market Observer";
     private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
+    private static final int MAX_DETAIL_FALLBACK_PER_BATCH = 3;
 
     private static final String EXTRACT_PUBLISHED_AT_SCRIPT = """
             async (entries) => {
@@ -319,7 +320,7 @@ public class MarketListingPublishedAtResolver {
                 const result = {};
                 let trafficBackoff = null;
                 let lastRequestStartedAt = 0;
-                const requestSpacingMs = 1000;
+                const requestSpacingMs = 2000;
 
                 const paceRequest = async () => {
                     const now = Date.now();
@@ -398,28 +399,15 @@ public class MarketListingPublishedAtResolver {
                     }
                 };
 
-                const resolveSequentially = async (batch) => {
-                    for (const entry of batch) {
-                        if (trafficBackoff) {
-                            break;
-                        }
-
-                        const resolved = await fetchOne(entry);
-                        if (resolved) {
-                            result[resolved[0]] = resolved[1];
-                        }
+                for (const entry of entries) {
+                    if (trafficBackoff) {
+                        break;
                     }
-                };
 
-                await resolveSequentially(entries);
-
-                const unresolved = entries.filter(
-                    entry => result[entry.id] === undefined
-                );
-
-                if (!trafficBackoff && unresolved.length > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                    await resolveSequentially(unresolved);
+                    const resolved = await fetchOne(entry);
+                    if (resolved) {
+                        result[resolved[0]] = resolved[1];
+                    }
                 }
 
                 if (trafficBackoff) {
@@ -444,6 +432,14 @@ public class MarketListingPublishedAtResolver {
             return;
         }
 
+        /*
+         * Prefer timestamps already hydrated into the filtered catalog page.
+         * This adds zero Vinted requests and, when available, resolves the whole
+         * visible batch before the detail-page fallback is considered.
+         */
+        new MarketCatalogPublishedAtResolver(context)
+                .captureIfAvailable(listings);
+
         List<Map<String, String>> entries = new ArrayList<>();
 
         for (Listing listing : listings) {
@@ -452,6 +448,14 @@ public class MarketListingPublishedAtResolver {
                     || listing.getId().isBlank()
                     || listing.getUrl() == null
                     || listing.getUrl().isBlank()) {
+                continue;
+            }
+
+            MarketStatsObservationContext.recordObservedListingId(
+                    listing.getId()
+            );
+
+            if (entries.size() >= MAX_DETAIL_FALLBACK_PER_BATCH) {
                 continue;
             }
 
@@ -486,13 +490,6 @@ public class MarketListingPublishedAtResolver {
             String trafficBackoff = payloads.remove(
                     "__FLIPBOT_TRAFFIC_BACKOFF__"
             );
-            if (trafficBackoff != null && !trafficBackoff.isBlank()) {
-                throw new IllegalStateException(
-                        TRAFFIC_BACKOFF_MARKER
-                                + ": Vinted asked the market observer to back off while reading publication details. signal="
-                                + trafficBackoff
-                );
-            }
 
             LocalDateTime observedAt = LocalDateTime.now(MARKET_ZONE);
             Set<String> resolvedIds = new HashSet<>();
@@ -524,17 +521,30 @@ public class MarketListingPublishedAtResolver {
                     .toList();
 
             log.info(
-                    "[MARKET STATS] Publication detail batch resolved {}/{} listing timestamps with paced sequential requests.",
+                    "[MARKET STATS] Publication detail fallback resolved {}/{} requested listing timestamps with paced sequential requests.",
                     resolvedIds.size(),
                     entries.size()
             );
 
-            if (!unresolvedIds.isEmpty()) {
+            if (!unresolvedIds.isEmpty() && (trafficBackoff == null || trafficBackoff.isBlank())) {
                 log.warn(
-                        "[MARKET STATS] Publication timestamp still unresolved for {}/{} listings after paced retry. sampleIds={}",
+                        "[MARKET STATS] Publication timestamp still unresolved for {}/{} detail fallbacks. sampleIds={}",
                         unresolvedIds.size(),
                         entries.size(),
                         unresolvedIds.stream().limit(8).toList()
+                );
+            }
+
+            /*
+             * Preserve any timestamps that were resolved before a 403/429. The
+             * caller's interrupted-context cleanup will flush them to backend,
+             * then the normal traffic-backoff policy still stops this pass.
+             */
+            if (trafficBackoff != null && !trafficBackoff.isBlank()) {
+                throw new IllegalStateException(
+                        TRAFFIC_BACKOFF_MARKER
+                                + ": Vinted asked the market observer to back off while reading publication details. signal="
+                                + trafficBackoff
                 );
             }
         } catch (RuntimeException exception) {

@@ -216,17 +216,81 @@ public class SessionManager {
             preserveRotatingBackup(botId, activeSession, "last-known-good");
         }
 
+        installValidatedFile(botId, stagedSession, activeSession);
+    }
+
+    public boolean restoreLastKnownGood(Long botId) {
+        Path activeSession = sessionFile(botId);
+        Path backup = sessionDirectory
+                .resolve(BACKUP_DIRECTORY_NAME)
+                .resolve("bot-" + botId + "-last-known-good.json");
+
+        if (!Files.exists(backup)) {
+            log.warn(
+                    "[SESSION] No last-known-good backup is available for bot {}. Active session remains unchanged: {}",
+                    botId,
+                    activeSession
+            );
+            return false;
+        }
+
+        Path stagedRestore = null;
+
+        try {
+            stagedRestore = Files.createTempFile(
+                    sessionDirectory,
+                    ".bot-" + botId + "-restore-",
+                    ".json.tmp"
+            );
+            Files.copy(
+                    backup,
+                    stagedRestore,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+            validateStagedSession(botId, stagedRestore);
+
+            if (Files.exists(activeSession)) {
+                preserveRotatingBackup(botId, activeSession, "recovery");
+            }
+
+            installValidatedFile(botId, stagedRestore, activeSession);
+
+            log.warn(
+                    "[SESSION] Restored last-known-good session for bot {} after the current browser state became untrustworthy. backup={}, active={}",
+                    botId,
+                    backup,
+                    activeSession
+            );
+            return true;
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not restore last-known-good session for bot " + botId
+                            + "; the active session was left unchanged whenever possible.",
+                    exception
+            );
+        } finally {
+            if (stagedRestore != null) {
+                deleteQuietly(stagedRestore);
+            }
+        }
+    }
+
+    private void installValidatedFile(
+            Long botId,
+            Path source,
+            Path activeSession
+    ) {
         try {
             try {
                 Files.move(
-                        stagedSession,
+                        source,
                         activeSession,
                         StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING
                 );
             } catch (AtomicMoveNotSupportedException exception) {
                 Files.move(
-                        stagedSession,
+                        source,
                         activeSession,
                         StandardCopyOption.REPLACE_EXISTING
                 );
