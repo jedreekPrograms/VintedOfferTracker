@@ -39,6 +39,37 @@ public class MarketListingPublishedAtResolver {
                         .replace(/\\s+/g, " ")
                         .trim();
 
+                const fromExactUploadDateField = () => {
+                    const field = document.querySelector(
+                        '[data-testid="item-attributes-upload_date"]'
+                    );
+                    if (!field) {
+                        return null;
+                    }
+
+                    const value = field.querySelector(
+                        '[itemprop="upload_date"]'
+                    );
+                    if (!value) {
+                        return null;
+                    }
+
+                    const datetimeElement = value.matches('[datetime]')
+                        ? value
+                        : value.querySelector('[datetime]');
+                    if (datetimeElement) {
+                        const datetime = normalize(
+                            datetimeElement.getAttribute('datetime')
+                        );
+                        if (datetime) {
+                            return `ISO|${datetime}`;
+                        }
+                    }
+
+                    const text = normalize(value.textContent);
+                    return text ? `REL|${text}` : null;
+                };
+
                 const looksRelative = (value) => {
                     const lower = normalize(value).toLowerCase();
                     if (!lower) {
@@ -347,6 +378,11 @@ public class MarketListingPublishedAtResolver {
 
                     return null;
                 };
+
+                const exactUploadDate = fromExactUploadDateField();
+                if (exactUploadDate) {
+                    return exactUploadDate;
+                }
 
                 const visibleAdded = fromAddedLabel();
                 if (visibleAdded) {
