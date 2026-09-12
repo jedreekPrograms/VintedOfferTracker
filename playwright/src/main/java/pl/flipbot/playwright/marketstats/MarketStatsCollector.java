@@ -20,11 +20,17 @@ import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
 
 import java.text.Normalizer;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Slf4j
@@ -44,6 +50,8 @@ public class MarketStatsCollector {
     private static final double PAGE_WAIT_MS = 1_000;
     private static final double CATALOG_PAGE_NAVIGATION_TIMEOUT_MS = 30_000;
     private static final int MAX_NO_GROWTH_PAGES = 2;
+    private static final int HISTORICAL_PUBLICATION_BOUNDARY_SIZE = 20;
+    private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
 
     private static final Set<String> ACCESSORY_WORDS = Set.of(
             "etui", "case", "cover", "pokrowiec", "obudowa", "szklo",
@@ -232,6 +240,7 @@ public class MarketStatsCollector {
 
             ScanResult scanResult = scanCatalog(
                     context,
+                    target.modelId(),
                     preparedScan.scanBot().getConfiguration(),
                     preparedScan.accessoryFiltering(),
                     trustVintedModelFilter,
@@ -350,6 +359,7 @@ public class MarketStatsCollector {
 
     private ScanResult scanCatalog(
             BotContext context,
+            Long modelId,
             BotConfigurationDto targetConfiguration,
             boolean accessoryFiltering,
             boolean trustVintedModelFilter,
@@ -363,9 +373,12 @@ public class MarketStatsCollector {
         LinkedHashMap<String, Listing> matched = new LinkedHashMap<>();
 
         String filteredCatalogUrl = context.getPage().url();
+        LocalDateTime earliestRelevantPublishedAt =
+                earliestRelevantPublicationAt(LocalDate.now(MARKET_ZONE));
         int pageNumber = 1;
         int noGrowthPages = 0;
         boolean complete = false;
+        boolean historicalPublicationBoundaryReached = false;
 
         while (matched.size() < config.maxListingsPerModel()) {
             if (pageNumber > 1) {
@@ -411,6 +424,36 @@ public class MarketStatsCollector {
                     pageNumber, loaded.size(), newlyAccepted.size(), matched.size()
             );
 
+            List<String> pageListingIds = newlyAccepted.stream()
+                    .map(Listing::getId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .map(String::trim)
+                    .toList();
+
+            Map<String, LocalDateTime> pagePublishedAt =
+                    MarketStatsObservationContext.resolvedFor(
+                            modelId,
+                            pageListingIds
+                    );
+
+            if (hasHistoricalPublicationBoundary(
+                    pageListingIds,
+                    pagePublishedAt,
+                    earliestRelevantPublishedAt,
+                    HISTORICAL_PUBLICATION_BOUNDARY_SIZE
+            )) {
+                complete = true;
+                historicalPublicationBoundaryReached = true;
+
+                log.info(
+                        "[MARKET STATS] Historical publication boundary confirmed by {} consecutive oldest listings on catalog page {}. All were published before {} (start of the previous full Monday-Sunday week). Stopping this model because older listings cannot affect today/current-week/previous-full-week statistics.",
+                        HISTORICAL_PUBLICATION_BOUNDARY_SIZE,
+                        pageNumber,
+                        earliestRelevantPublishedAt
+                );
+                break;
+            }
+
             if (!knownListingIds.isEmpty()
                     && containsKnownBoundary(matched.keySet(), knownListingIds)) {
                 complete = true;
@@ -442,23 +485,82 @@ public class MarketStatsCollector {
 
         boolean hitLimit = ids.size() >= config.maxListingsPerModel();
 
-        if (hitLimit && !containsKnownBoundary(ids, knownListingIds)) {
+        if (hitLimit
+                && !historicalPublicationBoundaryReached
+                && !containsKnownBoundary(ids, knownListingIds)) {
             complete = false;
 
             log.warn(
-                    "[MARKET STATS] Catalog scan reached configured limit {} before proving the end/known boundary. The scan stays incomplete rather than pretending the partial catalog is a full model window.",
+                    "[MARKET STATS] Catalog scan reached configured limit {} before proving the end/known/statistics-window boundary. The scan stays incomplete rather than pretending the partial catalog is a full model window.",
                     config.maxListingsPerModel()
             );
         }
 
         if (!baselineComplete && complete) {
             log.info(
-                    "[MARKET STATS] Initial baseline traversed the available filtered catalog. listings={}.",
+                    "[MARKET STATS] Initial baseline covered the complete statistics publication window. listings={}.",
                     ids.size()
             );
         }
 
         return new ScanResult(ids, complete);
+    }
+
+    static LocalDateTime earliestRelevantPublicationAt(LocalDate marketToday) {
+        if (marketToday == null) {
+            throw new IllegalArgumentException("Market date cannot be null.");
+        }
+
+        LocalDate currentWeekStart = marketToday.with(
+                TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)
+        );
+
+        return currentWeekStart
+                .minusWeeks(1)
+                .atStartOfDay();
+    }
+
+    static boolean hasHistoricalPublicationBoundary(
+            List<String> orderedListingIds,
+            Map<String, LocalDateTime> publishedAtByListingId,
+            LocalDateTime earliestRelevantPublishedAt,
+            int requiredConsecutiveOld
+    ) {
+        if (orderedListingIds == null
+                || orderedListingIds.isEmpty()
+                || publishedAtByListingId == null
+                || publishedAtByListingId.isEmpty()
+                || earliestRelevantPublishedAt == null
+                || requiredConsecutiveOld <= 0) {
+            return false;
+        }
+
+        int consecutiveOld = 0;
+
+        for (int index = orderedListingIds.size() - 1; index >= 0; index--) {
+            String listingId = orderedListingIds.get(index);
+
+            if (listingId == null || listingId.isBlank()) {
+                return false;
+            }
+
+            LocalDateTime publishedAt = publishedAtByListingId.get(
+                    listingId.trim()
+            );
+
+            if (publishedAt == null
+                    || !publishedAt.isBefore(earliestRelevantPublishedAt)) {
+                return false;
+            }
+
+            consecutiveOld++;
+
+            if (consecutiveOld >= requiredConsecutiveOld) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean navigateToCatalogPage(
