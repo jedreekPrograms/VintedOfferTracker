@@ -1,19 +1,18 @@
 package pl.flipbot.playwright.marketstats;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Response;
+import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.scanner.model.Listing;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 @Slf4j
 public class MarketListingPublishedAtResolver {
@@ -24,10 +23,16 @@ public class MarketListingPublishedAtResolver {
     private static final String ANONYMOUS_MARKET_OBSERVER_NAME =
             "Anonymous Market Observer";
     private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
-    private static final int MAX_DETAIL_FALLBACK_PER_BATCH = 3;
+
+    private static final double DETAIL_NAVIGATION_TIMEOUT_MS = 30_000;
+    private static final double DETAIL_PUBLICATION_WAIT_MS = 6_000;
+    private static final double DETAIL_PUBLICATION_POLL_MS = 250;
+    private static final double DETAIL_INTER_NAVIGATION_DELAY_MS = 1_500;
+    private static final double SESSION_REFRESH_TIMEOUT_MS = 15_000;
+    private static final double SESSION_REFRESH_POLL_MS = 250;
 
     private static final String EXTRACT_PUBLISHED_AT_SCRIPT = """
-            async (entries) => {
+            (listingId) => {
                 const normalize = (value) =>
                     String(value ?? "")
                         .replace(/\\u00a0/g, " ")
@@ -53,8 +58,8 @@ public class MarketListingPublishedAtResolver {
                             .some(unit => lower.includes(unit));
                 };
 
-                const fromAddedLabel = (document) => {
-                    if (!document || !document.body) {
+                const fromAddedLabel = () => {
+                    if (!document.body) {
                         return null;
                     }
 
@@ -81,16 +86,19 @@ public class MarketListingPublishedAtResolver {
 
                         let container = item.node.parentElement;
 
-                        for (let depth = 0; container && depth < 5; depth++) {
-                            const time = container.querySelector('time[datetime]');
+                        for (let depth = 0; container && depth < 6; depth++) {
+                            const time = container.querySelector("time[datetime]");
                             if (time) {
-                                const datetime = normalize(time.getAttribute("datetime"));
+                                const datetime = normalize(
+                                    time.getAttribute("datetime")
+                                );
                                 if (datetime) {
                                     return `ISO|${datetime}`;
                                 }
                             }
 
-                            const datetimeElement = container.querySelector('[datetime]');
+                            const datetimeElement =
+                                container.querySelector("[datetime]");
                             if (datetimeElement) {
                                 const datetime = normalize(
                                     datetimeElement.getAttribute("datetime")
@@ -100,7 +108,9 @@ public class MarketListingPublishedAtResolver {
                                 }
                             }
 
-                            const containerText = normalize(container.textContent);
+                            const containerText = normalize(
+                                container.textContent
+                            );
                             if (containerText.toLowerCase().startsWith("dodane ")) {
                                 const candidate = normalize(
                                     containerText.substring("dodane".length)
@@ -115,7 +125,7 @@ public class MarketListingPublishedAtResolver {
 
                         for (
                             let nextIndex = index + 1;
-                            nextIndex < Math.min(textNodes.length, index + 10);
+                            nextIndex < Math.min(textNodes.length, index + 12);
                             nextIndex++
                         ) {
                             const candidate = textNodes[nextIndex].text;
@@ -128,20 +138,93 @@ public class MarketListingPublishedAtResolver {
                     return null;
                 };
 
-                const hydratedCreatedAt = (html, listingId) => {
-                    const id = String(listingId ?? "").trim();
-                    if (!id) {
+                const jsonLdDate = () => {
+                    const dateKeys = [
+                        "datePublished",
+                        "uploadDate",
+                        "dateCreated"
+                    ];
+
+                    const visit = (value) => {
+                        if (Array.isArray(value)) {
+                            for (const child of value) {
+                                const found = visit(child);
+                                if (found) {
+                                    return found;
+                                }
+                            }
+                            return null;
+                        }
+
+                        if (!value || typeof value !== "object") {
+                            return null;
+                        }
+
+                        const rawType = value["@type"];
+                        const types = Array.isArray(rawType)
+                            ? rawType
+                            : [rawType];
+
+                        const isItem = types.some(type => {
+                            const normalizedType =
+                                normalize(type).toLowerCase();
+                            return normalizedType === "product"
+                                || normalizedType === "offer";
+                        });
+
+                        if (isItem) {
+                            for (const key of dateKeys) {
+                                const candidate = value[key];
+                                if (typeof candidate === "string"
+                                        && normalize(candidate)) {
+                                    return normalize(candidate);
+                                }
+                            }
+                        }
+
+                        for (const child of Object.values(value)) {
+                            const found = visit(child);
+                            if (found) {
+                                return found;
+                            }
+                        }
+
+                        return null;
+                    };
+
+                    for (const script of document.querySelectorAll(
+                        'script[type="application/ld+json"]'
+                    )) {
+                        try {
+                            const found = visit(
+                                JSON.parse(script.textContent || "null")
+                            );
+                            if (found) {
+                                return found;
+                            }
+                        } catch (_) {
+                            // Ignore malformed third-party JSON-LD.
+                        }
+                    }
+
+                    return null;
+                };
+
+                const hydratedCreatedAt = () => {
+                    const id = normalize(listingId);
+                    if (!id || !document.documentElement) {
                         return null;
                     }
 
                     const slash = String.fromCharCode(92);
-                    const raw = String(html ?? "");
+                    const raw = document.documentElement.outerHTML || "";
                     const decoded = raw
                         .split(`${slash}u0022`).join('"')
-                        .split(`${slash}"`).join('"');
+                        .split(`${slash}\"`).join('"');
                     const variants = decoded === raw
                         ? [raw]
                         : [raw, decoded];
+
                     const idNeedles = [
                         `"id":${id}`,
                         `"id":"${id}"`,
@@ -209,19 +292,25 @@ public class MarketListingPublishedAtResolver {
                             let cursor = 0;
 
                             while (cursor < source.length) {
-                                const idIndex = source.indexOf(needle, cursor);
+                                const idIndex =
+                                    source.indexOf(needle, cursor);
                                 if (idIndex < 0) {
                                     break;
                                 }
 
                                 const from = Math.max(0, idIndex - 20000);
-                                const to = Math.min(source.length, idIndex + 20000);
+                                const to = Math.min(
+                                    source.length,
+                                    idIndex + 20000
+                                );
                                 const fragment = source.slice(from, to);
                                 const localIdIndex = idIndex - from;
 
-                                let timestampIndex = fragment.indexOf(timestampKey);
+                                let timestampIndex =
+                                    fragment.indexOf(timestampKey);
                                 let bestValue = null;
-                                let bestDistance = Number.POSITIVE_INFINITY;
+                                let bestDistance =
+                                    Number.POSITIVE_INFINITY;
 
                                 while (timestampIndex >= 0) {
                                     const value = readValue(
@@ -242,7 +331,8 @@ public class MarketListingPublishedAtResolver {
 
                                     timestampIndex = fragment.indexOf(
                                         timestampKey,
-                                        timestampIndex + timestampKey.length
+                                        timestampIndex
+                                            + timestampKey.length
                                     );
                                 }
 
@@ -258,168 +348,40 @@ public class MarketListingPublishedAtResolver {
                     return null;
                 };
 
-                const jsonLdDate = (document) => {
-                    const dateKeys = ["datePublished", "uploadDate", "dateCreated"];
-
-                    const visit = (value) => {
-                        if (Array.isArray(value)) {
-                            for (const child of value) {
-                                const found = visit(child);
-                                if (found) {
-                                    return found;
-                                }
-                            }
-                            return null;
-                        }
-
-                        if (!value || typeof value !== "object") {
-                            return null;
-                        }
-
-                        const rawType = value["@type"];
-                        const types = Array.isArray(rawType) ? rawType : [rawType];
-                        const isItem = types.some(type => {
-                            const normalizedType = normalize(type).toLowerCase();
-                            return normalizedType === "product"
-                                || normalizedType === "offer";
-                        });
-
-                        if (isItem) {
-                            for (const key of dateKeys) {
-                                const candidate = value[key];
-                                if (typeof candidate === "string" && normalize(candidate)) {
-                                    return normalize(candidate);
-                                }
-                            }
-                        }
-
-                        for (const child of Object.values(value)) {
-                            const found = visit(child);
-                            if (found) {
-                                return found;
-                            }
-                        }
-
-                        return null;
-                    };
-
-                    for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
-                        try {
-                            const found = visit(JSON.parse(script.textContent || "null"));
-                            if (found) {
-                                return found;
-                            }
-                        } catch (_) {
-                            // Ignore malformed third-party JSON-LD.
-                        }
-                    }
-
-                    return null;
-                };
-
-                const result = {};
-                let trafficBackoff = null;
-                let lastRequestStartedAt = 0;
-                const requestSpacingMs = 2000;
-
-                const paceRequest = async () => {
-                    const now = Date.now();
-                    const waitMs = Math.max(
-                        0,
-                        requestSpacingMs - (now - lastRequestStartedAt)
-                    );
-                    if (waitMs > 0) {
-                        await new Promise(resolve => setTimeout(resolve, waitMs));
-                    }
-                    lastRequestStartedAt = Date.now();
-                };
-
-                const fetchOne = async (entry) => {
-                    if (trafficBackoff) {
-                        return null;
-                    }
-
-                    await paceRequest();
-
-                    const controller = new AbortController();
-                    const timeout = setTimeout(() => controller.abort(), 7000);
-
-                    try {
-                        const url = new URL(entry.url, window.location.href).toString();
-                        const response = await fetch(url, {
-                            credentials: "include",
-                            redirect: "follow",
-                            signal: controller.signal,
-                            headers: {
-                                "Accept": "text/html,application/xhtml+xml"
-                            }
-                        });
-
-                        if (response.status === 429 || response.status === 403) {
-                            trafficBackoff = `HTTP_${response.status}`;
-                            return null;
-                        }
-
-                        if (!response.ok) {
-                            return null;
-                        }
-
-                        const html = await response.text();
-                        const lowerHtml = html.toLowerCase();
-
-                        if (lowerHtml.includes("access to this site is blocked for this computer")
-                                || lowerHtml.includes("twoja sesja została zablokowana")) {
-                            trafficBackoff = "BLOCK_PAGE";
-                            return null;
-                        }
-
-                        const hydrated = hydratedCreatedAt(html, entry.id);
-                        if (hydrated) {
-                            return [entry.id, `ISO|${hydrated}`];
-                        }
-
-                        const document = new DOMParser().parseFromString(
-                            html,
-                            "text/html"
-                        );
-
-                        const visibleAdded = fromAddedLabel(document);
-                        if (visibleAdded) {
-                            return [entry.id, visibleAdded];
-                        }
-
-                        const absolute = jsonLdDate(document);
-                        return absolute
-                            ? [entry.id, `ISO|${absolute}`]
-                            : null;
-                    } catch (_) {
-                        return null;
-                    } finally {
-                        clearTimeout(timeout);
-                    }
-                };
-
-                for (const entry of entries) {
-                    if (trafficBackoff) {
-                        break;
-                    }
-
-                    const resolved = await fetchOne(entry);
-                    if (resolved) {
-                        result[resolved[0]] = resolved[1];
-                    }
+                const visibleAdded = fromAddedLabel();
+                if (visibleAdded) {
+                    return visibleAdded;
                 }
 
-                if (trafficBackoff) {
-                    result["__FLIPBOT_TRAFFIC_BACKOFF__"] = trafficBackoff;
+                const absolute = jsonLdDate();
+                if (absolute) {
+                    return `ISO|${absolute}`;
                 }
 
-                return result;
+                const hydrated = hydratedCreatedAt();
+                return hydrated
+                    ? `ISO|${hydrated}`
+                    : null;
+            }
+            """;
+
+    private static final String BLOCK_PAGE_SCRIPT = """
+            () => {
+                const text = String(
+                    document.body?.innerText
+                        || document.documentElement?.innerText
+                        || ""
+                ).toLowerCase();
+
+                return text.includes(
+                    "access to this site is blocked for this computer"
+                ) || text.includes(
+                    "twoja sesja została zablokowana"
+                );
             }
             """;
 
     private final BotContext context;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public MarketListingPublishedAtResolver(BotContext context) {
         this.context = context;
@@ -432,15 +394,140 @@ public class MarketListingPublishedAtResolver {
             return;
         }
 
-        /*
-         * Prefer timestamps already hydrated into the filtered catalog page.
-         * This adds zero Vinted requests and, when available, resolves the whole
-         * visible batch before the detail-page fallback is considered.
-         */
-        new MarketCatalogPublishedAtResolver(context)
-                .captureIfAvailable(listings);
+        List<Listing> detailCandidates = detailCandidates(listings);
 
-        List<Map<String, String>> entries = new ArrayList<>();
+        if (detailCandidates.isEmpty()) {
+            return;
+        }
+
+        Page page = context.getPage();
+        String catalogUrl = page.url();
+
+        if (!MarketplaceUrls.isCatalogUrl(catalogUrl)) {
+            throw new IllegalStateException(
+                    "Market publication resolver expected to start from the filtered Vinted catalog, but current URL is "
+                            + catalogUrl
+            );
+        }
+
+        int resolvedCount = 0;
+        List<String> unresolvedIds = new ArrayList<>();
+        boolean trafficBackoff = false;
+
+        try {
+            for (int index = 0; index < detailCandidates.size(); index++) {
+                Listing listing = detailCandidates.get(index);
+                String listingId = listing.getId().trim();
+                String detailUrl = resolveTrustedListingUrl(listing.getUrl());
+
+                if (index > 0) {
+                    page.waitForTimeout(
+                            DETAIL_INTER_NAVIGATION_DELAY_MS
+                    );
+                }
+
+                log.info(
+                        "[MARKET STATS] Opening listing detail {}/{} to read Vinted publication time. listingId={}, url={}",
+                        index + 1,
+                        detailCandidates.size(),
+                        listingId,
+                        detailUrl
+                );
+
+                try {
+                    navigateToDetail(page, detailUrl, listingId);
+                    String rawPublishedAt =
+                            waitForPublishedAt(page, listingId);
+
+                    if (rawPublishedAt == null
+                            || rawPublishedAt.isBlank()) {
+                        unresolvedIds.add(listingId);
+                        log.warn(
+                                "[MARKET STATS] Listing detail loaded but publication time was not readable. listingId={}, url={}",
+                                listingId,
+                                page.url()
+                        );
+                        continue;
+                    }
+
+                    LocalDateTime observedAt =
+                            LocalDateTime.now(MARKET_ZONE);
+
+                    VintedPublishedAtParser.parse(
+                                    rawPublishedAt,
+                                    observedAt
+                            )
+                            .ifPresentOrElse(
+                                    publishedAt -> {
+                                        MarketStatsObservationContext
+                                                .recordPublishedAt(
+                                                        listingId,
+                                                        publishedAt
+                                                );
+
+                                        log.info(
+                                                "[MARKET STATS] Listing publication time resolved from its detail page. listingId={}, publishedAt={}, source='{}'.",
+                                                listingId,
+                                                publishedAt,
+                                                rawPublishedAt
+                                        );
+                                    },
+                                    () -> {
+                                        unresolvedIds.add(listingId);
+                                        log.warn(
+                                                "[MARKET STATS] Vinted publication label could not be parsed. listingId={}, source='{}'.",
+                                                listingId,
+                                                rawPublishedAt
+                                        );
+                                    }
+                            );
+
+                    if (!unresolvedIds.contains(listingId)) {
+                        resolvedCount++;
+                    }
+                } catch (RuntimeException exception) {
+                    if (containsTrafficBackoffMarker(exception)) {
+                        trafficBackoff = true;
+                        throw exception;
+                    }
+
+                    unresolvedIds.add(listingId);
+                    log.warn(
+                            "[MARKET STATS] Could not inspect listing detail for publication time. listingId={}, url={}, reason={}",
+                            listingId,
+                            detailUrl,
+                            safeMessage(exception)
+                    );
+                }
+            }
+        } finally {
+            if (!trafficBackoff) {
+                restoreCatalog(page, catalogUrl);
+            }
+        }
+
+        log.info(
+                "[MARKET STATS] Sequential detail-page publication scan resolved {}/{} required listing timestamps. Each required listing was opened in the observer browser; no background item fetch shortcut was used.",
+                resolvedCount,
+                detailCandidates.size()
+        );
+
+        if (!unresolvedIds.isEmpty()) {
+            log.warn(
+                    "[MARKET STATS] Publication timestamp is still unresolved for {}/{} required listing detail pages. sampleIds={}",
+                    unresolvedIds.size(),
+                    detailCandidates.size(),
+                    unresolvedIds.stream().limit(8).toList()
+            );
+        }
+    }
+
+    static List<Listing> detailCandidates(List<Listing> listings) {
+        List<Listing> candidates = new ArrayList<>();
+
+        if (listings == null || listings.isEmpty()) {
+            return candidates;
+        }
 
         for (Listing listing : listings) {
             if (listing == null
@@ -451,100 +538,187 @@ public class MarketListingPublishedAtResolver {
                 continue;
             }
 
+            String listingId = listing.getId().trim();
+
             MarketStatsObservationContext.recordObservedListingId(
-                    listing.getId()
+                    listingId
             );
 
-            if (entries.size() >= MAX_DETAIL_FALLBACK_PER_BATCH) {
-                continue;
-            }
-
-            if (!MarketStatsObservationContext.claimPublicationResolution(
-                    listing.getId()
+            if (MarketStatsObservationContext.claimPublicationResolution(
+                    listingId
             )) {
-                continue;
+                candidates.add(listing);
             }
-
-            Map<String, String> entry = new LinkedHashMap<>();
-            entry.put("id", listing.getId().trim());
-            entry.put("url", listing.getUrl().trim());
-            entries.add(entry);
         }
 
-        if (entries.isEmpty()) {
-            return;
+        return candidates;
+    }
+
+    private void navigateToDetail(
+            Page page,
+            String detailUrl,
+            String listingId
+    ) {
+        Response response = page.navigate(
+                detailUrl,
+                new Page.NavigateOptions()
+                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(DETAIL_NAVIGATION_TIMEOUT_MS)
+        );
+
+        throwIfRateLimitedResponse(response, "listing detail", listingId);
+        waitForSessionRefreshResolution(page, detailUrl);
+
+        if (!isExpectedListingUrl(page.url(), listingId)) {
+            throw new IllegalStateException(
+                    "Vinted listing navigation did not finish on the expected item. listingId="
+                            + listingId
+                            + ", currentUrl="
+                            + page.url()
+            );
         }
 
-        try {
-            Object rawResult = context.getPage().evaluate(
+        throwIfBlockedPage(page, listingId);
+    }
+
+    private String waitForPublishedAt(
+            Page page,
+            String listingId
+    ) {
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) DETAIL_PUBLICATION_WAIT_MS;
+
+        while (System.currentTimeMillis() <= deadline) {
+            throwIfBlockedPage(page, listingId);
+
+            Object raw = page.evaluate(
                     EXTRACT_PUBLISHED_AT_SCRIPT,
-                    entries
+                    listingId
             );
 
-            Map<String, String> payloads = objectMapper.convertValue(
-                    rawResult,
-                    new TypeReference<Map<String, String>>() {
-                    }
-            );
-
-            String trafficBackoff = payloads.remove(
-                    "__FLIPBOT_TRAFFIC_BACKOFF__"
-            );
-
-            LocalDateTime observedAt = LocalDateTime.now(MARKET_ZONE);
-            Set<String> resolvedIds = new HashSet<>();
-
-            for (Map.Entry<String, String> entry : payloads.entrySet()) {
-                VintedPublishedAtParser.parse(
-                                entry.getValue(),
-                                observedAt
-                        )
-                        .ifPresent(publishedAt -> {
-                            MarketStatsObservationContext.recordPublishedAt(
-                                    entry.getKey(),
-                                    publishedAt
-                            );
-                            resolvedIds.add(entry.getKey());
-
-                            log.debug(
-                                    "[MARKET STATS] Vinted publication time resolved. listingId={}, publishedAt={}, source='{}'.",
-                                    entry.getKey(),
-                                    publishedAt,
-                                    entry.getValue()
-                            );
-                        });
+            if (raw instanceof String value && !value.isBlank()) {
+                return value.trim();
             }
 
-            List<String> unresolvedIds = entries.stream()
-                    .map(entry -> entry.get("id"))
-                    .filter(id -> id != null && !resolvedIds.contains(id))
-                    .toList();
+            page.waitForTimeout(DETAIL_PUBLICATION_POLL_MS);
+        }
 
-            log.info(
-                    "[MARKET STATS] Publication detail fallback resolved {}/{} requested listing timestamps with paced sequential requests.",
-                    resolvedIds.size(),
-                    entries.size()
+        return null;
+    }
+
+    private void restoreCatalog(
+            Page page,
+            String catalogUrl
+    ) {
+        try {
+            Response response = page.navigate(
+                    catalogUrl,
+                    new Page.NavigateOptions()
+                            .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                            .setTimeout(DETAIL_NAVIGATION_TIMEOUT_MS)
             );
 
-            if (!unresolvedIds.isEmpty() && (trafficBackoff == null || trafficBackoff.isBlank())) {
-                log.warn(
-                        "[MARKET STATS] Publication timestamp still unresolved for {}/{} detail fallbacks. sampleIds={}",
-                        unresolvedIds.size(),
-                        entries.size(),
-                        unresolvedIds.stream().limit(8).toList()
+            throwIfRateLimitedResponse(
+                    response,
+                    "filtered catalog restore",
+                    null
+            );
+            waitForSessionRefreshResolution(page, catalogUrl);
+
+            if (!MarketplaceUrls.isCatalogUrl(page.url())) {
+                throw new IllegalStateException(
+                        "Market observer could not restore its filtered catalog after reading listing details. Current URL: "
+                                + page.url()
                 );
             }
 
-            /*
-             * Preserve any timestamps that were resolved before a 403/429. The
-             * caller's interrupted-context cleanup will flush them to backend,
-             * then the normal traffic-backoff policy still stops this pass.
-             */
-            if (trafficBackoff != null && !trafficBackoff.isBlank()) {
+            page.waitForTimeout(500);
+        } catch (RuntimeException exception) {
+            if (containsTrafficBackoffMarker(exception)) {
+                throw exception;
+            }
+
+            throw new IllegalStateException(
+                    "Market observer could not restore filtered catalog URL "
+                            + catalogUrl
+                            + " after reading listing publication times.",
+                    exception
+            );
+        }
+    }
+
+    private void waitForSessionRefreshResolution(
+            Page page,
+            String requestedUrl
+    ) {
+        if (!MarketplaceUrls.isSessionRefreshUrl(page.url())) {
+            return;
+        }
+
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) SESSION_REFRESH_TIMEOUT_MS;
+
+        while (System.currentTimeMillis() < deadline) {
+            if (page.isClosed()) {
                 throw new IllegalStateException(
-                        TRAFFIC_BACKOFF_MARKER
-                                + ": Vinted asked the market observer to back off while reading publication details. signal="
-                                + trafficBackoff
+                        "Vinted page closed while waiting for session-refresh during market publication lookup."
+                );
+            }
+
+            if (!MarketplaceUrls.isSessionRefreshUrl(page.url())) {
+                return;
+            }
+
+            page.waitForTimeout(SESSION_REFRESH_POLL_MS);
+        }
+
+        throw new IllegalStateException(
+                "Vinted session-refresh remained stuck while market observer was navigating to "
+                        + requestedUrl
+                        + ". Current URL: "
+                        + page.url()
+        );
+    }
+
+    private void throwIfRateLimitedResponse(
+            Response response,
+            String operation,
+            String listingId
+    ) {
+        if (response == null) {
+            return;
+        }
+
+        int status = response.status();
+
+        if (status == 403 || status == 429) {
+            throw trafficBackoff(
+                    "Vinted returned HTTP "
+                            + status
+                            + " during "
+                            + operation
+                            + (listingId == null
+                            ? ""
+                            : " for listing " + listingId)
+            );
+        }
+    }
+
+    private void throwIfBlockedPage(
+            Page page,
+            String listingId
+    ) {
+        try {
+            Object rawBlocked = page.evaluate(BLOCK_PAGE_SCRIPT);
+
+            if (Boolean.TRUE.equals(rawBlocked)) {
+                throw trafficBackoff(
+                        "Vinted rendered a session/traffic block page"
+                                + (listingId == null
+                                ? ""
+                                : " for listing " + listingId)
                 );
             }
         } catch (RuntimeException exception) {
@@ -552,11 +726,63 @@ public class MarketListingPublishedAtResolver {
                 throw exception;
             }
 
-            log.warn(
-                    "[MARKET STATS] Could not inspect {} listing detail pages for Vinted publication time.",
-                    entries.size(),
-                    exception
+            log.debug(
+                    "[MARKET STATS] Block-page probe was inconclusive for listing {}. reason={}",
+                    listingId,
+                    safeMessage(exception)
             );
+        }
+    }
+
+    private IllegalStateException trafficBackoff(String reason) {
+        return new IllegalStateException(
+                TRAFFIC_BACKOFF_MARKER + ": " + reason
+        );
+    }
+
+    private String resolveTrustedListingUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Market listing URL cannot be blank"
+            );
+        }
+
+        URI resolved = URI.create(MarketplaceUrls.HOME)
+                .resolve(rawUrl.trim());
+
+        String trustedUrl = resolved.toString();
+
+        if (!MarketplaceUrls.isVintedUrl(trustedUrl)) {
+            throw new IllegalArgumentException(
+                    "Refusing non-Vinted market listing URL: " + rawUrl
+            );
+        }
+
+        return trustedUrl;
+    }
+
+    private boolean isExpectedListingUrl(
+            String rawUrl,
+            String listingId
+    ) {
+        if (!MarketplaceUrls.isVintedUrl(rawUrl)
+                || listingId == null
+                || listingId.isBlank()) {
+            return false;
+        }
+
+        try {
+            String path = URI.create(rawUrl).getPath();
+            if (path == null) {
+                return false;
+            }
+
+            String prefix = "/items/" + listingId.trim();
+            return path.equals(prefix)
+                    || path.startsWith(prefix + "-")
+                    || path.startsWith(prefix + "/");
+        } catch (RuntimeException exception) {
+            return false;
         }
     }
 
@@ -569,9 +795,12 @@ public class MarketListingPublishedAtResolver {
 
         while (current != null) {
             String message = current.getMessage();
-            if (message != null && message.contains(TRAFFIC_BACKOFF_MARKER)) {
+
+            if (message != null
+                    && message.contains(TRAFFIC_BACKOFF_MARKER)) {
                 return true;
             }
+
             current = current.getCause();
         }
 
@@ -584,5 +813,22 @@ public class MarketListingPublishedAtResolver {
                 && ANONYMOUS_MARKET_OBSERVER_NAME.equals(
                         context.getBot().getName()
                 );
+    }
+
+    private String safeMessage(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown error";
+        }
+
+        String message = throwable.getMessage();
+
+        if (message == null || message.isBlank()) {
+            return throwable.getClass().getSimpleName();
+        }
+
+        return message.lines()
+                .findFirst()
+                .orElse(message)
+                .trim();
     }
 }
