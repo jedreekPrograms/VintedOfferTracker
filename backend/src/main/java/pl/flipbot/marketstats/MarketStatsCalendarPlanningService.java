@@ -90,32 +90,45 @@ public class MarketStatsCalendarPlanningService {
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
 
-        int offersToday = countNewListings(
+        int offersToday = countPublishedListings(
                 model.getId(),
                 windows.todayStart(),
                 windows.now()
         );
-        int offersCurrentWeek = countNewListings(
+        int offersCurrentWeek = countPublishedListings(
                 model.getId(),
                 windows.currentWeekStart(),
                 windows.now()
         );
 
-        boolean todayWindowComplete =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.todayStart()
-                );
-        boolean currentWeekWindowComplete =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.currentWeekStart()
-                );
-        boolean previousFullWeekAvailable =
-                MarketStatsPlanningCalculator.coversWindowFrom(
-                        baselineCompleteAt,
-                        windows.previousWeekStart()
-                );
+        LocalDateTime lastSuccessfulScanAt = state.getLastSuccessfulScanAt();
+        boolean publicationCoverageEstablished =
+                state.getPublicationWindowCompleteAt() != null;
+        boolean latestScanComplete =
+                Boolean.TRUE.equals(state.getLastScanComplete());
+        boolean successfulScanToday = lastSuccessfulScanAt != null
+                && !lastSuccessfulScanAt.isBefore(windows.todayStart());
+        boolean successfulScanThisWeek = lastSuccessfulScanAt != null
+                && !lastSuccessfulScanAt.isBefore(windows.currentWeekStart());
+
+        /*
+         * `last_scan_complete` predates publication-time backfill and therefore
+         * cannot prove that calendar windows are reconstructable. The separate
+         * publication-window marker is set only after a forced filtered-catalog
+         * traversal completes with every required Vinted publication timestamp.
+         *
+         * For today/current-week figures we also require the latest complete
+         * scan to be from today, so a process restart or overnight gap cannot
+         * present yesterday's snapshot as current. The previous full week only
+         * needs one successful scan in the current week, because that scan
+         * overlaps the already-established publication history.
+         */
+        boolean todayWindowComplete = publicationCoverageEstablished
+                && latestScanComplete
+                && successfulScanToday;
+        boolean currentWeekWindowComplete = todayWindowComplete;
+        boolean previousFullWeekAvailable = publicationCoverageEstablished
+                && successfulScanThisWeek;
 
         Integer offersPreviousFullWeek = null;
         int recommendationWeeklyOffers;
@@ -127,7 +140,7 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            offersPreviousFullWeek = countNewListings(
+            offersPreviousFullWeek = countPublishedListings(
                     model.getId(),
                     windows.previousWeekStart(),
                     windows.currentWeekStart()
@@ -135,7 +148,7 @@ public class MarketStatsCalendarPlanningService {
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
-            int observedSinceBaseline = countNewListings(
+            int observedSinceBaseline = countPublishedListings(
                     model.getId(),
                     baselineCompleteAt,
                     windows.now()
@@ -143,7 +156,7 @@ public class MarketStatsCalendarPlanningService {
             recommendationWeeklyOffers =
                     MarketStatsPlanningCalculator.projectWeeklyOffers(
                             observedSinceBaseline,
-                            trackedDays
+                            Math.max(trackedDays, 1)
                     );
             recommendationEstimated = true;
         }
@@ -167,11 +180,11 @@ public class MarketStatsCalendarPlanningService {
                 previousFullWeekAvailable,
                 trackedDays,
                 state.getLastScanAt(),
-                Boolean.TRUE.equals(state.getLastScanComplete())
+                latestScanComplete
         );
     }
 
-    private int countNewListings(
+    private int countPublishedListings(
             Long modelId,
             LocalDateTime fromInclusive,
             LocalDateTime toExclusive
@@ -183,7 +196,7 @@ public class MarketStatsCalendarPlanningService {
         }
 
         return safeInt(
-                observationRepository.countNewListingsBetween(
+                observationRepository.countPublishedListingsBetween(
                         modelId,
                         fromInclusive,
                         toExclusive

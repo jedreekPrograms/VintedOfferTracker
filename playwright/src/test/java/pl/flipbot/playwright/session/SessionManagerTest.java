@@ -94,17 +94,22 @@ public class SessionManagerTest {
     }
 
     @Test
-    public void zeroByteSessionIsNotConsideredUsable()
+    public void zeroByteSessionFailsClosed()
             throws Exception {
         Path sessions = temporaryFolder.newFolder("zero-byte").toPath();
         SessionManager manager = new SessionManager(sessions);
         Files.createFile(manager.sessionFile(6L));
 
-        assertFalse(manager.sessionExists(6L));
+        try {
+            manager.sessionExists(6L);
+            fail("Zero-byte stored session should fail closed");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("Refusing to treat it as a missing session"));
+        }
     }
 
     @Test
-    public void validatedStagedSessionReplacesActiveSession()
+    public void validatedStagedSessionReplacesActiveSessionAndRotatesOneBackup()
             throws Exception {
         Path sessions = temporaryFolder.newFolder("atomic-valid").toPath();
         SessionManager manager = new SessionManager(sessions);
@@ -123,6 +128,45 @@ public class SessionManagerTest {
 
         assertArrayEquals(replacement, Files.readAllBytes(activeSession));
         assertFalse(Files.exists(stagedSession));
+
+        Path backup = sessions.resolve("backups/bot-3-last-known-good.json");
+        assertTrue(Files.exists(backup));
+        assertArrayEquals(original, Files.readAllBytes(backup));
+    }
+
+    @Test
+    public void repeatedSuccessfulReplacementsKeepOnlyLatestRotatingBackup()
+            throws Exception {
+        Path sessions = temporaryFolder.newFolder("rotating-last-known-good").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        Path activeSession = manager.sessionFile(3L);
+        Path firstStaged = sessions.resolve("first.json.tmp");
+        Path secondStaged = sessions.resolve("second.json.tmp");
+
+        byte[] first = "{\"cookies\":[],\"origins\":[],\"marker\":\"first\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        byte[] second = "{\"cookies\":[],\"origins\":[],\"marker\":\"second\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        byte[] third = "{\"cookies\":[],\"origins\":[],\"marker\":\"third\"}"
+                .getBytes(StandardCharsets.UTF_8);
+
+        Files.write(activeSession, first);
+        Files.write(firstStaged, second);
+        manager.installStagedSession(3L, firstStaged);
+
+        Files.write(secondStaged, third);
+        manager.installStagedSession(3L, secondStaged);
+
+        Path backups = sessions.resolve("backups");
+        List<Path> files;
+        try (var stream = Files.list(backups)) {
+            files = stream.toList();
+        }
+
+        assertEquals(1, files.size());
+        assertEquals("bot-3-last-known-good.json", files.getFirst().getFileName().toString());
+        assertArrayEquals(second, Files.readAllBytes(files.getFirst()));
+        assertArrayEquals(third, Files.readAllBytes(activeSession));
     }
 
     @Test
@@ -190,22 +234,13 @@ public class SessionManagerTest {
         assertTrue(Files.exists(activeSession));
         assertArrayEquals(original, Files.readAllBytes(activeSession));
 
-        Path backups = sessions.resolve("backups");
-        assertTrue(Files.isDirectory(backups));
-
-        List<Path> files;
-        try (var stream = Files.list(backups)) {
-            files = stream.toList();
-        }
-
-        assertEquals(1, files.size());
-        assertTrue(files.getFirst().getFileName().toString().startsWith("bot-3-"));
-        assertTrue(files.getFirst().getFileName().toString().endsWith(".json"));
-        assertArrayEquals(original, Files.readAllBytes(files.getFirst()));
+        Path backup = sessions.resolve("backups/bot-3-recovery.json");
+        assertTrue(Files.exists(backup));
+        assertArrayEquals(original, Files.readAllBytes(backup));
     }
 
     @Test
-    public void repeatedRecoveryBackupsNeverMutateActiveSession()
+    public void repeatedRecoveryBackupsRotateInsteadOfAccumulating()
             throws Exception {
         Path sessions = temporaryFolder.newFolder("repeated-backups").toPath();
         SessionManager manager = new SessionManager(sessions);
@@ -222,7 +257,7 @@ public class SessionManagerTest {
         assertArrayEquals(original, Files.readAllBytes(activeSession));
 
         try (var stream = Files.list(sessions.resolve("backups"))) {
-            assertEquals(2L, stream.count());
+            assertEquals(1L, stream.count());
         }
     }
 

@@ -10,8 +10,6 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -39,9 +37,6 @@ public class SessionManager {
 
     private static final String BACKUP_DIRECTORY_NAME =
             "backups";
-
-    private static final DateTimeFormatter BACKUP_TIMESTAMP_FORMAT =
-            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS");
 
     private final Path sessionDirectory;
 
@@ -144,16 +139,31 @@ public class SessionManager {
 
     public boolean sessionExists(Long botId) {
         Path session = sessionFile(botId);
+
+        if (!Files.exists(session)) {
+            return false;
+        }
+
         try {
-            return Files.isRegularFile(session) && Files.size(session) > 0;
+            if (!Files.isRegularFile(session) || Files.size(session) == 0) {
+                throw new IllegalStateException(
+                        "Stored session for bot " + botId
+                                + " exists but is empty or is not a regular file: "
+                                + session
+                                + ". Refusing to treat it as a missing session because that could silently start a clean browser context."
+                );
+            }
+
+            JsonNode root = OBJECT_MAPPER.readTree(session.toFile());
+            SessionSnapshotValidator.validateShape(botId, root);
+            return true;
         } catch (IOException exception) {
-            log.warn(
-                    "[SESSION] Could not inspect stored session for bot {}: {}",
-                    botId,
-                    session,
+            throw new IllegalStateException(
+                    "Could not validate stored session for bot " + botId
+                            + ": " + session
+                            + ". Refusing clean-context fallback.",
                     exception
             );
-            return false;
         }
     }
 
@@ -174,16 +184,6 @@ public class SessionManager {
         }
 
         try {
-            /*
-             * Never let Playwright write directly into the active bot-X.json.
-             * A failed/interrupted storageState write can truncate its target.
-             * Write to a sibling staging file first, validate it, and only then
-             * replace the active session.
-             *
-             * Cookies and localStorage are sufficient for the Vinted session.
-             * Persisting IndexedDB caused Playwright to save entries that could
-             * later fail BrowserContext creation with "Unable to restore IndexedDB".
-             */
             context.storageState(
                     new BrowserContext.StorageStateOptions()
                             .setPath(stagedSession)
@@ -200,19 +200,97 @@ public class SessionManager {
             Path stagedSession
     ) {
         Path activeSession = sessionFile(botId);
-        validateStagedSession(botId, stagedSession);
+        JsonNode stagedRoot = validateStagedSession(botId, stagedSession);
+        JsonNode activeRoot = readActiveSessionForReplacement(
+                botId,
+                activeSession
+        );
 
+        SessionSnapshotValidator.validateDoesNotLoseEstablishedCookies(
+                botId,
+                activeRoot,
+                stagedRoot
+        );
+
+        if (activeRoot != null) {
+            preserveRotatingBackup(botId, activeSession, "last-known-good");
+        }
+
+        installValidatedFile(botId, stagedSession, activeSession);
+    }
+
+    public boolean restoreLastKnownGood(Long botId) {
+        Path activeSession = sessionFile(botId);
+        Path backup = sessionDirectory
+                .resolve(BACKUP_DIRECTORY_NAME)
+                .resolve("bot-" + botId + "-last-known-good.json");
+
+        if (!Files.exists(backup)) {
+            log.warn(
+                    "[SESSION] No last-known-good backup is available for bot {}. Active session remains unchanged: {}",
+                    botId,
+                    activeSession
+            );
+            return false;
+        }
+
+        Path stagedRestore = null;
+
+        try {
+            stagedRestore = Files.createTempFile(
+                    sessionDirectory,
+                    ".bot-" + botId + "-restore-",
+                    ".json.tmp"
+            );
+            Files.copy(
+                    backup,
+                    stagedRestore,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+            validateStagedSession(botId, stagedRestore);
+
+            if (Files.exists(activeSession)) {
+                preserveRotatingBackup(botId, activeSession, "recovery");
+            }
+
+            installValidatedFile(botId, stagedRestore, activeSession);
+
+            log.warn(
+                    "[SESSION] Restored last-known-good session for bot {} after the current browser state became untrustworthy. backup={}, active={}",
+                    botId,
+                    backup,
+                    activeSession
+            );
+            return true;
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not restore last-known-good session for bot " + botId
+                            + "; the active session was left unchanged whenever possible.",
+                    exception
+            );
+        } finally {
+            if (stagedRestore != null) {
+                deleteQuietly(stagedRestore);
+            }
+        }
+    }
+
+    private void installValidatedFile(
+            Long botId,
+            Path source,
+            Path activeSession
+    ) {
         try {
             try {
                 Files.move(
-                        stagedSession,
+                        source,
                         activeSession,
                         StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING
                 );
             } catch (AtomicMoveNotSupportedException exception) {
                 Files.move(
-                        stagedSession,
+                        source,
                         activeSession,
                         StandardCopyOption.REPLACE_EXISTING
                 );
@@ -232,7 +310,7 @@ public class SessionManager {
         }
     }
 
-    private void validateStagedSession(
+    private JsonNode validateStagedSession(
             Long botId,
             Path stagedSession
     ) {
@@ -247,20 +325,43 @@ public class SessionManager {
             }
 
             JsonNode root = OBJECT_MAPPER.readTree(stagedSession.toFile());
-            if (root == null
-                    || !root.isObject()
-                    || !root.path("cookies").isArray()
-                    || !root.path("origins").isArray()) {
-                throw new IllegalStateException(
-                        "Playwright produced an invalid storageState JSON for bot "
-                                + botId
-                                + "; refusing to replace the active session."
-                );
-            }
+            SessionSnapshotValidator.validateShape(botId, root);
+            return root;
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Could not validate staged session state for bot " + botId
                             + "; refusing to replace the active session.",
+                    exception
+            );
+        }
+    }
+
+    private JsonNode readActiveSessionForReplacement(
+            Long botId,
+            Path activeSession
+    ) {
+        if (!Files.exists(activeSession)) {
+            return null;
+        }
+
+        try {
+            if (!Files.isRegularFile(activeSession)
+                    || Files.size(activeSession) == 0) {
+                throw new IllegalStateException(
+                        "Active session for bot " + botId
+                                + " is empty or is not a regular file: "
+                                + activeSession
+                                + ". Refusing to replace or silently recover it."
+                );
+            }
+
+            JsonNode root = OBJECT_MAPPER.readTree(activeSession.toFile());
+            SessionSnapshotValidator.validateShape(botId, root);
+            return root;
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Could not read the active session for bot " + botId
+                            + "; refusing to replace the last-known-good file.",
                     exception
             );
         }
@@ -278,17 +379,6 @@ public class SessionManager {
         }
     }
 
-    /**
-     * Preserves a recovery snapshot without ever removing the active session.
-     *
-     * <p>The historical method name is kept temporarily because the browser
-     * context recovery path already calls it, but its contract is deliberately
-     * non-destructive: sessions/bot-X.json remains exactly where it is.</p>
-     *
-     * <p>A timestamped copy is written under sessions/backups before recovery
-     * continues. If the backup cannot be created, this method fails closed so
-     * recovery cannot proceed without a preserved copy.</p>
-     */
     public void invalidateSession(Long botId) {
         Path source = sessionFile(botId);
 
@@ -301,16 +391,31 @@ public class SessionManager {
             return;
         }
 
+        preserveRotatingBackup(botId, source, "recovery");
+    }
+
+    private void preserveRotatingBackup(
+            Long botId,
+            Path source,
+            String reason
+    ) {
         Path backupDirectory = sessionDirectory.resolve(BACKUP_DIRECTORY_NAME);
 
         try {
             Files.createDirectories(backupDirectory);
 
-            Path backup = nextBackupFile(botId, backupDirectory);
-            Files.copy(source, backup);
+            Path backup = backupDirectory.resolve(
+                    "bot-" + botId + "-" + reason + ".json"
+            );
+            Files.copy(
+                    source,
+                    backup,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
 
-            log.warn(
-                    "[SESSION] Preserved recovery backup for bot {} without removing the active session. active={}, backup={}",
+            log.debug(
+                    "[SESSION] Refreshed {} backup for bot {} without removing the active session. active={}, backup={}",
+                    reason,
                     botId,
                     source,
                     backup
@@ -318,29 +423,10 @@ public class SessionManager {
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Could not back up stored session for bot " + botId
-                            + "; refusing clean-context recovery so the active session is not put at risk.",
+                            + "; refusing session replacement/recovery so the active session is not put at risk.",
                     exception
             );
         }
-    }
-
-    private Path nextBackupFile(
-            Long botId,
-            Path backupDirectory
-    ) {
-        String timestamp = BACKUP_TIMESTAMP_FORMAT.format(LocalDateTime.now());
-        String baseName = "bot-" + botId + "-" + timestamp;
-        Path candidate = backupDirectory.resolve(baseName + ".json");
-
-        int suffix = 1;
-        while (Files.exists(candidate)) {
-            candidate = backupDirectory.resolve(
-                    baseName + "-" + suffix + ".json"
-            );
-            suffix++;
-        }
-
-        return candidate;
     }
 
     public Path sessionFile(Long botId) {
