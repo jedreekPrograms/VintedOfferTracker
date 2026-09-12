@@ -138,6 +138,16 @@ final class VintedPublishedAtParser {
             return Optional.of(observedAt.minusDays(2L));
         }
 
+        /*
+         * Confirmed from Vinted's live item DOM. The exact
+         * [data-testid="item-attributes-upload_date"] field can render the
+         * singular one-week age literally as "tygodnia", without a numeric
+         * prefix or datetime attribute.
+         */
+        if (normalized.equals("tygodnia")) {
+            return Optional.of(observedAt.minusWeeks(1L));
+        }
+
         Matcher matcher = NUMBER_AND_UNIT.matcher(normalized);
 
         if (!matcher.matches()) {
