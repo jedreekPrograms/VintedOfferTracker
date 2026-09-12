@@ -46,6 +46,17 @@ public class VintedPublishedAtParserTest {
     }
 
     @Test
+    public void parsesConfirmedSingularVintedWeekAge() {
+        assertEquals(
+                LocalDateTime.of(2026, 9, 4, 19, 40),
+                VintedPublishedAtParser.parse(
+                        "REL|tygodnia",
+                        OBSERVED_AT
+                ).orElseThrow()
+        );
+    }
+
+    @Test
     public void convertsUtcTimestampToWarsawTime() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 11, 12, 0),
