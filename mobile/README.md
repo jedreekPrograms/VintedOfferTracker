@@ -61,6 +61,16 @@ Ten adres wpisujesz w aplikacji FlipBot Mobile. Jest stały dla tego urządzenia
 
 Warunki działania są tylko dwa: komputer z FlipBotem musi być włączony i mieć Internet, a telefon musi mieć aktywne połączenie Tailscale.
 
+## Aktualizacje aplikacji i błąd `domain undefined`
+
+Standalone APK zawiera własny bundle JavaScript, więc zwykłe `git pull` na komputerze nie aktualizuje już zainstalowanej aplikacji na telefonie. Po zmianach w `mobile/App.tsx` trzeba zbudować i zainstalować nowszy APK albo uruchomić projekt przez Expo podczas developmentu.
+
+Od wersji `1.0.1` aplikacja korzysta z kodu, który odrzuca zapisane hosty `undefined`, `null` i `nan`. Nieprawidłowy adres jest usuwany z AsyncStorage, a aplikacja otwiera ekran ustawień połączenia zamiast próbować ładować `http://undefined` i kończyć na `net::ERR_NAME_NOT_RESOLVED`.
+
+Jeżeli telefon nadal pokazuje `domain undefined`, oznacza to, że uruchomiony jest starszy bundle APK. Najprostsza ścieżka naprawy to zainstalować aktualny build aplikacji. Doraźnie można też wyczyścić dane aplikacji lub ją odinstalować i zainstalować ponownie, a następnie wpisać prawidłowy adres `.ts.net` z `tailscale serve status`.
+
+Samego Tailscale Serve nie trzeba konfigurować ponownie, jeśli jego adres HTTPS otwiera panel FlipBot w zwykłej przeglądarce telefonu przy aktywnym Tailscale.
+
 ## Alternatywa w domu
 
 Aplikacja nadal akceptuje zwykły adres LAN, np.:
