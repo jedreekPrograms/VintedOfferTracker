@@ -30,6 +30,7 @@ class MarketStatsScanCompletenessServiceTest {
     void requiresFullScanWhenPreviousScanWasIncomplete() {
         MarketModelScanState state = MarketModelScanState.builder()
                 .baselineCompleteAt(LocalDateTime.of(2026, 9, 9, 10, 0))
+                .publicationWindowCompleteAt(LocalDateTime.of(2026, 9, 9, 10, 5))
                 .lastScanComplete(false)
                 .build();
 
@@ -39,15 +40,29 @@ class MarketStatsScanCompletenessServiceTest {
     }
 
     @Test
-    void allowsKnownBoundaryAfterCompleteBaselineAndScan() {
+    void allowsKnownBoundaryAfterCompletePublicationWindowScan() {
         MarketModelScanState state = MarketModelScanState.builder()
                 .baselineCompleteAt(LocalDateTime.of(2026, 9, 9, 10, 0))
+                .publicationWindowCompleteAt(LocalDateTime.of(2026, 9, 9, 10, 5))
                 .lastScanComplete(true)
                 .build();
 
         when(scanStateRepository.findById(68L)).thenReturn(Optional.of(state));
 
         assertFalse(service.requiresFullCatalogScan(68L));
+    }
+
+    @Test
+    void requiresFullScanForLegacyCompleteStateWithoutPublicationCoverage() {
+        MarketModelScanState state = MarketModelScanState.builder()
+                .baselineCompleteAt(LocalDateTime.of(2026, 9, 9, 10, 0))
+                .publicationWindowCompleteAt(null)
+                .lastScanComplete(true)
+                .build();
+
+        when(scanStateRepository.findById(68L)).thenReturn(Optional.of(state));
+
+        assertTrue(service.requiresFullCatalogScan(68L));
     }
 
     @Test

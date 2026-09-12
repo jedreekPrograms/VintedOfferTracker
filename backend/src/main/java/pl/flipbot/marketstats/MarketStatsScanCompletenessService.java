@@ -18,6 +18,7 @@ public class MarketStatsScanCompletenessService {
 
         return scanStateRepository.findById(modelId)
                 .map(state -> state.getBaselineCompleteAt() == null
+                        || state.getPublicationWindowCompleteAt() == null
                         || !Boolean.TRUE.equals(state.getLastScanComplete()))
                 .orElse(true);
     }

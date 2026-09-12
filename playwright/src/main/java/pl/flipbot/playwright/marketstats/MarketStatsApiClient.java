@@ -12,6 +12,7 @@ import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
 import java.net.http.HttpResponse;
+import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -124,6 +125,9 @@ public class MarketStatsApiClient extends ApiClient {
                 }
         );
 
+        Map<String, LocalDateTime> persistedPublicationTimes =
+                loadPersistedPublicationTimes(modelId);
+
         HttpResponse<String> fullScanResponse = get(
                 "/api/market-stats/models/"
                         + modelId
@@ -139,17 +143,19 @@ public class MarketStatsApiClient extends ApiClient {
         );
 
         /*
-         * A full catalog retry is about traversal completeness, not about
-         * re-downloading publication time for every already-resolved listing.
-         * Only new rows and rows explicitly missing published_at need another
-         * publication lookup. This keeps retries incremental and avoids turning
-         * one incomplete model into hundreds of repeated detail requests.
+         * A forced traversal must not throw away exact publication timestamps
+         * that were already persisted by a previous attempt. They are immutable
+         * Vinted facts and are now seeded into the observation context so both
+         * publication-completeness checks and the historical stop boundary can
+         * use them without reopening those item pages.
          */
         MarketStatsObservationContext.begin(
                 modelId,
                 knownState.listingIds(),
                 missingPublicationListingIds,
-                false
+                false,
+                fullCatalogScanRequired,
+                persistedPublicationTimes
         );
 
         if (!fullCatalogScanRequired) {
@@ -157,17 +163,15 @@ public class MarketStatsApiClient extends ApiClient {
         }
 
         log.info(
-                "[MARKET STATS] Model {} previous scan was incomplete (or baseline is unfinished). "
-                        + "Forcing a full filtered-catalog traversal. Already stored publication timestamps are reused; only new/missing timestamps are resolved again.",
+                "[MARKET STATS] Model {} requires a full filtered-catalog traversal because its baseline/publication window is unfinished or its previous scan was incomplete. Already stored publication timestamps are reused; only new/missing timestamps are resolved again.",
                 modelId
         );
 
         /*
          * MarketStatsCollector uses known listing ids only as an early-stop
-         * boundary. Keep the real ids in MarketStatsObservationContext above,
-         * but hide that boundary for this retry so the collector must walk the
-         * complete filtered catalog. Once the backend records a complete pass,
-         * later scans receive the normal known-id list again.
+         * boundary. Keep the real ids and their publication timestamps in the
+         * observation context above, but hide that boundary for this retry so
+         * the collector must prove a complete filtered-catalog/statistics window.
          */
         return new KnownMarketListingIdsDto(
                 knownState.modelId(),
@@ -193,11 +197,13 @@ public class MarketStatsApiClient extends ApiClient {
                                     acceptedIds
                             );
             boolean effectiveComplete = complete && publicationComplete;
+            boolean forcedFullCatalogScan =
+                    MarketStatsObservationContext.fullCatalogScanRequired(modelId);
 
             if (complete && !publicationComplete) {
                 log.warn(
                         "[MARKET STATS] Model {} catalog scan reached its normal completion boundary, "
-                                + "but at least one required Vinted publication time is still unresolved. "
+                                + "but at least one accepted listing still has no Vinted publication time. "
                                 + "The scan will remain incomplete and be retried.",
                         modelId
                 );
@@ -215,7 +221,7 @@ public class MarketStatsApiClient extends ApiClient {
                 /*
                  * First persist the observed IDs with lastScanComplete=false.
                  * New rows must exist before the publication-time update can
-                 * target them. Only after the publication timestamps have been
+                 * target them. Only after fresh publication timestamps have been
                  * stored do we mark a fully resolved pass complete.
                  */
                 recorded = postObservations(
@@ -236,6 +242,10 @@ public class MarketStatsApiClient extends ApiClient {
                             true
                     );
                 }
+            }
+
+            if (effectiveComplete && forcedFullCatalogScan) {
+                markPublicationWindowComplete(modelId);
             }
 
             return recorded;
@@ -299,12 +309,66 @@ public class MarketStatsApiClient extends ApiClient {
         );
     }
 
+    private Map<String, LocalDateTime> loadPersistedPublicationTimes(
+            Long modelId
+    ) {
+        HttpResponse<String> response = get(
+                "/api/market-stats/models/"
+                        + modelId
+                        + "/publication-times"
+        );
+        requireSuccess(
+                response,
+                "load stored Vinted publication times"
+        );
+
+        Map<String, String> raw = readBody(
+                response,
+                new TypeReference<Map<String, String>>() {
+                }
+        );
+
+        if (raw == null || raw.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, LocalDateTime> parsed = new LinkedHashMap<>();
+
+        for (Map.Entry<String, String> entry : raw.entrySet()) {
+            String listingId = entry.getKey();
+            String value = entry.getValue();
+
+            if (listingId == null
+                    || listingId.isBlank()
+                    || value == null
+                    || value.isBlank()) {
+                continue;
+            }
+
+            try {
+                parsed.put(
+                        listingId.trim(),
+                        LocalDateTime.parse(value.trim())
+                );
+            } catch (DateTimeException exception) {
+                log.warn(
+                        "[MARKET STATS] Ignoring malformed stored publication time for model {} / listing {}: '{}'. The listing will be resolved again if encountered.",
+                        modelId,
+                        listingId,
+                        value
+                );
+            }
+        }
+
+        return Map.copyOf(parsed);
+    }
+
     private void flushResolvedPublicationTimes(
             Long modelId,
             List<String> listingIds
     ) {
         Map<String, LocalDateTime> resolved =
-                MarketStatsObservationContext.resolvedFor(
+                MarketStatsObservationContext.freshlyResolvedFor(
                         modelId,
                         listingIds
                 );
@@ -341,11 +405,29 @@ public class MarketStatsApiClient extends ApiClient {
                             + updated
                             + " of "
                             + payload.size()
-                            + " resolved listings in model "
+                            + " freshly resolved listings in model "
                             + modelId
                             + "."
             );
         }
+    }
+
+    private void markPublicationWindowComplete(Long modelId) {
+        HttpResponse<String> response = post(
+                "/api/market-stats/models/"
+                        + modelId
+                        + "/publication-window-complete"
+        );
+
+        requireSuccess(
+                response,
+                "mark market publication window complete"
+        );
+
+        log.info(
+                "[MARKET STATS] Model {} established a complete Vinted publication-time window. Future scans may safely reuse persisted timestamps and the known-listing boundary.",
+                modelId
+        );
     }
 
     private void requireSuccess(

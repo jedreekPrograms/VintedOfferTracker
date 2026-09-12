@@ -21,11 +21,20 @@ public class MarketStatsPublicationSchemaInitializer implements ApplicationRunne
                     ADD COLUMN IF NOT EXISTS published_at TIMESTAMP
                 """);
 
+        jdbcTemplate.execute("""
+                ALTER TABLE market_model_scan_state
+                    ADD COLUMN IF NOT EXISTS publication_window_complete_at TIMESTAMP
+                """);
+
         /*
          * Some earlier development builds temporarily copied first_seen_at into
          * published_at. That is observer time, not Vinted publication time.
          * Clear only that exact synthetic shape so the read-only observer can
          * backfill the real `Dodane ...` value from the item page.
+         *
+         * publication_window_complete_at deliberately remains NULL for legacy
+         * scan states. A model must prove the real Vinted publication window at
+         * least once before the calendar UI may call its statistics complete.
          */
         int clearedSynthetic = jdbcTemplate.update("""
                 UPDATE market_listing_observation
@@ -40,7 +49,7 @@ public class MarketStatsPublicationSchemaInitializer implements ApplicationRunne
                 """);
 
         log.info(
-                "[MARKET STATS] Verified publication-time schema compatibility; cleared {} synthetic first-seen timestamps for Vinted backfill.",
+                "[MARKET STATS] Verified publication-time schema compatibility and publication-window coverage state; cleared {} synthetic first-seen timestamps for Vinted backfill.",
                 clearedSynthetic
         );
     }

@@ -18,6 +18,11 @@ public interface MarketListingObservationRepository
             Collection<String> marketplaceListingIds
     );
 
+    List<MarketListingObservation>
+    findAllByModel_IdAndPublishedAtIsNotNull(
+            Long modelId
+    );
+
     long countByModel_IdAndBaselineFalseAndFirstSeenAtAfter(
             Long modelId,
             LocalDateTime firstSeenAfter
