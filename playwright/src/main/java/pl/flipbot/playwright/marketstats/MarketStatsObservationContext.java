@@ -32,6 +32,19 @@ final class MarketStatsObservationContext {
         );
     }
 
+    static boolean needsPublicationResolution(String listingId) {
+        State state = CURRENT.get();
+
+        if (state == null || listingId == null || listingId.isBlank()) {
+            return false;
+        }
+
+        String normalized = listingId.trim();
+
+        return needsPublicationResolution(state, normalized)
+                && !state.publishedAtByListingId().containsKey(normalized);
+    }
+
     static boolean claimPublicationResolution(String listingId) {
         State state = CURRENT.get();
 
@@ -41,7 +54,7 @@ final class MarketStatsObservationContext {
 
         String normalized = listingId.trim();
 
-        if (!needsPublicationResolution(state, normalized)) {
+        if (!needsPublicationResolution(normalized)) {
             return false;
         }
 
