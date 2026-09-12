@@ -18,6 +18,7 @@ import { WebView } from "react-native-webview";
 
 const STORAGE_KEY = "flipbot.mobile.serverUrl";
 const EXAMPLE_URL = "https://twoj-komputer.twoj-tailnet.ts.net";
+const INVALID_HOST_VALUES = new Set(["undefined", "null", "nan"]);
 
 type ConnectionState = "idle" | "loading" | "online" | "offline";
 
@@ -73,13 +74,33 @@ function normalizeUrl(value: string): string {
   let normalized = value.trim();
   if (!normalized) return "";
 
+  const rawLower = normalized.toLowerCase();
+  if (INVALID_HOST_VALUES.has(rawLower)) return "";
+
   if (!/^https?:\/\//i.test(normalized)) {
     normalized = normalized.toLowerCase().endsWith(".ts.net")
       ? `https://${normalized}`
       : `http://${normalized}`;
   }
 
-  return normalized.replace(/\/+$/, "");
+  normalized = normalized.replace(/\/+$/, "");
+
+  try {
+    const parsed = new URL(normalized);
+    const host = parsed.hostname.trim().toLowerCase();
+
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      !host ||
+      INVALID_HOST_VALUES.has(host)
+    ) {
+      return "";
+    }
+  } catch {
+    return "";
+  }
+
+  return normalized;
 }
 
 function sameOrigin(left: string, right: string): boolean {
@@ -108,14 +129,25 @@ export default function App() {
       .then((savedUrl) => {
         if (!active) return;
 
-        if (savedUrl) {
-          const normalized = normalizeUrl(savedUrl);
+        const normalized = savedUrl ? normalizeUrl(savedUrl) : "";
+
+        if (normalized) {
           setServerUrl(normalized);
           setDraftUrl(normalized);
-        } else {
-          setDraftUrl(EXAMPLE_URL);
-          setSettingsVisible(true);
+          return;
         }
+
+        if (savedUrl) {
+          void AsyncStorage.removeItem(STORAGE_KEY);
+          setConnection("offline");
+          setConnectionMessage(
+            "Poprzednio zapisany adres serwera był nieprawidłowy. Ustaw ponownie adres HTTPS pokazany przez Tailscale Serve.",
+          );
+        }
+
+        setServerUrl("");
+        setDraftUrl(EXAMPLE_URL);
+        setSettingsVisible(true);
       })
       .finally(() => {
         if (active) setBootstrapping(false);
@@ -152,7 +184,9 @@ export default function App() {
 
     if (!normalized) {
       setConnection("offline");
-      setConnectionMessage("Wpisz prywatny adres FlipBot z Tailscale albo adres LAN komputera.");
+      setConnectionMessage(
+        "Wpisz prawidłowy prywatny adres FlipBot z Tailscale albo adres LAN komputera.",
+      );
       return false;
     }
 
@@ -189,7 +223,7 @@ export default function App() {
 
     if (!normalized) {
       setConnection("offline");
-      setConnectionMessage("Adres serwera nie może być pusty.");
+      setConnectionMessage("Adres serwera jest nieprawidłowy.");
       return;
     }
 
@@ -244,9 +278,15 @@ export default function App() {
             setConnectionMessage(null);
           }}
           onLoad={() => setConnection("online")}
-          onError={() => {
+          onError={(event) => {
             setConnection("offline");
-            setConnectionMessage("Nie udało się załadować panelu z komputera.");
+            const description = event.nativeEvent.description?.trim();
+            const code = event.nativeEvent.code;
+            setConnectionMessage(
+              description
+                ? `Nie udało się załadować panelu (${code}): ${description}`
+                : "Nie udało się załadować panelu z komputera.",
+            );
           }}
           onHttpError={(event) => {
             setConnection("offline");
