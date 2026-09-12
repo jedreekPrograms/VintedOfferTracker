@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import pl.flipbot.marketstats.dto.MarketListingPublicationBatchRequest;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/market-stats/models/{modelId}")
@@ -24,6 +25,13 @@ public class MarketListingPublicationController {
             @PathVariable Long modelId
     ) {
         return publicationService.getMissingPublicationListingIds(modelId);
+    }
+
+    @GetMapping("/publication-times")
+    public Map<String, String> getPublicationTimes(
+            @PathVariable Long modelId
+    ) {
+        return publicationService.getPublicationTimes(modelId);
     }
 
     @PostMapping("/publication-times")

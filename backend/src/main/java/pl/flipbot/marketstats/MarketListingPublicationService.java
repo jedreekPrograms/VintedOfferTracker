@@ -9,6 +9,7 @@ import pl.flipbot.marketstats.dto.MarketListingPublicationBatchRequest;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -29,6 +30,32 @@ public class MarketListingPublicationService {
         }
 
         return observationRepository.findListingIdsMissingPublishedAt(modelId);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, String> getPublicationTimes(Long modelId) {
+        if (modelId == null || modelId <= 0) {
+            return Map.of();
+        }
+
+        Map<String, String> result = new LinkedHashMap<>();
+
+        for (MarketListingObservation observation
+                : observationRepository.findAllByModel_IdAndPublishedAtIsNotNull(modelId)) {
+            if (observation == null
+                    || observation.getMarketplaceListingId() == null
+                    || observation.getMarketplaceListingId().isBlank()
+                    || observation.getPublishedAt() == null) {
+                continue;
+            }
+
+            result.put(
+                    observation.getMarketplaceListingId().trim(),
+                    observation.getPublishedAt().toString()
+            );
+        }
+
+        return Map.copyOf(result);
     }
 
     @Transactional

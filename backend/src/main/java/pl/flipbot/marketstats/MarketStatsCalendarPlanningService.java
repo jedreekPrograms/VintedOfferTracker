@@ -101,17 +101,34 @@ public class MarketStatsCalendarPlanningService {
                 windows.now()
         );
 
-        /*
-         * A complete observer pass now reads Vinted's own publication age for
-         * every accepted catalog listing. The first complete baseline can
-         * therefore reconstruct calendar windows immediately instead of
-         * waiting until FlipBot itself has been running since midnight/Monday.
-         */
-        boolean catalogWindowComplete =
+        LocalDateTime lastSuccessfulScanAt = state.getLastSuccessfulScanAt();
+        boolean publicationCoverageEstablished =
+                state.getPublicationWindowCompleteAt() != null;
+        boolean latestScanComplete =
                 Boolean.TRUE.equals(state.getLastScanComplete());
-        boolean todayWindowComplete = catalogWindowComplete;
-        boolean currentWeekWindowComplete = catalogWindowComplete;
-        boolean previousFullWeekAvailable = catalogWindowComplete;
+        boolean successfulScanToday = lastSuccessfulScanAt != null
+                && !lastSuccessfulScanAt.isBefore(windows.todayStart());
+        boolean successfulScanThisWeek = lastSuccessfulScanAt != null
+                && !lastSuccessfulScanAt.isBefore(windows.currentWeekStart());
+
+        /*
+         * `last_scan_complete` predates publication-time backfill and therefore
+         * cannot prove that calendar windows are reconstructable. The separate
+         * publication-window marker is set only after a forced filtered-catalog
+         * traversal completes with every required Vinted publication timestamp.
+         *
+         * For today/current-week figures we also require the latest complete
+         * scan to be from today, so a process restart or overnight gap cannot
+         * present yesterday's snapshot as current. The previous full week only
+         * needs one successful scan in the current week, because that scan
+         * overlaps the already-established publication history.
+         */
+        boolean todayWindowComplete = publicationCoverageEstablished
+                && latestScanComplete
+                && successfulScanToday;
+        boolean currentWeekWindowComplete = todayWindowComplete;
+        boolean previousFullWeekAvailable = publicationCoverageEstablished
+                && successfulScanThisWeek;
 
         Integer offersPreviousFullWeek = null;
         int recommendationWeeklyOffers;
@@ -163,7 +180,7 @@ public class MarketStatsCalendarPlanningService {
                 previousFullWeekAvailable,
                 trackedDays,
                 state.getLastScanAt(),
-                Boolean.TRUE.equals(state.getLastScanComplete())
+                latestScanComplete
         );
     }
 

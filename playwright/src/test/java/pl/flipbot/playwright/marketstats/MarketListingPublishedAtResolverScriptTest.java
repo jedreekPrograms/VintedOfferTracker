@@ -4,8 +4,10 @@ import org.junit.After;
 import org.junit.Test;
 import pl.flipbot.playwright.scanner.model.Listing;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -42,7 +44,9 @@ public class MarketListingPublishedAtResolverScriptTest {
                 25L,
                 List.of(),
                 List.of(),
-                false
+                false,
+                true,
+                Map.of()
         );
 
         List<Listing> listings = new ArrayList<>();
@@ -66,7 +70,12 @@ public class MarketListingPublishedAtResolverScriptTest {
                 25L,
                 List.of("known-complete", "known-missing"),
                 List.of("known-missing"),
-                false
+                false,
+                true,
+                Map.of(
+                        "known-complete",
+                        LocalDateTime.of(2026, 8, 1, 12, 0)
+                )
         );
 
         List<Listing> selected =

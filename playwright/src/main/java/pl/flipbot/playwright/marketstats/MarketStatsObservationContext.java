@@ -18,7 +18,9 @@ final class MarketStatsObservationContext {
             Long modelId,
             Collection<String> knownListingIds,
             Collection<String> missingPublicationListingIds,
-            boolean refreshAllPublicationTimes
+            boolean refreshAllPublicationTimes,
+            boolean fullCatalogScanRequired,
+            Map<String, LocalDateTime> persistedPublishedAtByListingId
     ) {
         CURRENT.set(
                 new State(
@@ -26,8 +28,12 @@ final class MarketStatsObservationContext {
                         Set.copyOf(normalizeIds(knownListingIds)),
                         Set.copyOf(normalizeIds(missingPublicationListingIds)),
                         refreshAllPublicationTimes,
+                        fullCatalogScanRequired,
                         new LinkedHashSet<>(),
                         new LinkedHashSet<>(),
+                        new LinkedHashMap<>(normalizePublishedAt(
+                                persistedPublishedAtByListingId
+                        )),
                         new LinkedHashMap<>()
                 )
         );
@@ -55,6 +61,15 @@ final class MarketStatsObservationContext {
         return Set.copyOf(state.observedListingIds());
     }
 
+    static boolean fullCatalogScanRequired(Long modelId) {
+        State state = CURRENT.get();
+
+        return state != null
+                && modelId != null
+                && modelId.equals(state.modelId())
+                && state.fullCatalogScanRequired();
+    }
+
     static boolean needsPublicationResolution(String listingId) {
         State state = CURRENT.get();
 
@@ -64,8 +79,7 @@ final class MarketStatsObservationContext {
 
         String normalized = listingId.trim();
 
-        return needsPublicationResolution(state, normalized)
-                && !state.publishedAtByListingId().containsKey(normalized);
+        return needsPublicationResolution(state, normalized);
     }
 
     static boolean claimPublicationResolution(String listingId) {
@@ -77,7 +91,7 @@ final class MarketStatsObservationContext {
 
         String normalized = listingId.trim();
 
-        if (!needsPublicationResolution(normalized)) {
+        if (!needsPublicationResolution(state, normalized)) {
             return false;
         }
 
@@ -97,7 +111,7 @@ final class MarketStatsObservationContext {
             return;
         }
 
-        state.publishedAtByListingId().put(
+        state.resolvedPublishedAtByListingId().put(
                 listingId.trim(),
                 publishedAt
         );
@@ -116,8 +130,7 @@ final class MarketStatsObservationContext {
         }
 
         for (String listingId : normalizeIds(listingIds)) {
-            if (needsPublicationResolution(state, listingId)
-                    && !state.publishedAtByListingId().containsKey(listingId)) {
+            if (publicationTime(state, listingId) == null) {
                 return false;
             }
         }
@@ -142,8 +155,35 @@ final class MarketStatsObservationContext {
         Set<String> acceptedIds = normalizeIds(listingIds);
         Map<String, LocalDateTime> result = new LinkedHashMap<>();
 
+        for (String listingId : acceptedIds) {
+            LocalDateTime publishedAt = publicationTime(state, listingId);
+            if (publishedAt != null) {
+                result.put(listingId, publishedAt);
+            }
+        }
+
+        return Map.copyOf(result);
+    }
+
+    static Map<String, LocalDateTime> freshlyResolvedFor(
+            Long modelId,
+            Collection<String> listingIds
+    ) {
+        State state = CURRENT.get();
+
+        if (state == null
+                || modelId == null
+                || !modelId.equals(state.modelId())
+                || listingIds == null
+                || listingIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<String> acceptedIds = normalizeIds(listingIds);
+        Map<String, LocalDateTime> result = new LinkedHashMap<>();
+
         for (Map.Entry<String, LocalDateTime> entry
-                : state.publishedAtByListingId().entrySet()) {
+                : state.resolvedPublishedAtByListingId().entrySet()) {
             if (acceptedIds.contains(entry.getKey())) {
                 result.put(entry.getKey(), entry.getValue());
             }
@@ -167,8 +207,22 @@ final class MarketStatsObservationContext {
             String listingId
     ) {
         return state.refreshAllPublicationTimes()
-                || !state.knownListingIds().contains(listingId)
-                || state.missingPublicationListingIds().contains(listingId);
+                || state.missingPublicationListingIds().contains(listingId)
+                || publicationTime(state, listingId) == null;
+    }
+
+    private static LocalDateTime publicationTime(
+            State state,
+            String listingId
+    ) {
+        LocalDateTime freshlyResolved =
+                state.resolvedPublishedAtByListingId().get(listingId);
+
+        if (freshlyResolved != null) {
+            return freshlyResolved;
+        }
+
+        return state.persistedPublishedAtByListingId().get(listingId);
     }
 
     private static Set<String> normalizeIds(Collection<String> listingIds) {
@@ -187,14 +241,39 @@ final class MarketStatsObservationContext {
         return normalized;
     }
 
+    private static Map<String, LocalDateTime> normalizePublishedAt(
+            Map<String, LocalDateTime> publishedAtByListingId
+    ) {
+        Map<String, LocalDateTime> normalized = new LinkedHashMap<>();
+
+        if (publishedAtByListingId == null) {
+            return normalized;
+        }
+
+        for (Map.Entry<String, LocalDateTime> entry
+                : publishedAtByListingId.entrySet()) {
+            if (entry.getKey() == null
+                    || entry.getKey().isBlank()
+                    || entry.getValue() == null) {
+                continue;
+            }
+
+            normalized.put(entry.getKey().trim(), entry.getValue());
+        }
+
+        return normalized;
+    }
+
     private record State(
             Long modelId,
             Set<String> knownListingIds,
             Set<String> missingPublicationListingIds,
             boolean refreshAllPublicationTimes,
+            boolean fullCatalogScanRequired,
             Set<String> observedListingIds,
             Set<String> attemptedListingIds,
-            Map<String, LocalDateTime> publishedAtByListingId
+            Map<String, LocalDateTime> persistedPublishedAtByListingId,
+            Map<String, LocalDateTime> resolvedPublishedAtByListingId
     ) {
     }
 }
