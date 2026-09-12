@@ -57,6 +57,17 @@ public class VintedPublishedAtParserTest {
     }
 
     @Test
+    public void parsesConfirmedSingularVintedYearAge() {
+        assertEquals(
+                LocalDateTime.of(2025, 9, 11, 19, 40),
+                VintedPublishedAtParser.parse(
+                        "REL|roku",
+                        OBSERVED_AT
+                ).orElseThrow()
+        );
+    }
+
+    @Test
     public void convertsUtcTimestampToWarsawTime() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 11, 12, 0),
