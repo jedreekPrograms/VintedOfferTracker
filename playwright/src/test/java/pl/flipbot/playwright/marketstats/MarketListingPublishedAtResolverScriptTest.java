@@ -19,10 +19,17 @@ public class MarketListingPublishedAtResolverScriptTest {
     }
 
     @Test
-    public void detailPageExtractionReadsVisibleAddedBeforeFallbackMetadata() {
+    public void detailPageExtractionPrioritizesConfirmedUploadDateFieldBeforeFallbacks() {
         String script = MarketListingPublishedAtResolver.extractPublishedAtScript();
 
-        assertTrue(script.contains("item.text.toLowerCase() !== \"dodane\""));
+        String exactField = "item-attributes-upload_date";
+        String exactValue = "[itemprop=\"upload_date\"]";
+        String genericAdded = "item.text.toLowerCase() !== \"dodane\"";
+
+        assertTrue(script.contains(exactField));
+        assertTrue(script.contains(exactValue));
+        assertTrue(script.contains(genericAdded));
+        assertTrue(script.indexOf(exactField) < script.indexOf(genericAdded));
         assertTrue(script.contains("created_at_ts"));
         assertTrue(script.contains("application/ld+json"));
         assertFalse(script.contains("fetch("));
