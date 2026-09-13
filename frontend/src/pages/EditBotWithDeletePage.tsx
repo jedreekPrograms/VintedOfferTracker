@@ -1,3 +1,5 @@
+import AdditionalProductsPanel
+    from "../features/bots/edit/AdditionalProductsPanel";
 import DeleteBotPanel
     from "../features/bots/delete/DeleteBotPanel";
 
@@ -10,6 +12,7 @@ function EditBotWithDeletePage() {
     return (
         <>
             <EditBotPage />
+            <AdditionalProductsPanel />
             <DeleteBotPanel />
         </>
     );
