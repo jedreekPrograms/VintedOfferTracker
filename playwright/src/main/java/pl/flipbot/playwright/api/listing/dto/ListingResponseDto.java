@@ -100,4 +100,47 @@ public record ListingResponseDto(
                 null
         );
     }
+
+    /* Compatibility with the full response shape used immediately before
+       additional product provenance was added. */
+    public ListingResponseDto(
+            Long id,
+            String listingId,
+            String title,
+            String url,
+            BigDecimal originalPrice,
+            BigDecimal currentPrice,
+            Integer currentStep,
+            Boolean awaitingSellerResponse,
+            String conversationId,
+            String conversationUrl,
+            String status,
+            String decisionAt,
+            String currentStepStartedAt,
+            String sellerActivityAt,
+            String readDetectedAt,
+            String formalResponseFingerprint,
+            String formalResponseDetectedAt
+    ) {
+        this(
+                id,
+                listingId,
+                title,
+                url,
+                originalPrice,
+                currentPrice,
+                currentStep,
+                awaitingSellerResponse,
+                conversationId,
+                conversationUrl,
+                status,
+                decisionAt,
+                currentStepStartedAt,
+                sellerActivityAt,
+                readDetectedAt,
+                formalResponseFingerprint,
+                formalResponseDetectedAt,
+                null
+        );
+    }
 }
