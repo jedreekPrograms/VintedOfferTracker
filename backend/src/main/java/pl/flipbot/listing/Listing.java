@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -17,6 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import pl.flipbot.bot.Bot;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -108,6 +110,16 @@ public class Listing {
 
     @Column(name = "formal_response_detected_at")
     private LocalDateTime formalResponseDetectedAt;
+
+    /*
+     * NULL means the listing belongs to the bot's original/main product.
+     * Existing rows remain NULL after the feature is deployed. Additional
+     * products store their stable target id so every future reply keeps using
+     * the strategy that started the conversation.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "additional_target_id")
+    private BotAdditionalTarget additionalTarget;
 
     @ManyToOne
     @JoinColumn(
