@@ -7,11 +7,8 @@ import pl.flipbot.playwright.api.listing.TargetBoundListingClient;
 import pl.flipbot.playwright.api.quota.OfferQuotaClient;
 import pl.flipbot.playwright.api.quota.RunScopedOfferQuotaClient;
 import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.model.BotAdditionalTargetDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
-
-import java.util.ArrayList;
-import java.util.List;
+import pl.flipbot.playwright.model.BotProductExecutionPlan;
 
 /**
  * Runs the existing-negotiation workflow once per product while preserving one
@@ -64,11 +61,12 @@ public class MultiProductExistingNegotiationProcessor
 
         boolean sentAny = false;
         try {
-            for (TargetExecution target : targets(main)) {
+            for (BotProductExecutionPlan.Target target :
+                    BotProductExecutionPlan.negotiationTargets(context.getBot())) {
                 context.getBot().setConfiguration(target.configuration());
 
                 ListingClient targetClient = new TargetBoundListingClient(
-                        target.id()
+                        target.additionalTargetId()
                 );
                 ExistingNegotiationProcessor delegate =
                         new ExistingNegotiationProcessor(
@@ -83,7 +81,9 @@ public class MultiProductExistingNegotiationProcessor
                 log.info(
                         "[MULTI PRODUCT] Checking existing negotiations for bot {} product {}.",
                         context.getBot().getId(),
-                        target.id() == null ? "MAIN" : target.id()
+                        target.additionalTargetId() == null
+                                ? "MAIN"
+                                : target.additionalTargetId()
                 );
                 sentAny |= delegate.process();
             }
@@ -91,33 +91,5 @@ public class MultiProductExistingNegotiationProcessor
             context.getBot().setConfiguration(main);
         }
         return sentAny;
-    }
-
-    private List<TargetExecution> targets(BotConfigurationDto main) {
-        List<TargetExecution> result = new ArrayList<>();
-        result.add(new TargetExecution(null, main));
-
-        List<BotAdditionalTargetDto> extras =
-                context.getBot().getAdditionalTargets();
-        if (extras == null) {
-            return result;
-        }
-
-        for (BotAdditionalTargetDto extra : extras) {
-            if (extra == null || extra.getAdditionalTargetId() == null) {
-                continue;
-            }
-            result.add(new TargetExecution(
-                    extra.getAdditionalTargetId(),
-                    extra
-            ));
-        }
-        return result;
-    }
-
-    private record TargetExecution(
-            Long id,
-            BotConfigurationDto configuration
-    ) {
     }
 }
