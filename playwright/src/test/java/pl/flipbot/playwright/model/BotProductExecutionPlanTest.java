@@ -1,17 +1,18 @@
 package pl.flipbot.playwright.model;
 
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 
-class BotProductExecutionPlanTest {
+public class BotProductExecutionPlanTest {
 
     @Test
-    void zeroAdditionalProductsKeepsTheLegacySingleProductPlan() {
+    public void zeroAdditionalProductsKeepsTheLegacySingleProductPlan() {
         BotDetailsDto bot = botWithMain();
         bot.setAdditionalTargets(List.of());
 
@@ -22,14 +23,14 @@ class BotProductExecutionPlanTest {
 
         assertEquals(1, catalog.size());
         assertEquals(1, negotiations.size());
-        assertEquals(null, catalog.getFirst().additionalTargetId());
-        assertEquals(null, negotiations.getFirst().additionalTargetId());
-        assertSame(bot.getConfiguration(), catalog.getFirst().configuration());
-        assertSame(bot.getConfiguration(), negotiations.getFirst().configuration());
+        assertNull(catalog.get(0).additionalTargetId());
+        assertNull(negotiations.get(0).additionalTargetId());
+        assertSame(bot.getConfiguration(), catalog.get(0).configuration());
+        assertSame(bot.getConfiguration(), negotiations.get(0).configuration());
     }
 
     @Test
-    void nullAdditionalProductsAlsoKeepsTheLegacySingleProductPlan() {
+    public void nullAdditionalProductsAlsoKeepsTheLegacySingleProductPlan() {
         BotDetailsDto bot = botWithMain();
         bot.setAdditionalTargets(null);
 
@@ -44,7 +45,7 @@ class BotProductExecutionPlanTest {
     }
 
     @Test
-    void catalogScansOnlyActiveAdditionalProducts() {
+    public void catalogScansOnlyActiveAdditionalProducts() {
         BotDetailsDto bot = botWithMain();
         BotAdditionalTargetDto active = extra(11L, true, "Active");
         BotAdditionalTargetDto inactive = extra(12L, false, "Inactive");
@@ -54,13 +55,13 @@ class BotProductExecutionPlanTest {
                 BotProductExecutionPlan.activeCatalogTargets(bot);
 
         assertEquals(2, targets.size());
-        assertEquals(null, targets.get(0).additionalTargetId());
-        assertEquals(11L, targets.get(1).additionalTargetId());
+        assertNull(targets.get(0).additionalTargetId());
+        assertEquals(Long.valueOf(11L), targets.get(1).additionalTargetId());
         assertSame(active, targets.get(1).configuration());
     }
 
     @Test
-    void freshPayloadKeepsInactiveProductForExistingNegotiations() {
+    public void freshPayloadKeepsInactiveProductForExistingNegotiations() {
         BotDetailsDto freshlyLoadedBot = botWithMain();
         BotAdditionalTargetDto inactive = extra(77L, false, "Historical");
         freshlyLoadedBot.setAdditionalTargets(List.of(inactive));
@@ -69,12 +70,12 @@ class BotProductExecutionPlanTest {
                 BotProductExecutionPlan.negotiationTargets(freshlyLoadedBot);
 
         assertEquals(2, targets.size());
-        assertEquals(77L, targets.get(1).additionalTargetId());
+        assertEquals(Long.valueOf(77L), targets.get(1).additionalTargetId());
         assertSame(inactive, targets.get(1).configuration());
     }
 
     @Test
-    void moreThanFourActiveAdditionalProductsFailsClosed() {
+    public void moreThanFourActiveAdditionalProductsFailsClosed() {
         BotDetailsDto bot = botWithMain();
         bot.setAdditionalTargets(List.of(
                 extra(1L, true, "1"),
