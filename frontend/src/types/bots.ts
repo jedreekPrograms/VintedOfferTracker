@@ -66,6 +66,19 @@ export interface CreateBotRequest {
     configuration: CreateBotConfigurationRequest;
 }
 
+export interface UpsertBotAdditionalTargetRequest {
+    categoryPath: string[];
+    brand: string;
+    targetMode: TargetMode;
+    model: string | null;
+    searchQuery: string | null;
+    minPrice: number;
+    maxPrice: number;
+    autoRaiseOfferToVintedMinimum: boolean;
+    maxAutomaticOffer: number | null;
+    negotiationSteps: CreateNegotiationStepRequest[];
+}
+
 export interface BotListItem {
     id: number;
     name: string;
@@ -130,11 +143,30 @@ export interface BotConfigurationDetails {
         BotNegotiationStep[];
 }
 
+export interface BotAdditionalTargetDetails {
+    additionalTargetId: number;
+    active: boolean;
+    marketplace: Marketplace;
+    categoryPath: string[];
+    brand: string;
+    targetMode: TargetMode | null;
+    model: string | null;
+    searchQuery: string | null;
+    minPrice: number;
+    maxPrice: number;
+    autoRaiseOfferToVintedMinimum: boolean | null;
+    maxAutomaticOffer: number | null;
+    dailyNegotiationBudget: number;
+    negotiationSteps: BotNegotiationStep[];
+}
+
 export interface BotDetails
     extends BotListItem {
 
     configuration:
         BotConfigurationDetails;
+
+    additionalTargets: BotAdditionalTargetDetails[];
 }
 
 export interface BotEditCapabilities {
