@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
+import pl.flipbot.negotiation.NegotiationCapacityService;
+import pl.flipbot.negotiation.dto.NegotiationCapacityResponse;
 
 import java.util.List;
 
@@ -20,6 +22,7 @@ import java.util.List;
 public class BotTargetListingController {
 
     private final BotTargetListingService service;
+    private final NegotiationCapacityService negotiationCapacityService;
 
     @GetMapping("/discovered/primary")
     public ResponseEntity<List<ListingResponse>> getPrimaryDiscovered(
@@ -46,6 +49,16 @@ public class BotTargetListingController {
     ) {
         return ResponseEntity.ok(
                 service.discoverAdditionalTarget(botId, targetId, request)
+        );
+    }
+
+    @GetMapping("/negotiation-capacity/additional/{targetId}")
+    public ResponseEntity<NegotiationCapacityResponse> getAdditionalTargetCapacity(
+            @PathVariable Long botId,
+            @PathVariable Long targetId
+    ) {
+        return ResponseEntity.ok(
+                negotiationCapacityService.calculateCapacity(botId, targetId)
         );
     }
 }
