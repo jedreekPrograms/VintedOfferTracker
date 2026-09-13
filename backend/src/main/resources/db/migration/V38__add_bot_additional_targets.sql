@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS bot_additional_target_category_path (
 ALTER TABLE negotiation_step
     ADD COLUMN IF NOT EXISTS additional_target_id BIGINT;
 
+-- Existing/main-product rows keep configuration_id populated. Additional-product
+-- steps use additional_target_id instead, so the legacy parent column must be
+-- nullable without changing any existing row.
+ALTER TABLE negotiation_step
+    ALTER COLUMN configuration_id DROP NOT NULL;
+
 ALTER TABLE listing
     ADD COLUMN IF NOT EXISTS additional_target_id BIGINT;
 
