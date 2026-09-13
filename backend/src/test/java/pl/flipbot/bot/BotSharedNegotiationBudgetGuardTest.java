@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
+import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.bot.dto.CreateBotConfigurationRequest;
 import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.bot.dto.UpdateBotRequest;
@@ -97,6 +98,10 @@ class BotSharedNegotiationBudgetGuardTest {
                         NegotiationStep.builder().stepNumber(3).build(),
                         NegotiationStep.builder().stepNumber(4).build()
                 )))
+                .categoryPath(new ArrayList<>(List.of("Elektronika", "Tablety")))
+                .brand("Samsung")
+                .targetMode(TargetMode.VINTED_MODEL)
+                .model("Galaxy Tab S10")
                 .build();
 
         when(additionalTargetRepository
@@ -104,9 +109,49 @@ class BotSharedNegotiationBudgetGuardTest {
                 .thenReturn(List.of(target));
 
         UpdateBotRequest request = new UpdateBotRequest();
-        request.setConfiguration(configuration(4, 4));
+        CreateBotConfigurationRequest configuration = configuration(4, 4);
+        configuration.setCategoryPath(List.of("Elektronika", "Telefony"));
+        configuration.setBrand("Apple");
+        configuration.setTargetMode(TargetMode.VINTED_MODEL);
+        configuration.setModel("iPhone 13");
+        request.setConfiguration(configuration);
 
         assertDoesNotThrow(() -> guard.validateUpdate(BOT_ID, request));
+    }
+
+    @Test
+    void updateRejectsMainProductDuplicatingActiveAdditionalTarget() {
+        BotAdditionalTarget target = BotAdditionalTarget.builder()
+                .id(55L)
+                .active(true)
+                .negotiationSteps(new ArrayList<>(List.of(
+                        NegotiationStep.builder().stepNumber(1).build()
+                )))
+                .categoryPath(new ArrayList<>(List.of("Elektronika", "Tablety")))
+                .brand("Samsung")
+                .targetMode(TargetMode.SEARCH_QUERY)
+                .searchQuery("Galaxy Tab S10 Ultra")
+                .build();
+
+        when(additionalTargetRepository
+                .findAllByConfigurationBotIdAndActiveTrueOrderByIdAsc(BOT_ID))
+                .thenReturn(List.of(target));
+
+        UpdateBotRequest request = new UpdateBotRequest();
+        CreateBotConfigurationRequest configuration = configuration(5, 2);
+        configuration.setCategoryPath(List.of("Elektronika", "Tablety"));
+        configuration.setBrand(" samsung ");
+        configuration.setTargetMode(TargetMode.SEARCH_QUERY);
+        configuration.setSearchQuery("  GALAXY   TAB S10 ultra ");
+        request.setConfiguration(configuration);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> guard.validateUpdate(BOT_ID, request)
+        );
+
+        assertTrue(exception.getMessage().contains("tego samego celu"));
+        assertTrue(exception.getMessage().contains("55"));
     }
 
     private CreateBotConfigurationRequest configuration(
