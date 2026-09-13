@@ -81,6 +81,17 @@ public interface ListingRepository
             ListingStatus status
     );
 
+    List<Listing> findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+            Long botId,
+            ListingStatus status
+    );
+
+    List<Listing> findByBotIdAndStatusAndAdditionalTargetIdOrderByIdAsc(
+            Long botId,
+            ListingStatus status,
+            Long additionalTargetId
+    );
+
     long countByBotIdAndStatus(
             Long botId,
             ListingStatus status
