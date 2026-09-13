@@ -70,35 +70,16 @@ public class BotAdditionalTargetSchemaInitializer implements ApplicationRunner {
                     ADD COLUMN IF NOT EXISTS additional_target_id BIGINT
                 """);
 
-        jdbcTemplate.execute("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_constraint
-                        WHERE conname = 'fk_negotiation_step_additional_target'
-                    ) THEN
-                        ALTER TABLE negotiation_step
-                            ADD CONSTRAINT fk_negotiation_step_additional_target
-                            FOREIGN KEY (additional_target_id)
-                            REFERENCES bot_additional_target(id);
-                    END IF;
-                END $$
-                """);
-
-        jdbcTemplate.execute("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_constraint
-                        WHERE conname = 'fk_listing_additional_target'
-                    ) THEN
-                        ALTER TABLE listing
-                            ADD CONSTRAINT fk_listing_additional_target
-                            FOREIGN KEY (additional_target_id)
-                            REFERENCES bot_additional_target(id);
-                    END IF;
-                END $$
-                """);
+        ensureCascadeForeignKey(
+                "negotiation_step",
+                "fk_negotiation_step_additional_target",
+                "additional_target_id"
+        );
+        ensureCascadeForeignKey(
+                "listing",
+                "fk_listing_additional_target",
+                "additional_target_id"
+        );
 
         jdbcTemplate.execute("""
                 CREATE INDEX IF NOT EXISTS idx_bot_additional_target_configuration_active
@@ -113,5 +94,46 @@ public class BotAdditionalTargetSchemaInitializer implements ApplicationRunner {
         log.info(
                 "Verified optional additional-product schema. Existing bots keep their main configuration unchanged; additional targets are opt-in only."
         );
+    }
+
+    private void ensureCascadeForeignKey(
+            String tableName,
+            String constraintName,
+            String columnName
+    ) {
+        jdbcTemplate.execute("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = '%s'
+                          AND confdeltype <> 'c'
+                    ) THEN
+                        ALTER TABLE %s
+                            DROP CONSTRAINT %s;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = '%s'
+                    ) THEN
+                        ALTER TABLE %s
+                            ADD CONSTRAINT %s
+                            FOREIGN KEY (%s)
+                            REFERENCES bot_additional_target(id)
+                            ON DELETE CASCADE;
+                    END IF;
+                END $$
+                """.formatted(
+                constraintName,
+                tableName,
+                constraintName,
+                constraintName,
+                tableName,
+                constraintName,
+                columnName
+        ));
     }
 }
