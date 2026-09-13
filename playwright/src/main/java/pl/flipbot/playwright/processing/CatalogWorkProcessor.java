@@ -9,11 +9,10 @@ import pl.flipbot.playwright.api.quota.RunScopedOfferQuotaClient;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.filters.FilterService;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
-import pl.flipbot.playwright.model.BotAdditionalTargetDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
+import pl.flipbot.playwright.model.BotProductExecutionPlan;
 import pl.flipbot.playwright.negotiation.NewNegotiationProcessor;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -65,7 +64,8 @@ public class CatalogWorkProcessor {
                 ? listingClient.getNegotiatingListings(botId).size()
                 : 0;
 
-        List<TargetExecution> targets = targets(main);
+        List<BotProductExecutionPlan.Target> targets =
+                BotProductExecutionPlan.activeCatalogTargets(context.getBot());
         int offset = targets.size() <= 1
                 ? 0
                 : NEXT_PRODUCT_OFFSET.compute(
@@ -84,7 +84,7 @@ public class CatalogWorkProcessor {
 
         try {
             for (int i = 0; i < targets.size(); i++) {
-                TargetExecution target = targets.get(
+                BotProductExecutionPlan.Target target = targets.get(
                         (offset + i) % targets.size()
                 );
                 context.getBot().setConfiguration(target.configuration());
@@ -102,11 +102,11 @@ public class CatalogWorkProcessor {
         return after > before;
     }
 
-    private void processTarget(TargetExecution target) {
+    private void processTarget(BotProductExecutionPlan.Target target) {
         Long botId = context.getBot().getId();
-        String label = target.id() == null
+        String label = target.additionalTargetId() == null
                 ? "MAIN"
-                : "ADDITIONAL:" + target.id();
+                : "ADDITIONAL:" + target.additionalTargetId();
 
         log.info(
                 "[MULTI PRODUCT] Bot {} scanning {} brand='{}', model='{}'.",
@@ -119,7 +119,9 @@ public class CatalogWorkProcessor {
         marketplaceNavigator.goToCatalog();
         filterService.applyFilters(context.getBot());
 
-        ListingClient targetClient = new TargetBoundListingClient(target.id());
+        ListingClient targetClient = new TargetBoundListingClient(
+                target.additionalTargetId()
+        );
         CatalogCandidateProcessor.CandidateBatch batch =
                 new CatalogCandidateProcessor(
                         context,
@@ -142,40 +144,5 @@ public class CatalogWorkProcessor {
                 batch.candidates(),
                 batch.currentScanListingIds()
         );
-    }
-
-    private List<TargetExecution> targets(BotConfigurationDto main) {
-        List<TargetExecution> result = new ArrayList<>();
-        result.add(new TargetExecution(null, main));
-
-        List<BotAdditionalTargetDto> extras =
-                context.getBot().getAdditionalTargets();
-        if (extras == null) {
-            return result;
-        }
-
-        for (BotAdditionalTargetDto extra : extras) {
-            if (extra != null
-                    && extra.getAdditionalTargetId() != null
-                    && Boolean.TRUE.equals(extra.getActive())) {
-                result.add(new TargetExecution(
-                        extra.getAdditionalTargetId(),
-                        extra
-                ));
-            }
-        }
-
-        if (result.size() > 5) {
-            throw new IllegalStateException(
-                    "Bot has more than 4 active additional products"
-            );
-        }
-        return result;
-    }
-
-    private record TargetExecution(
-            Long id,
-            BotConfigurationDto configuration
-    ) {
     }
 }
