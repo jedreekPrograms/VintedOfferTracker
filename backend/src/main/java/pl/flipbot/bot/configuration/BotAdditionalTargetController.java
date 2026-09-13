@@ -22,6 +22,7 @@ import java.util.List;
 public class BotAdditionalTargetController {
 
     private final BotAdditionalTargetService service;
+    private final BotAdditionalTargetRequestGuard requestGuard;
 
     @GetMapping
     public ResponseEntity<List<BotAdditionalTargetResponse>> list(
@@ -35,6 +36,7 @@ public class BotAdditionalTargetController {
             @PathVariable Long botId,
             @Valid @RequestBody UpsertBotAdditionalTargetRequest request
     ) {
+        requestGuard.validateCreate(botId, request);
         return ResponseEntity.ok(service.create(botId, request));
     }
 
@@ -44,6 +46,7 @@ public class BotAdditionalTargetController {
             @PathVariable Long targetId,
             @Valid @RequestBody UpsertBotAdditionalTargetRequest request
     ) {
+        requestGuard.validateUpdate(botId, targetId, request);
         return ResponseEntity.ok(service.update(botId, targetId, request));
     }
 
