@@ -14,16 +14,20 @@ import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.mapper.ListingMapper;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BotTargetListingService {
+
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
 
     private final ListingRepository listingRepository;
     private final ListingClaimService listingClaimService;
@@ -62,6 +66,14 @@ public class BotTargetListingService {
                 .toList();
     }
 
+    public List<ListingResponse> discoverPrimary(
+            Long botId,
+            DiscoverListingsRequest request
+    ) {
+        validateBotExists(botId);
+        return discoverForTarget(botId, null, request);
+    }
+
     public List<ListingResponse> discoverAdditionalTarget(
             Long botId,
             Long targetId,
@@ -76,6 +88,14 @@ public class BotTargetListingService {
             );
         }
 
+        return discoverForTarget(botId, target, request);
+    }
+
+    private List<ListingResponse> discoverForTarget(
+            Long botId,
+            BotAdditionalTarget target,
+            DiscoverListingsRequest request
+    ) {
         Map<String, CreateListingRequest> uniqueRequests = new LinkedHashMap<>();
         for (CreateListingRequest listing : request.getListings()) {
             uniqueRequests.putIfAbsent(listing.getListingId(), listing);
@@ -84,6 +104,11 @@ public class BotTargetListingService {
         if (uniqueRequests.isEmpty()) {
             return List.of();
         }
+
+        Long expectedTargetId = target == null ? null : target.getId();
+        String targetLabel = expectedTargetId == null
+                ? "MAIN"
+                : expectedTargetId.toString();
 
         Map<String, Listing> existingById = new LinkedHashMap<>();
         for (Listing listing : listingRepository.findAllByBotIdAndListingIdIn(
@@ -105,7 +130,7 @@ public class BotTargetListingService {
                         ? null
                         : existing.getAdditionalTarget().getId();
 
-                if (!java.util.Objects.equals(existingTargetId, targetId)) {
+                if (!Objects.equals(existingTargetId, expectedTargetId)) {
                     overlaps++;
                     continue;
                 }
@@ -126,26 +151,28 @@ public class BotTargetListingService {
             }
 
             try {
-                Listing created = listingClaimService.claimListing(
-                        botId,
-                        target,
-                        listingRequest
-                );
+                Listing created = target == null
+                        ? listingClaimService.claimListing(botId, listingRequest)
+                        : listingClaimService.claimListing(botId, target, listingRequest);
                 result.add(listingMapper.map(created));
                 claimed++;
             } catch (DataIntegrityViolationException exception) {
+                if (!isUniqueConstraintViolation(exception)) {
+                    throw exception;
+                }
                 log.debug(
-                        "Marketplace listing {} was claimed concurrently for bot {}.",
+                        "Marketplace listing {} was claimed concurrently for bot {} while processing target {}.",
                         listingRequest.getListingId(),
-                        botId
+                        botId,
+                        targetLabel
                 );
             }
         }
 
         log.info(
-                "Bot {} additional target {} fresh scan contained {} listing(s): claimed {}, requalified {}, skipped {} overlap(s) already owned by another product, returned {}.",
+                "Bot {} target {} fresh scan contained {} listing(s): claimed {}, requalified {}, skipped {} overlap(s) already owned by another product, returned {}.",
                 botId,
-                targetId,
+                targetLabel,
                 uniqueRequests.size(),
                 claimed,
                 requalified,
@@ -169,5 +196,17 @@ public class BotTargetListingService {
         if (!botRepository.existsById(botId)) {
             throw new BotNotFoundException(botId);
         }
+    }
+
+    private boolean isUniqueConstraintViolation(Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof SQLException sqlException
+                    && UNIQUE_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }
