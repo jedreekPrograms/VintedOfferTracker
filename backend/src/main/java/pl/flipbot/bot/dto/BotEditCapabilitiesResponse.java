@@ -9,10 +9,18 @@ import java.math.BigDecimal;
 @Builder
 public class BotEditCapabilitiesResponse {
 
+    /** Any active negotiation on the shared Vinted account. */
     private boolean hasActiveNegotiations;
 
     /**
-     * Lowest valid global automatic negotiation cap for the saved ladder.
+     * Active negotiation belonging specifically to the original/main product.
+     * Additional-product conversations keep the shared account identity locked,
+     * but must not freeze unrelated main-product target/strategy fields.
+     */
+    private boolean hasMainProductActiveNegotiations;
+
+    /**
+     * Lowest valid global automatic negotiation cap for the saved main ladder.
      *
      * In adaptive mode the cap cannot be lower than the configured first
      * negotiation step, otherwise a newly-started negotiation could begin
