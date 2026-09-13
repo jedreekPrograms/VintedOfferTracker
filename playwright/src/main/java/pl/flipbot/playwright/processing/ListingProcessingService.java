@@ -23,13 +23,21 @@ public class ListingProcessingService {
     public List<ListingResponseDto> process(
             List<Listing> listings
     ) {
+        return process(listings, null);
+    }
+
+    public List<ListingResponseDto> process(
+            List<Listing> listings,
+            Long additionalTargetId
+    ) {
 
         if (listings == null
                 || listings.isEmpty()) {
 
             log.info(
-                    "No listings to process for bot {}",
-                    context.getBot().getId()
+                    "No listings to process for bot {} target {}",
+                    context.getBot().getId(),
+                    additionalTargetId == null ? "MAIN" : additionalTargetId
             );
 
             return List.of();
@@ -37,8 +45,9 @@ public class ListingProcessingService {
         }
 
         log.info(
-                "Preparing {} listings for backend verification",
-                listings.size()
+                "Preparing {} listings for backend verification for target {}",
+                listings.size(),
+                additionalTargetId == null ? "MAIN" : additionalTargetId
         );
 
         List<CreateListingRequestDto> requestListings =
@@ -102,12 +111,14 @@ public class ListingProcessingService {
         List<ListingResponseDto> claimedListings =
                 listingClient.discoverListings(
                         context.getBot().getId(),
+                        additionalTargetId,
                         request
                 );
 
         log.info(
-                "Bot {} received {} new backend listings for further processing",
+                "Bot {} target {} received {} new backend listings for further processing",
                 context.getBot().getId(),
+                additionalTargetId == null ? "MAIN" : additionalTargetId,
                 claimedListings.size()
         );
 

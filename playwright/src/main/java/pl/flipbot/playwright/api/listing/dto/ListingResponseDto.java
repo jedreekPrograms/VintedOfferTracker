@@ -19,7 +19,8 @@ public record ListingResponseDto(
         String sellerActivityAt,
         String readDetectedAt,
         String formalResponseFingerprint,
-        String formalResponseDetectedAt
+        String formalResponseDetectedAt,
+        Long additionalTargetId
 ) {
 
     /* Backward-compatible constructor used by older tests/helpers. */
@@ -50,6 +51,7 @@ public record ListingResponseDto(
                 conversationUrl,
                 status,
                 decisionAt,
+                null,
                 null,
                 null,
                 null,
@@ -93,6 +95,7 @@ public record ListingResponseDto(
                 currentStepStartedAt,
                 sellerActivityAt,
                 readDetectedAt,
+                null,
                 null,
                 null
         );
