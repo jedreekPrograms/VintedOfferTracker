@@ -108,17 +108,12 @@ public class ListingProcessingService {
                         requestListings
                 );
 
-        List<ListingResponseDto> claimedListings =
-                additionalTargetId == null
-                        ? listingClient.discoverListings(
-                                context.getBot().getId(),
-                                request
-                        )
-                        : listingClient.discoverListings(
-                                context.getBot().getId(),
-                                additionalTargetId,
-                                request
-                        );
+        List<ListingResponseDto> claimedListings = discoverUsingClientScope(
+                listingClient,
+                context.getBot().getId(),
+                additionalTargetId,
+                request
+        );
 
         log.info(
                 "Bot {} target {} received {} new backend listings for further processing",
@@ -129,6 +124,17 @@ public class ListingProcessingService {
 
         return claimedListings;
 
+    }
+
+    static List<ListingResponseDto> discoverUsingClientScope(
+            ListingClient client,
+            Long botId,
+            Long additionalTargetId,
+            DiscoverListingsRequestDto request
+    ) {
+        return additionalTargetId == null
+                ? client.discoverListings(botId, request)
+                : client.discoverListings(botId, additionalTargetId, request);
     }
 
     private boolean isValid(
