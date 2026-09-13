@@ -6,10 +6,12 @@ import pl.flipbot.playwright.api.listing.dto.NegotiationCapacityResponseDto;
 
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Catalog-scoped client. NULL targetId means the original product; otherwise
- * discovery/backlog/capacity calls are routed to one additional product.
+ * Product-scoped client. NULL targetId means the original product; otherwise
+ * discovery/backlog/capacity and active-negotiation reads are isolated to one
+ * additional product.
  */
 public class TargetBoundListingClient extends ListingClient {
 
@@ -30,6 +32,17 @@ public class TargetBoundListingClient extends ListingClient {
     @Override
     public List<ListingResponseDto> getDiscoveredListings(Long botId) {
         return super.getDiscoveredListings(botId, additionalTargetId);
+    }
+
+    @Override
+    public List<ListingResponseDto> getNegotiatingListings(Long botId) {
+        return super.getNegotiatingListings(botId)
+                .stream()
+                .filter(listing -> Objects.equals(
+                        listing.additionalTargetId(),
+                        additionalTargetId
+                ))
+                .toList();
     }
 
     @Override
