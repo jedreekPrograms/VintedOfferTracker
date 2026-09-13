@@ -54,6 +54,17 @@ public class BotAdditionalTargetSchemaInitializer implements ApplicationRunner {
                     ADD COLUMN IF NOT EXISTS additional_target_id BIGINT
                 """);
 
+        /*
+         * Main-product negotiation steps keep configuration_id exactly as
+         * before. Additional-product steps use additional_target_id instead,
+         * therefore the legacy parent column must allow NULL. This is safe for
+         * existing databases because no legacy row is rewritten.
+         */
+        jdbcTemplate.execute("""
+                ALTER TABLE negotiation_step
+                    ALTER COLUMN configuration_id DROP NOT NULL
+                """);
+
         jdbcTemplate.execute("""
                 ALTER TABLE listing
                     ADD COLUMN IF NOT EXISTS additional_target_id BIGINT
