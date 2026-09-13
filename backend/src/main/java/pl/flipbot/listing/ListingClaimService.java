@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.listing.dto.CreateListingRequest;
 
 import java.time.LocalDateTime;
@@ -29,6 +30,17 @@ public class ListingClaimService {
             Long botId,
             CreateListingRequest request
     ) {
+        return claimListing(botId, null, request);
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW
+    )
+    public Listing claimListing(
+            Long botId,
+            BotAdditionalTarget additionalTarget,
+            CreateListingRequest request
+    ) {
 
         Bot bot = botRepository.getReferenceById(botId);
 
@@ -42,6 +54,7 @@ public class ListingClaimService {
                 .awaitingSellerResponse(false)
                 .status(ListingStatus.DISCOVERED)
                 .lastFreshDiscoveryAt(LocalDateTime.now(DISCOVERY_ZONE))
+                .additionalTarget(additionalTarget)
                 .bot(bot)
                 .build();
 
