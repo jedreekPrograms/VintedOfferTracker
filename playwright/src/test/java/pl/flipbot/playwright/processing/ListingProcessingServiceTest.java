@@ -1,46 +1,51 @@
 package pl.flipbot.playwright.processing;
 
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.DiscoverListingsRequestDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
-import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.model.BotDetailsDto;
-import pl.flipbot.playwright.scanner.model.Listing;
 
-import java.math.BigDecimal;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
-class ListingProcessingServiceTest {
+public class ListingProcessingServiceTest {
 
     @Test
-    void defaultProcessingUsesTheListingClientsBoundScope() {
-        BotContext context = mock(BotContext.class);
-        BotDetailsDto bot = new BotDetailsDto();
-        bot.setId(9L);
-        when(context.getBot()).thenReturn(bot);
-
+    public void defaultProcessingUsesTheListingClientsBoundScope() {
         ScopeRecordingListingClient client = new ScopeRecordingListingClient();
-        ListingProcessingService service = new ListingProcessingService(
-                context,
-                client
+        DiscoverListingsRequestDto request = new DiscoverListingsRequestDto(
+                List.of()
         );
 
-        Listing listing = new Listing();
-        listing.setId("123");
-        listing.setTitle("Phone");
-        listing.setUrl("https://www.vinted.pl/items/123-phone");
-        listing.setPrice(new BigDecimal("500"));
-
-        service.process(List.of(listing));
+        ListingProcessingService.discoverUsingClientScope(
+                client,
+                9L,
+                null,
+                request
+        );
 
         assertTrue(client.boundScopeMethodCalled);
-        assertEquals(false, client.explicitScopeMethodCalled);
+        assertFalse(client.explicitScopeMethodCalled);
+    }
+
+    @Test
+    public void explicitTargetStillUsesTheExplicitScopeMethod() {
+        ScopeRecordingListingClient client = new ScopeRecordingListingClient();
+        DiscoverListingsRequestDto request = new DiscoverListingsRequestDto(
+                List.of()
+        );
+
+        ListingProcessingService.discoverUsingClientScope(
+                client,
+                9L,
+                44L,
+                request
+        );
+
+        assertFalse(client.boundScopeMethodCalled);
+        assertTrue(client.explicitScopeMethodCalled);
     }
 
     private static final class ScopeRecordingListingClient
@@ -65,9 +70,7 @@ class ListingProcessingServiceTest {
                 DiscoverListingsRequestDto request
         ) {
             explicitScopeMethodCalled = true;
-            throw new AssertionError(
-                    "Default processing must preserve the concrete ListingClient scope"
-            );
+            return List.of();
         }
     }
 }
