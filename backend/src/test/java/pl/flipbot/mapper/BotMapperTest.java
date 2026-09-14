@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 class BotMapperTest {
 
     @Test
-    void playwrightPayloadKeepsInactiveProductsOnlyWhileNegotiationsAreActive() {
+    void playwrightPayloadKeepsInactiveProductsOnlyWhileNegotiationsAreRunning() {
         BotConfigurationMapper configurationMapper =
                 mock(BotConfigurationMapper.class);
         BotAdditionalTargetRepository additionalTargetRepository =
@@ -49,7 +49,7 @@ class BotMapperTest {
                 .id(101L)
                 .active(true)
                 .build();
-        BotAdditionalTarget inactiveWithNegotiation = BotAdditionalTarget.builder()
+        BotAdditionalTarget inactiveNegotiating = BotAdditionalTarget.builder()
                 .id(102L)
                 .active(false)
                 .build();
@@ -73,20 +73,17 @@ class BotMapperTest {
                 .findAllByConfigurationBotIdOrderByIdAsc(9L))
                 .thenReturn(List.of(
                         active,
-                        inactiveWithNegotiation,
+                        inactiveNegotiating,
                         inactiveHistorical
                 ));
         when(listingRepository
                 .findDistinctAdditionalTargetIdsByBotIdAndStatusIn(
                         eq(9L),
-                        eq(Set.of(
-                                ListingStatus.NEGOTIATING,
-                                ListingStatus.ACTION_REQUIRED
-                        ))
+                        eq(Set.of(ListingStatus.NEGOTIATING))
                 ))
                 .thenReturn(List.of(102L));
         when(additionalTargetMapper.map(active)).thenReturn(activeResponse);
-        when(additionalTargetMapper.map(inactiveWithNegotiation))
+        when(additionalTargetMapper.map(inactiveNegotiating))
                 .thenReturn(inactiveResponse);
 
         BotPlaywrightResponse response = mapper.mapPlaywright(bot);
@@ -99,10 +96,7 @@ class BotMapperTest {
         verify(listingRepository)
                 .findDistinctAdditionalTargetIdsByBotIdAndStatusIn(
                         eq(9L),
-                        eq(Set.of(
-                                ListingStatus.NEGOTIATING,
-                                ListingStatus.ACTION_REQUIRED
-                        ))
+                        eq(Set.of(ListingStatus.NEGOTIATING))
                 );
     }
 }
