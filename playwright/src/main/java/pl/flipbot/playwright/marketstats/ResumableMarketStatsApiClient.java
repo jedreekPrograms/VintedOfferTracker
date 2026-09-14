@@ -10,15 +10,25 @@ import java.util.Map;
 final class ResumableMarketStatsApiClient extends MarketStatsApiClient {
 
     private final int requestedStartIndex;
+    private final int maxTargetsPerBatch;
     private final Map<Long, Integer> originalIndexByModelId =
             new HashMap<>();
 
     private int targetCount;
+    private int returnedTargetCount;
     private int normalizedStartIndex;
     private int currentOriginalIndex = -1;
 
     ResumableMarketStatsApiClient(int requestedStartIndex) {
+        this(requestedStartIndex, Integer.MAX_VALUE);
+    }
+
+    ResumableMarketStatsApiClient(
+            int requestedStartIndex,
+            int maxTargetsPerBatch
+    ) {
         this.requestedStartIndex = requestedStartIndex;
+        this.maxTargetsPerBatch = Math.max(1, maxTargetsPerBatch);
     }
 
     @Override
@@ -26,6 +36,7 @@ final class ResumableMarketStatsApiClient extends MarketStatsApiClient {
         List<MarketStatsTargetDto> targets = super.getTargets();
 
         targetCount = targets == null ? 0 : targets.size();
+        returnedTargetCount = 0;
         normalizedStartIndex = MarketStatsTargetRotation.normalizeStartIndex(
                 requestedStartIndex,
                 targetCount
@@ -44,10 +55,14 @@ final class ResumableMarketStatsApiClient extends MarketStatsApiClient {
             }
         }
 
-        return MarketStatsTargetRotation.rotate(
+        List<MarketStatsTargetDto> batch = MarketStatsTargetRotation.batch(
                 targets,
-                normalizedStartIndex
+                normalizedStartIndex,
+                maxTargetsPerBatch
         );
+
+        returnedTargetCount = batch.size();
+        return batch;
     }
 
     @Override
@@ -73,5 +88,13 @@ final class ResumableMarketStatsApiClient extends MarketStatsApiClient {
                 currentOriginalIndex,
                 targetCount
         );
+    }
+
+    int targetCount() {
+        return targetCount;
+    }
+
+    int returnedTargetCount() {
+        return returnedTargetCount;
     }
 }
