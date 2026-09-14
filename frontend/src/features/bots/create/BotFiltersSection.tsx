@@ -66,7 +66,11 @@ function BotFiltersSection({
         brand => String(brand.id) === selectedBrandId,
     ) ?? null;
 
-    const selectedModel = models.find(
+    const compatibleModels = selectedCategory === null
+        ? []
+        : models.filter(model => modelMatchesCategory(model, selectedCategory));
+
+    const selectedModel = compatibleModels.find(
         model => String(model.id) === selectedModelId,
     ) ?? null;
 
@@ -100,14 +104,20 @@ function BotFiltersSection({
         })),
     ];
 
+    const modelPlaceholder = areModelsLoading
+        ? "Pobieranie modeli..."
+        : selectedCategory === null
+            ? "Najpierw wybierz kategorię"
+            : selectedBrandId.length > 0 && compatibleModels.length === 0
+                ? "Brak modeli dla tej kategorii"
+                : "Wybierz model";
+
     const modelOptions: AppSelectOption[] = [
         {
             value: "",
-            label: areModelsLoading
-                ? "Pobieranie modeli..."
-                : "Wybierz model",
+            label: modelPlaceholder,
         },
-        ...models.map(model => ({
+        ...compatibleModels.map(model => ({
             value: String(model.id),
             label: `${model.name}${model.targetMode === "SEARCH_QUERY" ? " · wyszukiwarka" : ""}`,
         })),
@@ -179,7 +189,12 @@ function BotFiltersSection({
                                 options={categoryOptions}
                                 ariaLabel="Kategoria bota"
                                 disabled={targetFieldsDisabled}
-                                onChange={onCategoryChange}
+                                onChange={(categoryId) => {
+                                    if (categoryId !== selectedCategoryId) {
+                                        onModelChange("");
+                                    }
+                                    onCategoryChange(categoryId);
+                                }}
                             />
                         </div>
 
@@ -208,11 +223,20 @@ function BotFiltersSection({
                                 ariaLabel="Model bota"
                                 disabled={
                                     targetFieldsDisabled
+                                    || selectedCategoryId.length === 0
                                     || selectedBrandId.length === 0
                                     || areModelsLoading
                                 }
                                 onChange={onModelChange}
                             />
+                            {selectedCategory !== null
+                                && selectedBrandId.length > 0
+                                && !areModelsLoading
+                                && compatibleModels.length === 0 && (
+                                <span className="form-help">
+                                    Ta marka nie ma modeli przypisanych do wybranej kategorii.
+                                </span>
+                            )}
                             {selectedModel !== null && (
                                 <span className="form-help">
                                     {selectedModel.targetMode === "SEARCH_QUERY"
@@ -287,6 +311,40 @@ function BotFiltersSection({
             )}
         </article>
     );
+}
+
+function modelMatchesCategory(
+    model: DictionaryModel,
+    category: DictionaryCategory,
+): boolean {
+    if (model.categoryId !== null) {
+        return model.categoryId === category.id;
+    }
+
+    if (model.categoryPathElements.length === 0) {
+        // Legacy dictionary entries did not always have category metadata.
+        // Keep them visible so existing configurations remain editable.
+        return true;
+    }
+
+    return categoryPathsEqual(
+        model.categoryPathElements,
+        category.categoryPath,
+    );
+}
+
+function categoryPathsEqual(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) {
+        return false;
+    }
+
+    return left.every((value, index) =>
+        normalizePathPart(value) === normalizePathPart(right[index] ?? ""),
+    );
+}
+
+function normalizePathPart(value: string): string {
+    return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("pl-PL");
 }
 
 interface ReferencePriceProps {
