@@ -197,7 +197,6 @@ public class BotWorkerSlot implements Runnable {
                     );
                     log.debug(
                             "[SLOT {}] Rate-limit exception for bot {} during {}.",
-                            slotNumber,
                             botId,
                             jobType,
                             exception
@@ -247,15 +246,20 @@ public class BotWorkerSlot implements Runnable {
                                 reportQueuedAfterRun
                         );
                     } finally {
-                        if (!keepBrowserBetweenJobs) {
-                            browserManager = closeBrowserRuntime(
-                                    browserManager,
-                                    "headful job finished for bot "
-                                            + botId
-                                            + " / "
-                                            + jobType
-                            );
-                        }
+                        String closeReason =
+                                "headful job finished for bot "
+                                        + botId
+                                        + " / "
+                                        + jobType;
+
+                        browserManager = WorkerBrowserRetentionPolicy.afterJob(
+                                browserManager,
+                                config.schedulerHeadless(),
+                                runtime -> closeBrowserRuntime(
+                                        runtime,
+                                        closeReason
+                                )
+                        );
                     }
                 }
             }
