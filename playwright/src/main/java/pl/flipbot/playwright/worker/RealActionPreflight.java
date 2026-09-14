@@ -424,8 +424,11 @@ public class RealActionPreflight {
             }
         }
 
-        if (nextStepRequested && sorted.size() < 2) {
-            failures.add(label + " NEXT_STEP test requires at least two negotiation steps");
+        if (nextStepRequested && sorted.size() == 1) {
+            notes.add(
+                    label
+                            + " has a one-step negotiation ladder; an active conversation may finish without sending a NEXT_STEP"
+            );
         }
 
         notes.add(label + " configured negotiation steps: " + sorted.size());
