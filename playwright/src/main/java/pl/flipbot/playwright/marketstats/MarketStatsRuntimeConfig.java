@@ -12,8 +12,7 @@ public record MarketStatsRuntimeConfig(
         long refreshCooldownMinutes,
         int maxListingsPerModel,
         int knownBoundarySize,
-        long interModelDelayMillis,
-        int browserRecycleTargetCount
+        long interModelDelayMillis
 ) {
 
     private static final String ENABLED_ENV =
@@ -32,13 +31,10 @@ public record MarketStatsRuntimeConfig(
             "FLIPBOT_MARKET_STATS_KNOWN_BOUNDARY";
     private static final String INTER_MODEL_DELAY_ENV =
             "FLIPBOT_MARKET_STATS_INTER_MODEL_DELAY_MS";
-    private static final String BROWSER_RECYCLE_TARGETS_ENV =
-            "FLIPBOT_MARKET_STATS_BROWSER_RECYCLE_TARGETS";
 
     private static final long DEFAULT_REFRESH_COOLDOWN_MINUTES = 15L;
     private static final long MIN_REFRESH_COOLDOWN_MINUTES = 5L;
     private static final long MAX_REFRESH_COOLDOWN_MINUTES = 1_440L;
-    private static final int DEFAULT_BROWSER_RECYCLE_TARGETS = 3;
 
     public static MarketStatsRuntimeConfig fromEnvironment() {
         String explicitObserverHeadless = System.getenv(HEADLESS_ENV);
@@ -60,10 +56,7 @@ public record MarketStatsRuntimeConfig(
                         ),
                         readIntInRange(MAX_LISTINGS_ENV, 600, 50, 5_000),
                         readIntInRange(KNOWN_BOUNDARY_ENV, 20, 5, 100),
-                        readLongInRange(INTER_MODEL_DELAY_ENV, 2_500L, 0L, 60_000L),
-                        resolveBrowserRecycleTargetCount(
-                                System.getenv(BROWSER_RECYCLE_TARGETS_ENV)
-                        )
+                        readLongInRange(INTER_MODEL_DELAY_ENV, 2_500L, 0L, 60_000L)
                 );
 
         String headlessSource = hasText(explicitObserverHeadless)
@@ -80,7 +73,7 @@ public record MarketStatsRuntimeConfig(
 
         log.info(
                 "[MARKET STATS CONFIG] enabled={}, observer=frontend-managed, headless={} [{}], "
-                        + "refreshCooldown={}m [{}], maxListingsPerModel={}, knownBoundary={}, interModelDelay={}ms, browserRecycleTargets={}.",
+                        + "refreshCooldown={}m [{}], maxListingsPerModel={}, knownBoundary={}, interModelDelay={}ms.",
                 config.enabled(),
                 config.headless(),
                 headlessSource,
@@ -88,8 +81,7 @@ public record MarketStatsRuntimeConfig(
                 refreshSource,
                 config.maxListingsPerModel(),
                 config.knownBoundarySize(),
-                config.interModelDelayMillis(),
-                config.browserRecycleTargetCount()
+                config.interModelDelayMillis()
         );
 
         return config;
@@ -147,15 +139,6 @@ public record MarketStatsRuntimeConfig(
         return DEFAULT_REFRESH_COOLDOWN_MINUTES;
     }
 
-    static int resolveBrowserRecycleTargetCount(String raw) {
-        return parseIntInRange(
-                raw,
-                DEFAULT_BROWSER_RECYCLE_TARGETS,
-                1,
-                50
-        );
-    }
-
     private static boolean readBoolean(
             String name,
             boolean fallback
@@ -201,21 +184,9 @@ public record MarketStatsRuntimeConfig(
             int minimum,
             int maximum
     ) {
-        return parseIntInRange(
-                System.getenv(name),
-                fallback,
-                minimum,
-                maximum
-        );
-    }
+        String raw = System.getenv(name);
 
-    private static int parseIntInRange(
-            String raw,
-            int fallback,
-            int minimum,
-            int maximum
-    ) {
-        if (!hasText(raw)) {
+        if (raw == null || raw.isBlank()) {
             return fallback;
         }
 

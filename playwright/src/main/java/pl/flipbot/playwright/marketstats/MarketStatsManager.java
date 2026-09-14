@@ -53,12 +53,10 @@ public class MarketStatsManager implements AutoCloseable {
         log.info(
                 "[MARKET STATS] Dedicated collector is enabled. Observer is managed by the frontend. "
                         + "First check in {}s. After every pass it respects at least {}m normal cooldown; "
-                        + "failed/rate-limited passes back off for {}m. Rate-limited passes resume from the model after the one that triggered backoff, so one large model cannot starve the rest of the queue. "
-                        + "Observer Chromium is recycled after at most {} model target(s) to cap browser peak memory.",
+                        + "failed/rate-limited passes back off for {}m. Rate-limited passes resume from the model after the one that triggered backoff, so one large model cannot starve the rest of the queue.",
                 INITIAL_DELAY_SECONDS,
                 config.refreshCooldownMinutes(),
-                FAILURE_RETRY_MINUTES,
-                config.browserRecycleTargetCount()
+                FAILURE_RETRY_MINUTES
         );
 
         executor.scheduleWithFixedDelay(
@@ -81,79 +79,11 @@ public class MarketStatsManager implements AutoCloseable {
         }
 
         long startedAtMillis = System.currentTimeMillis();
-        int passStartIndex = nextTargetStartIndex;
-        ResumableMarketStatsApiClient apiClient = null;
+        ResumableMarketStatsApiClient apiClient =
+                new ResumableMarketStatsApiClient(nextTargetStartIndex);
 
         try {
-            int batchStartIndex = passStartIndex;
-            int attemptedTargets = 0;
-            int totalTargets = -1;
-            int batchNumber = 0;
-
-            while (!stopping.get()) {
-                int remainingTargets = totalTargets < 0
-                        ? config.browserRecycleTargetCount()
-                        : Math.min(
-                                config.browserRecycleTargetCount(),
-                                Math.max(1, totalTargets - attemptedTargets)
-                        );
-
-                apiClient = new ResumableMarketStatsApiClient(
-                        batchStartIndex,
-                        remainingTargets
-                );
-                batchNumber++;
-
-                log.info(
-                        "[MARKET STATS] Starting browser batch {} from global target index {} with capacity {}. A fresh observer Chromium/context will be used for this batch.",
-                        batchNumber,
-                        batchStartIndex,
-                        remainingTargets
-                );
-
-                new MarketStatsCollector(config, apiClient).collectOnce();
-
-                int returnedTargets = apiClient.returnedTargetCount();
-                totalTargets = apiClient.targetCount();
-                attemptedTargets += returnedTargets;
-
-                if (totalTargets <= 0 || returnedTargets <= 0) {
-                    break;
-                }
-
-                if (attemptedTargets >= totalTargets) {
-                    break;
-                }
-
-                int nextBatchStartIndex =
-                        apiClient.resumeIndexAfterCurrentTarget();
-
-                if (nextBatchStartIndex == batchStartIndex) {
-                    throw new IllegalStateException(
-                            "Market-stats browser batching made no target-index progress. startIndex="
-                                    + batchStartIndex
-                                    + ", attempted="
-                                    + attemptedTargets
-                                    + ", total="
-                                    + totalTargets
-                    );
-                }
-
-                log.info(
-                        "[MARKET STATS] Browser batch {} completed after {} target(s). Its Chromium runtime is now closed; continuing from global target index {} with a fresh runtime. attempted={}/{}.",
-                        batchNumber,
-                        returnedTargets,
-                        nextBatchStartIndex,
-                        attemptedTargets,
-                        totalTargets
-                );
-
-                batchStartIndex = nextBatchStartIndex;
-            }
-
-            if (stopping.get()) {
-                return;
-            }
+            new MarketStatsCollector(config, apiClient).collectOnce();
 
             long completedAtMillis = System.currentTimeMillis();
             long durationSeconds = Math.max(
@@ -171,10 +101,8 @@ public class MarketStatsManager implements AutoCloseable {
                     );
 
             log.info(
-                    "[MARKET STATS] Collection completed in {}s across {} browser batch(es). All {} model target(s) were attempted; the next full pass returns to the normal target order after {}m cooldown.",
+                    "[MARKET STATS] Collection completed in {}s. All model targets were attempted; the next full pass returns to the normal target order after {}m cooldown.",
                     durationSeconds,
-                    batchNumber,
-                    Math.max(0, totalTargets),
                     config.refreshCooldownMinutes()
             );
         } catch (Exception exception) {
@@ -197,9 +125,8 @@ public class MarketStatsManager implements AutoCloseable {
 
             if (containsTrafficBackoffMarker(exception)) {
                 int previousStartIndex = nextTargetStartIndex;
-                nextTargetStartIndex = apiClient == null
-                        ? previousStartIndex
-                        : apiClient.resumeIndexAfterCurrentTarget();
+                nextTargetStartIndex =
+                        apiClient.resumeIndexAfterCurrentTarget();
                 nextAttemptAtMillis =
                         System.currentTimeMillis()
                                 + TimeUnit.MINUTES.toMillis(
@@ -208,7 +135,7 @@ public class MarketStatsManager implements AutoCloseable {
 
                 log.warn(
                         "[MARKET STATS] Vinted requested traffic backoff. Pausing observer traffic for {} minutes. "
-                                + "This pass started at target index {} and the next pass will resume at target index {}, after the model that triggered backoff. "
+                                + "This pass started at target index {} and the next pass will resume at target index {}, after the model that triggered the backoff. "
                                 + "Normal bot scheduling is unaffected. reason={}",
                         FAILURE_RETRY_MINUTES,
                         previousStartIndex,

@@ -4,7 +4,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -56,23 +55,5 @@ public class ConsecutiveContactUnavailableTrackerTest {
 
         assertFalse(tracker.shouldClose(otherListing));
         assertFalse(tracker.shouldClose(otherBot));
-    }
-
-    @Test
-    public void stoppedBotCleanupRemovesOnlyThatBotsCounters() {
-        tracker.recordSuspected(4L, "A");
-        tracker.recordSuspected(4L, "A");
-        tracker.recordSuspected(3L, "A");
-        tracker.recordSuspected(3L, "A");
-
-        ConsecutiveContactUnavailableTracker.clearBot(4L);
-
-        int restartedBotCount = tracker.recordSuspected(4L, "A");
-        int otherBotCount = tracker.recordSuspected(3L, "A");
-
-        assertEquals(1, restartedBotCount);
-        assertEquals(3, otherBotCount);
-        assertFalse(tracker.shouldClose(restartedBotCount));
-        assertTrue(tracker.shouldClose(otherBotCount));
     }
 }

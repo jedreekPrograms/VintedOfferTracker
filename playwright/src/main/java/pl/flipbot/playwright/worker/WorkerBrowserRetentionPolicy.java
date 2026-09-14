@@ -6,16 +6,16 @@ import java.util.function.Consumer;
 /**
  * Decides whether a worker slot may keep its Chromium runtime after a job.
  *
- * <p>Scheduled jobs deliberately release Chromium after every completed job,
- * including in headless mode. A worker slot may stay alive and wait for later
- * work without retaining a full browser process and its renderer/GPU/utility
- * children in memory.</p>
+ * <p>Headless workers may reuse the runtime between nearby jobs for throughput;
+ * {@link BotWorkerSlot} still releases an idle headless runtime after the configured
+ * browser-idle timeout. Headful workers deliberately release the runtime after every
+ * job so visible Chrome windows do not accumulate merely because a worker slot
+ * handled work earlier in the process lifetime.</p>
  *
- * <p>Bot authentication state is not stored in the BrowserManager. Scheduled
- * jobs persist validated Playwright storage state through {@code SessionManager}
- * before the per-job BrowserContext is closed. A later job therefore launches
- * a fresh Chromium runtime and restores the same protected {@code bot-X.json}
- * session instead of relying on browser-process lifetime for authentication.</p>
+ * <p>Bot authentication state is not stored in the BrowserManager. Scheduled jobs
+ * persist validated Playwright storage state through {@code SessionManager} before
+ * the per-job BrowserContext is closed, so recycling the browser runtime does not
+ * reset the saved bot session.</p>
  */
 final class WorkerBrowserRetentionPolicy {
 
@@ -23,7 +23,7 @@ final class WorkerBrowserRetentionPolicy {
     }
 
     static boolean keepBrowserOpenBetweenJobs(boolean schedulerHeadless) {
-        return false;
+        return schedulerHeadless;
     }
 
     static <T> T afterJob(
@@ -31,13 +31,14 @@ final class WorkerBrowserRetentionPolicy {
             boolean schedulerHeadless,
             Consumer<T> closeAction
     ) {
-        if (browserRuntime == null) {
-            return null;
+        if (browserRuntime == null
+                || keepBrowserOpenBetweenJobs(schedulerHeadless)) {
+            return browserRuntime;
         }
 
         Objects.requireNonNull(
                 closeAction,
-                "Browser close action is required after a scheduled job."
+                "Browser close action is required for a headful runtime."
         ).accept(browserRuntime);
 
         return null;
