@@ -44,18 +44,40 @@ public class BotWorkerSlot implements Runnable {
                 );
 
         log.info(
-                "[SLOT {}] Starting worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}, reuseBetweenJobs={}.",
+                "[SLOT {}] Starting worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}, reuseBetweenJobs={}, browserIdleTimeout={}s.",
                 slotNumber,
                 Thread.currentThread().getName(),
                 config.schedulerHeadless(),
-                keepBrowserBetweenJobs
+                keepBrowserBetweenJobs,
+                config.browserIdleTimeoutSeconds()
         );
 
         BrowserManager browserManager = null;
 
         try {
             while (!Thread.currentThread().isInterrupted()) {
-                ScheduledBotTask task = scheduler.takeNext();
+                ScheduledBotTask task;
+
+                if (browserManager != null && keepBrowserBetweenJobs) {
+                    task = scheduler.pollNext(
+                            TimeUnit.SECONDS.toMillis(
+                                    config.browserIdleTimeoutSeconds()
+                            )
+                    );
+
+                    if (task == null) {
+                        browserManager = closeBrowserRuntime(
+                                browserManager,
+                                "idle timeout after "
+                                        + config.browserIdleTimeoutSeconds()
+                                        + "s without a ready job"
+                        );
+                        continue;
+                    }
+                } else {
+                    task = scheduler.takeNext();
+                }
+
                 Long botId = task.botId();
                 ScheduledJobType jobType = task.jobType();
 
@@ -72,6 +94,11 @@ public class BotWorkerSlot implements Runnable {
                             persistedBlockDelayMillis,
                             true,
                             false
+                    );
+                    browserManager = closeBrowserRuntime(
+                            browserManager,
+                            "persisted session cooldown before browser job for bot "
+                                    + botId
                     );
                     continue;
                 }
