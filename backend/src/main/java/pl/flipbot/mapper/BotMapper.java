@@ -10,7 +10,6 @@ import pl.flipbot.bot.dto.RunningBotResponse;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -18,8 +17,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class BotMapper {
 
-    private static final Set<ListingStatus> ACTIVE_NEGOTIATION_STATUSES =
-            EnumSet.of(ListingStatus.NEGOTIATING, ListingStatus.ACTION_REQUIRED);
+    private static final Set<ListingStatus> RUNTIME_NEGOTIATION_STATUSES =
+            Set.of(ListingStatus.NEGOTIATING);
 
     private final BotConfigurationMapper botConfigurationMapper;
     private final BotAdditionalTargetRepository additionalTargetRepository;
@@ -47,10 +46,10 @@ public class BotMapper {
     }
 
     public BotPlaywrightResponse mapPlaywright(Bot bot) {
-        Set<Long> targetsWithActiveNegotiations = new HashSet<>(
+        Set<Long> targetsWithNegotiatingListings = new HashSet<>(
                 listingRepository.findDistinctAdditionalTargetIdsByBotIdAndStatusIn(
                         bot.getId(),
-                        ACTIVE_NEGOTIATION_STATUSES
+                        RUNTIME_NEGOTIATION_STATUSES
                 )
         );
 
@@ -67,7 +66,7 @@ public class BotMapper {
                                 .findAllByConfigurationBotIdOrderByIdAsc(bot.getId())
                                 .stream()
                                 .filter(target -> Boolean.TRUE.equals(target.getActive())
-                                        || targetsWithActiveNegotiations.contains(target.getId()))
+                                        || targetsWithNegotiatingListings.contains(target.getId()))
                                 .map(additionalTargetMapper::map)
                                 .toList()
                 )
