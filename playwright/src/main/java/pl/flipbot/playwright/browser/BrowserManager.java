@@ -97,11 +97,53 @@ public class BrowserManager implements AutoCloseable {
         context.addInitScript(VintedInformationalDialogGuard.script());
         context.addInitScript(OneTrustConsentGuard.script());
 
+        if (headless) {
+            installCatalogHeavyResourceGuard(context);
+        }
+
         log.debug(
                 "[BROWSER UI] Vinted informational-dialog and OneTrust consent guards installed for new browser context."
         );
 
         return context;
+    }
+
+    private void installCatalogHeavyResourceGuard(BrowserContext context) {
+        context.route(
+                "**/*",
+                route -> {
+                    try {
+                        var request = route.request();
+                        String topLevelPageUrl = request.frame().page().url();
+
+                        if (CatalogHeavyResourcePolicy.shouldBlock(
+                                topLevelPageUrl,
+                                request.resourceType(),
+                                request.url()
+                        )) {
+                            route.abort();
+                            return;
+                        }
+                    } catch (RuntimeException exception) {
+                        /*
+                         * This optimization is never allowed to make browser
+                         * correctness depend on route-inspection details. If a
+                         * frame/page is changing during navigation, fail open
+                         * and let Chromium load the resource normally.
+                         */
+                        log.trace(
+                                "[BROWSER MEMORY] Could not classify a resource request safely; allowing it.",
+                                exception
+                        );
+                    }
+
+                    route.resume();
+                }
+        );
+
+        log.info(
+                "[BROWSER MEMORY] Headless catalog heavy-resource guard installed. Vinted catalog image/media transfers may be skipped; functional traffic and challenge assets remain enabled."
+        );
     }
 
     @Override
