@@ -61,6 +61,41 @@ public class BotProductExecutionPlanTest {
     }
 
     @Test
+    public void catalogPreservesIndependentCategoryPathsPerProduct() {
+        BotDetailsDto bot = botWithMain();
+        bot.getConfiguration().setCategoryPath(
+                List.of("Elektronika", "Telefony")
+        );
+
+        BotAdditionalTargetDto consoleTarget = extra(
+                21L,
+                true,
+                "PlayStation 5"
+        );
+        consoleTarget.setBrand("Sony");
+        consoleTarget.setCategoryPath(
+                List.of("Elektronika", "Konsole")
+        );
+        bot.setAdditionalTargets(List.of(consoleTarget));
+
+        List<BotProductExecutionPlan.Target> targets =
+                BotProductExecutionPlan.activeCatalogTargets(bot);
+
+        assertEquals(2, targets.size());
+        assertNull(targets.get(0).additionalTargetId());
+        assertEquals(
+                List.of("Elektronika", "Telefony"),
+                targets.get(0).configuration().getCategoryPath()
+        );
+        assertEquals(Long.valueOf(21L), targets.get(1).additionalTargetId());
+        assertEquals(
+                List.of("Elektronika", "Konsole"),
+                targets.get(1).configuration().getCategoryPath()
+        );
+        assertSame(consoleTarget, targets.get(1).configuration());
+    }
+
+    @Test
     public void freshPayloadKeepsInactiveProductForExistingNegotiations() {
         BotDetailsDto freshlyLoadedBot = botWithMain();
         BotAdditionalTargetDto inactive = extra(77L, false, "Historical");
@@ -96,6 +131,7 @@ public class BotProductExecutionPlanTest {
         bot.setId(5L);
 
         BotConfigurationDto main = new BotConfigurationDto();
+        main.setCategoryPath(List.of("Elektronika", "Telefony"));
         main.setBrand("Apple");
         main.setModel("iPhone 13");
         bot.setConfiguration(main);
