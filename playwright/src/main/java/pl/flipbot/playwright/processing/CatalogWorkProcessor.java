@@ -11,6 +11,7 @@ import pl.flipbot.playwright.filters.FilterService;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotProductExecutionPlan;
+import pl.flipbot.playwright.negotiation.CatalogDetailInspectionBudget;
 import pl.flipbot.playwright.negotiation.NewNegotiationProcessor;
 
 import java.util.List;
@@ -19,6 +20,8 @@ import java.util.concurrent.ConcurrentMap;
 
 @Slf4j
 public class CatalogWorkProcessor {
+
+    static final int MAX_DETAIL_PAGE_REQUESTS_PER_CATALOG_RUN = 25;
 
     private static final ConcurrentMap<Long, Integer> NEXT_PRODUCT_OFFSET =
             new ConcurrentHashMap<>();
@@ -75,11 +78,17 @@ public class CatalogWorkProcessor {
                                 : (previous + 1) % targets.size()
                 );
 
+        CatalogDetailInspectionBudget detailInspectionBudget =
+                new CatalogDetailInspectionBudget(
+                        MAX_DETAIL_PAGE_REQUESTS_PER_CATALOG_RUN
+                );
+
         log.info(
-                "[MULTI PRODUCT] Bot {} scanning {} product(s), offset={}.",
+                "[MULTI PRODUCT] Bot {} scanning {} product(s), offset={}, shared item-detail budget={} request(s).",
                 botId,
                 targets.size(),
-                offset
+                offset,
+                detailInspectionBudget.limit()
         );
 
         try {
@@ -88,10 +97,17 @@ public class CatalogWorkProcessor {
                         (offset + i) % targets.size()
                 );
                 context.getBot().setConfiguration(target.configuration());
-                processTarget(target);
+                processTarget(target, detailInspectionBudget);
             }
         } finally {
             context.getBot().setConfiguration(main);
+            log.info(
+                    "[MULTI PRODUCT] Bot {} catalog scan finished with shared item-detail budget {}/{} used, {} remaining.",
+                    botId,
+                    detailInspectionBudget.used(),
+                    detailInspectionBudget.limit(),
+                    detailInspectionBudget.remaining()
+            );
         }
 
         if (!realOffersEnabled) {
@@ -102,7 +118,10 @@ public class CatalogWorkProcessor {
         return after > before;
     }
 
-    private void processTarget(BotProductExecutionPlan.Target target) {
+    private void processTarget(
+            BotProductExecutionPlan.Target target,
+            CatalogDetailInspectionBudget detailInspectionBudget
+    ) {
         Long botId = context.getBot().getId();
         String label = target.additionalTargetId() == null
                 ? "MAIN"
@@ -139,7 +158,8 @@ public class CatalogWorkProcessor {
                 runQuota,
                 listingStatusUpdater,
                 realOffersEnabled,
-                maxRealOffersPerRun
+                maxRealOffersPerRun,
+                detailInspectionBudget
         ).process(
                 batch.candidates(),
                 batch.currentScanListingIds()
