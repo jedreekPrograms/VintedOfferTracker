@@ -92,10 +92,16 @@ public interface ListingRepository
             Long additionalTargetId
     );
 
-    boolean existsByBotIdAndAdditionalTargetIdAndStatusIn(
-            Long botId,
-            Long additionalTargetId,
-            Collection<ListingStatus> statuses
+    @Query("""
+            select distinct listing.additionalTarget.id
+            from Listing listing
+            where listing.bot.id = :botId
+              and listing.additionalTarget is not null
+              and listing.status in :statuses
+            """)
+    List<Long> findDistinctAdditionalTargetIdsByBotIdAndStatusIn(
+            @Param("botId") Long botId,
+            @Param("statuses") Collection<ListingStatus> statuses
     );
 
     long countByBotIdAndStatus(
