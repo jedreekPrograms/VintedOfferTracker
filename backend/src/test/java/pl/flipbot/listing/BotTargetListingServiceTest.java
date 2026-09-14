@@ -85,6 +85,9 @@ class BotTargetListingServiceTest {
                 eq(BOT_ID),
                 any()
         )).thenReturn(List.of(existing));
+        when(listingRediscoveryService
+                .isSafeForInactiveTargetReassignment(existing))
+                .thenReturn(true);
         when(listingRediscoveryService.reassignFromInactiveTargetIfEligible(
                 BOT_ID,
                 existing.getListingId(),
@@ -101,6 +104,8 @@ class BotTargetListingServiceTest {
 
         assertEquals(1, result.size());
         assertSame(mapped, result.get(0));
+        verify(listingRediscoveryService)
+                .isSafeForInactiveTargetReassignment(existing);
         verify(listingRediscoveryService).reassignFromInactiveTargetIfEligible(
                 BOT_ID,
                 existing.getListingId(),
@@ -115,7 +120,7 @@ class BotTargetListingServiceTest {
     }
 
     @Test
-    void protectedCrossProductOverlapRemainsOwnedByOriginalProduct() {
+    void protectedNegotiatingOverlapSkipsLockedReassignmentEntirely() {
         BotAdditionalTarget oldTarget = BotAdditionalTarget.builder()
                 .id(10L)
                 .active(false)
@@ -140,12 +145,9 @@ class BotTargetListingServiceTest {
                 eq(BOT_ID),
                 any()
         )).thenReturn(List.of(existing));
-        when(listingRediscoveryService.reassignFromInactiveTargetIfEligible(
-                BOT_ID,
-                existing.getListingId(),
-                newTarget,
-                requestListing
-        )).thenReturn(Optional.empty());
+        when(listingRediscoveryService
+                .isSafeForInactiveTargetReassignment(existing))
+                .thenReturn(false);
 
         List<ListingResponse> result = service.discoverAdditionalTarget(
                 BOT_ID,
@@ -154,11 +156,60 @@ class BotTargetListingServiceTest {
         );
 
         assertEquals(0, result.size());
+        verify(listingRediscoveryService, never())
+                .reassignFromInactiveTargetIfEligible(
+                        any(),
+                        any(),
+                        any(),
+                        any()
+                );
         verify(listingClaimService, never()).claimListing(
                 eq(BOT_ID),
                 any(BotAdditionalTarget.class),
                 any(CreateListingRequest.class)
         );
+    }
+
+    @Test
+    void overlapOwnedByAnotherActiveProductSkipsLockedReassignmentEntirely() {
+        BotAdditionalTarget oldTarget = BotAdditionalTarget.builder()
+                .id(10L)
+                .active(true)
+                .build();
+        BotAdditionalTarget newTarget = BotAdditionalTarget.builder()
+                .id(20L)
+                .active(true)
+                .build();
+
+        Listing existing = listing(oldTarget);
+        CreateListingRequest requestListing = requestListing();
+        DiscoverListingsRequest request = new DiscoverListingsRequest();
+        request.setListings(List.of(requestListing));
+
+        when(additionalTargetRepository.findByIdAndConfigurationBotId(20L, BOT_ID))
+                .thenReturn(Optional.of(newTarget));
+        when(listingRepository.findAllByBotIdAndListingIdIn(
+                eq(BOT_ID),
+                any()
+        )).thenReturn(List.of(existing));
+        when(listingRediscoveryService
+                .isSafeForInactiveTargetReassignment(existing))
+                .thenReturn(false);
+
+        List<ListingResponse> result = service.discoverAdditionalTarget(
+                BOT_ID,
+                20L,
+                request
+        );
+
+        assertEquals(0, result.size());
+        verify(listingRediscoveryService, never())
+                .reassignFromInactiveTargetIfEligible(
+                        any(),
+                        any(),
+                        any(),
+                        any()
+                );
     }
 
     private Listing listing(BotAdditionalTarget target) {
