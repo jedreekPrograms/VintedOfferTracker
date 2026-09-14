@@ -92,6 +92,12 @@ public interface ListingRepository
             Long additionalTargetId
     );
 
+    boolean existsByBotIdAndAdditionalTargetIdAndStatusIn(
+            Long botId,
+            Long additionalTargetId,
+            Collection<ListingStatus> statuses
+    );
+
     long countByBotIdAndStatus(
             Long botId,
             ListingStatus status
