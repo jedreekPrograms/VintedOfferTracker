@@ -20,7 +20,6 @@ public class BotAdditionalTargetRequestGuard {
 
     private final BotRepository botRepository;
     private final BotAdditionalTargetRepository additionalTargetRepository;
-    private final BotTargetDictionaryCompatibilityGuard dictionaryCompatibilityGuard;
 
     public void validateCreate(
             Long botId,
@@ -53,14 +52,6 @@ public class BotAdditionalTargetRequestGuard {
         }
 
         validateSharedDailyBudget(main, request);
-
-        dictionaryCompatibilityGuard.validate(
-                request.getCategoryPath(),
-                request.getBrand(),
-                request.getTargetMode(),
-                request.getModel(),
-                request.getSearchQuery()
-        );
 
         if (sameTarget(main, request)) {
             throw new IllegalArgumentException(

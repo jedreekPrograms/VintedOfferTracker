@@ -100,33 +100,6 @@ public class MultiProductExistingNegotiationProcessorTest {
     }
 
     @Test
-    public void stoppedBotCleanupRestartsNegotiationRotationFromMain() {
-        List<BotProductExecutionPlan.Target> targets =
-                BotProductExecutionPlan.negotiationTargets(
-                        botWithProducts(BOT_ID, extra(7L, true))
-                );
-
-        assertEquals(
-                List.of("MAIN", "7"),
-                labels(MultiProductExistingNegotiationProcessor
-                        .orderedTargetsForRun(BOT_ID, targets))
-        );
-        assertEquals(
-                List.of("7", "MAIN"),
-                labels(MultiProductExistingNegotiationProcessor
-                        .orderedTargetsForRun(BOT_ID, targets))
-        );
-
-        MultiProductExistingNegotiationProcessor.clearRotationState(BOT_ID);
-
-        assertEquals(
-                List.of("MAIN", "7"),
-                labels(MultiProductExistingNegotiationProcessor
-                        .orderedTargetsForRun(BOT_ID, targets))
-        );
-    }
-
-    @Test
     public void singleProductLegacyPlanNeverRotatesAwayFromMain() {
         List<BotProductExecutionPlan.Target> targets =
                 BotProductExecutionPlan.negotiationTargets(

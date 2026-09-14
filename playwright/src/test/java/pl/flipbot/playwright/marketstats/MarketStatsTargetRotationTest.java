@@ -37,40 +37,9 @@ public class MarketStatsTargetRotationTest {
     }
 
     @Test
-    public void returnsBoundedBatchAcrossWrapAroundWithoutDuplicates() {
-        assertEquals(
-                List.of("i", "j", "a"),
-                MarketStatsTargetRotation.batch(
-                        List.of("a", "b", "c", "d", "e", "f", "g", "h", "i", "j"),
-                        8,
-                        3
-                )
-        );
-
-        assertEquals(
-                List.of("b"),
-                MarketStatsTargetRotation.batch(
-                        List.of("a", "b", "c", "d", "e", "f", "g", "h", "i", "j"),
-                        1,
-                        1
-                )
-        );
-    }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void rejectsNonPositiveBatchSize() {
-        MarketStatsTargetRotation.batch(
-                List.of("a"),
-                0,
-                0
-        );
-    }
-
-    @Test
     public void emptyTargetListUsesZeroIndex() {
         assertEquals(0, MarketStatsTargetRotation.normalizeStartIndex(5, 0));
         assertEquals(0, MarketStatsTargetRotation.nextIndex(2, 0));
         assertEquals(List.of(), MarketStatsTargetRotation.rotate(List.of(), 2));
-        assertEquals(List.of(), MarketStatsTargetRotation.batch(List.of(), 2, 3));
     }
 }

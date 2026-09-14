@@ -30,14 +30,6 @@ public class ConsecutiveContactUnavailableTracker {
         COUNTS.remove(key(botId, marketplaceListingId));
     }
 
-    public static void clearBot(Long botId) {
-        if (botId == null) {
-            return;
-        }
-
-        COUNTS.keySet().removeIf(key -> botId.equals(key.botId()));
-    }
-
     static void clearAllForTests() {
         COUNTS.clear();
     }

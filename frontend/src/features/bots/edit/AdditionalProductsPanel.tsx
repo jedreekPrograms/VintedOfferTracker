@@ -127,7 +127,7 @@ function AdditionalProductsPanel() {
                     <strong>Produkt główny:</strong>{" "}
                     {bot.configuration.brand} → {targetName(bot.configuration)} · {formatPrice(bot.configuration.minPrice)}–{formatPrice(bot.configuration.maxPrice)} zł
                     <div className="form-help">
-                        {formatCategoryPath(bot.configuration.categoryPath)} · To jest dotychczasowa konfiguracja bota. Nie jest przenoszona ani zmieniana przez tę funkcję.
+                        To jest dotychczasowa konfiguracja bota. Nie jest przenoszona ani zmieniana przez tę funkcję.
                     </div>
                 </div>
 
@@ -145,7 +145,7 @@ function AdditionalProductsPanel() {
                                 <div>
                                     <strong>{productLabel(target)}</strong>
                                     <div className="form-help">
-                                        {formatCategoryPath(target.categoryPath)} · {formatPrice(target.minPrice)}–{formatPrice(target.maxPrice)} zł · {target.negotiationSteps.length} kroków
+                                        {target.categoryPath.join(" → ")} · {formatPrice(target.minPrice)}–{formatPrice(target.maxPrice)} zł · {target.negotiationSteps.length} kroków
                                     </div>
                                 </div>
                                 <div className="bot-form-actions">
@@ -213,16 +213,6 @@ function targetName(target: {
     return target.targetMode === "SEARCH_QUERY"
         ? target.searchQuery ?? "wyszukiwanie"
         : target.model ?? "model";
-}
-
-function formatCategoryPath(categoryPath: string[] | null | undefined): string {
-    if (categoryPath === null
-        || categoryPath === undefined
-        || categoryPath.length === 0) {
-        return "Brak kategorii";
-    }
-
-    return categoryPath.join(" → ");
 }
 
 function formatPrice(value: number): string {
