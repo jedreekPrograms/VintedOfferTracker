@@ -10,6 +10,7 @@ import {
 } from "../api/listingsApi";
 import AppDialog from "../components/AppDialog";
 import { useActionRequiredListings } from "../features/action-required/hooks/useActionRequiredListings";
+import { formatProductProvenance } from "../features/listings/productProvenance";
 
 type ListingDecision = "PURCHASE" | "SKIP";
 
@@ -181,6 +182,7 @@ function ActionRequiredPage() {
                             listing.originalPrice,
                             listing.currentPrice,
                         );
+                        const productProvenance = formatProductProvenance(listing);
 
                         return (
                             <article key={listing.id} className="action-required-card">
@@ -221,6 +223,10 @@ function ActionRequiredPage() {
                                     <div>
                                         <dt>Bot</dt>
                                         <dd>{botName} <span>#{botId}</span></dd>
+                                    </div>
+                                    <div>
+                                        <dt>Produkt</dt>
+                                        <dd>{productProvenance}</dd>
                                     </div>
                                     <div>
                                         <dt>Listing ID</dt>
