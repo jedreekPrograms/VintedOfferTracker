@@ -68,6 +68,9 @@ public class ListingMapper {
                                 ? null
                                 : listing.getAdditionalTarget().getId()
                 )
+                .productTargetLabel(
+                        listing.getProductTargetLabel()
+                )
                 .build();
     }
 }
