@@ -171,5 +171,6 @@ export interface BotDetails
 
 export interface BotEditCapabilities {
     hasActiveNegotiations: boolean;
+    hasMainProductActiveNegotiations: boolean;
     minimumNegotiationCap: number | null;
 }
