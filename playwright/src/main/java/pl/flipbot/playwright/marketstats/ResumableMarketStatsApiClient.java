@@ -55,17 +55,14 @@ final class ResumableMarketStatsApiClient extends MarketStatsApiClient {
             }
         }
 
-        List<MarketStatsTargetDto> rotated = MarketStatsTargetRotation.rotate(
+        List<MarketStatsTargetDto> batch = MarketStatsTargetRotation.batch(
                 targets,
-                normalizedStartIndex
-        );
-        int batchSize = Math.min(
-                maxTargetsPerBatch,
-                rotated.size()
+                normalizedStartIndex,
+                maxTargetsPerBatch
         );
 
-        returnedTargetCount = batchSize;
-        return List.copyOf(rotated.subList(0, batchSize));
+        returnedTargetCount = batch.size();
+        return batch;
     }
 
     @Override
