@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
+import pl.flipbot.bot.BotStatus;
 import pl.flipbot.exception.BotNotFoundException;
 import pl.flipbot.negotiation.audit.RealActionAudit;
 import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
@@ -119,6 +120,34 @@ public class DailyOfferQuotaService {
                     "[OFFER QUOTA] Refusing replay of an already released reservation. bot={}, requestId={}",
                     botId,
                     requestId
+            );
+            return createReservationResponse(
+                    false,
+                    dailyLimit,
+                    quota.getUsedCount()
+            );
+        }
+
+        /*
+         * This is the last backend serialization point before Playwright may
+         * perform a new real marketplace action. lockBotRow() holds a database
+         * row lock for the entire reservation transaction, so a concurrent
+         * Stop and a brand-new reservation have a deterministic order:
+         *
+         * - Stop commits first -> the new reservation is refused.
+         * - Reservation commits first -> that request is already armed and a
+         *   later replay must remain idempotent even if the bot is now STOPPED.
+         *
+         * Never move this check above the existing-reservation branch. A lost
+         * HTTP response must not turn an already-reserved request into a false
+         * denial merely because the user stopped the bot before retrying it.
+         */
+        if (bot.getStatus() != BotStatus.RUNNING) {
+            log.info(
+                    "[OFFER QUOTA] Refusing new real-action reservation for bot {} requestId={} because bot status is {}.",
+                    botId,
+                    requestId,
+                    bot.getStatus()
             );
             return createReservationResponse(
                     false,
