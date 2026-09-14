@@ -9,13 +9,18 @@ import pl.flipbot.bot.dto.CreateBotConfigurationRequest;
 import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.bot.dto.UpdateBotRequest;
 import pl.flipbot.exception.BotNotFoundException;
+import pl.flipbot.listing.ListingRepository;
+import pl.flipbot.listing.ListingStatus;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Keeps the single account-wide daily action budget compatible with every
- * product ladder attached to the bot and prevents the main product from being
- * edited into the same target identity as an active additional product.
+ * product ladder that can still participate in runtime negotiation work and
+ * prevents the main product from being edited into the same target identity
+ * as an active additional product.
  */
 @Component
 @RequiredArgsConstructor
@@ -23,6 +28,7 @@ public class BotSharedNegotiationBudgetGuard {
 
     private final BotRepository botRepository;
     private final BotAdditionalTargetRepository additionalTargetRepository;
+    private final ListingRepository listingRepository;
 
     public void validateCreate(CreateBotRequest request) {
         if (request == null) {
@@ -46,31 +52,51 @@ public class BotSharedNegotiationBudgetGuard {
         botRepository.findById(botId)
                 .orElseThrow(() -> new BotNotFoundException(botId));
 
-        List<BotAdditionalTarget> activeTargets = additionalTargetRepository
-                .findAllByConfigurationBotIdAndActiveTrueOrderByIdAsc(botId);
+        List<BotAdditionalTarget> allTargets = additionalTargetRepository
+                .findAllByConfigurationBotIdOrderByIdAsc(botId);
+        List<BotAdditionalTarget> activeTargets = allTargets.stream()
+                .filter(target -> target != null && Boolean.TRUE.equals(target.getActive()))
+                .toList();
 
-        validateSharedBudget(configuration, activeTargets);
+        Set<Long> negotiatingTargetIds = new HashSet<>(
+                listingRepository.findDistinctAdditionalTargetIdsByBotIdAndStatusIn(
+                        botId,
+                        Set.of(ListingStatus.NEGOTIATING)
+                )
+        );
+        List<BotAdditionalTarget> budgetRelevantTargets = allTargets.stream()
+                .filter(target -> target != null
+                        && (Boolean.TRUE.equals(target.getActive())
+                        || negotiatingTargetIds.contains(target.getId())))
+                .toList();
+
+        validateSharedBudget(configuration, budgetRelevantTargets);
         validateMainTargetIdentity(configuration, activeTargets);
     }
 
     private void validateSharedBudget(
             CreateBotConfigurationRequest configuration,
-            List<BotAdditionalTarget> activeTargets
+            List<BotAdditionalTarget> budgetRelevantTargets
     ) {
         Integer requestedBudget = configuration.getDailyNegotiationBudget();
         if (requestedBudget == null) {
             return;
         }
 
-        for (BotAdditionalTarget target : activeTargets) {
+        for (BotAdditionalTarget target : budgetRelevantTargets) {
             if (target == null || target.getNegotiationSteps() == null) {
                 continue;
             }
 
             int stepCount = target.getNegotiationSteps().size();
             if (stepCount > requestedBudget) {
+                String state = Boolean.TRUE.equals(target.getActive())
+                        ? "aktywnego"
+                        : "wyłączonego z trwającą negocjacją";
                 throw new IllegalArgumentException(
-                        "Dzienny budżet negocjacyjny nie może być niższy niż liczba kroków aktywnego dodatkowego produktu "
+                        "Dzienny budżet negocjacyjny nie może być niższy niż liczba kroków "
+                                + state
+                                + " dodatkowego produktu "
                                 + target.getId()
                                 + " ("
                                 + stepCount
