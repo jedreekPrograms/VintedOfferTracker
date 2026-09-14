@@ -24,6 +24,7 @@ class BotAdditionalTargetRequestGuardTest {
 
     private BotRepository botRepository;
     private BotAdditionalTargetRepository additionalTargetRepository;
+    private BotTargetDictionaryCompatibilityGuard dictionaryCompatibilityGuard;
     private BotAdditionalTargetRequestGuard guard;
     private BotConfiguration main;
 
@@ -31,9 +32,11 @@ class BotAdditionalTargetRequestGuardTest {
     void setUp() {
         botRepository = mock(BotRepository.class);
         additionalTargetRepository = mock(BotAdditionalTargetRepository.class);
+        dictionaryCompatibilityGuard = mock(BotTargetDictionaryCompatibilityGuard.class);
         guard = new BotAdditionalTargetRequestGuard(
                 botRepository,
-                additionalTargetRepository
+                additionalTargetRepository,
+                dictionaryCompatibilityGuard
         );
 
         main = BotConfiguration.builder()

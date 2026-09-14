@@ -20,6 +20,19 @@ public interface DictionaryModelRepository extends JpaRepository<DictionaryModel
             Long brandId
     );
 
+    @Query("""
+            select model
+            from DictionaryModel model
+            join fetch model.brand brand
+            left join fetch model.category category
+            where lower(brand.name) = lower(:brandName)
+              and lower(model.name) = lower(:modelName)
+            """)
+    Optional<DictionaryModel> findFirstByBrand_NameIgnoreCaseAndNameIgnoreCase(
+            @Param("brandName") String brandName,
+            @Param("modelName") String modelName
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select model
