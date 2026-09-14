@@ -132,6 +132,20 @@ public class BotTargetListingService {
                         : existing.getAdditionalTarget().getId();
 
                 if (!Objects.equals(existingTargetId, expectedTargetId)) {
+                    /*
+                     * Most cross-product overlaps are obviously protected
+                     * (another active target, an active conversation, a
+                     * terminal state, etc.). Avoid opening a separate
+                     * REQUIRES_NEW lock transaction for those rows. The locked
+                     * reassignment method repeats every safety check before a
+                     * mutable candidate is actually moved.
+                     */
+                    if (!listingRediscoveryService
+                            .isSafeForInactiveTargetReassignment(existing)) {
+                        overlaps++;
+                        continue;
+                    }
+
                     Optional<Listing> moved = listingRediscoveryService
                             .reassignFromInactiveTargetIfEligible(
                                     botId,
