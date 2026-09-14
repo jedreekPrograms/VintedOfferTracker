@@ -2,6 +2,7 @@ package pl.flipbot.playwright.worker;
 
 import org.junit.Test;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
+import pl.flipbot.playwright.negotiation.ConsecutiveContactUnavailableTracker;
 
 import java.util.Map;
 
@@ -49,6 +50,70 @@ public class BotRunSchedulerPollingTest {
 
             assertNull(scheduler.pollNext(30L));
         } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
+    public void stoppingQueuedBotClearsEphemeralStateImmediately() {
+        long botId = 901L;
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        ConsecutiveContactUnavailableTracker tracker =
+                new ConsecutiveContactUnavailableTracker();
+
+        try {
+            scheduler.reconcileRunningBots(Map.of(botId, false));
+            tracker.recordSuspected(botId, "listing-A");
+            tracker.recordSuspected(botId, "listing-A");
+
+            scheduler.reconcileRunningBots(Map.of());
+
+            assertEquals(1, tracker.recordSuspected(botId, "listing-A"));
+            assertEquals(0, scheduler.enabledBotCount());
+        } finally {
+            ConsecutiveContactUnavailableTracker.clearBot(botId);
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
+    public void stoppingWorkingBotDefersCleanupUntilClaimedJobCompletes()
+            throws Exception {
+        long botId = 902L;
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        ConsecutiveContactUnavailableTracker tracker =
+                new ConsecutiveContactUnavailableTracker();
+
+        try {
+            scheduler.reconcileRunningBots(Map.of(botId, false));
+            ScheduledBotTask claimed = scheduler.pollNext(100L);
+            assertNotNull(claimed);
+
+            tracker.recordSuspected(botId, "listing-A");
+            tracker.recordSuspected(botId, "listing-A");
+
+            scheduler.reconcileRunningBots(Map.of());
+
+            // The claimed job is still allowed to finish. Its process-local
+            // state must not be cleared underneath it.
+            assertEquals(3, tracker.recordSuspected(botId, "listing-A"));
+
+            scheduler.completeRun(
+                    claimed.botId(),
+                    claimed.jobType(),
+                    0L,
+                    false,
+                    false
+            );
+
+            assertEquals(1, tracker.recordSuspected(botId, "listing-A"));
+            assertEquals(0, scheduler.enabledBotCount());
+        } finally {
+            ConsecutiveContactUnavailableTracker.clearBot(botId);
             scheduler.shutdown();
             telemetry.close();
         }
