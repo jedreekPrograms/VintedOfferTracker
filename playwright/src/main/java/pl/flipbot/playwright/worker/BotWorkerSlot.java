@@ -38,11 +38,17 @@ public class BotWorkerSlot implements Runnable {
 
     @Override
     public void run() {
+        boolean keepBrowserBetweenJobs =
+                WorkerBrowserRetentionPolicy.keepBrowserOpenBetweenJobs(
+                        config.schedulerHeadless()
+                );
+
         log.info(
-                "[SLOT {}] Starting reusable worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}.",
+                "[SLOT {}] Starting worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}, reuseBetweenJobs={}.",
                 slotNumber,
                 Thread.currentThread().getName(),
-                config.schedulerHeadless()
+                config.schedulerHeadless(),
+                keepBrowserBetweenJobs
         );
 
         BrowserManager browserManager = null;
@@ -92,9 +98,10 @@ public class BotWorkerSlot implements Runnable {
 
                     if (browserManager == null) {
                         log.info(
-                                "[SLOT {}] Launching reusable Playwright browser runtime for the first claimed job. headless={}",
+                                "[SLOT {}] Launching Playwright browser runtime for claimed job. headless={}, reuseBetweenJobs={}",
                                 slotNumber,
-                                config.schedulerHeadless()
+                                config.schedulerHeadless(),
+                                keepBrowserBetweenJobs
                         );
                         browserManager = new BrowserManager(config.schedulerHeadless());
                     }
@@ -231,13 +238,25 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                 } finally {
-                    scheduler.completeRun(
-                            botId,
-                            jobType,
-                            nextDelayMillis,
-                            delayAllJobs,
-                            reportQueuedAfterRun
-                    );
+                    try {
+                        scheduler.completeRun(
+                                botId,
+                                jobType,
+                                nextDelayMillis,
+                                delayAllJobs,
+                                reportQueuedAfterRun
+                        );
+                    } finally {
+                        if (!keepBrowserBetweenJobs) {
+                            browserManager = closeBrowserRuntime(
+                                    browserManager,
+                                    "headful job finished for bot "
+                                            + botId
+                                            + " / "
+                                            + jobType
+                            );
+                        }
+                    }
                 }
             }
 
@@ -258,25 +277,52 @@ public class BotWorkerSlot implements Runnable {
             );
 
         } finally {
-            if (browserManager != null) {
-                try {
-                    browserManager.close();
-                } catch (Exception exception) {
-                    log.warn(
-                            "[SLOT {}] Could not close Playwright browser runtime cleanly. reason={}",
-                            slotNumber,
-                            errorMessage(exception)
-                    );
-                    log.debug(
-                            "[SLOT {}] Full browser-runtime close error.",
-                            slotNumber,
-                            exception
-                    );
-                }
-            }
+            closeBrowserRuntime(
+                    browserManager,
+                    "worker slot shutdown"
+            );
 
             log.info("[SLOT {}] Worker slot stopped.", slotNumber);
         }
+    }
+
+    private BrowserManager closeBrowserRuntime(
+            BrowserManager browserManager,
+            String reason
+    ) {
+        if (browserManager == null) {
+            return null;
+        }
+
+        log.info(
+                "[BROWSER LIFECYCLE] Slot {} is releasing its Playwright browser runtime. reason={}",
+                slotNumber,
+                reason
+        );
+
+        try {
+            browserManager.close();
+        } catch (Exception exception) {
+            log.warn(
+                    "[SLOT {}] Could not close Playwright browser runtime cleanly. reason={}, closeError={}",
+                    slotNumber,
+                    reason,
+                    errorMessage(exception)
+            );
+            log.debug(
+                    "[SLOT {}] Full browser-runtime close error.",
+                    slotNumber,
+                    exception
+            );
+        }
+
+        /*
+         * Never reuse a runtime after close was requested, even if closing
+         * reported a problem. BrowserManager marks itself closed before it
+         * starts shutting Chromium down, and a later job must launch a fresh
+         * runtime instead of touching an uncertain browser process.
+         */
+        return null;
     }
 
     private Long persistedSessionBlockDelay(Long botId) {
