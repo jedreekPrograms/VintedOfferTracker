@@ -10,15 +10,24 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotProductExecutionPlan;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
 /**
  * Runs the existing-negotiation workflow once per product while preserving one
- * bot/account session and one global per-run action cap. Inactive additional
- * products are still included so conversations started before disabling a
- * product keep their original strategy.
+ * bot/account session and one global per-run action cap. Product priority is
+ * rotated between checks so a low real-action cap cannot permanently starve
+ * later products. Inactive additional products may still be included by the
+ * backend payload while conversations started before deactivation are running.
  */
 @Slf4j
 public class MultiProductExistingNegotiationProcessor
         extends ExistingNegotiationProcessor {
+
+    private static final ConcurrentMap<Long, Integer> NEXT_PRODUCT_OFFSET =
+            new ConcurrentHashMap<>();
 
     private final BotContext context;
     private final ListingStatusUpdater listingStatusUpdater;
@@ -59,10 +68,26 @@ public class MultiProductExistingNegotiationProcessor
             throw new IllegalStateException("Bot configuration is missing");
         }
 
+        Long botId = context.getBot().getId();
+        List<BotProductExecutionPlan.Target> targets = orderedTargetsForRun(
+                botId,
+                BotProductExecutionPlan.negotiationTargets(context.getBot())
+        );
+
+        log.info(
+                "[MULTI PRODUCT] Bot {} checking negotiations for {} product(s) in rotated order: {}.",
+                botId,
+                targets.size(),
+                targets.stream()
+                        .map(target -> target.additionalTargetId() == null
+                                ? "MAIN"
+                                : target.additionalTargetId().toString())
+                        .toList()
+        );
+
         boolean sentAny = false;
         try {
-            for (BotProductExecutionPlan.Target target :
-                    BotProductExecutionPlan.negotiationTargets(context.getBot())) {
+            for (BotProductExecutionPlan.Target target : targets) {
                 context.getBot().setConfiguration(target.configuration());
 
                 ListingClient targetClient = new TargetBoundListingClient(
@@ -80,7 +105,7 @@ public class MultiProductExistingNegotiationProcessor
 
                 log.info(
                         "[MULTI PRODUCT] Checking existing negotiations for bot {} product {}.",
-                        context.getBot().getId(),
+                        botId,
                         target.additionalTargetId() == null
                                 ? "MAIN"
                                 : target.additionalTargetId()
@@ -91,5 +116,38 @@ public class MultiProductExistingNegotiationProcessor
             context.getBot().setConfiguration(main);
         }
         return sentAny;
+    }
+
+    static List<BotProductExecutionPlan.Target> orderedTargetsForRun(
+            Long botId,
+            List<BotProductExecutionPlan.Target> targets
+    ) {
+        if (targets == null || targets.isEmpty()) {
+            return List.of();
+        }
+        if (targets.size() == 1 || botId == null) {
+            return List.copyOf(targets);
+        }
+
+        int offset = NEXT_PRODUCT_OFFSET.compute(
+                botId,
+                (ignored, previous) -> previous == null
+                        ? 0
+                        : (previous + 1) % targets.size()
+        );
+
+        List<BotProductExecutionPlan.Target> rotated = new ArrayList<>(
+                targets.size()
+        );
+        for (int index = 0; index < targets.size(); index++) {
+            rotated.add(targets.get((offset + index) % targets.size()));
+        }
+        return List.copyOf(rotated);
+    }
+
+    static void resetRotationForTests(Long botId) {
+        if (botId != null) {
+            NEXT_PRODUCT_OFFSET.remove(botId);
+        }
     }
 }
