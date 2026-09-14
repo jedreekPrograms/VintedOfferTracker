@@ -3,6 +3,7 @@ package pl.flipbot.playwright.api.listing;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.api.BackendHttpTransport;
 import pl.flipbot.playwright.api.listing.dto.NegotiationActivityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.NegotiationActivityResponseDto;
 
@@ -20,7 +21,7 @@ public class NegotiationActivityClient {
     private static final DateTimeFormatter BACKEND_DATE_TIME_FORMAT =
             DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = BackendHttpTransport.client();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public NegotiationActivityResponseDto recordActivity(
@@ -52,8 +53,9 @@ public class NegotiationActivityClient {
                 + "/listings/" + listingId
                 + "/negotiation-activity";
 
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+        HttpRequest httpRequest = BackendHttpTransport.request(
+                        URI.create(url)
+                )
                 .header("Content-Type", "application/json")
                 .method(
                         "PATCH",
