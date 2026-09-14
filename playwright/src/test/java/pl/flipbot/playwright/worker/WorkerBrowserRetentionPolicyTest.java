@@ -4,13 +4,13 @@ import org.junit.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
 
 public class WorkerBrowserRetentionPolicyTest {
 
     @Test
-    public void headlessWorkerKeepsSameBrowserRuntimeWithoutClosingIt() {
+    public void headlessWorkerClosesBrowserRuntimeAndDropsReference() {
         Object runtime = new Object();
         AtomicInteger closeCalls = new AtomicInteger();
 
@@ -20,8 +20,11 @@ public class WorkerBrowserRetentionPolicyTest {
                 ignored -> closeCalls.incrementAndGet()
         );
 
-        assertSame(runtime, result);
-        org.junit.Assert.assertEquals(0, closeCalls.get());
+        assertNull(result);
+        org.junit.Assert.assertEquals(1, closeCalls.get());
+        assertFalse(
+                WorkerBrowserRetentionPolicy.keepBrowserOpenBetweenJobs(true)
+        );
     }
 
     @Test
@@ -37,6 +40,9 @@ public class WorkerBrowserRetentionPolicyTest {
 
         assertNull(result);
         org.junit.Assert.assertEquals(1, closeCalls.get());
+        assertFalse(
+                WorkerBrowserRetentionPolicy.keepBrowserOpenBetweenJobs(false)
+        );
     }
 
     @Test
@@ -45,7 +51,7 @@ public class WorkerBrowserRetentionPolicyTest {
 
         Object result = WorkerBrowserRetentionPolicy.afterJob(
                 null,
-                false,
+                true,
                 ignored -> closeCalls.incrementAndGet()
         );
 
