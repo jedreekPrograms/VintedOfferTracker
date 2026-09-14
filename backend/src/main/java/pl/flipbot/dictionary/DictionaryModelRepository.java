@@ -20,6 +20,11 @@ public interface DictionaryModelRepository extends JpaRepository<DictionaryModel
             Long brandId
     );
 
+    Optional<DictionaryModel> findFirstByBrand_NameIgnoreCaseAndNameIgnoreCase(
+            String brandName,
+            String modelName
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select model
