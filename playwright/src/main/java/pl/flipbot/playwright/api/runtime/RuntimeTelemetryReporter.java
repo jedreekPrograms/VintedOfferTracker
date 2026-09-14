@@ -3,6 +3,7 @@ package pl.flipbot.playwright.api.runtime;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
@@ -29,6 +30,14 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
      */
     private final ConcurrentMap<Long, RuntimeTelemetryEventBuffer> pendingEvents =
             new ConcurrentHashMap<>();
+
+    /**
+     * Short-lived barrier used only while an authoritative SESSION_BLOCKED
+     * update is being persisted. Entries are removed in finally; this is not a
+     * historical bot cache.
+     */
+    private final Set<Long> authoritativeUpdateBots =
+            ConcurrentHashMap.newKeySet();
 
     private final AtomicBoolean drainScheduled = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -116,9 +125,10 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
      *
      * <p>This request bypasses the best-effort async buffer. While holding the
      * same transport lock as the drain, stale pending events for this bot are
-     * discarded before SESSION_BLOCKED is persisted. An older QUEUED or
-     * RUN_STARTED event therefore cannot arrive afterwards and overwrite the
-     * authoritative COOLDOWN state.</p>
+     * discarded before SESSION_BLOCKED is persisted. The short-lived
+     * authoritative barrier also rejects a same-bot async event racing with the
+     * clear, so an older QUEUED/RUN_STARTED update cannot arrive afterwards and
+     * overwrite the authoritative COOLDOWN state.</p>
      */
     public SessionBlockCooldown sessionBlocked(
             Long botId,
@@ -133,20 +143,27 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                 errorMessage
         );
 
-        RuntimeTelemetryStateResponse response = withTransportLock(
-                () -> {
-                    int discarded = clearPendingEvents(botId);
-                    if (discarded > 0) {
-                        log.debug(
-                                "[TELEMETRY] Discarded {} stale pending event(s) for bot {} before authoritative SESSION_BLOCKED update.",
-                                discarded,
-                                botId
-                        );
-                    }
-                    return client.sendEvent(botId, request);
-                },
-                "persist Vinted session block for bot " + botId
-        );
+        authoritativeUpdateBots.add(botId);
+
+        RuntimeTelemetryStateResponse response;
+        try {
+            response = withTransportLock(
+                    () -> {
+                        int discarded = clearPendingEvents(botId);
+                        if (discarded > 0) {
+                            log.debug(
+                                    "[TELEMETRY] Discarded {} stale pending event(s) for bot {} before authoritative SESSION_BLOCKED update.",
+                                    discarded,
+                                    botId
+                            );
+                        }
+                        return client.sendEvent(botId, request);
+                    },
+                    "persist Vinted session block for bot " + botId
+            );
+        } finally {
+            authoritativeUpdateBots.remove(botId);
+        }
 
         if (response == null || response.nextRunAt() == null) {
             throw new IllegalStateException(
@@ -186,12 +203,30 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
             return;
         }
 
+        if (authoritativeUpdateBots.contains(botId)) {
+            log.debug(
+                    "[TELEMETRY] Dropping stale {} for bot {} while authoritative SESSION_BLOCKED update is in progress.",
+                    request.eventType(),
+                    botId
+            );
+            return;
+        }
+
         AtomicReference<RuntimeTelemetryEventBuffer.OfferResult> resultRef =
                 new AtomicReference<>();
+        AtomicBoolean rejectedByBarrier = new AtomicBoolean(false);
 
         pendingEvents.compute(
                 botId,
                 (ignored, existing) -> {
+                    /* Re-check inside the per-key atomic compute. A sender can
+                     * pass the fast check immediately before SESSION_BLOCKED
+                     * raises its barrier. */
+                    if (authoritativeUpdateBots.contains(botId)) {
+                        rejectedByBarrier.set(true);
+                        return existing;
+                    }
+
                     RuntimeTelemetryEventBuffer buffer = existing == null
                             ? new RuntimeTelemetryEventBuffer()
                             : existing;
@@ -199,6 +234,15 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                     return buffer;
                 }
         );
+
+        if (rejectedByBarrier.get()) {
+            log.debug(
+                    "[TELEMETRY] Dropping racing {} for bot {} while authoritative SESSION_BLOCKED update is in progress.",
+                    request.eventType(),
+                    botId
+            );
+            return;
+        }
 
         RuntimeTelemetryEventBuffer.OfferResult result = resultRef.get();
         if (result != null && result.dropped() != null) {
@@ -384,12 +428,8 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
             executor.shutdownNow();
         } finally {
             pendingEvents.clear();
+            authoritativeUpdateBots.clear();
         }
-    }
-
-    int pendingEventCountForTests(Long botId) {
-        RuntimeTelemetryEventBuffer buffer = pendingEvents.get(botId);
-        return buffer == null ? 0 : buffer.size();
     }
 
     private record PendingEvent(
