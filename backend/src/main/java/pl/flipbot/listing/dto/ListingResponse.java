@@ -45,4 +45,6 @@ public class ListingResponse {
     private LocalDateTime formalResponseDetectedAt;
 
     private Long additionalTargetId;
+
+    private String productTargetLabel;
 }

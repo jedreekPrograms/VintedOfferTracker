@@ -54,6 +54,9 @@ public class ListingClaimService {
                 .awaitingSellerResponse(false)
                 .status(ListingStatus.DISCOVERED)
                 .lastFreshDiscoveryAt(LocalDateTime.now(DISCOVERY_ZONE))
+                .productTargetLabel(
+                        ListingProductProvenance.label(bot, additionalTarget)
+                )
                 .additionalTarget(additionalTarget)
                 .bot(bot)
                 .build();

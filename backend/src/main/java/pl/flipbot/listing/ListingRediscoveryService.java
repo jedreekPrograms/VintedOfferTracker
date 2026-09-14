@@ -161,6 +161,12 @@ public class ListingRediscoveryService {
         ListingStatus previousStatus = listing.getStatus();
 
         listing.setAdditionalTarget(replacementTarget);
+        listing.setProductTargetLabel(
+                ListingProductProvenance.label(
+                        listing.getBot(),
+                        replacementTarget
+                )
+        );
         LocalDateTime now = LocalDateTime.now(DISCOVERY_ZONE);
         refreshAsDiscovered(listing, freshListing, now);
 

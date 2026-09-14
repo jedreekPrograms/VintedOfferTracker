@@ -18,6 +18,8 @@ export interface ListingHistoryResponse {
     decisionAt: string | null;
     botId: number;
     botName: string;
+    additionalTargetId: number | null;
+    productTargetLabel: string | null;
 }
 
 export async function getListingHistory(): Promise<ListingHistoryResponse[]> {

@@ -151,6 +151,14 @@ public class ListingHistoryService {
                         listing.getBot()
                                 .getName()
                 )
+                .additionalTargetId(
+                        listing.getAdditionalTarget() == null
+                                ? null
+                                : listing.getAdditionalTarget().getId()
+                )
+                .productTargetLabel(
+                        listing.getProductTargetLabel()
+                )
                 .build();
     }
 }

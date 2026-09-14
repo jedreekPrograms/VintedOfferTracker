@@ -3,6 +3,7 @@ package pl.flipbot.listing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pl.flipbot.bot.Bot;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.listing.dto.ListingHistoryResponse;
 
 import java.math.BigDecimal;
@@ -35,12 +36,20 @@ class ListingHistoryServiceTest {
         Listing hidden = listing(2L, ListingStatus.SKIPPED_BY_USER, "1200.00");
         hidden.setHistoryHidden(true);
 
+        visible.setAdditionalTarget(BotAdditionalTarget.builder().id(17L).build());
+        visible.setProductTargetLabel("Samsung → Galaxy S25");
+
         when(listingRepository.findAll()).thenReturn(List.of(hidden, visible));
 
         List<ListingHistoryResponse> history = service.getHistory();
 
         assertEquals(1, history.size());
         assertEquals(1L, history.getFirst().getId());
+        assertEquals(17L, history.getFirst().getAdditionalTargetId());
+        assertEquals(
+                "Samsung → Galaxy S25",
+                history.getFirst().getProductTargetLabel()
+        );
     }
 
     @Test
