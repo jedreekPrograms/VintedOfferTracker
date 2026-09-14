@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.DelayQueue;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class BotRunScheduler {
@@ -85,35 +86,78 @@ public class BotRunScheduler {
             throws InterruptedException {
 
         while (true) {
-            ScheduledBotTask task = queue.take();
-
-            synchronized (this) {
-                BotSchedule schedule =
-                        schedules.get(task.botId());
-
-                if (schedule == null || !schedule.enabled) {
-                    continue;
-                }
-
-                if (schedule.state != RunState.QUEUED) {
-                    continue;
-                }
-
-                if (schedule.queuedJobType != task.jobType()) {
-                    continue;
-                }
-
-                if (schedule.queuedRunAtNanos != task.runAtNanos()) {
-                    continue;
-                }
-
-                schedule.state = RunState.WORKING;
-                schedule.queuedJobType = null;
-                schedule.queuedRunAtNanos = 0L;
-
-                return task;
+            ScheduledBotTask claimed = claimIfCurrent(queue.take());
+            if (claimed != null) {
+                return claimed;
             }
         }
+    }
+
+    /**
+     * Waits for the next ready, still-current task for at most the supplied
+     * timeout. A null result means the worker may perform idle maintenance,
+     * such as releasing an otherwise unused Chromium runtime.
+     */
+    public ScheduledBotTask pollNext(long timeoutMillis)
+            throws InterruptedException {
+
+        if (timeoutMillis < 0L) {
+            throw new IllegalArgumentException(
+                    "Scheduler poll timeout cannot be negative."
+            );
+        }
+
+        long deadlineNanos = System.nanoTime()
+                + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+
+        while (true) {
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0L) {
+                return null;
+            }
+
+            ScheduledBotTask task = queue.poll(
+                    remainingNanos,
+                    TimeUnit.NANOSECONDS
+            );
+
+            if (task == null) {
+                return null;
+            }
+
+            ScheduledBotTask claimed = claimIfCurrent(task);
+            if (claimed != null) {
+                return claimed;
+            }
+        }
+    }
+
+    private synchronized ScheduledBotTask claimIfCurrent(
+            ScheduledBotTask task
+    ) {
+        BotSchedule schedule = schedules.get(task.botId());
+
+        if (schedule == null || !schedule.enabled) {
+            return null;
+        }
+
+        if (schedule.state != RunState.QUEUED) {
+            return null;
+        }
+
+        if (schedule.queuedJobType != task.jobType()) {
+            return null;
+        }
+
+        if (schedule.queuedRunAtNanos != task.runAtNanos()) {
+            return null;
+        }
+
+        schedule.state = RunState.WORKING;
+        schedule.queuedJobType = null;
+        schedule.queuedRunAtNanos = 0L;
+
+        return task;
     }
 
     public synchronized void completeRun(
