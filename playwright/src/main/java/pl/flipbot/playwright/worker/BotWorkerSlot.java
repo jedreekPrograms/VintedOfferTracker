@@ -197,6 +197,7 @@ public class BotWorkerSlot implements Runnable {
                     );
                     log.debug(
                             "[SLOT {}] Rate-limit exception for bot {} during {}.",
+                            slotNumber,
                             botId,
                             jobType,
                             exception
