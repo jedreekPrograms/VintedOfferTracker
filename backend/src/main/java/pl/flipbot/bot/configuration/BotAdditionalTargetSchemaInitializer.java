@@ -70,6 +70,17 @@ public class BotAdditionalTargetSchemaInitializer implements ApplicationRunner {
                     ADD COLUMN IF NOT EXISTS additional_target_id BIGINT
                 """);
 
+        /*
+         * Flyway is intentionally disabled in the local runtime profile used by
+         * this project. Keep the provenance snapshot column self-healing here as
+         * well, otherwise an existing database upgraded to code containing V40
+         * would fail as soon as Hibernate selects from listing.
+         */
+        jdbcTemplate.execute("""
+                ALTER TABLE listing
+                    ADD COLUMN IF NOT EXISTS product_target_label VARCHAR(1000)
+                """);
+
         ensureCascadeForeignKey(
                 "negotiation_step",
                 "fk_negotiation_step_additional_target",
@@ -92,7 +103,7 @@ public class BotAdditionalTargetSchemaInitializer implements ApplicationRunner {
                 """);
 
         log.info(
-                "Verified optional additional-product schema. Existing bots keep their main configuration unchanged; additional targets are opt-in only."
+                "Verified optional additional-product schema and listing product provenance compatibility. Existing bots keep their main configuration unchanged; additional targets are opt-in only."
         );
     }
 
