@@ -145,9 +145,13 @@ public class MultiProductExistingNegotiationProcessor
         return List.copyOf(rotated);
     }
 
-    static void resetRotationForTests(Long botId) {
+    public static void clearRotationState(Long botId) {
         if (botId != null) {
             NEXT_PRODUCT_OFFSET.remove(botId);
         }
+    }
+
+    static void resetRotationForTests(Long botId) {
+        clearRotationState(botId);
     }
 }

@@ -69,14 +69,7 @@ public class CatalogWorkProcessor {
 
         List<BotProductExecutionPlan.Target> targets =
                 BotProductExecutionPlan.activeCatalogTargets(context.getBot());
-        int offset = targets.size() <= 1
-                ? 0
-                : NEXT_PRODUCT_OFFSET.compute(
-                        botId,
-                        (ignored, previous) -> previous == null
-                                ? 0
-                                : (previous + 1) % targets.size()
-                );
+        int offset = nextProductOffsetForRun(botId, targets.size());
 
         CatalogDetailInspectionBudget detailInspectionBudget =
                 new CatalogDetailInspectionBudget(
@@ -116,6 +109,25 @@ public class CatalogWorkProcessor {
 
         int after = listingClient.getNegotiatingListings(botId).size();
         return after > before;
+    }
+
+    static int nextProductOffsetForRun(Long botId, int targetCount) {
+        if (botId == null || targetCount <= 1) {
+            return 0;
+        }
+
+        return NEXT_PRODUCT_OFFSET.compute(
+                botId,
+                (ignored, previous) -> previous == null
+                        ? 0
+                        : (previous + 1) % targetCount
+        );
+    }
+
+    public static void clearRotationState(Long botId) {
+        if (botId != null) {
+            NEXT_PRODUCT_OFFSET.remove(botId);
+        }
     }
 
     private void processTarget(
