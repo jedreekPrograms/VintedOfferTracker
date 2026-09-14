@@ -1,5 +1,8 @@
 package pl.flipbot.playwright.worker;
 
+import java.util.Objects;
+import java.util.function.Consumer;
+
 /**
  * Decides whether a worker slot should keep its Chromium runtime alive after a job.
  *
@@ -19,5 +22,23 @@ final class WorkerBrowserRetentionPolicy {
 
     static boolean keepBrowserOpenBetweenJobs(boolean schedulerHeadless) {
         return schedulerHeadless;
+    }
+
+    static <T> T afterJob(
+            T browserRuntime,
+            boolean schedulerHeadless,
+            Consumer<T> closeAction
+    ) {
+        if (browserRuntime == null
+                || keepBrowserOpenBetweenJobs(schedulerHeadless)) {
+            return browserRuntime;
+        }
+
+        Objects.requireNonNull(
+                closeAction,
+                "Browser close action is required for a headful runtime."
+        ).accept(browserRuntime);
+
+        return null;
     }
 }
