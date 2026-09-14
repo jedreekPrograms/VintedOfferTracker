@@ -12,6 +12,9 @@ import java.util.List;
 @Setter
 public class DiscoverListingsRequest {
 
+    /* NULL keeps the original/main product behavior. */
+    private Long additionalTargetId;
+
     @NotEmpty
     @Size(max = 500)
     private List<@Valid CreateListingRequest> listings;

@@ -2,6 +2,7 @@ package pl.flipbot.bot;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
@@ -23,10 +24,13 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class BotServiceFieldAwareEditingTest {
@@ -91,6 +95,11 @@ class BotServiceFieldAwareEditingTest {
                 anyLong(),
                 org.mockito.ArgumentMatchers.any(ListingStatus.class)
         )).thenReturn(List.of());
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        anyLong(),
+                        org.mockito.ArgumentMatchers.any(ListingStatus.class)
+                )).thenReturn(List.of());
     }
 
     @Test
@@ -222,6 +231,44 @@ class BotServiceFieldAwareEditingTest {
     }
 
     @Test
+    void additionalProductNegotiationAllowsMainStructuralEdit() {
+        additionalProductNegotiation("1250.00");
+
+        UpdateBotRequest request = unchangedRequest();
+        request.getConfiguration().setModel("Galaxy S24");
+        request.getConfiguration()
+                .getNegotiationSteps()
+                .get(1)
+                .setOfferPrice(new BigDecimal("1020.00"));
+
+        assertDoesNotThrow(() -> service.updateBot(BOT_ID, request));
+
+        assertEquals("Galaxy S24", configuration.getModel());
+        assertEquals(
+                0,
+                new BigDecimal("1020.00").compareTo(
+                        configuration.getNegotiationSteps().get(1).getOfferPrice()
+                )
+        );
+    }
+
+    @Test
+    void additionalProductNegotiationStillRejectsVintedAccountChange() {
+        additionalProductNegotiation("1250.00");
+
+        UpdateBotRequest request = unchangedRequest();
+        request.setEmail("other@example.com");
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.updateBot(BOT_ID, request)
+        );
+
+        assertTrue(exception.getMessage().contains("Vinted e-mail"));
+        assertEquals("s25@example.com", bot.getEmail());
+    }
+
+    @Test
     void editCapabilitiesExposeFirstConfiguredOfferAsMinimumCap() {
         Listing negotiating = listing(ListingStatus.NEGOTIATING, "1250.00");
         Listing actionRequired = listing(ListingStatus.ACTION_REQUIRED, "1460.00");
@@ -234,16 +281,103 @@ class BotServiceFieldAwareEditingTest {
                 BOT_ID,
                 ListingStatus.ACTION_REQUIRED
         )).thenReturn(List.of(actionRequired));
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.NEGOTIATING
+                )).thenReturn(List.of(negotiating));
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.ACTION_REQUIRED
+                )).thenReturn(List.of(actionRequired));
 
         var capabilities = service.getEditCapabilities(BOT_ID);
 
         assertTrue(capabilities.isHasActiveNegotiations());
+        assertTrue(capabilities.isHasMainProductActiveNegotiations());
         assertEquals(
                 0,
                 new BigDecimal("900.00").compareTo(
                         capabilities.getMinimumNegotiationCap()
                 )
         );
+    }
+
+    @Test
+    void editCapabilitiesDistinguishAdditionalOnlyNegotiation() {
+        additionalProductNegotiation("1250.00");
+
+        var capabilities = service.getEditCapabilities(BOT_ID);
+
+        assertTrue(capabilities.isHasActiveNegotiations());
+        assertFalse(capabilities.isHasMainProductActiveNegotiations());
+    }
+
+    @Test
+    void mainDefinitionResetDoesNotTouchAdditionalProductListings() {
+        Listing mainSkipped = listing(
+                ListingStatus.SKIPPED_OFFER_TOO_LOW,
+                "900.00"
+        );
+        Listing additionalSkipped = listing(
+                ListingStatus.SKIPPED_OFFER_TOO_LOW,
+                "900.00"
+        );
+        additionalSkipped.setAdditionalTarget(additionalTarget(88L));
+
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.SKIPPED_OFFER_TOO_LOW
+                )).thenReturn(List.of(mainSkipped));
+
+        UpdateBotRequest request = unchangedRequest();
+        request.getConfiguration()
+                .getNegotiationSteps()
+                .get(1)
+                .setOfferPrice(new BigDecimal("1020.00"));
+
+        assertDoesNotThrow(() -> service.updateBot(BOT_ID, request));
+
+        assertEquals(ListingStatus.DISCOVERED, mainSkipped.getStatus());
+        assertEquals(
+                ListingStatus.SKIPPED_OFFER_TOO_LOW,
+                additionalSkipped.getStatus()
+        );
+        verify(listingRepository, never())
+                .findByBotIdAndStatusOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.SKIPPED_OFFER_TOO_LOW
+                );
+    }
+
+    @Test
+    void accountIdentityResetStillRefreshesAllProducts() {
+        Listing mainSkipped = listing(
+                ListingStatus.SKIPPED_CANNOT_NEGOTIATE,
+                "900.00"
+        );
+        Listing additionalSkipped = listing(
+                ListingStatus.SKIPPED_CANNOT_NEGOTIATE,
+                "900.00"
+        );
+        additionalSkipped.setAdditionalTarget(additionalTarget(89L));
+
+        when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
+                BOT_ID,
+                ListingStatus.SKIPPED_CANNOT_NEGOTIATE
+        )).thenReturn(List.of(mainSkipped, additionalSkipped));
+        when(botRepository.existsByEmailAndIdNot("other@example.com", BOT_ID))
+                .thenReturn(false);
+
+        UpdateBotRequest request = unchangedRequest();
+        request.setEmail("other@example.com");
+
+        assertDoesNotThrow(() -> service.updateBot(BOT_ID, request));
+
+        assertEquals(ListingStatus.DISCOVERED, mainSkipped.getStatus());
+        assertEquals(ListingStatus.DISCOVERED, additionalSkipped.getStatus());
     }
 
     @Test
@@ -267,14 +401,57 @@ class BotServiceFieldAwareEditingTest {
     }
 
     private void activeNegotiation(String currentPrice) {
+        Listing active = listing(ListingStatus.NEGOTIATING, currentPrice);
         when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
                 BOT_ID,
                 ListingStatus.NEGOTIATING
-        )).thenReturn(List.of(listing(ListingStatus.NEGOTIATING, currentPrice)));
+        )).thenReturn(List.of(active));
         when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
                 BOT_ID,
                 ListingStatus.ACTION_REQUIRED
         )).thenReturn(List.of());
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.NEGOTIATING
+                )).thenReturn(List.of(active));
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.ACTION_REQUIRED
+                )).thenReturn(List.of());
+    }
+
+    private void additionalProductNegotiation(String currentPrice) {
+        Listing active = listing(ListingStatus.NEGOTIATING, currentPrice);
+        active.setAdditionalTarget(additionalTarget(77L));
+
+        when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
+                BOT_ID,
+                ListingStatus.NEGOTIATING
+        )).thenReturn(List.of(active));
+        when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
+                BOT_ID,
+                ListingStatus.ACTION_REQUIRED
+        )).thenReturn(List.of());
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.NEGOTIATING
+                )).thenReturn(List.of());
+        when(listingRepository
+                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                        BOT_ID,
+                        ListingStatus.ACTION_REQUIRED
+                )).thenReturn(List.of());
+    }
+
+    private BotAdditionalTarget additionalTarget(Long id) {
+        return BotAdditionalTarget.builder()
+                .id(id)
+                .configuration(configuration)
+                .active(true)
+                .build();
     }
 
     private Listing listing(ListingStatus status, String currentPrice) {

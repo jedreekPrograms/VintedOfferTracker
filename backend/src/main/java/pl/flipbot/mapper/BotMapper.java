@@ -3,6 +3,7 @@ package pl.flipbot.mapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pl.flipbot.bot.Bot;
+import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.dto.BotPlaywrightResponse;
 import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.RunningBotResponse;
@@ -12,6 +13,8 @@ import pl.flipbot.bot.dto.RunningBotResponse;
 public class BotMapper {
 
     private final BotConfigurationMapper botConfigurationMapper;
+    private final BotAdditionalTargetRepository additionalTargetRepository;
+    private final BotAdditionalTargetMapper additionalTargetMapper;
 
     public BotResponse map(Bot bot) {
 
@@ -22,6 +25,13 @@ public class BotMapper {
                 .status(bot.getStatus().name())
                 .configuration(
                         botConfigurationMapper.map(bot.getConfiguration())
+                )
+                .additionalTargets(
+                        additionalTargetRepository
+                                .findAllByConfigurationBotIdAndActiveTrueOrderByIdAsc(bot.getId())
+                                .stream()
+                                .map(additionalTargetMapper::map)
+                                .toList()
                 )
                 .build();
     }
@@ -35,6 +45,13 @@ public class BotMapper {
                 .password(bot.getPassword())
                 .configuration(
                         botConfigurationMapper.map(bot.getConfiguration())
+                )
+                .additionalTargets(
+                        additionalTargetRepository
+                                .findAllByConfigurationBotIdOrderByIdAsc(bot.getId())
+                                .stream()
+                                .map(additionalTargetMapper::map)
+                                .toList()
                 )
                 .build();
 

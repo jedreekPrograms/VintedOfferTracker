@@ -21,6 +21,8 @@ public class BotController {
 
     private final BotDeletionService botDeletionService;
 
+    private final BotSharedNegotiationBudgetGuard sharedBudgetGuard;
+
     @GetMapping
     public List<BotResponse> getAllBots() {
         return botService.getAllBots();
@@ -44,6 +46,7 @@ public class BotController {
     public BotResponse createBot(
             @Valid @RequestBody CreateBotRequest request
     ) {
+        sharedBudgetGuard.validateCreate(request);
         return botService.createBot(request);
     }
 
@@ -52,6 +55,7 @@ public class BotController {
             @PathVariable Long botId,
             @Valid @RequestBody UpdateBotRequest request
     ) {
+        sharedBudgetGuard.validateUpdate(botId, request);
         return botService.updateBot(botId, request);
     }
 

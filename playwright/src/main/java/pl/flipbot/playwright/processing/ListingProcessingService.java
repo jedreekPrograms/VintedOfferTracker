@@ -23,13 +23,21 @@ public class ListingProcessingService {
     public List<ListingResponseDto> process(
             List<Listing> listings
     ) {
+        return process(listings, null);
+    }
+
+    public List<ListingResponseDto> process(
+            List<Listing> listings,
+            Long additionalTargetId
+    ) {
 
         if (listings == null
                 || listings.isEmpty()) {
 
             log.info(
-                    "No listings to process for bot {}",
-                    context.getBot().getId()
+                    "No listings to process for bot {} target {}",
+                    context.getBot().getId(),
+                    additionalTargetId == null ? "CLIENT_SCOPE" : additionalTargetId
             );
 
             return List.of();
@@ -37,8 +45,9 @@ public class ListingProcessingService {
         }
 
         log.info(
-                "Preparing {} listings for backend verification",
-                listings.size()
+                "Preparing {} listings for backend verification for target {}",
+                listings.size(),
+                additionalTargetId == null ? "CLIENT_SCOPE" : additionalTargetId
         );
 
         List<CreateListingRequestDto> requestListings =
@@ -99,20 +108,33 @@ public class ListingProcessingService {
                         requestListings
                 );
 
-        List<ListingResponseDto> claimedListings =
-                listingClient.discoverListings(
-                        context.getBot().getId(),
-                        request
-                );
+        List<ListingResponseDto> claimedListings = discoverUsingClientScope(
+                listingClient,
+                context.getBot().getId(),
+                additionalTargetId,
+                request
+        );
 
         log.info(
-                "Bot {} received {} new backend listings for further processing",
+                "Bot {} target {} received {} new backend listings for further processing",
                 context.getBot().getId(),
+                additionalTargetId == null ? "CLIENT_SCOPE" : additionalTargetId,
                 claimedListings.size()
         );
 
         return claimedListings;
 
+    }
+
+    static List<ListingResponseDto> discoverUsingClientScope(
+            ListingClient client,
+            Long botId,
+            Long additionalTargetId,
+            DiscoverListingsRequestDto request
+    ) {
+        return additionalTargetId == null
+                ? client.discoverListings(botId, request)
+                : client.discoverListings(botId, additionalTargetId, request);
     }
 
     private boolean isValid(

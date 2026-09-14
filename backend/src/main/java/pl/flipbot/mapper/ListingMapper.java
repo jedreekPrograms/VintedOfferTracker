@@ -63,6 +63,11 @@ public class ListingMapper {
                 .formalResponseDetectedAt(
                         listing.getFormalResponseDetectedAt()
                 )
+                .additionalTargetId(
+                        listing.getAdditionalTarget() == null
+                                ? null
+                                : listing.getAdditionalTarget().getId()
+                )
                 .build();
     }
 }

@@ -10,6 +10,7 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
+import pl.flipbot.playwright.negotiation.MultiProductExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
@@ -160,7 +161,7 @@ public class ScheduledBotRunExecutor {
             );
 
             ExistingNegotiationProcessor existingNegotiationProcessor =
-                    new ExistingNegotiationProcessor(
+                    new MultiProductExistingNegotiationProcessor(
                             context,
                             listingClient,
                             offerQuotaClient,
@@ -200,16 +201,6 @@ public class ScheduledBotRunExecutor {
             loginService.login();
             loginReady = true;
 
-            /*
-             * Capture a checkpoint immediately after LoginService has positively
-             * verified authentication. If Vinted sends the job through
-             * /session-refresh or login UI later, this becomes the safe rollback
-             * point instead of persisting the degraded end-of-job browser state.
-             *
-             * LoginService may already have saved an interactive login. Saving
-             * once more here intentionally rotates that freshly authenticated
-             * state into last-known-good as well.
-             */
             context.saveSession();
             authenticatedCheckpointReady = true;
             log.debug(
@@ -233,36 +224,15 @@ public class ScheduledBotRunExecutor {
         } catch (VintedSessionBlockedException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            /*
-             * Last-resort classification for every Vinted job. Login/auth UI can
-             * fail first and the dedicated hard-block page can finish rendering a
-             * fraction of a second later. Poll briefly before turning the run into
-             * a generic failure so an actual "Twoja sesja została zablokowana"
-             * page always reaches the scheduler as VintedSessionBlockedException.
-             */
             classifyLateSessionBlock(
                     context,
                     jobType,
                     botId
             );
 
-            /*
-             * Vinted can also leave the credential form visible after all three
-             * deterministic submit mechanisms without rendering the hard-block
-             * page soon enough to read its text. Retrying that state every minute
-             * is exactly the hammering the session cooldown is meant to prevent.
-             * Only the narrow, known login-stall signatures are upgraded here;
-             * explicit credential failures and unrelated errors stay generic.
-             */
             if (VintedSessionFailureClassifier.shouldUseProtectiveCooldown(exception)) {
                 String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
 
-                /*
-                 * If the active file had previously been saved from an unhealthy
-                 * session-refresh page, move it to the recovery slot and restore
-                 * the previous authenticated rotating checkpoint before the bot
-                 * enters cooldown. No clean browser state is fabricated.
-                 */
                 restoreLastKnownGoodSession(botId, "authentication stall");
 
                 log.warn(
@@ -310,7 +280,6 @@ public class ScheduledBotRunExecutor {
                         );
                     }
                 } else {
-                    /* PRICE_PROBE keeps its existing isolated persistence path. */
                     try {
                         context.saveSession();
                     } catch (Exception exception) {
