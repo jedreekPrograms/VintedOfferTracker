@@ -3,28 +3,65 @@ package pl.flipbot.playwright.api.runtime;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 @Slf4j
 public class RuntimeTelemetryReporter implements AutoCloseable {
 
-    private static final long SYNCHRONOUS_EVENT_TIMEOUT_SECONDS = 10L;
+    private static final long SYNCHRONOUS_LOCK_TIMEOUT_SECONDS = 20L;
 
-    private final RuntimeTelemetryClient client = new RuntimeTelemetryClient();
+    private final RuntimeTelemetryClient client;
+    private final ExecutorService executor;
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(
-            runnable -> {
-                Thread thread = new Thread(runnable, "flipbot-runtime-telemetry");
-                thread.setDaemon(true);
-                return thread;
-            }
-    );
+    /**
+     * Best-effort dashboard events are buffered per bot instead of submitting
+     * one unbounded executor task per event. Each per-bot buffer has a hard
+     * limit and coalesces consecutive QUEUED updates.
+     */
+    private final ConcurrentMap<Long, RuntimeTelemetryEventBuffer> pendingEvents =
+            new ConcurrentHashMap<>();
+
+    private final AtomicBoolean drainScheduled = new AtomicBoolean(false);
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    /**
+     * The old single-thread executor serialized every backend telemetry call.
+     * Keep that property explicitly: critical synchronous calls and the async
+     * drain share this fair lock, so SESSION_BLOCKED cannot be overwritten by
+     * an older async event that was removed from a buffer but not sent yet.
+     */
+    private final ReentrantLock transportLock = new ReentrantLock(true);
+
+    public RuntimeTelemetryReporter() {
+        this(new RuntimeTelemetryClient());
+    }
+
+    RuntimeTelemetryReporter(RuntimeTelemetryClient client) {
+        if (client == null) {
+            throw new IllegalArgumentException("Runtime telemetry client is required");
+        }
+
+        this.client = client;
+        this.executor = Executors.newSingleThreadExecutor(
+                runnable -> {
+                    Thread thread = new Thread(
+                            runnable,
+                            "flipbot-runtime-telemetry"
+                    );
+                    thread.setDaemon(true);
+                    return thread;
+                }
+        );
+    }
 
     public void queued(Long botId, long nextRunAtEpochMs) {
         send(botId, new RuntimeTelemetryEventRequest(
@@ -67,8 +104,8 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
     }
 
     public RuntimeTelemetryStateResponse currentState(Long botId) {
-        return await(
-                submit(() -> client.getState(botId)),
+        return withTransportLock(
+                () -> client.getState(botId),
                 "read runtime state for bot " + botId
         );
     }
@@ -76,9 +113,12 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
     /**
      * Session blocking is scheduler-significant: the backend owns the
      * persistent attempt counter and calculates the next exponential retry.
-     * This method therefore waits for the response on the SAME single-threaded
-     * telemetry executor. Any earlier RUN_STARTED event is guaranteed to reach
-     * the backend first, while the worker receives the authoritative retry time.
+     *
+     * <p>This request bypasses the best-effort async buffer. While holding the
+     * same transport lock as the drain, stale pending events for this bot are
+     * discarded before SESSION_BLOCKED is persisted. An older QUEUED or
+     * RUN_STARTED event therefore cannot arrive afterwards and overwrite the
+     * authoritative COOLDOWN state.</p>
      */
     public SessionBlockCooldown sessionBlocked(
             Long botId,
@@ -93,8 +133,18 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                 errorMessage
         );
 
-        RuntimeTelemetryStateResponse response = await(
-                submit(() -> client.sendEvent(botId, request)),
+        RuntimeTelemetryStateResponse response = withTransportLock(
+                () -> {
+                    int discarded = clearPendingEvents(botId);
+                    if (discarded > 0) {
+                        log.debug(
+                                "[TELEMETRY] Discarded {} stale pending event(s) for bot {} before authoritative SESSION_BLOCKED update.",
+                                discarded,
+                                botId
+                        );
+                    }
+                    return client.sendEvent(botId, request);
+                },
                 "persist Vinted session block for bot " + botId
         );
 
@@ -123,15 +173,145 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
     }
 
     private void send(Long botId, RuntimeTelemetryEventRequest request) {
-        try {
-            executor.execute(() -> sendNow(botId, request));
-        } catch (RejectedExecutionException exception) {
+        if (botId == null || request == null) {
+            return;
+        }
+
+        if (closed.get()) {
             log.debug(
                     "[TELEMETRY] Reporter is already shutting down. Dropping {} for bot {}.",
                     request.eventType(),
                     botId
             );
+            return;
         }
+
+        AtomicReference<RuntimeTelemetryEventBuffer.OfferResult> resultRef =
+                new AtomicReference<>();
+
+        pendingEvents.compute(
+                botId,
+                (ignored, existing) -> {
+                    RuntimeTelemetryEventBuffer buffer = existing == null
+                            ? new RuntimeTelemetryEventBuffer()
+                            : existing;
+                    resultRef.set(buffer.offer(request));
+                    return buffer;
+                }
+        );
+
+        RuntimeTelemetryEventBuffer.OfferResult result = resultRef.get();
+        if (result != null && result.dropped() != null) {
+            log.warn(
+                    "[TELEMETRY] Per-bot telemetry buffer reached its hard limit of {}. Dropped oldest {} event for bot {} while keeping the newest state updates bounded in memory.",
+                    RuntimeTelemetryEventBuffer.MAX_EVENTS,
+                    result.dropped().eventType(),
+                    botId
+            );
+        }
+
+        scheduleDrain();
+    }
+
+    private void scheduleDrain() {
+        if (pendingEvents.isEmpty()) {
+            return;
+        }
+
+        if (!drainScheduled.compareAndSet(false, true)) {
+            return;
+        }
+
+        try {
+            executor.execute(this::drainPendingEvents);
+        } catch (RejectedExecutionException exception) {
+            drainScheduled.set(false);
+            if (!closed.get()) {
+                log.warn(
+                        "[TELEMETRY] Could not schedule telemetry drain. Pending events remain bounded and will be retried by a later update.",
+                        exception
+                );
+            }
+        }
+    }
+
+    private void drainPendingEvents() {
+        try {
+            while (!Thread.currentThread().isInterrupted()) {
+                if (!drainOneEvent()) {
+                    return;
+                }
+            }
+        } finally {
+            drainScheduled.set(false);
+
+            if (!pendingEvents.isEmpty()
+                    && !executor.isShutdown()
+                    && !Thread.currentThread().isInterrupted()) {
+                scheduleDrain();
+            }
+        }
+    }
+
+    private boolean drainOneEvent() {
+        try {
+            transportLock.lockInterruptibly();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+
+        try {
+            PendingEvent pending = pollPendingEvent();
+            if (pending == null) {
+                return false;
+            }
+
+            sendNow(pending.botId(), pending.request());
+            return true;
+        } finally {
+            transportLock.unlock();
+        }
+    }
+
+    private PendingEvent pollPendingEvent() {
+        for (Long botId : pendingEvents.keySet()) {
+            AtomicReference<RuntimeTelemetryEventRequest> requestRef =
+                    new AtomicReference<>();
+
+            pendingEvents.computeIfPresent(
+                    botId,
+                    (ignored, buffer) -> {
+                        RuntimeTelemetryEventRequest request = buffer.poll();
+                        requestRef.set(request);
+                        return buffer.isEmpty() ? null : buffer;
+                    }
+            );
+
+            RuntimeTelemetryEventRequest request = requestRef.get();
+            if (request != null) {
+                return new PendingEvent(botId, request);
+            }
+        }
+
+        return null;
+    }
+
+    private int clearPendingEvents(Long botId) {
+        if (botId == null) {
+            return 0;
+        }
+
+        AtomicReference<Integer> sizeRef = new AtomicReference<>(0);
+        pendingEvents.computeIfPresent(
+                botId,
+                (ignored, buffer) -> {
+                    sizeRef.set(buffer.size());
+                    buffer.clear();
+                    return null;
+                }
+        );
+        return sizeRef.get();
     }
 
     private void sendNow(Long botId, RuntimeTelemetryEventRequest request) {
@@ -147,21 +327,20 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         }
     }
 
-    private <T> Future<T> submit(java.util.concurrent.Callable<T> callable) {
-        try {
-            return executor.submit(callable);
-        } catch (RejectedExecutionException exception) {
+    private <T> T withTransportLock(
+            Supplier<T> action,
+            String operation
+    ) {
+        if (closed.get()) {
             throw new IllegalStateException(
-                    "Runtime telemetry reporter is shutting down.",
-                    exception
+                    "Runtime telemetry reporter is shutting down."
             );
         }
-    }
 
-    private <T> T await(Future<T> future, String operation) {
+        boolean locked;
         try {
-            return future.get(
-                    SYNCHRONOUS_EVENT_TIMEOUT_SECONDS,
+            locked = transportLock.tryLock(
+                    SYNCHRONOUS_LOCK_TIMEOUT_SECONDS,
                     TimeUnit.SECONDS
             );
         } catch (InterruptedException exception) {
@@ -170,17 +349,30 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
                     "Interrupted while attempting to " + operation + ".",
                     exception
             );
-        } catch (ExecutionException | TimeoutException exception) {
-            future.cancel(true);
+        }
+
+        if (!locked) {
             throw new IllegalStateException(
-                    "Could not " + operation + ".",
-                    exception
+                    "Timed out waiting to " + operation + "."
             );
+        }
+
+        try {
+            return action.get();
+        } finally {
+            transportLock.unlock();
         }
     }
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+
+        /* Existing pending events still get one best-effort drain. No new
+         * events may enter after closed=true. */
+        scheduleDrain();
         executor.shutdown();
 
         try {
@@ -190,7 +382,20 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             executor.shutdownNow();
+        } finally {
+            pendingEvents.clear();
         }
+    }
+
+    int pendingEventCountForTests(Long botId) {
+        RuntimeTelemetryEventBuffer buffer = pendingEvents.get(botId);
+        return buffer == null ? 0 : buffer.size();
+    }
+
+    private record PendingEvent(
+            Long botId,
+            RuntimeTelemetryEventRequest request
+    ) {
     }
 
     public record SessionBlockCooldown(
