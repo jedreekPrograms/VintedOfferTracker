@@ -2,6 +2,7 @@ package pl.flipbot.listing;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.listing.dto.CreateListingRequest;
 import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
 import pl.flipbot.negotiation.audit.RealActionAuditRepository;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -59,11 +61,7 @@ class ListingRediscoveryServiceTest {
 
         when(listingRepository.findByBotIdAndListingIdForUpdate(4L, "123"))
                 .thenReturn(Optional.of(listing));
-        when(realActionAuditRepository.existsByBackendListingIdAndActionTypeAndOutcome(
-                99L,
-                RealActionType.FIRST_OFFER,
-                RealActionAuditOutcome.CONFIRMED
-        )).thenReturn(false);
+        noFirstOfferAudit(listing);
         when(listingRepository.saveAndFlush(listing)).thenReturn(listing);
 
         Optional<Listing> result = service.requalifyIfEligible(
@@ -147,6 +145,41 @@ class ListingRediscoveryServiceTest {
     }
 
     @Test
+    void ambiguousFirstOfferCanNeverBeRequalifiedByFreshDiscovery() {
+        Listing listing = listing(
+                ListingStatus.UNAVAILABLE,
+                null
+        );
+
+        when(listingRepository.findByBotIdAndListingIdForUpdate(4L, "123"))
+                .thenReturn(Optional.of(listing));
+        when(realActionAuditRepository.existsByBackendListingIdAndActionTypeAndOutcome(
+                99L,
+                RealActionType.FIRST_OFFER,
+                RealActionAuditOutcome.CONFIRMED
+        )).thenReturn(false);
+        when(realActionAuditRepository.existsByBackendListingIdAndActionTypeAndOutcome(
+                99L,
+                RealActionType.FIRST_OFFER,
+                RealActionAuditOutcome.AMBIGUOUS
+        )).thenReturn(true);
+
+        Optional<Listing> result = service.requalifyIfEligible(
+                4L,
+                "123",
+                freshRequest(
+                        "Samsung Galaxy S25",
+                        "https://www.vinted.pl/items/123",
+                        "1800.00"
+                )
+        );
+
+        assertTrue(result.isEmpty());
+        assertEquals(ListingStatus.UNAVAILABLE, listing.getStatus());
+        verify(listingRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void conversationOrStartedStepIsNeverARefreshCandidate() {
         LocalDate today = LocalDate.of(2026, 9, 2);
 
@@ -192,6 +225,150 @@ class ListingRediscoveryServiceTest {
         ));
     }
 
+    @Test
+    void safeListingCanMoveFromDisabledTargetToNewTarget() {
+        BotAdditionalTarget oldTarget = target(10L, false);
+        BotAdditionalTarget replacementTarget = target(20L, true);
+        Listing listing = listing(ListingStatus.DISCOVERED, null);
+        listing.setAdditionalTarget(oldTarget);
+
+        when(listingRepository.findByBotIdAndListingIdForUpdate(4L, "123"))
+                .thenReturn(Optional.of(listing));
+        noFirstOfferAudit(listing);
+        when(listingRepository.saveAndFlush(listing)).thenReturn(listing);
+
+        Optional<Listing> result = service.reassignFromInactiveTargetIfEligible(
+                4L,
+                "123",
+                replacementTarget,
+                freshRequest(
+                        "Samsung Galaxy S25 256 GB",
+                        "https://www.vinted.pl/items/123-new",
+                        "1750.00"
+                )
+        );
+
+        assertTrue(result.isPresent());
+        assertSame(replacementTarget, listing.getAdditionalTarget());
+        assertEquals(ListingStatus.DISCOVERED, listing.getStatus());
+        assertEquals(0, listing.getCurrentStep());
+        assertFalse(listing.getAwaitingSellerResponse());
+        assertEquals(new BigDecimal("1750.00"), listing.getOriginalPrice());
+        assertEquals(new BigDecimal("1750.00"), listing.getCurrentPrice());
+        verify(listingRepository).saveAndFlush(listing);
+    }
+
+    @Test
+    void safeListingCanMoveFromDisabledTargetToMainProduct() {
+        BotAdditionalTarget oldTarget = target(10L, false);
+        Listing listing = listing(ListingStatus.SKIPPED_TARGET_MISMATCH, null);
+        listing.setAdditionalTarget(oldTarget);
+
+        when(listingRepository.findByBotIdAndListingIdForUpdate(4L, "123"))
+                .thenReturn(Optional.of(listing));
+        noFirstOfferAudit(listing);
+        when(listingRepository.saveAndFlush(listing)).thenReturn(listing);
+
+        Optional<Listing> result = service.reassignFromInactiveTargetIfEligible(
+                4L,
+                "123",
+                null,
+                freshRequest(
+                        "Samsung Galaxy S25",
+                        "https://www.vinted.pl/items/123",
+                        "1800.00"
+                )
+        );
+
+        assertTrue(result.isPresent());
+        assertNull(listing.getAdditionalTarget());
+        assertEquals(ListingStatus.DISCOVERED, listing.getStatus());
+    }
+
+    @Test
+    void listingFromStillActiveTargetCannotMoveToAnotherProduct() {
+        Listing listing = listing(ListingStatus.DISCOVERED, null);
+        listing.setAdditionalTarget(target(10L, true));
+
+        when(listingRepository.findByBotIdAndListingIdForUpdate(4L, "123"))
+                .thenReturn(Optional.of(listing));
+
+        Optional<Listing> result = service.reassignFromInactiveTargetIfEligible(
+                4L,
+                "123",
+                target(20L, true),
+                freshRequest(
+                        "Samsung Galaxy S25",
+                        "https://www.vinted.pl/items/123",
+                        "1800.00"
+                )
+        );
+
+        assertTrue(result.isEmpty());
+        verify(listingRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void negotiatingListingFromDisabledTargetCannotMove() {
+        Listing listing = listing(ListingStatus.NEGOTIATING, null);
+        listing.setAdditionalTarget(target(10L, false));
+        listing.setCurrentStep(1);
+        listing.setAwaitingSellerResponse(true);
+        listing.setConversationId("24760000000");
+
+        when(listingRepository.findByBotIdAndListingIdForUpdate(4L, "123"))
+                .thenReturn(Optional.of(listing));
+
+        Optional<Listing> result = service.reassignFromInactiveTargetIfEligible(
+                4L,
+                "123",
+                target(20L, true),
+                freshRequest(
+                        "Samsung Galaxy S25",
+                        "https://www.vinted.pl/items/123",
+                        "1800.00"
+                )
+        );
+
+        assertTrue(result.isEmpty());
+        assertEquals(10L, listing.getAdditionalTarget().getId());
+        verify(listingRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void firstOfferAuditPreventsMovingDisabledTargetListing() {
+        Listing listing = listing(ListingStatus.DISCOVERED, null);
+        listing.setAdditionalTarget(target(10L, false));
+
+        when(listingRepository.findByBotIdAndListingIdForUpdate(4L, "123"))
+                .thenReturn(Optional.of(listing));
+        when(realActionAuditRepository.existsByBackendListingIdAndActionTypeAndOutcome(
+                99L,
+                RealActionType.FIRST_OFFER,
+                RealActionAuditOutcome.CONFIRMED
+        )).thenReturn(false);
+        when(realActionAuditRepository.existsByBackendListingIdAndActionTypeAndOutcome(
+                99L,
+                RealActionType.FIRST_OFFER,
+                RealActionAuditOutcome.AMBIGUOUS
+        )).thenReturn(true);
+
+        Optional<Listing> result = service.reassignFromInactiveTargetIfEligible(
+                4L,
+                "123",
+                target(20L, true),
+                freshRequest(
+                        "Samsung Galaxy S25",
+                        "https://www.vinted.pl/items/123",
+                        "1800.00"
+                )
+        );
+
+        assertTrue(result.isEmpty());
+        assertEquals(10L, listing.getAdditionalTarget().getId());
+        verify(listingRepository, never()).saveAndFlush(any());
+    }
+
     private Listing listing(
             ListingStatus status,
             LocalDateTime lastFreshDiscoveryAt
@@ -208,6 +385,26 @@ class ListingRediscoveryServiceTest {
                 .status(status)
                 .lastFreshDiscoveryAt(lastFreshDiscoveryAt)
                 .build();
+    }
+
+    private BotAdditionalTarget target(Long id, boolean active) {
+        return BotAdditionalTarget.builder()
+                .id(id)
+                .active(active)
+                .build();
+    }
+
+    private void noFirstOfferAudit(Listing listing) {
+        when(realActionAuditRepository.existsByBackendListingIdAndActionTypeAndOutcome(
+                listing.getId(),
+                RealActionType.FIRST_OFFER,
+                RealActionAuditOutcome.CONFIRMED
+        )).thenReturn(false);
+        when(realActionAuditRepository.existsByBackendListingIdAndActionTypeAndOutcome(
+                listing.getId(),
+                RealActionType.FIRST_OFFER,
+                RealActionAuditOutcome.AMBIGUOUS
+        )).thenReturn(false);
     }
 
     private CreateListingRequest freshRequest(

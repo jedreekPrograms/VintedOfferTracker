@@ -121,6 +121,7 @@ public class BotTargetListingService {
         List<ListingResponse> result = new ArrayList<>();
         int claimed = 0;
         int requalified = 0;
+        int reassigned = 0;
         int overlaps = 0;
 
         for (CreateListingRequest listingRequest : uniqueRequests.values()) {
@@ -131,7 +132,19 @@ public class BotTargetListingService {
                         : existing.getAdditionalTarget().getId();
 
                 if (!Objects.equals(existingTargetId, expectedTargetId)) {
-                    overlaps++;
+                    Optional<Listing> moved = listingRediscoveryService
+                            .reassignFromInactiveTargetIfEligible(
+                                    botId,
+                                    listingRequest.getListingId(),
+                                    target,
+                                    listingRequest
+                            );
+                    if (moved.isPresent()) {
+                        result.add(listingMapper.map(moved.get()));
+                        reassigned++;
+                    } else {
+                        overlaps++;
+                    }
                     continue;
                 }
 
@@ -170,12 +183,13 @@ public class BotTargetListingService {
         }
 
         log.info(
-                "Bot {} target {} fresh scan contained {} listing(s): claimed {}, requalified {}, skipped {} overlap(s) already owned by another product, returned {}.",
+                "Bot {} target {} fresh scan contained {} listing(s): claimed {}, requalified {}, reassigned {} from disabled products, skipped {} protected overlap(s) owned by another product, returned {}.",
                 botId,
                 targetLabel,
                 uniqueRequests.size(),
                 claimed,
                 requalified,
+                reassigned,
                 overlaps,
                 result.size()
         );
