@@ -112,6 +112,15 @@ public class Listing {
     private LocalDateTime formalResponseDetectedAt;
 
     /*
+     * Immutable display snapshot of the product definition that owned this
+     * listing when it was claimed. It is refreshed only when ownership is
+     * deliberately reassigned from a disabled additional target. Legacy rows
+     * remain NULL rather than being backfilled from today's configuration.
+     */
+    @Column(name = "product_target_label", length = 1000)
+    private String productTargetLabel;
+
+    /*
      * NULL means the listing belongs to the bot's original/main product.
      * Existing rows remain NULL after the feature is deployed. Additional
      * products store their stable target id so every future reply keeps using
