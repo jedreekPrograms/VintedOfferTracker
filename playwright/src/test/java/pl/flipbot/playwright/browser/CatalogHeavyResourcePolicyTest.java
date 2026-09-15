@@ -20,7 +20,7 @@ public class CatalogHeavyResourcePolicyTest {
             "https://www.vinted.pl/inbox/987654321";
 
     @Test
-    public void blocksCatalogImagesAndMedia() {
+    public void blocksCatalogHeavyResources() {
         assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
                 CATALOG,
                 "image",
@@ -31,10 +31,15 @@ public class CatalogHeavyResourcePolicyTest {
                 "media",
                 "https://cdn.example.test/video.mp4"
         ));
+        assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
+                CATALOG,
+                "font",
+                "https://static.vinted.com/fonts/app.woff2"
+        ));
     }
 
     @Test
-    public void blocksItemDetailImagesAndMedia() {
+    public void blocksItemDetailHeavyResources() {
         assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
                 ITEM,
                 "image",
@@ -45,10 +50,15 @@ public class CatalogHeavyResourcePolicyTest {
                 "media",
                 "https://cdn.example.test/video.mp4"
         ));
+        assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
+                ITEM,
+                "font",
+                "https://static.vinted.com/fonts/item.woff2"
+        ));
     }
 
     @Test
-    public void blocksInboxAndConversationImagesAndMedia() {
+    public void blocksInboxAndConversationHeavyResources() {
         assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
                 INBOX,
                 "image",
@@ -58,6 +68,11 @@ public class CatalogHeavyResourcePolicyTest {
                 CONVERSATION,
                 "media",
                 "https://cdn.example.test/conversation-video.mp4"
+        ));
+        assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
+                CONVERSATION,
+                "font",
+                "https://static.vinted.com/fonts/conversation.woff2"
         ));
     }
 
@@ -91,8 +106,8 @@ public class CatalogHeavyResourcePolicyTest {
     public void doesNotBlockHeavyResourcesOnHomeOrSessionRefresh() {
         assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                 "https://www.vinted.pl/",
-                "image",
-                "https://images1.vinted.net/home.jpg"
+                "font",
+                "https://static.vinted.com/fonts/home.woff2"
         ));
         assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                 "https://www.vinted.pl/session-refresh",
@@ -110,8 +125,8 @@ public class CatalogHeavyResourcePolicyTest {
         ));
         assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                 "https://www.vinted.pl.example.com/items/123-test",
-                "image",
-                "https://images1.vinted.net/item.jpg"
+                "font",
+                "https://static.vinted.com/fonts/item.woff2"
         ));
         assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                 "https://www.vinted.pl.example.com/inbox/123",
@@ -130,8 +145,8 @@ public class CatalogHeavyResourcePolicyTest {
             ));
             assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                     pageUrl,
-                    "image",
-                    "https://assets.hcaptcha.com/captcha/image.png"
+                    "font",
+                    "https://assets.hcaptcha.com/captcha/challenge.woff2"
             ));
             assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                     pageUrl,
@@ -140,8 +155,8 @@ public class CatalogHeavyResourcePolicyTest {
             ));
             assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                     pageUrl,
-                    "image",
-                    "https://www.gstatic.com/recaptcha/api2/logo_48.png"
+                    "font",
+                    "https://www.gstatic.com/recaptcha/api2/challenge.woff2"
             ));
             assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                     pageUrl,
