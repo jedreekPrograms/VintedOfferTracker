@@ -43,4 +43,23 @@ final class MarketStatsTargetRotation {
         rotated.addAll(values.subList(0, startIndex));
         return List.copyOf(rotated);
     }
+
+    static <T> List<T> batch(
+            List<T> values,
+            int requestedStartIndex,
+            int maximumCount
+    ) {
+        if (maximumCount <= 0) {
+            throw new IllegalArgumentException(
+                    "Market-stats batch size must be positive"
+            );
+        }
+
+        List<T> rotated = rotate(values, requestedStartIndex);
+        if (rotated.size() <= maximumCount) {
+            return rotated;
+        }
+
+        return List.copyOf(rotated.subList(0, maximumCount));
+    }
 }
