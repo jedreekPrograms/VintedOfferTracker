@@ -13,6 +13,12 @@ public class CatalogHeavyResourcePolicyTest {
     private static final String ITEM =
             "https://www.vinted.pl/items/123456789-test-item";
 
+    private static final String INBOX =
+            "https://www.vinted.pl/inbox";
+
+    private static final String CONVERSATION =
+            "https://www.vinted.pl/inbox/987654321";
+
     @Test
     public void blocksCatalogImagesAndMedia() {
         assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
@@ -42,8 +48,22 @@ public class CatalogHeavyResourcePolicyTest {
     }
 
     @Test
+    public void blocksInboxAndConversationImagesAndMedia() {
+        assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
+                INBOX,
+                "image",
+                "https://images1.vinted.net/avatar.jpg"
+        ));
+        assertTrue(CatalogHeavyResourcePolicy.shouldBlock(
+                CONVERSATION,
+                "media",
+                "https://cdn.example.test/conversation-video.mp4"
+        ));
+    }
+
+    @Test
     public void neverBlocksFunctionalTrafficOnOptimizedPages() {
-        for (String pageUrl : new String[]{CATALOG, ITEM}) {
+        for (String pageUrl : new String[]{CATALOG, ITEM, INBOX, CONVERSATION}) {
             assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                     pageUrl,
                     "document",
@@ -68,16 +88,11 @@ public class CatalogHeavyResourcePolicyTest {
     }
 
     @Test
-    public void doesNotBlockHeavyResourcesOutsideCatalogAndItemDetails() {
+    public void doesNotBlockHeavyResourcesOnHomeOrSessionRefresh() {
         assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                 "https://www.vinted.pl/",
                 "image",
                 "https://images1.vinted.net/home.jpg"
-        ));
-        assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
-                "https://www.vinted.pl/inbox",
-                "image",
-                "https://images1.vinted.net/avatar.jpg"
         ));
         assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                 "https://www.vinted.pl/session-refresh",
@@ -98,11 +113,16 @@ public class CatalogHeavyResourcePolicyTest {
                 "image",
                 "https://images1.vinted.net/item.jpg"
         ));
+        assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
+                "https://www.vinted.pl.example.com/inbox/123",
+                "image",
+                "https://images1.vinted.net/avatar.jpg"
+        ));
     }
 
     @Test
     public void challengeAssetsRemainAvailableOnOptimizedPages() {
-        for (String pageUrl : new String[]{CATALOG, ITEM}) {
+        for (String pageUrl : new String[]{CATALOG, ITEM, CONVERSATION}) {
             assertFalse(CatalogHeavyResourcePolicy.shouldBlock(
                     pageUrl,
                     "image",
