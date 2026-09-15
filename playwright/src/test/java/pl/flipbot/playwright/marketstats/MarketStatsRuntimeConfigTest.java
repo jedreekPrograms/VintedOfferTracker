@@ -121,4 +121,32 @@ public class MarketStatsRuntimeConfigTest {
                 )
         );
     }
+
+    @Test
+    public void marketStatsBrowserDefaultsToThreeTargetsBeforeRecycle() {
+        assertEquals(
+                3,
+                MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount(null)
+        );
+        assertEquals(
+                3,
+                MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount("bad")
+        );
+    }
+
+    @Test
+    public void marketStatsBrowserRecycleCountIsConfigurableAndBounded() {
+        assertEquals(
+                5,
+                MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount("5")
+        );
+        assertEquals(
+                1,
+                MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount("0")
+        );
+        assertEquals(
+                50,
+                MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount("999")
+        );
+    }
 }
