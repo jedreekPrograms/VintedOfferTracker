@@ -152,6 +152,10 @@ public class CatalogWorkProcessor {
         }
     }
 
+    static void setRotationStateForTests(Long botId, int offset) {
+        NEXT_PRODUCT_OFFSET.put(botId, offset);
+    }
+
     static boolean hasRotationStateForTests(Long botId) {
         return botId != null && NEXT_PRODUCT_OFFSET.containsKey(botId);
     }
