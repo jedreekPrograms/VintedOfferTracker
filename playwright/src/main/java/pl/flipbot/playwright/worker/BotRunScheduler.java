@@ -32,13 +32,33 @@ public class BotRunScheduler {
 
     private final WorkerRuntimeConfig config;
     private final RuntimeTelemetryReporter telemetryReporter;
+    private final CatalogConcurrencyConfig catalogConcurrencyConfig;
 
     public BotRunScheduler(
             WorkerRuntimeConfig config,
             RuntimeTelemetryReporter telemetryReporter
     ) {
+        this(
+                config,
+                telemetryReporter,
+                CatalogConcurrencyConfig.fromEnvironment()
+        );
+    }
+
+    BotRunScheduler(
+            WorkerRuntimeConfig config,
+            RuntimeTelemetryReporter telemetryReporter,
+            CatalogConcurrencyConfig catalogConcurrencyConfig
+    ) {
         this.config = config;
         this.telemetryReporter = telemetryReporter;
+        this.catalogConcurrencyConfig = catalogConcurrencyConfig;
+
+        log.info(
+                "[SCHEDULER MEMORY] Max concurrent catalog scans={}. Deferred catalog retry={} ms.",
+                catalogConcurrencyConfig.maxConcurrentCatalogScans(),
+                catalogConcurrencyConfig.retryDelayMillis()
+        );
     }
 
     public synchronized void reconcileRunningBots(
@@ -153,11 +173,52 @@ public class BotRunScheduler {
             return null;
         }
 
+        if (task.jobType() == ScheduledJobType.CATALOG_SCAN
+                && workingCatalogCountUnsafe()
+                >= catalogConcurrencyConfig.maxConcurrentCatalogScans()) {
+            deferCatalogForCapacity(
+                    task.botId(),
+                    schedule
+            );
+            return null;
+        }
+
         schedule.state = RunState.WORKING;
+        schedule.workingJobType = task.jobType();
         schedule.queuedJobType = null;
         schedule.queuedRunAtNanos = 0L;
 
         return task;
+    }
+
+    private void deferCatalogForCapacity(
+            Long botId,
+            BotSchedule schedule
+    ) {
+        long now = System.currentTimeMillis();
+        long retryAt = safeAdd(
+                now,
+                catalogConcurrencyConfig.retryDelayMillis()
+        );
+
+        schedule.nextCatalogAtEpochMs = Math.max(
+                schedule.nextCatalogAtEpochMs,
+                retryAt
+        );
+        schedule.state = null;
+        schedule.queuedJobType = null;
+        schedule.queuedRunAtNanos = 0L;
+        schedule.reportQueuedStatus = false;
+
+        enqueueEarliestJob(botId, schedule, now);
+
+        log.debug(
+                "[SCHEDULER MEMORY] Deferred CATALOG_SCAN for bot {} because {}/{} catalog scans are already working. Retry in {} ms; negotiation/price-probe work remains eligible.",
+                botId,
+                workingCatalogCountUnsafe(),
+                catalogConcurrencyConfig.maxConcurrentCatalogScans(),
+                catalogConcurrencyConfig.retryDelayMillis()
+        );
     }
 
     public synchronized void completeRun(
@@ -180,6 +241,8 @@ public class BotRunScheduler {
             telemetryReporter.idle(botId);
             return;
         }
+
+        schedule.workingJobType = null;
 
         long now = System.currentTimeMillis();
         long safeDelayMillis = Math.max(0L, nextDelayMillis);
@@ -240,10 +303,25 @@ public class BotRunScheduler {
                 .count();
     }
 
+    public synchronized int workingCatalogCount() {
+        return workingCatalogCountUnsafe();
+    }
+
     public synchronized int enabledBotCount() {
         return (int) schedules.values()
                 .stream()
                 .filter(schedule -> schedule.enabled)
+                .count();
+    }
+
+    private int workingCatalogCountUnsafe() {
+        return (int) schedules.values()
+                .stream()
+                .filter(schedule -> schedule.state == RunState.WORKING)
+                .filter(
+                        schedule -> schedule.workingJobType
+                                == ScheduledJobType.CATALOG_SCAN
+                )
                 .count();
     }
 
@@ -370,6 +448,7 @@ public class BotRunScheduler {
         private boolean enabled;
         private boolean hasActiveNegotiations;
         private RunState state;
+        private ScheduledJobType workingJobType;
         private long nextCatalogAtEpochMs;
         private long nextNegotiationAtEpochMs = NEVER;
         private long nextPriceProbeAtEpochMs = NEVER;
