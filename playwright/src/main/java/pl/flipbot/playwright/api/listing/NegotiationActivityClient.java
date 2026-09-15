@@ -1,27 +1,19 @@
 package pl.flipbot.playwright.api.listing;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.api.listing.dto.NegotiationActivityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.NegotiationActivityResponseDto;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.format.DateTimeFormatter;
 
 @Slf4j
-public class NegotiationActivityClient {
+public class NegotiationActivityClient extends ApiClient {
 
-    private static final String BACKEND_BASE_URL = "http://localhost:8081";
     private static final DateTimeFormatter BACKEND_DATE_TIME_FORMAT =
             DateTimeFormatter.ISO_LOCAL_DATE_TIME;
-
-    private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public NegotiationActivityResponseDto recordActivity(
             Long botId,
@@ -47,50 +39,26 @@ public class NegotiationActivityClient {
             return null;
         }
 
-        String url = BACKEND_BASE_URL
-                + "/api/bots/" + botId
+        String path = "/api/bots/" + botId
                 + "/listings/" + listingId
                 + "/negotiation-activity";
 
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Content-Type", "application/json")
-                .method(
-                        "PATCH",
-                        HttpRequest.BodyPublishers.ofString(createRequestBody(request))
-                )
-                .build();
+        HttpResponse<String> response = patchJson(
+                path,
+                createRequestBody(request)
+        );
 
-        try {
-            HttpResponse<String> response = httpClient.send(
-                    httpRequest,
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException(
-                        "Backend rejected negotiation activity update. HTTP "
-                                + response.statusCode() + ". Body: "
-                                + abbreviate(response.body(), 500)
-                );
-            }
-
-            NegotiationActivityResponseDto responseDto = parseResponse(response.body());
-            logBackendState(listingId, request, responseDto);
-            return responseDto;
-
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IllegalStateException(
-                    "Negotiation activity request was interrupted",
-                    exception
-            );
-        } catch (IOException exception) {
-            throw new IllegalStateException(
-                    "Could not send negotiation activity to backend",
-                    exception
+                    "Backend rejected negotiation activity update. HTTP "
+                            + response.statusCode() + ". Body: "
+                            + abbreviate(response.body(), 500)
             );
         }
+
+        NegotiationActivityResponseDto responseDto = parseResponse(response.body());
+        logBackendState(listingId, request, responseDto);
+        return responseDto;
     }
 
     private NegotiationActivityResponseDto parseResponse(String responseBody) {

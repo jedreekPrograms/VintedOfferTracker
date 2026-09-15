@@ -68,21 +68,33 @@ public abstract class ApiClient {
         try {
             String json = objectMapper.writeValueAsString(body);
 
-            HttpRequest request = requestBuilder(path)
-                    .header("Content-Type", "application/json")
-                    .method(
-                            "PATCH",
-                            HttpRequest.BodyPublishers.ofString(json)
-                    )
-                    .build();
-
-            return send(request, "PATCH");
+            return patchJson(path, json);
         } catch (IOException exception) {
             throw new ApiException(
                     "PATCH request failed.",
                     exception
             );
         }
+    }
+
+    /**
+     * Sends an already-serialized JSON PATCH body through the same bounded,
+     * process-wide backend transport used by every other API client.
+     *
+     * Some Vinted-facing workflows intentionally serialize date/time fields
+     * themselves to preserve an established backend wire format. They should
+     * not need to create a separate HttpClient just to send that JSON.
+     */
+    protected HttpResponse<String> patchJson(String path, String json) {
+        HttpRequest request = requestBuilder(path)
+                .header("Content-Type", "application/json")
+                .method(
+                        "PATCH",
+                        HttpRequest.BodyPublishers.ofString(json)
+                )
+                .build();
+
+        return send(request, "PATCH");
     }
 
     protected <T> T readBody(
