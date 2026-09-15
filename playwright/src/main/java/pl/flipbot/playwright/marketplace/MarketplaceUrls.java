@@ -76,6 +76,21 @@ public final class MarketplaceUrls {
         }
     }
 
+    public static boolean isInboxUrl(String rawUrl) {
+        if (!isVintedUrl(rawUrl)) {
+            return false;
+        }
+
+        try {
+            String path = URI.create(rawUrl.trim()).getPath();
+            return path != null
+                    && ("/inbox".equals(path)
+                    || path.startsWith("/inbox/"));
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
     public static boolean isSessionRefreshUrl(String rawUrl) {
         if (!isVintedUrl(rawUrl)) {
             return false;
