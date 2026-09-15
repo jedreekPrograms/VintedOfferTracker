@@ -176,6 +176,7 @@ public class BotRunScheduler {
 
         if (!schedule.enabled) {
             schedules.remove(botId);
+            BotProcessStateCleaner.clear(botId);
             telemetryReporter.idle(botId);
             return;
         }
@@ -258,6 +259,7 @@ public class BotRunScheduler {
         if (schedule.state == RunState.QUEUED) {
             removeQueuedTask(botId);
             schedules.remove(botId);
+            BotProcessStateCleaner.clear(botId);
             telemetryReporter.idle(botId);
         }
     }
