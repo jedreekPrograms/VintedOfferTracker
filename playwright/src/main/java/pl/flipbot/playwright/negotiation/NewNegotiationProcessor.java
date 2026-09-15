@@ -37,6 +37,7 @@ public class NewNegotiationProcessor {
     private final FirstOfferActionGuardCoordinator firstOfferActionGuardCoordinator;
     private final ListingTargetMatcher listingTargetMatcher;
     private final ListingDetailTargetInspector listingDetailTargetInspector;
+    private final CatalogDetailInspectionBudget detailInspectionBudget;
     private final boolean realOffersEnabled;
     private final int maxRealOffersPerRun;
 
@@ -48,6 +49,35 @@ public class NewNegotiationProcessor {
             boolean realOffersEnabled,
             int maxRealOffersPerRun
     ) {
+        this(
+                context,
+                listingClient,
+                offerQuotaClient,
+                listingStatusUpdater,
+                realOffersEnabled,
+                maxRealOffersPerRun,
+                new CatalogDetailInspectionBudget(
+                        MAX_DETAIL_INSPECTIONS_PER_CYCLE
+                                + MAX_FINAL_VERIFICATIONS_PER_CYCLE
+                )
+        );
+    }
+
+    public NewNegotiationProcessor(
+            BotContext context,
+            ListingClient listingClient,
+            OfferQuotaClient offerQuotaClient,
+            ListingStatusUpdater listingStatusUpdater,
+            boolean realOffersEnabled,
+            int maxRealOffersPerRun,
+            CatalogDetailInspectionBudget detailInspectionBudget
+    ) {
+        if (detailInspectionBudget == null) {
+            throw new IllegalArgumentException(
+                    "Catalog detail inspection budget is required."
+            );
+        }
+
         this.context = context;
         this.listingClient = listingClient;
         this.offerQuotaClient = offerQuotaClient;
@@ -59,6 +89,7 @@ public class NewNegotiationProcessor {
                 context,
                 listingTargetMatcher
         );
+        this.detailInspectionBudget = detailInspectionBudget;
         this.realOffersEnabled = realOffersEnabled;
         this.maxRealOffersPerRun = maxRealOffersPerRun;
     }
@@ -480,6 +511,7 @@ public class NewNegotiationProcessor {
         int mismatches = 0;
         int failures = 0;
         int realItemPageRequests = 0;
+        int deferredByGlobalDetailBudget = 0;
 
         for (ListingResponseDto listing : targetEligibleListings) {
             if (checked >= candidatesToCheck) {
@@ -520,6 +552,17 @@ public class NewNegotiationProcessor {
                     listing.listingId()
             );
             boolean liveItemPageRequest = !cached;
+
+            if (liveItemPageRequest && !detailInspectionBudget.tryAcquire()) {
+                deferredByGlobalDetailBudget++;
+                log.info(
+                        "[FINAL VERIFY] Marketplace listing {} needs a live item-page verification, but the shared catalog detail budget is exhausted ({}/{}). It remains DISCOVERED for a later catalog cycle.",
+                        listing.listingId(),
+                        detailInspectionBudget.used(),
+                        detailInspectionBudget.limit()
+                );
+                continue;
+            }
 
             if (liveItemPageRequest && realItemPageRequests > 0) {
                 context.getPage().waitForTimeout(DETAIL_INSPECTION_PACING_MS);
@@ -604,12 +647,15 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[FINAL VERIFY] Finished. Checked={}, passed={}, mismatches={}, failures={}, real item-page requests={}.",
+                "[FINAL VERIFY] Finished. Checked={}, passed={}, mismatches={}, failures={}, real item-page requests={}, deferred by shared catalog detail budget={}, shared budget={}/{}.",
                 checked,
                 verifiedListings.size(),
                 mismatches,
                 failures,
-                realItemPageRequests
+                realItemPageRequests,
+                deferredByGlobalDetailBudget,
+                detailInspectionBudget.used(),
+                detailInspectionBudget.limit()
         );
 
         return new FinalVerificationResult(
@@ -639,6 +685,7 @@ public class NewNegotiationProcessor {
         int rejectedAfterDetailRequest = 0;
         int detailInspectionFailures = 0;
         int deferredByDetailLimit = 0;
+        int deferredByGlobalDetailBudget = 0;
         int detailRequestsThisCycle = 0;
         int persistedTargetMismatches = 0;
         int persistedUnavailable = 0;
@@ -742,6 +789,17 @@ public class NewNegotiationProcessor {
                 continue;
             }
 
+            if (!detailInspectionBudget.tryAcquire()) {
+                deferredByGlobalDetailBudget++;
+                log.info(
+                        "[TARGET DETAIL] Marketplace listing {} needs a live detail inspection, but the shared catalog detail budget is exhausted ({}/{}). It remains DISCOVERED for a later catalog cycle and cannot reach quota/submit now.",
+                        listing.listingId(),
+                        detailInspectionBudget.used(),
+                        detailInspectionBudget.limit()
+                );
+                continue;
+            }
+
             if (detailRequestsThisCycle > 0) {
                 context.getPage().waitForTimeout(DETAIL_INSPECTION_PACING_MS);
             }
@@ -789,7 +847,7 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Current exact-scan accepted: {}, catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
+                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Current exact-scan accepted: {}, catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, deferred by shared catalog detail budget: {}, shared budget={}/{}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
                 listings.size(),
                 acceptedFromCurrentExactScan,
                 matchedFromCatalogTitle,
@@ -804,6 +862,9 @@ public class NewNegotiationProcessor {
                 MAX_DETAIL_INSPECTIONS_PER_CYCLE,
                 detailInspectionFailures,
                 deferredByDetailLimit,
+                deferredByGlobalDetailBudget,
+                detailInspectionBudget.used(),
+                detailInspectionBudget.limit(),
                 persistedTargetMismatches,
                 persistedUnavailable,
                 eligibleListings.size(),
