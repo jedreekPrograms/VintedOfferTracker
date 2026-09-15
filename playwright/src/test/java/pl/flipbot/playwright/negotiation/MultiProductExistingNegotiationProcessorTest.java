@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class MultiProductExistingNegotiationProcessorTest {
 
@@ -96,6 +98,43 @@ public class MultiProductExistingNegotiationProcessorTest {
                 List.of("MAIN", "7"),
                 labels(MultiProductExistingNegotiationProcessor
                         .orderedTargetsForRun(OTHER_BOT_ID, targets))
+        );
+    }
+
+    @Test
+    public void clearsOnlyRequestedBotRotationState() {
+        List<BotProductExecutionPlan.Target> targets =
+                BotProductExecutionPlan.negotiationTargets(
+                        botWithProducts(BOT_ID, extra(7L, true))
+                );
+
+        MultiProductExistingNegotiationProcessor.orderedTargetsForRun(
+                BOT_ID,
+                targets
+        );
+        MultiProductExistingNegotiationProcessor.orderedTargetsForRun(
+                OTHER_BOT_ID,
+                targets
+        );
+
+        assertTrue(
+                MultiProductExistingNegotiationProcessor
+                        .hasRotationStateForTests(BOT_ID)
+        );
+        assertTrue(
+                MultiProductExistingNegotiationProcessor
+                        .hasRotationStateForTests(OTHER_BOT_ID)
+        );
+
+        MultiProductExistingNegotiationProcessor.clearProcessState(BOT_ID);
+
+        assertFalse(
+                MultiProductExistingNegotiationProcessor
+                        .hasRotationStateForTests(BOT_ID)
+        );
+        assertTrue(
+                MultiProductExistingNegotiationProcessor
+                        .hasRotationStateForTests(OTHER_BOT_ID)
         );
     }
 
