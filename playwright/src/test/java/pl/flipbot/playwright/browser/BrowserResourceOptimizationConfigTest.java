@@ -58,4 +58,28 @@ public class BrowserResourceOptimizationConfigTest {
                 "invalid-value"
         ));
     }
+
+    @Test
+    public void PlaywrightChromiumIsOptInForHeadlessOnly() {
+        assertFalse(BrowserResourceOptimizationConfig.usePlaywrightChromium(
+                true,
+                null
+        ));
+        assertFalse(BrowserResourceOptimizationConfig.usePlaywrightChromium(
+                true,
+                "invalid-value"
+        ));
+        assertTrue(BrowserResourceOptimizationConfig.usePlaywrightChromium(
+                true,
+                "true"
+        ));
+        assertTrue(BrowserResourceOptimizationConfig.usePlaywrightChromium(
+                true,
+                "1"
+        ));
+        assertFalse(BrowserResourceOptimizationConfig.usePlaywrightChromium(
+                false,
+                "true"
+        ));
+    }
 }
