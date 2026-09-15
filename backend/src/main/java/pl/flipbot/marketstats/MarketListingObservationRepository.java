@@ -1,6 +1,7 @@
 package pl.flipbot.marketstats;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,23 +18,52 @@ public interface MarketListingObservationRepository
             Collection<String> marketplaceListingIds
     );
 
+    List<MarketListingObservation>
+    findAllByModel_IdAndPublishedAtIsNotNull(
+            Long modelId
+    );
+
     long countByModel_IdAndBaselineFalseAndFirstSeenAtAfter(
             Long modelId,
             LocalDateTime firstSeenAfter
     );
 
-    @Query("""
-            select count(observation)
-            from MarketListingObservation observation
-            where observation.model.id = :modelId
-              and observation.baseline = false
-              and observation.firstSeenAt >= :fromInclusive
-              and observation.firstSeenAt < :toExclusive
-            """)
-    long countNewListingsBetween(
+    @Query(value = """
+            select count(*)
+            from market_listing_observation observation
+            where observation.model_id = :modelId
+              and observation.published_at is not null
+              and observation.published_at >= :fromInclusive
+              and observation.published_at < :toExclusive
+            """, nativeQuery = true)
+    long countPublishedListingsBetween(
             @Param("modelId") Long modelId,
             @Param("fromInclusive") LocalDateTime fromInclusive,
             @Param("toExclusive") LocalDateTime toExclusive
+    );
+
+    @Query(value = """
+            select observation.marketplace_listing_id
+            from market_listing_observation observation
+            where observation.model_id = :modelId
+              and observation.published_at is null
+            order by observation.last_seen_at desc
+            """, nativeQuery = true)
+    List<String> findListingIdsMissingPublishedAt(
+            @Param("modelId") Long modelId
+    );
+
+    @Modifying
+    @Query(value = """
+            update market_listing_observation
+            set published_at = :publishedAt
+            where model_id = :modelId
+              and marketplace_listing_id = :listingId
+            """, nativeQuery = true)
+    int updatePublishedAt(
+            @Param("modelId") Long modelId,
+            @Param("listingId") String listingId,
+            @Param("publishedAt") LocalDateTime publishedAt
     );
 
     long countByModel_IdAndBaselineTrue(

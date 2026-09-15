@@ -31,4 +31,8 @@ public class ListingHistoryResponse {
     private Long botId;
 
     private String botName;
+
+    private Long additionalTargetId;
+
+    private String productTargetLabel;
 }

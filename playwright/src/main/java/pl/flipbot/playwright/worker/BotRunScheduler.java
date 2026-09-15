@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.DelayQueue;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class BotRunScheduler {
@@ -31,13 +32,33 @@ public class BotRunScheduler {
 
     private final WorkerRuntimeConfig config;
     private final RuntimeTelemetryReporter telemetryReporter;
+    private final CatalogConcurrencyConfig catalogConcurrencyConfig;
 
     public BotRunScheduler(
             WorkerRuntimeConfig config,
             RuntimeTelemetryReporter telemetryReporter
     ) {
+        this(
+                config,
+                telemetryReporter,
+                CatalogConcurrencyConfig.fromEnvironment()
+        );
+    }
+
+    BotRunScheduler(
+            WorkerRuntimeConfig config,
+            RuntimeTelemetryReporter telemetryReporter,
+            CatalogConcurrencyConfig catalogConcurrencyConfig
+    ) {
         this.config = config;
         this.telemetryReporter = telemetryReporter;
+        this.catalogConcurrencyConfig = catalogConcurrencyConfig;
+
+        log.info(
+                "[SCHEDULER MEMORY] Max concurrent catalog scans={}. Deferred catalog retry={} ms.",
+                catalogConcurrencyConfig.maxConcurrentCatalogScans(),
+                catalogConcurrencyConfig.retryDelayMillis()
+        );
     }
 
     public synchronized void reconcileRunningBots(
@@ -85,35 +106,119 @@ public class BotRunScheduler {
             throws InterruptedException {
 
         while (true) {
-            ScheduledBotTask task = queue.take();
-
-            synchronized (this) {
-                BotSchedule schedule =
-                        schedules.get(task.botId());
-
-                if (schedule == null || !schedule.enabled) {
-                    continue;
-                }
-
-                if (schedule.state != RunState.QUEUED) {
-                    continue;
-                }
-
-                if (schedule.queuedJobType != task.jobType()) {
-                    continue;
-                }
-
-                if (schedule.queuedRunAtNanos != task.runAtNanos()) {
-                    continue;
-                }
-
-                schedule.state = RunState.WORKING;
-                schedule.queuedJobType = null;
-                schedule.queuedRunAtNanos = 0L;
-
-                return task;
+            ScheduledBotTask claimed = claimIfCurrent(queue.take());
+            if (claimed != null) {
+                return claimed;
             }
         }
+    }
+
+    /**
+     * Waits for the next ready, still-current task for at most the supplied
+     * timeout. A null result means the worker may perform idle maintenance,
+     * such as releasing an otherwise unused Chromium runtime.
+     */
+    public ScheduledBotTask pollNext(long timeoutMillis)
+            throws InterruptedException {
+
+        if (timeoutMillis < 0L) {
+            throw new IllegalArgumentException(
+                    "Scheduler poll timeout cannot be negative."
+            );
+        }
+
+        long deadlineNanos = System.nanoTime()
+                + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+
+        while (true) {
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0L) {
+                return null;
+            }
+
+            ScheduledBotTask task = queue.poll(
+                    remainingNanos,
+                    TimeUnit.NANOSECONDS
+            );
+
+            if (task == null) {
+                return null;
+            }
+
+            ScheduledBotTask claimed = claimIfCurrent(task);
+            if (claimed != null) {
+                return claimed;
+            }
+        }
+    }
+
+    private synchronized ScheduledBotTask claimIfCurrent(
+            ScheduledBotTask task
+    ) {
+        BotSchedule schedule = schedules.get(task.botId());
+
+        if (schedule == null || !schedule.enabled) {
+            return null;
+        }
+
+        if (schedule.state != RunState.QUEUED) {
+            return null;
+        }
+
+        if (schedule.queuedJobType != task.jobType()) {
+            return null;
+        }
+
+        if (schedule.queuedRunAtNanos != task.runAtNanos()) {
+            return null;
+        }
+
+        if (task.jobType() == ScheduledJobType.CATALOG_SCAN
+                && workingCatalogCountUnsafe()
+                >= catalogConcurrencyConfig.maxConcurrentCatalogScans()) {
+            deferCatalogForCapacity(
+                    task.botId(),
+                    schedule
+            );
+            return null;
+        }
+
+        schedule.state = RunState.WORKING;
+        schedule.workingJobType = task.jobType();
+        schedule.queuedJobType = null;
+        schedule.queuedRunAtNanos = 0L;
+
+        return task;
+    }
+
+    private void deferCatalogForCapacity(
+            Long botId,
+            BotSchedule schedule
+    ) {
+        long now = System.currentTimeMillis();
+        long retryAt = safeAdd(
+                now,
+                catalogConcurrencyConfig.retryDelayMillis()
+        );
+
+        schedule.nextCatalogAtEpochMs = Math.max(
+                schedule.nextCatalogAtEpochMs,
+                retryAt
+        );
+        schedule.state = null;
+        schedule.queuedJobType = null;
+        schedule.queuedRunAtNanos = 0L;
+        schedule.reportQueuedStatus = false;
+
+        enqueueEarliestJob(botId, schedule, now);
+
+        log.debug(
+                "[SCHEDULER MEMORY] Deferred CATALOG_SCAN for bot {} because {}/{} catalog scans are already working. Retry in {} ms; negotiation/price-probe work remains eligible.",
+                botId,
+                workingCatalogCountUnsafe(),
+                catalogConcurrencyConfig.maxConcurrentCatalogScans(),
+                catalogConcurrencyConfig.retryDelayMillis()
+        );
     }
 
     public synchronized void completeRun(
@@ -132,9 +237,12 @@ public class BotRunScheduler {
 
         if (!schedule.enabled) {
             schedules.remove(botId);
+            BotProcessStateCleaner.clear(botId);
             telemetryReporter.idle(botId);
             return;
         }
+
+        schedule.workingJobType = null;
 
         long now = System.currentTimeMillis();
         long safeDelayMillis = Math.max(0L, nextDelayMillis);
@@ -195,10 +303,25 @@ public class BotRunScheduler {
                 .count();
     }
 
+    public synchronized int workingCatalogCount() {
+        return workingCatalogCountUnsafe();
+    }
+
     public synchronized int enabledBotCount() {
         return (int) schedules.values()
                 .stream()
                 .filter(schedule -> schedule.enabled)
+                .count();
+    }
+
+    private int workingCatalogCountUnsafe() {
+        return (int) schedules.values()
+                .stream()
+                .filter(schedule -> schedule.state == RunState.WORKING)
+                .filter(
+                        schedule -> schedule.workingJobType
+                                == ScheduledJobType.CATALOG_SCAN
+                )
                 .count();
     }
 
@@ -214,6 +337,7 @@ public class BotRunScheduler {
         if (schedule.state == RunState.QUEUED) {
             removeQueuedTask(botId);
             schedules.remove(botId);
+            BotProcessStateCleaner.clear(botId);
             telemetryReporter.idle(botId);
         }
     }
@@ -324,6 +448,7 @@ public class BotRunScheduler {
         private boolean enabled;
         private boolean hasActiveNegotiations;
         private RunState state;
+        private ScheduledJobType workingJobType;
         private long nextCatalogAtEpochMs;
         private long nextNegotiationAtEpochMs = NEVER;
         private long nextPriceProbeAtEpochMs = NEVER;

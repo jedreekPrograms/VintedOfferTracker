@@ -11,11 +11,13 @@ import pl.flipbot.playwright.target.VintedSessionBlockedException;
 
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class BotWorkerSlot implements Runnable {
 
     private static final long SESSION_BLOCK_FALLBACK_DELAY_MINUTES = 15L;
+    private static final long RETIREMENT_POLL_MILLIS = 1_000L;
 
     private final int slotNumber;
     private final BotRunScheduler scheduler;
@@ -23,6 +25,7 @@ public class BotWorkerSlot implements Runnable {
     private final RuntimeTelemetryReporter telemetryReporter;
 
     private final BotApiClient botApiClient = new BotApiClient();
+    private final AtomicBoolean retirementRequested = new AtomicBoolean(false);
 
     public BotWorkerSlot(
             int slotNumber,
@@ -36,23 +39,115 @@ public class BotWorkerSlot implements Runnable {
         this.telemetryReporter = telemetryReporter;
     }
 
+    boolean requestRetirement() {
+        boolean changed = retirementRequested.compareAndSet(false, true);
+
+        if (changed) {
+            log.info(
+                    "[SLOT {}] Graceful retirement requested. The slot will not claim another job after its current wait/run completes.",
+                    slotNumber
+            );
+        }
+
+        return changed;
+    }
+
+    boolean isRetirementRequested() {
+        return retirementRequested.get();
+    }
+
     @Override
     public void run() {
+        boolean keepBrowserBetweenJobs =
+                WorkerBrowserRetentionPolicy.keepBrowserOpenBetweenJobs(
+                        config.schedulerHeadless()
+                );
+
         log.info(
-                "[SLOT {}] Starting reusable worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}.",
+                "[SLOT {}] Starting worker slot on thread {}. Browser will launch lazily on first claimed job; headless={}, reuseBetweenJobs={}, browserIdleTimeout={}s.",
                 slotNumber,
                 Thread.currentThread().getName(),
-                config.schedulerHeadless()
+                config.schedulerHeadless(),
+                keepBrowserBetweenJobs,
+                config.browserIdleTimeoutSeconds()
         );
 
         BrowserManager browserManager = null;
+        long browserIdleSinceNanos = 0L;
 
         try {
             while (!Thread.currentThread().isInterrupted()) {
-                ScheduledBotTask task = scheduler.takeNext();
+                if (retirementRequested.get()) {
+                    log.info(
+                            "[SLOT {}] Graceful retirement starting before another job is claimed.",
+                            slotNumber
+                    );
+                    break;
+                }
+
+                if (browserManager != null && keepBrowserBetweenJobs) {
+                    long idleTimeoutNanos = TimeUnit.SECONDS.toNanos(
+                            config.browserIdleTimeoutSeconds()
+                    );
+                    long idleElapsedNanos = browserIdleSinceNanos <= 0L
+                            ? 0L
+                            : Math.max(
+                                    0L,
+                                    System.nanoTime() - browserIdleSinceNanos
+                            );
+
+                    if (browserIdleSinceNanos > 0L
+                            && idleElapsedNanos >= idleTimeoutNanos) {
+                        browserManager = closeBrowserRuntime(
+                                browserManager,
+                                "idle timeout after "
+                                        + config.browserIdleTimeoutSeconds()
+                                        + "s without a ready job"
+                        );
+                        browserIdleSinceNanos = 0L;
+                        continue;
+                    }
+                }
+
+                long pollTimeoutMillis = RETIREMENT_POLL_MILLIS;
+
+                if (browserManager != null
+                        && keepBrowserBetweenJobs
+                        && browserIdleSinceNanos > 0L) {
+                    long idleTimeoutNanos = TimeUnit.SECONDS.toNanos(
+                            config.browserIdleTimeoutSeconds()
+                    );
+                    long remainingIdleNanos = Math.max(
+                            0L,
+                            idleTimeoutNanos
+                                    - (System.nanoTime() - browserIdleSinceNanos)
+                    );
+                    long remainingIdleMillis = Math.max(
+                            1L,
+                            TimeUnit.NANOSECONDS.toMillis(remainingIdleNanos)
+                    );
+
+                    pollTimeoutMillis = Math.min(
+                            RETIREMENT_POLL_MILLIS,
+                            remainingIdleMillis
+                    );
+                }
+
+                ScheduledBotTask task = scheduler.pollNext(pollTimeoutMillis);
+
+                if (task == null) {
+                    continue;
+                }
+
                 Long botId = task.botId();
                 ScheduledJobType jobType = task.jobType();
 
+                /*
+                 * A retirement request can race with pollNext returning a task.
+                 * Once the scheduler has claimed a task, this slot must finish
+                 * that claim so the bot schedule cannot remain stuck in WORKING.
+                 * The retirement flag is checked again before the next claim.
+                 */
                 Long persistedBlockDelayMillis = persistedSessionBlockDelay(botId);
                 if (persistedBlockDelayMillis != null && persistedBlockDelayMillis > 0L) {
                     log.warn(
@@ -67,6 +162,12 @@ public class BotWorkerSlot implements Runnable {
                             true,
                             false
                     );
+                    browserManager = closeBrowserRuntime(
+                            browserManager,
+                            "persisted session cooldown before browser job for bot "
+                                    + botId
+                    );
+                    browserIdleSinceNanos = 0L;
                     continue;
                 }
 
@@ -92,9 +193,10 @@ public class BotWorkerSlot implements Runnable {
 
                     if (browserManager == null) {
                         log.info(
-                                "[SLOT {}] Launching reusable Playwright browser runtime for the first claimed job. headless={}",
+                                "[SLOT {}] Launching Playwright browser runtime for claimed job. headless={}, reuseBetweenJobs={}",
                                 slotNumber,
-                                config.schedulerHeadless()
+                                config.schedulerHeadless(),
+                                keepBrowserBetweenJobs
                         );
                         browserManager = new BrowserManager(config.schedulerHeadless());
                     }
@@ -231,13 +333,35 @@ public class BotWorkerSlot implements Runnable {
                     );
 
                 } finally {
-                    scheduler.completeRun(
-                            botId,
-                            jobType,
-                            nextDelayMillis,
-                            delayAllJobs,
-                            reportQueuedAfterRun
-                    );
+                    try {
+                        scheduler.completeRun(
+                                botId,
+                                jobType,
+                                nextDelayMillis,
+                                delayAllJobs,
+                                reportQueuedAfterRun
+                        );
+                    } finally {
+                        String closeReason =
+                                "scheduled job finished for bot "
+                                        + botId
+                                        + " / "
+                                        + jobType;
+
+                        browserManager = WorkerBrowserRetentionPolicy.afterJob(
+                                browserManager,
+                                config.schedulerHeadless(),
+                                runtime -> closeBrowserRuntime(
+                                        runtime,
+                                        closeReason
+                                )
+                        );
+
+                        browserIdleSinceNanos =
+                                browserManager != null && keepBrowserBetweenJobs
+                                        ? System.nanoTime()
+                                        : 0L;
+                    }
                 }
             }
 
@@ -258,25 +382,58 @@ public class BotWorkerSlot implements Runnable {
             );
 
         } finally {
-            if (browserManager != null) {
-                try {
-                    browserManager.close();
-                } catch (Exception exception) {
-                    log.warn(
-                            "[SLOT {}] Could not close Playwright browser runtime cleanly. reason={}",
-                            slotNumber,
-                            errorMessage(exception)
-                    );
-                    log.debug(
-                            "[SLOT {}] Full browser-runtime close error.",
-                            slotNumber,
-                            exception
-                    );
-                }
-            }
+            closeBrowserRuntime(
+                    browserManager,
+                    retirementRequested.get()
+                            ? "graceful worker slot retirement"
+                            : "worker slot shutdown"
+            );
 
-            log.info("[SLOT {}] Worker slot stopped.", slotNumber);
+            log.info(
+                    "[SLOT {}] Worker slot stopped. retired={}",
+                    slotNumber,
+                    retirementRequested.get()
+            );
         }
+    }
+
+    private BrowserManager closeBrowserRuntime(
+            BrowserManager browserManager,
+            String reason
+    ) {
+        if (browserManager == null) {
+            return null;
+        }
+
+        log.info(
+                "[BROWSER LIFECYCLE] Slot {} is releasing its Playwright browser runtime. reason={}",
+                slotNumber,
+                reason
+        );
+
+        try {
+            browserManager.close();
+        } catch (Exception exception) {
+            log.warn(
+                    "[SLOT {}] Could not close Playwright browser runtime cleanly. reason={}, closeError={}",
+                    slotNumber,
+                    reason,
+                    errorMessage(exception)
+            );
+            log.debug(
+                    "[SLOT {}] Full browser-runtime close error.",
+                    slotNumber,
+                    exception
+            );
+        }
+
+        /*
+         * Never reuse a runtime after close was requested, even if closing
+         * reported a problem. BrowserManager marks itself closed before it
+         * starts shutting Chromium down, and a later job must launch a fresh
+         * runtime instead of touching an uncertain browser process.
+         */
+        return null;
     }
 
     private Long persistedSessionBlockDelay(Long botId) {

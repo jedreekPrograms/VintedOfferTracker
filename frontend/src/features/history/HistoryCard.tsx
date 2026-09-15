@@ -6,6 +6,7 @@ import {
     type ListingHistoryResponse,
 } from "../../api/historyApi";
 import AppDialog from "../../components/AppDialog";
+import { formatProductProvenance } from "../listings/productProvenance";
 import "./HistoryCard.css";
 import {
     calculateDiscountPercentage,
@@ -37,6 +38,7 @@ function HistoryCard({
     const savings = calculateSavings(listing.originalPrice, listing.currentPrice);
     const discount = calculateDiscountPercentage(listing.originalPrice, listing.currentPrice);
     const purchased = listing.status === "PURCHASED";
+    const productProvenance = formatProductProvenance(listing);
 
     async function savePurchasePrice() {
         const purchasePrice = Number(purchasePriceDraft.replace(",", ".").trim());
@@ -176,6 +178,7 @@ function HistoryCard({
 
                 <div className="history-details">
                     <HistoryDetail label="Bot" value={listing.botName} secondary={`#${listing.botId}`} />
+                    <HistoryDetail label="Produkt" value={productProvenance} />
                     <HistoryDetail label="Listing ID" value={listing.listingId} />
                     <HistoryDetail label="Krok negocjacji" value={String(listing.currentStep)} />
                     <HistoryDetail label="Status" value={listing.status} />

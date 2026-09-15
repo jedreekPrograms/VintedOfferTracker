@@ -25,6 +25,8 @@ public class BotListingController {
 
     private final ListingService listingService;
 
+    private final BotTargetListingService botTargetListingService;
+
     private final NegotiationCapacityService
             negotiationCapacityService;
 
@@ -38,7 +40,7 @@ public class BotListingController {
     ) {
 
         List<ListingResponse> claimedListings =
-                listingService.discoverListings(
+                botTargetListingService.discoverPrimary(
                         botId,
                         request
                 );

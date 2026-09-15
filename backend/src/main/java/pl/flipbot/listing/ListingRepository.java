@@ -81,6 +81,29 @@ public interface ListingRepository
             ListingStatus status
     );
 
+    List<Listing> findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+            Long botId,
+            ListingStatus status
+    );
+
+    List<Listing> findByBotIdAndStatusAndAdditionalTargetIdOrderByIdAsc(
+            Long botId,
+            ListingStatus status,
+            Long additionalTargetId
+    );
+
+    @Query("""
+            select distinct listing.additionalTarget.id
+            from Listing listing
+            where listing.bot.id = :botId
+              and listing.additionalTarget is not null
+              and listing.status in :statuses
+            """)
+    List<Long> findDistinctAdditionalTargetIdsByBotIdAndStatusIn(
+            @Param("botId") Long botId,
+            @Param("statuses") Collection<ListingStatus> statuses
+    );
+
     long countByBotIdAndStatus(
             Long botId,
             ListingStatus status

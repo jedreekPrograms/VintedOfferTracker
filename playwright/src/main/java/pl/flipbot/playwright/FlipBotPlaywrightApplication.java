@@ -2,6 +2,7 @@ package pl.flipbot.playwright;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.marketstats.MarketStatsManager;
+import pl.flipbot.playwright.session.SessionTempFileCleaner;
 import pl.flipbot.playwright.worker.WorkerManager;
 
 @Slf4j
@@ -14,6 +15,8 @@ public class FlipBotPlaywrightApplication {
         log.info(
                 "Starting FlipBot Playwright..."
         );
+
+        SessionTempFileCleaner.cleanupDefaultDirectory();
 
 
         WorkerManager workerManager =

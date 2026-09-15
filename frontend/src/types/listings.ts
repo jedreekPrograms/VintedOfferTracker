@@ -20,6 +20,10 @@ export interface Listing {
     conversationUrl: string | null;
 
     status: string;
+
+    additionalTargetId: number | null;
+
+    productTargetLabel: string | null;
 }
 
 export interface ActionRequiredListing {

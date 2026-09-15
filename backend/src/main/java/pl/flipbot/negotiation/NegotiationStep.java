@@ -18,6 +18,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.bot.configuration.BotConfiguration;
 
 import java.math.BigDecimal;
@@ -88,7 +89,16 @@ public class NegotiationStep {
     @Builder.Default
     private List<SellerCounterOfferRule> counterOfferRules = new ArrayList<>();
 
+    /* Main/original product. Existing rows continue to use this relation. */
     @ManyToOne
     @JoinColumn(name = "configuration_id")
     private BotConfiguration configuration;
+
+    /*
+     * Optional additional product. Main-product steps keep this NULL, so an
+     * existing bot with no extra products has exactly the old data shape.
+     */
+    @ManyToOne
+    @JoinColumn(name = "additional_target_id")
+    private BotAdditionalTarget additionalTarget;
 }
