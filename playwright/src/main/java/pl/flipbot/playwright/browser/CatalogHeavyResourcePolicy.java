@@ -11,14 +11,15 @@ import java.util.Set;
  * on a Vinted catalog, item-detail or inbox/conversation page.
  *
  * <p>FlipBot uses DOM/text/test-id state for these flows rather than decoded
- * image pixels. Aborting image/media transfers therefore keeps functional
- * metadata available while avoiding image decode/GPU/cache pressure. Scripts,
- * stylesheets, documents and API/XHR traffic are never blocked here.</p>
+ * image pixels or downloaded webfont files. Aborting image/media/font transfers
+ * therefore keeps functional metadata available while avoiding image decode,
+ * font decode, GPU and cache pressure. Scripts, stylesheets, documents and
+ * API/XHR traffic are never blocked here.</p>
  */
 final class CatalogHeavyResourcePolicy {
 
     private static final Set<String> HEAVY_RESOURCE_TYPES =
-            Set.of("image", "media");
+            Set.of("image", "media", "font");
 
     private static final Set<String> CHALLENGE_HOSTS = Set.of(
             "challenges.cloudflare.com",
