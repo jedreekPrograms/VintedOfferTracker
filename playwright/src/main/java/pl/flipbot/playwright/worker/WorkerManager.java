@@ -46,7 +46,7 @@ public class WorkerManager implements AutoCloseable {
                     namedThreadFactory("flipbot-worker-slot-")
             );
 
-    private final List<Future<?>> slotFutures =
+    private final List<WorkerSlotHandle> slotHandles =
             new ArrayList<>();
 
     private final AtomicBoolean started =
@@ -81,15 +81,15 @@ public class WorkerManager implements AutoCloseable {
         );
 
         /*
-         * Worker slots are deliberately NOT started here.
-         * The first scheduler sync knows how many bots are actually RUNNING,
-         * and starts only min(RUNNING, configured max) consumers. This avoids
-         * waking ten independent Chrome runtimes for two bots.
+         * Worker slots are not started eagerly. Every scheduler sync computes
+         * the required capacity from the current RUNNING bot count and
+         * reconciles the worker pool in both directions.
          *
-         * Once started, healthy slots are kept alive until shutdown even if
-         * RUNNING temporarily decreases. Interrupting a slot merely to shrink
-         * the pool could abort a bot job that is currently finishing. Dead
-         * slots, however, are detected and replaced on the next sync.
+         * Scale-up is immediate (up to configured max). Scale-down is graceful:
+         * surplus slots are marked for retirement, finish a job already claimed
+         * by that slot, release their BrowserManager on their own worker thread,
+         * and then stop. This avoids interrupting a real marketplace action or
+         * closing Playwright from a foreign thread.
          */
         syncExecutor.scheduleWithFixedDelay(
                 this::syncRunningBots,
@@ -137,11 +137,14 @@ public class WorkerManager implements AutoCloseable {
 
             log.info(
                     "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
-                            + "queued={}, working={}, activeSlots={}, maxSlots={}.",
+                            + "queued={}, working={}, targetSlots={}, activeSlots={}, retiringSlots={}, startedSlots={}, maxSlots={}.",
                     scheduler.enabledBotCount(),
                     activeNegotiationBots,
                     scheduler.queuedCount(),
                     scheduler.workingCount(),
+                    requiredSlots,
+                    currentAvailableSlotCount(),
+                    currentRetiringSlotCount(),
                     currentStartedSlotCount(),
                     config.workerCount()
             );
@@ -162,23 +165,65 @@ public class WorkerManager implements AutoCloseable {
                 )
         );
 
-        int beforeCleanup = slotFutures.size();
+        int beforeCleanup = slotHandles.size();
 
-        slotFutures.removeIf(
-                future -> future.isDone() || future.isCancelled()
+        slotHandles.removeIf(
+                handle -> handle.future().isDone()
+                        || handle.future().isCancelled()
         );
 
-        int removed = beforeCleanup - slotFutures.size();
+        int removed = beforeCleanup - slotHandles.size();
 
         if (removed > 0) {
-            log.warn(
-                    "[SCHEDULER] Detected {} stopped worker slot(s). "
-                            + "Missing capacity will be recreated if RUNNING bots require it.",
+            log.info(
+                    "[SCHEDULER] Reaped {} stopped worker slot(s).",
                     removed
             );
         }
 
-        while (slotFutures.size() < targetSlotCount) {
+        WorkerSlotCapacityPlan plan = WorkerSlotCapacityPlan.between(
+                availableSlotCountUnsafe(),
+                targetSlotCount
+        );
+
+        if (plan.retireCount() > 0) {
+            int remainingToRetire = plan.retireCount();
+
+            /*
+             * Retire newest capacity first. This keeps long-lived slot labels
+             * stable in logs while still making the choice deterministic.
+             */
+            for (int index = slotHandles.size() - 1;
+                 index >= 0 && remainingToRetire > 0;
+                 index--) {
+
+                WorkerSlotHandle handle = slotHandles.get(index);
+
+                if (!isLive(handle)
+                        || handle.slot().isRetirementRequested()) {
+                    continue;
+                }
+
+                if (handle.slot().requestRetirement()) {
+                    remainingToRetire--;
+
+                    log.info(
+                            "[SCHEDULER] Worker slot {} marked for graceful retirement. targetSlots={}, activeSlotsAfterRequest={}, retiringSlots={}.",
+                            handle.slotNumber(),
+                            targetSlotCount,
+                            availableSlotCountUnsafe(),
+                            retiringSlotCountUnsafe()
+                    );
+                }
+            }
+        }
+
+        int slotsToStart = WorkerSlotCapacityPlan.between(
+                availableSlotCountUnsafe(),
+                targetSlotCount
+        ).startCount();
+
+        for (int index = 0; index < slotsToStart; index++) {
             int slotNumber = nextSlotNumber++;
 
             BotWorkerSlot slot =
@@ -189,12 +234,20 @@ public class WorkerManager implements AutoCloseable {
                             telemetryReporter
                     );
 
-            slotFutures.add(slotExecutor.submit(slot));
+            Future<?> future = slotExecutor.submit(slot);
+
+            slotHandles.add(
+                    new WorkerSlotHandle(
+                            slotNumber,
+                            slot,
+                            future
+                    )
+            );
 
             log.info(
-                    "[SCHEDULER] Started worker slot {}. activeSlots={}/{}, requiredByRunningBots={}.",
+                    "[SCHEDULER] Started worker slot {}. activeSlots={}/{}, targetSlots={}.",
                     slotNumber,
-                    slotFutures.size(),
+                    availableSlotCountUnsafe(),
                     config.workerCount(),
                     targetSlotCount
             );
@@ -202,9 +255,36 @@ public class WorkerManager implements AutoCloseable {
     }
 
     private synchronized int currentStartedSlotCount() {
-        return (int) slotFutures.stream()
-                .filter(future -> !future.isDone() && !future.isCancelled())
+        return (int) slotHandles.stream()
+                .filter(this::isLive)
                 .count();
+    }
+
+    private synchronized int currentRetiringSlotCount() {
+        return retiringSlotCountUnsafe();
+    }
+
+    private synchronized int currentAvailableSlotCount() {
+        return availableSlotCountUnsafe();
+    }
+
+    private int retiringSlotCountUnsafe() {
+        return (int) slotHandles.stream()
+                .filter(this::isLive)
+                .filter(handle -> handle.slot().isRetirementRequested())
+                .count();
+    }
+
+    private int availableSlotCountUnsafe() {
+        return (int) slotHandles.stream()
+                .filter(this::isLive)
+                .filter(handle -> !handle.slot().isRetirementRequested())
+                .count();
+    }
+
+    private boolean isLive(WorkerSlotHandle handle) {
+        return !handle.future().isDone()
+                && !handle.future().isCancelled();
     }
 
     public void stop() {
@@ -213,23 +293,25 @@ public class WorkerManager implements AutoCloseable {
         }
 
         log.info(
-                "Stopping scheduler runtime. RUNNING={}, queued={}, working={}, activeSlots={}.",
+                "Stopping scheduler runtime. RUNNING={}, queued={}, working={}, activeSlots={}, retiringSlots={}, startedSlots={}.",
                 scheduler.enabledBotCount(),
                 scheduler.queuedCount(),
                 scheduler.workingCount(),
+                currentAvailableSlotCount(),
+                currentRetiringSlotCount(),
                 currentStartedSlotCount()
         );
 
         scheduler.shutdown();
         syncExecutor.shutdownNow();
 
-        slotFutures.forEach(future -> future.cancel(true));
+        slotHandles.forEach(handle -> handle.future().cancel(true));
         slotExecutor.shutdownNow();
 
         awaitTermination(syncExecutor, "scheduler synchronization executor");
         awaitTermination(slotExecutor, "worker slot executor");
 
-        slotFutures.clear();
+        slotHandles.clear();
         telemetryReporter.close();
 
         log.info("Scheduler runtime stopped.");
@@ -277,5 +359,12 @@ public class WorkerManager implements AutoCloseable {
             thread.setDaemon(false);
             return thread;
         };
+    }
+
+    private record WorkerSlotHandle(
+            int slotNumber,
+            BotWorkerSlot slot,
+            Future<?> future
+    ) {
     }
 }
