@@ -11,11 +11,13 @@ import pl.flipbot.playwright.target.VintedSessionBlockedException;
 
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class BotWorkerSlot implements Runnable {
 
     private static final long SESSION_BLOCK_FALLBACK_DELAY_MINUTES = 15L;
+    private static final long RETIREMENT_POLL_MILLIS = 1_000L;
 
     private final int slotNumber;
     private final BotRunScheduler scheduler;
@@ -23,6 +25,7 @@ public class BotWorkerSlot implements Runnable {
     private final RuntimeTelemetryReporter telemetryReporter;
 
     private final BotApiClient botApiClient = new BotApiClient();
+    private final AtomicBoolean retirementRequested = new AtomicBoolean(false);
 
     public BotWorkerSlot(
             int slotNumber,
@@ -34,6 +37,23 @@ public class BotWorkerSlot implements Runnable {
         this.scheduler = scheduler;
         this.config = config;
         this.telemetryReporter = telemetryReporter;
+    }
+
+    boolean requestRetirement() {
+        boolean changed = retirementRequested.compareAndSet(false, true);
+
+        if (changed) {
+            log.info(
+                    "[SLOT {}] Graceful retirement requested. The slot will not claim another job after its current wait/run completes.",
+                    slotNumber
+            );
+        }
+
+        return changed;
+    }
+
+    boolean isRetirementRequested() {
+        return retirementRequested.get();
     }
 
     @Override
@@ -53,34 +73,81 @@ public class BotWorkerSlot implements Runnable {
         );
 
         BrowserManager browserManager = null;
+        long browserIdleSinceNanos = 0L;
 
         try {
             while (!Thread.currentThread().isInterrupted()) {
-                ScheduledBotTask task;
+                if (retirementRequested.get()) {
+                    log.info(
+                            "[SLOT {}] Graceful retirement starting before another job is claimed.",
+                            slotNumber
+                    );
+                    break;
+                }
 
                 if (browserManager != null && keepBrowserBetweenJobs) {
-                    task = scheduler.pollNext(
-                            TimeUnit.SECONDS.toMillis(
-                                    config.browserIdleTimeoutSeconds()
-                            )
+                    long idleTimeoutNanos = TimeUnit.SECONDS.toNanos(
+                            config.browserIdleTimeoutSeconds()
                     );
+                    long idleElapsedNanos = browserIdleSinceNanos <= 0L
+                            ? 0L
+                            : Math.max(
+                                    0L,
+                                    System.nanoTime() - browserIdleSinceNanos
+                            );
 
-                    if (task == null) {
+                    if (browserIdleSinceNanos > 0L
+                            && idleElapsedNanos >= idleTimeoutNanos) {
                         browserManager = closeBrowserRuntime(
                                 browserManager,
                                 "idle timeout after "
                                         + config.browserIdleTimeoutSeconds()
                                         + "s without a ready job"
                         );
+                        browserIdleSinceNanos = 0L;
                         continue;
                     }
-                } else {
-                    task = scheduler.takeNext();
+                }
+
+                long pollTimeoutMillis = RETIREMENT_POLL_MILLIS;
+
+                if (browserManager != null
+                        && keepBrowserBetweenJobs
+                        && browserIdleSinceNanos > 0L) {
+                    long idleTimeoutNanos = TimeUnit.SECONDS.toNanos(
+                            config.browserIdleTimeoutSeconds()
+                    );
+                    long remainingIdleNanos = Math.max(
+                            0L,
+                            idleTimeoutNanos
+                                    - (System.nanoTime() - browserIdleSinceNanos)
+                    );
+                    long remainingIdleMillis = Math.max(
+                            1L,
+                            TimeUnit.NANOSECONDS.toMillis(remainingIdleNanos)
+                    );
+
+                    pollTimeoutMillis = Math.min(
+                            RETIREMENT_POLL_MILLIS,
+                            remainingIdleMillis
+                    );
+                }
+
+                ScheduledBotTask task = scheduler.pollNext(pollTimeoutMillis);
+
+                if (task == null) {
+                    continue;
                 }
 
                 Long botId = task.botId();
                 ScheduledJobType jobType = task.jobType();
 
+                /*
+                 * A retirement request can race with pollNext returning a task.
+                 * Once the scheduler has claimed a task, this slot must finish
+                 * that claim so the bot schedule cannot remain stuck in WORKING.
+                 * The retirement flag is checked again before the next claim.
+                 */
                 Long persistedBlockDelayMillis = persistedSessionBlockDelay(botId);
                 if (persistedBlockDelayMillis != null && persistedBlockDelayMillis > 0L) {
                     log.warn(
@@ -100,6 +167,7 @@ public class BotWorkerSlot implements Runnable {
                             "persisted session cooldown before browser job for bot "
                                     + botId
                     );
+                    browserIdleSinceNanos = 0L;
                     continue;
                 }
 
@@ -275,7 +343,7 @@ public class BotWorkerSlot implements Runnable {
                         );
                     } finally {
                         String closeReason =
-                                "headful job finished for bot "
+                                "scheduled job finished for bot "
                                         + botId
                                         + " / "
                                         + jobType;
@@ -288,6 +356,11 @@ public class BotWorkerSlot implements Runnable {
                                         closeReason
                                 )
                         );
+
+                        browserIdleSinceNanos =
+                                browserManager != null && keepBrowserBetweenJobs
+                                        ? System.nanoTime()
+                                        : 0L;
                     }
                 }
             }
@@ -311,10 +384,16 @@ public class BotWorkerSlot implements Runnable {
         } finally {
             closeBrowserRuntime(
                     browserManager,
-                    "worker slot shutdown"
+                    retirementRequested.get()
+                            ? "graceful worker slot retirement"
+                            : "worker slot shutdown"
             );
 
-            log.info("[SLOT {}] Worker slot stopped.", slotNumber);
+            log.info(
+                    "[SLOT {}] Worker slot stopped. retired={}",
+                    slotNumber,
+                    retirementRequested.get()
+            );
         }
     }
 
