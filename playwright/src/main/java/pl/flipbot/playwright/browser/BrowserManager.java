@@ -3,6 +3,7 @@ package pl.flipbot.playwright.browser;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.options.ServiceWorkerPolicy;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
@@ -67,6 +68,12 @@ public class BrowserManager implements AutoCloseable {
             options.setStorageStatePath(storageState);
         }
 
+        boolean blockServiceWorkers =
+                BrowserResourceOptimizationConfig.blockServiceWorkers(headless);
+        if (blockServiceWorkers) {
+            options.setServiceWorkers(ServiceWorkerPolicy.BLOCK);
+        }
+
         BrowserContext context;
 
         try {
@@ -99,6 +106,13 @@ public class BrowserManager implements AutoCloseable {
 
         if (headless) {
             installCatalogHeavyResourceGuard(context);
+        }
+
+        if (blockServiceWorkers) {
+            log.info(
+                    "[BROWSER MEMORY] Service-worker registration is blocked for this headless browser context. Set {}=false to disable this optimization.",
+                    BrowserResourceOptimizationConfig.BLOCK_SERVICE_WORKERS_ENV
+            );
         }
 
         log.debug(
@@ -142,7 +156,7 @@ public class BrowserManager implements AutoCloseable {
         );
 
         log.info(
-                "[BROWSER MEMORY] Headless catalog heavy-resource guard installed. Vinted catalog image/media transfers may be skipped; functional traffic and challenge assets remain enabled."
+                "[BROWSER MEMORY] Headless heavy-resource guard installed. Vinted catalog/item-detail image and media transfers may be skipped; functional traffic and challenge assets remain enabled."
         );
     }
 
