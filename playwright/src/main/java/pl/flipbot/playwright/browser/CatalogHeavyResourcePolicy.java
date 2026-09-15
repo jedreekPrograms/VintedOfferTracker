@@ -8,12 +8,11 @@ import java.util.Set;
 
 /**
  * Decides whether a heavy subresource can be skipped while a headless worker is
- * on a Vinted catalog or item-detail page.
+ * on a Vinted catalog, item-detail or inbox/conversation page.
  *
- * <p>FlipBot reads catalog image URLs from the DOM {@code src} attribute and
- * item-detail verification uses page text/DOM state rather than decoded image
- * pixels. Aborting image/media transfers therefore keeps functional metadata
- * available while avoiding image decode/GPU/cache pressure. Scripts,
+ * <p>FlipBot uses DOM/text/test-id state for these flows rather than decoded
+ * image pixels. Aborting image/media transfers therefore keeps functional
+ * metadata available while avoiding image decode/GPU/cache pressure. Scripts,
  * stylesheets, documents and API/XHR traffic are never blocked here.</p>
  */
 final class CatalogHeavyResourcePolicy {
@@ -49,7 +48,8 @@ final class CatalogHeavyResourcePolicy {
 
     private static boolean isOptimizedPage(String topLevelPageUrl) {
         return MarketplaceUrls.isCatalogUrl(topLevelPageUrl)
-                || MarketplaceUrls.isItemUrl(topLevelPageUrl);
+                || MarketplaceUrls.isItemUrl(topLevelPageUrl)
+                || MarketplaceUrls.isInboxUrl(topLevelPageUrl);
     }
 
     static boolean isChallengeResource(String requestUrl) {
