@@ -152,16 +152,11 @@ public class CategoryNavigator {
             );
 
             try {
-                /*
-                 * A quoted role-selector name is an exact accessible-name
-                 * match. This is deliberately category-only: generic brand
-                 * and model lookup keep their existing behaviour.
-                 */
-                actions.clickSelector(exactCategoryRoleSelector(category));
-
-                log.info(
-                        "[FILTER CATEGORY] Selected exact option: {}",
-                        category
+                selectExactCategoryWithCompatibilityFallback(
+                        category,
+                        index,
+                        categoryPath.size(),
+                        attempt
                 );
 
             } catch (RuntimeException exception) {
@@ -171,6 +166,63 @@ public class CategoryNavigator {
                         exception
                 );
             }
+        }
+    }
+
+    private void selectExactCategoryWithCompatibilityFallback(
+            String category,
+            int categoryIndex,
+            int categoryPathSize,
+            int attempt
+    ) {
+        try {
+            /*
+             * A quoted role-selector name is an exact accessible-name match.
+             * Keep this as the preferred path so similarly named categories
+             * are never selected just because one name contains another.
+             */
+            actions.clickSelector(exactCategoryRoleSelector(category));
+
+            log.info(
+                    "[FILTER CATEGORY] Selected exact option: {}",
+                    category
+            );
+            return;
+
+        } catch (RuntimeException exactException) {
+            boolean finalLeaf = categoryIndex == categoryPathSize - 1;
+            boolean exactTimedOut = exactException instanceof TimeoutError;
+
+            /*
+             * Vinted has started rendering some final category rows with an
+             * accessible name that contains extra UI text even though the
+             * visible category label itself is unchanged. The strict selector
+             * introduced for category safety then cannot see the leaf at all.
+             *
+             * Only after all three exact attempts, and only for the final
+             * category leaf, fall back to the pre-existing role-name locator.
+             * Playwright strict mode still rejects ambiguous matches instead
+             * of silently choosing one. Parent/root levels stay exact-only.
+             * Model selection is completely separate and remains fail-closed
+             * against S25 / S25 FE / Edge style variants.
+             */
+            if (!finalLeaf || attempt < MAX_ATTEMPTS || !exactTimedOut) {
+                throw exactException;
+            }
+
+            log.warn(
+                    "[FILTER CATEGORY] Exact accessible-name lookup for final leaf '{}' timed out on attempt {}/{}. Trying the legacy role-name compatibility locator once; ambiguous matches will still fail closed.",
+                    category,
+                    attempt,
+                    MAX_ATTEMPTS
+            );
+
+            actions.selectOption(category);
+
+            log.info(
+                    "[FILTER CATEGORY] Selected final leaf '{}' through compatibility locator after exact lookup timed out.",
+                    category
+            );
         }
     }
 
