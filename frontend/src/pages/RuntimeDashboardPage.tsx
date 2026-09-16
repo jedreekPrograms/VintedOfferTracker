@@ -350,6 +350,13 @@ function RuntimeRow({
 }) {
     const sessionBlocked = bot.sessionBlockedSince !== null;
     const canPreview = bot.botStatus === "RUNNING";
+    const nextRunAtMs = bot.nextRunAt === null
+        ? Number.NaN
+        : Date.parse(bot.nextRunAt);
+    const readyAndQueued = !sessionBlocked
+        && bot.runtimeStatus === "QUEUED"
+        && Number.isFinite(nextRunAtMs)
+        && nextRunAtMs <= nowMs;
 
     return (
         <tr>
@@ -416,6 +423,13 @@ function RuntimeRow({
                         <div>{formatDateTime(bot.nextRunAt)}</div>
                         <div className="runtime-cell-secondary">
                             {formatRetryCountdown(bot.nextRunAt, nowMs)}
+                        </div>
+                    </>
+                ) : readyAndQueued ? (
+                    <>
+                        <div>Gotowy do uruchomienia</div>
+                        <div className="runtime-cell-secondary">
+                            oczekuje na wolny slot
                         </div>
                     </>
                 ) : (
