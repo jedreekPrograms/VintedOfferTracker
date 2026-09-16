@@ -8,24 +8,15 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.DelayQueue;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class BotRunScheduler {
 
-    private enum RunState {
-        QUEUED,
-        WORKING
-    }
-
     private static final long NEVER = Long.MAX_VALUE;
 
     private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
             PriceProbeRuntimeConfig.fromEnvironment();
-
-    private final DelayQueue<ScheduledBotTask> queue =
-            new DelayQueue<>();
 
     private final Map<Long, BotSchedule> schedules =
             new HashMap<>();
@@ -33,6 +24,8 @@ public class BotRunScheduler {
     private final WorkerRuntimeConfig config;
     private final RuntimeTelemetryReporter telemetryReporter;
     private final CatalogConcurrencyConfig catalogConcurrencyConfig;
+
+    private boolean shuttingDown;
 
     public BotRunScheduler(
             WorkerRuntimeConfig config,
@@ -55,15 +48,17 @@ public class BotRunScheduler {
         this.catalogConcurrencyConfig = catalogConcurrencyConfig;
 
         log.info(
-                "[SCHEDULER MEMORY] Max concurrent catalog scans={}. Deferred catalog retry={} ms.",
-                catalogConcurrencyConfig.maxConcurrentCatalogScans(),
-                catalogConcurrencyConfig.retryDelayMillis()
+                "[SCHEDULER CAPACITY] Max concurrent catalog scans={}. Catalog work waits for a released slot instead of retry-polling every second.",
+                catalogConcurrencyConfig.maxConcurrentCatalogScans()
         );
     }
 
     public synchronized void reconcileRunningBots(
             Map<Long, Boolean> runningBots
     ) {
+        if (shuttingDown) {
+            return;
+        }
 
         Map<Long, Boolean> normalizedRunningBots =
                 new HashMap<>();
@@ -100,25 +95,43 @@ public class BotRunScheduler {
                                 now
                         )
         );
+
+        notifyAll();
     }
 
-    public ScheduledBotTask takeNext()
+    public synchronized ScheduledBotTask takeNext()
             throws InterruptedException {
 
         while (true) {
-            ScheduledBotTask claimed = claimIfCurrent(queue.take());
-            if (claimed != null) {
-                return claimed;
+            if (shuttingDown) {
+                throw new InterruptedException(
+                        "Scheduler is shutting down."
+                );
+            }
+
+            long now = System.currentTimeMillis();
+            Candidate candidate = bestClaimableCandidateUnsafe(now);
+
+            if (candidate != null) {
+                return claimUnsafe(candidate);
+            }
+
+            long waitMillis = millisUntilNextPotentialJobUnsafe(now);
+
+            if (waitMillis == NEVER) {
+                wait();
+            } else {
+                wait(Math.max(1L, waitMillis));
             }
         }
     }
 
     /**
-     * Waits for the next ready, still-current task for at most the supplied
-     * timeout. A null result means the worker may perform idle maintenance,
-     * such as releasing an otherwise unused Chromium runtime.
+     * Waits for a ready job that is both due and currently eligible for its
+     * resource capacity. A due catalog does not occupy a worker while all
+     * catalog slots are busy; releasing catalog capacity wakes waiters.
      */
-    public ScheduledBotTask pollNext(long timeoutMillis)
+    public synchronized ScheduledBotTask pollNext(long timeoutMillis)
             throws InterruptedException {
 
         if (timeoutMillis < 0L) {
@@ -127,98 +140,222 @@ public class BotRunScheduler {
             );
         }
 
-        long deadlineNanos = System.nanoTime()
-                + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        if (timeoutMillis == 0L || shuttingDown) {
+            return claimReadyNowUnsafe();
+        }
 
-        while (true) {
-            long remainingNanos = deadlineNanos - System.nanoTime();
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        long startedAtNanos = System.nanoTime();
+
+        while (!shuttingDown) {
+            ScheduledBotTask ready = claimReadyNowUnsafe();
+            if (ready != null) {
+                return ready;
+            }
+
+            long elapsedNanos = Math.max(
+                    0L,
+                    System.nanoTime() - startedAtNanos
+            );
+            long remainingNanos = timeoutNanos - elapsedNanos;
+
             if (remainingNanos <= 0L) {
                 return null;
             }
 
-            ScheduledBotTask task = queue.poll(
-                    remainingNanos,
-                    TimeUnit.NANOSECONDS
+            long remainingMillis = Math.max(
+                    1L,
+                    TimeUnit.NANOSECONDS.toMillis(remainingNanos)
             );
+            long untilPotentialJob =
+                    millisUntilNextPotentialJobUnsafe(
+                            System.currentTimeMillis()
+                    );
 
-            if (task == null) {
-                return null;
-            }
+            long waitMillis = untilPotentialJob == NEVER
+                    ? remainingMillis
+                    : Math.min(
+                            remainingMillis,
+                            Math.max(1L, untilPotentialJob)
+                    );
 
-            ScheduledBotTask claimed = claimIfCurrent(task);
-            if (claimed != null) {
-                return claimed;
-            }
+            wait(waitMillis);
         }
+
+        return null;
     }
 
-    private synchronized ScheduledBotTask claimIfCurrent(
-            ScheduledBotTask task
-    ) {
-        BotSchedule schedule = schedules.get(task.botId());
+    private ScheduledBotTask claimReadyNowUnsafe() {
+        Candidate candidate = bestClaimableCandidateUnsafe(
+                System.currentTimeMillis()
+        );
 
-        if (schedule == null || !schedule.enabled) {
-            return null;
-        }
-
-        if (schedule.state != RunState.QUEUED) {
-            return null;
-        }
-
-        if (schedule.queuedJobType != task.jobType()) {
-            return null;
-        }
-
-        if (schedule.queuedRunAtNanos != task.runAtNanos()) {
-            return null;
-        }
-
-        if (task.jobType() == ScheduledJobType.CATALOG_SCAN
-                && workingCatalogCountUnsafe()
-                >= catalogConcurrencyConfig.maxConcurrentCatalogScans()) {
-            deferCatalogForCapacity(
-                    task.botId(),
-                    schedule
-            );
-            return null;
-        }
-
-        schedule.state = RunState.WORKING;
-        schedule.workingJobType = task.jobType();
-        schedule.queuedJobType = null;
-        schedule.queuedRunAtNanos = 0L;
-
-        return task;
+        return candidate == null
+                ? null
+                : claimUnsafe(candidate);
     }
 
-    private void deferCatalogForCapacity(
+    private ScheduledBotTask claimUnsafe(Candidate candidate) {
+        BotSchedule schedule = schedules.get(candidate.botId());
+
+        if (schedule == null
+                || !schedule.enabled
+                || schedule.workingJobType != null) {
+            return null;
+        }
+
+        schedule.workingJobType = candidate.jobType();
+
+        return ScheduledBotTask.afterDelay(
+                candidate.botId(),
+                candidate.jobType(),
+                0L
+        );
+    }
+
+    private Candidate bestClaimableCandidateUnsafe(long now) {
+        Candidate best = null;
+        boolean catalogCapacityAvailable =
+                workingCatalogCountUnsafe()
+                        < catalogConcurrencyConfig.maxConcurrentCatalogScans();
+
+        for (Map.Entry<Long, BotSchedule> entry : schedules.entrySet()) {
+            Long botId = entry.getKey();
+            BotSchedule schedule = entry.getValue();
+
+            if (!schedule.enabled || schedule.workingJobType != null) {
+                continue;
+            }
+
+            Candidate candidate = dueCandidateForBotUnsafe(
+                    botId,
+                    schedule,
+                    now,
+                    catalogCapacityAvailable
+            );
+
+            if (candidate == null) {
+                continue;
+            }
+
+            if (best == null || compareCandidates(candidate, best) < 0) {
+                best = candidate;
+            }
+        }
+
+        return best;
+    }
+
+    /**
+     * Negotiation has first refusal for a bot when it is already due. This
+     * prevents a bot's overdue catalog from hiding a seller response. Across
+     * different bots, the oldest due timestamp wins, so catalogs cannot starve
+     * behind a permanently busy negotiation population.
+     */
+    private Candidate dueCandidateForBotUnsafe(
             Long botId,
-            BotSchedule schedule
+            BotSchedule schedule,
+            long now,
+            boolean catalogCapacityAvailable
     ) {
-        long now = System.currentTimeMillis();
-        long retryAt = safeAdd(
-                now,
-                catalogConcurrencyConfig.retryDelayMillis()
+        if (schedule.hasActiveNegotiations
+                && schedule.nextNegotiationAtEpochMs <= now) {
+            return new Candidate(
+                    botId,
+                    ScheduledJobType.NEGOTIATION_CHECK,
+                    schedule.nextNegotiationAtEpochMs
+            );
+        }
+
+        if (catalogCapacityAvailable
+                && schedule.nextCatalogAtEpochMs <= now) {
+            return new Candidate(
+                    botId,
+                    ScheduledJobType.CATALOG_SCAN,
+                    schedule.nextCatalogAtEpochMs
+            );
+        }
+
+        if (PRICE_PROBE_CONFIG.enabled()
+                && schedule.nextPriceProbeAtEpochMs <= now) {
+            return new Candidate(
+                    botId,
+                    ScheduledJobType.PRICE_PROBE,
+                    schedule.nextPriceProbeAtEpochMs
+            );
+        }
+
+        return null;
+    }
+
+    private int compareCandidates(Candidate left, Candidate right) {
+        int dueComparison = Long.compare(
+                left.dueAtEpochMs(),
+                right.dueAtEpochMs()
         );
 
-        schedule.nextCatalogAtEpochMs = Math.max(
-                schedule.nextCatalogAtEpochMs,
-                retryAt
-        );
-        schedule.state = null;
-        schedule.queuedJobType = null;
-        schedule.queuedRunAtNanos = 0L;
-        schedule.reportQueuedStatus = false;
+        if (dueComparison != 0) {
+            return dueComparison;
+        }
 
-        enqueueEarliestJob(botId, schedule, now);
-
-        log.debug(
-                "[SCHEDULER MEMORY] Deferred CATALOG_SCAN for bot {} because {}/{} catalog scans are already working. Retry in {} ms; negotiation/price-probe work remains eligible.",
-                botId,
-                workingCatalogCountUnsafe(),
-                catalogConcurrencyConfig.maxConcurrentCatalogScans(),
-                catalogConcurrencyConfig.retryDelayMillis()
+        int priorityComparison = Integer.compare(
+                jobPriority(left.jobType()),
+                jobPriority(right.jobType())
         );
+
+        if (priorityComparison != 0) {
+            return priorityComparison;
+        }
+
+        return Long.compare(left.botId(), right.botId());
+    }
+
+    private int jobPriority(ScheduledJobType jobType) {
+        return switch (jobType) {
+            case NEGOTIATION_CHECK -> 0;
+            case CATALOG_SCAN -> 1;
+            case PRICE_PROBE -> 2;
+        };
+    }
+
+    private long millisUntilNextPotentialJobUnsafe(long now) {
+        long earliestEpochMs = NEVER;
+        boolean catalogCapacityAvailable =
+                workingCatalogCountUnsafe()
+                        < catalogConcurrencyConfig.maxConcurrentCatalogScans();
+
+        for (BotSchedule schedule : schedules.values()) {
+            if (!schedule.enabled || schedule.workingJobType != null) {
+                continue;
+            }
+
+            if (schedule.hasActiveNegotiations) {
+                earliestEpochMs = Math.min(
+                        earliestEpochMs,
+                        schedule.nextNegotiationAtEpochMs
+                );
+            }
+
+            if (catalogCapacityAvailable) {
+                earliestEpochMs = Math.min(
+                        earliestEpochMs,
+                        schedule.nextCatalogAtEpochMs
+                );
+            }
+
+            if (PRICE_PROBE_CONFIG.enabled()) {
+                earliestEpochMs = Math.min(
+                        earliestEpochMs,
+                        schedule.nextPriceProbeAtEpochMs
+                );
+            }
+        }
+
+        if (earliestEpochMs == NEVER) {
+            return NEVER;
+        }
+
+        return Math.max(0L, earliestEpochMs - now);
     }
 
     public synchronized void completeRun(
@@ -232,6 +369,7 @@ public class BotRunScheduler {
         BotSchedule schedule = schedules.get(botId);
 
         if (schedule == null) {
+            notifyAll();
             return;
         }
 
@@ -239,7 +377,17 @@ public class BotRunScheduler {
             schedules.remove(botId);
             BotProcessStateCleaner.clear(botId);
             telemetryReporter.idle(botId);
+            notifyAll();
             return;
+        }
+
+        if (schedule.workingJobType != jobType) {
+            log.warn(
+                    "[SCHEDULER] Bot {} completed {}, but scheduler recorded workingJobType={}. Releasing the bot conservatively.",
+                    botId,
+                    jobType,
+                    schedule.workingJobType
+            );
         }
 
         schedule.workingJobType = null;
@@ -256,12 +404,18 @@ public class BotRunScheduler {
 
             schedule.nextNegotiationAtEpochMs =
                     schedule.hasActiveNegotiations
-                            ? Math.max(schedule.nextNegotiationAtEpochMs, readyAt)
+                            ? Math.max(
+                                    schedule.nextNegotiationAtEpochMs,
+                                    readyAt
+                            )
                             : NEVER;
 
             schedule.nextPriceProbeAtEpochMs =
                     PRICE_PROBE_CONFIG.enabled()
-                            ? Math.max(schedule.nextPriceProbeAtEpochMs, readyAt)
+                            ? Math.max(
+                                    schedule.nextPriceProbeAtEpochMs,
+                                    readyAt
+                            )
                             : NEVER;
 
         } else {
@@ -281,25 +435,37 @@ public class BotRunScheduler {
             }
         }
 
-        schedule.reportQueuedStatus = reportQueued;
-        schedule.state = null;
+        if (reportQueued) {
+            reportQueuedStateUnsafe(botId, schedule);
+        }
 
-        enqueueEarliestJob(botId, schedule, now);
+        /*
+         * This notification is the capacity hand-off. In particular, when a
+         * CATALOG_SCAN finishes, workers waiting because all catalog slots were
+         * occupied can immediately re-evaluate the oldest eligible work.
+         */
+        notifyAll();
     }
 
     public synchronized void shutdown() {
+        shuttingDown = true;
         schedules.clear();
-        queue.clear();
+        notifyAll();
     }
 
     public synchronized int queuedCount() {
-        return queue.size();
+        return (int) schedules.values()
+                .stream()
+                .filter(schedule -> schedule.enabled)
+                .filter(schedule -> schedule.workingJobType == null)
+                .filter(this::hasAnyScheduledJobUnsafe)
+                .count();
     }
 
     public synchronized int workingCount() {
         return (int) schedules.values()
                 .stream()
-                .filter(schedule -> schedule.state == RunState.WORKING)
+                .filter(schedule -> schedule.workingJobType != null)
                 .count();
     }
 
@@ -317,12 +483,17 @@ public class BotRunScheduler {
     private int workingCatalogCountUnsafe() {
         return (int) schedules.values()
                 .stream()
-                .filter(schedule -> schedule.state == RunState.WORKING)
                 .filter(
                         schedule -> schedule.workingJobType
                                 == ScheduledJobType.CATALOG_SCAN
                 )
                 .count();
+    }
+
+    private boolean hasAnyScheduledJobUnsafe(BotSchedule schedule) {
+        return schedule.nextCatalogAtEpochMs != NEVER
+                || schedule.nextNegotiationAtEpochMs != NEVER
+                || schedule.nextPriceProbeAtEpochMs != NEVER;
     }
 
     private void disableBot(Long botId) {
@@ -334,8 +505,7 @@ public class BotRunScheduler {
 
         schedule.enabled = false;
 
-        if (schedule.state == RunState.QUEUED) {
-            removeQueuedTask(botId);
+        if (schedule.workingJobType == null) {
             schedules.remove(botId);
             BotProcessStateCleaner.clear(botId);
             telemetryReporter.idle(botId);
@@ -359,10 +529,9 @@ public class BotRunScheduler {
                     hasActiveNegotiations ? now : NEVER;
             newSchedule.nextPriceProbeAtEpochMs =
                     PRICE_PROBE_CONFIG.enabled() ? now : NEVER;
-            newSchedule.reportQueuedStatus = true;
 
             schedules.put(botId, newSchedule);
-            enqueueEarliestJob(botId, newSchedule, now);
+            reportQueuedStateUnsafe(botId, newSchedule);
             return;
         }
 
@@ -380,60 +549,41 @@ public class BotRunScheduler {
             schedule.nextNegotiationAtEpochMs =
                     hasActiveNegotiations ? now : NEVER;
 
-            if (schedule.state == RunState.QUEUED) {
-                removeQueuedTask(botId);
-                schedule.state = null;
-                enqueueEarliestJob(botId, schedule, now);
+            if (schedule.workingJobType == null) {
+                reportQueuedStateUnsafe(botId, schedule);
             }
         }
     }
 
-    private void enqueueEarliestJob(
+    private void reportQueuedStateUnsafe(
             Long botId,
-            BotSchedule schedule,
-            long now
+            BotSchedule schedule
     ) {
+        long nextRunAt = earliestScheduledEpochMsUnsafe(schedule);
 
-        if (!schedule.enabled) {
-            return;
-        }
-
-        ScheduledJobType jobType = ScheduledJobType.CATALOG_SCAN;
-        long runAtEpochMs = schedule.nextCatalogAtEpochMs;
-
-        if (schedule.hasActiveNegotiations
-                && schedule.nextNegotiationAtEpochMs <= runAtEpochMs) {
-            jobType = ScheduledJobType.NEGOTIATION_CHECK;
-            runAtEpochMs = schedule.nextNegotiationAtEpochMs;
-        }
-
-        if (PRICE_PROBE_CONFIG.enabled()
-                && schedule.nextPriceProbeAtEpochMs < runAtEpochMs) {
-            jobType = ScheduledJobType.PRICE_PROBE;
-            runAtEpochMs = schedule.nextPriceProbeAtEpochMs;
-        }
-
-        long delayMillis = Math.max(0L, runAtEpochMs - now);
-
-        ScheduledBotTask task = ScheduledBotTask.afterDelay(
-                botId,
-                jobType,
-                delayMillis
-        );
-
-        queue.offer(task);
-
-        schedule.state = RunState.QUEUED;
-        schedule.queuedJobType = jobType;
-        schedule.queuedRunAtNanos = task.runAtNanos();
-
-        if (schedule.reportQueuedStatus) {
-            telemetryReporter.queued(botId, runAtEpochMs);
+        if (nextRunAt != NEVER) {
+            telemetryReporter.queued(botId, nextRunAt);
         }
     }
 
-    private void removeQueuedTask(Long botId) {
-        queue.removeIf(task -> botId.equals(task.botId()));
+    private long earliestScheduledEpochMsUnsafe(BotSchedule schedule) {
+        long earliest = schedule.nextCatalogAtEpochMs;
+
+        if (schedule.hasActiveNegotiations) {
+            earliest = Math.min(
+                    earliest,
+                    schedule.nextNegotiationAtEpochMs
+            );
+        }
+
+        if (PRICE_PROBE_CONFIG.enabled()) {
+            earliest = Math.min(
+                    earliest,
+                    schedule.nextPriceProbeAtEpochMs
+            );
+        }
+
+        return earliest;
     }
 
     private long safeAdd(long base, long increment) {
@@ -444,16 +594,19 @@ public class BotRunScheduler {
         return base + increment;
     }
 
+    private record Candidate(
+            Long botId,
+            ScheduledJobType jobType,
+            long dueAtEpochMs
+    ) {
+    }
+
     private static final class BotSchedule {
         private boolean enabled;
         private boolean hasActiveNegotiations;
-        private RunState state;
         private ScheduledJobType workingJobType;
         private long nextCatalogAtEpochMs;
         private long nextNegotiationAtEpochMs = NEVER;
         private long nextPriceProbeAtEpochMs = NEVER;
-        private ScheduledJobType queuedJobType;
-        private long queuedRunAtNanos;
-        private boolean reportQueuedStatus;
     }
 }
