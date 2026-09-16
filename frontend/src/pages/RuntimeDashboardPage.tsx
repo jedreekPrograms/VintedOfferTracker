@@ -7,6 +7,7 @@ import {
 
 import {
     getRuntimeDashboard,
+    setRuntimeSessionPreview,
     type RuntimeDashboardBot,
     type RuntimeDashboardResponse,
     type RuntimeStatus,
@@ -39,6 +40,7 @@ function RuntimeDashboardPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
+    const [previewUpdatingBotId, setPreviewUpdatingBotId] = useState<number | null>(null);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
         if (showLoading) {
@@ -61,6 +63,26 @@ function RuntimeDashboardPage() {
             }
         }
     }, []);
+
+    const handleSessionPreview = useCallback(async (
+        botId: number,
+        enabled: boolean,
+    ) => {
+        setPreviewUpdatingBotId(botId);
+
+        try {
+            await setRuntimeSessionPreview(botId, enabled);
+            await loadRuntime(false);
+        } catch (error) {
+            setErrorMessage(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się zmienić podglądu sesji.",
+            );
+        } finally {
+            setPreviewUpdatingBotId(null);
+        }
+    }, [loadRuntime]);
 
     useEffect(() => {
         void loadRuntime(true);
@@ -227,6 +249,7 @@ function RuntimeDashboardPage() {
                                         <TableHeader>Bot</TableHeader>
                                         <TableHeader>Bot status</TableHeader>
                                         <TableHeader>Runtime</TableHeader>
+                                        <TableHeader>Sesja</TableHeader>
                                         <TableHeader>Slot</TableHeader>
                                         <TableHeader>Ostatni job</TableHeader>
                                         <TableHeader>Następny job</TableHeader>
@@ -241,6 +264,8 @@ function RuntimeDashboardPage() {
                                             key={bot.botId}
                                             bot={bot}
                                             nowMs={nowMs}
+                                            previewUpdating={previewUpdatingBotId === bot.botId}
+                                            onSessionPreview={handleSessionPreview}
                                         />
                                     ))}
                                 </tbody>
@@ -294,11 +319,16 @@ function RuntimeStat({
 function RuntimeRow({
     bot,
     nowMs,
+    previewUpdating,
+    onSessionPreview,
 }: {
     bot: RuntimeDashboardBot;
     nowMs: number;
+    previewUpdating: boolean;
+    onSessionPreview: (botId: number, enabled: boolean) => Promise<void>;
 }) {
     const sessionBlocked = bot.sessionBlockedSince !== null;
+    const canPreview = bot.botStatus === "RUNNING";
 
     return (
         <tr>
@@ -316,6 +346,39 @@ function RuntimeRow({
                     bot={bot}
                     nowMs={nowMs}
                 />
+            </TableCell>
+            <TableCell label="Sesja">
+                {canPreview ? (
+                    <>
+                        <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={previewUpdating}
+                            title={bot.sessionPreviewRequested
+                                ? "Wyłącza headed preview dla kolejnych jobów. Trwający job nie jest przerywany."
+                                : "Następny normalny job tego bota uruchomi się w widocznym oknie. Nie powstaje dodatkowy job ani dodatkowa sesja."}
+                            onClick={() => {
+                                void onSessionPreview(
+                                    bot.botId,
+                                    !bot.sessionPreviewRequested,
+                                );
+                            }}
+                        >
+                            {previewUpdating
+                                ? "Zapisywanie..."
+                                : bot.sessionPreviewRequested
+                                    ? "Ukryj sesję"
+                                    : "Wyświetl sesję"}
+                        </button>
+                        {bot.sessionPreviewRequested && (
+                            <div className="runtime-cell-secondary">
+                                Podgląd od kolejnych jobów
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    "—"
+                )}
             </TableCell>
             <TableCell label="Slot">
                 {bot.workerSlot === null ? "—" : `#${bot.workerSlot}`}
