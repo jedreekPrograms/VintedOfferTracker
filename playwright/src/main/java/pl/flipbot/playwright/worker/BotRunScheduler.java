@@ -18,9 +18,7 @@ public class BotRunScheduler {
     private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
             PriceProbeRuntimeConfig.fromEnvironment();
 
-    private final Map<Long, BotSchedule> schedules =
-            new HashMap<>();
-
+    private final Map<Long, BotSchedule> schedules = new HashMap<>();
     private final WorkerRuntimeConfig config;
     private final RuntimeTelemetryReporter telemetryReporter;
     private final CatalogConcurrencyConfig catalogConcurrencyConfig;
@@ -60,26 +58,19 @@ public class BotRunScheduler {
             return;
         }
 
-        Map<Long, Boolean> normalizedRunningBots =
-                new HashMap<>();
+        Map<Long, Boolean> normalizedRunningBots = new HashMap<>();
 
-        runningBots.forEach(
-                (botId, hasActiveNegotiations) -> {
-                    if (botId != null && botId > 0) {
-                        normalizedRunningBots.put(
-                                botId,
-                                Boolean.TRUE.equals(hasActiveNegotiations)
-                        );
-                    }
-                }
-        );
+        runningBots.forEach((botId, hasActiveNegotiations) -> {
+            if (botId != null && botId > 0) {
+                normalizedRunningBots.put(
+                        botId,
+                        Boolean.TRUE.equals(hasActiveNegotiations)
+                );
+            }
+        });
 
-        Set<Long> botsToDisable =
-                new HashSet<>(schedules.keySet());
-
-        botsToDisable.removeAll(
-                normalizedRunningBots.keySet()
-        );
+        Set<Long> botsToDisable = new HashSet<>(schedules.keySet());
+        botsToDisable.removeAll(normalizedRunningBots.keySet());
 
         for (Long botId : botsToDisable) {
             disableBot(botId);
@@ -88,12 +79,11 @@ public class BotRunScheduler {
         long now = System.currentTimeMillis();
 
         normalizedRunningBots.forEach(
-                (botId, hasActiveNegotiations) ->
-                        enableOrRefreshBot(
-                                botId,
-                                hasActiveNegotiations,
-                                now
-                        )
+                (botId, hasActiveNegotiations) -> enableOrRefreshBot(
+                        botId,
+                        hasActiveNegotiations,
+                        now
+                )
         );
 
         notifyAll();
@@ -101,7 +91,6 @@ public class BotRunScheduler {
 
     public synchronized ScheduledBotTask takeNext()
             throws InterruptedException {
-
         while (true) {
             if (shuttingDown) {
                 throw new InterruptedException(
@@ -133,7 +122,6 @@ public class BotRunScheduler {
      */
     public synchronized ScheduledBotTask pollNext(long timeoutMillis)
             throws InterruptedException {
-
         if (timeoutMillis < 0L) {
             throw new IllegalArgumentException(
                     "Scheduler poll timeout cannot be negative."
@@ -167,10 +155,9 @@ public class BotRunScheduler {
                     1L,
                     TimeUnit.NANOSECONDS.toMillis(remainingNanos)
             );
-            long untilPotentialJob =
-                    millisUntilNextPotentialJobUnsafe(
-                            System.currentTimeMillis()
-                    );
+            long untilPotentialJob = millisUntilNextPotentialJobUnsafe(
+                    System.currentTimeMillis()
+            );
 
             long waitMillis = untilPotentialJob == NEVER
                     ? remainingMillis
@@ -190,9 +177,7 @@ public class BotRunScheduler {
                 System.currentTimeMillis()
         );
 
-        return candidate == null
-                ? null
-                : claimUnsafe(candidate);
+        return candidate == null ? null : claimUnsafe(candidate);
     }
 
     private ScheduledBotTask claimUnsafe(Candidate candidate) {
@@ -365,7 +350,6 @@ public class BotRunScheduler {
             boolean delayAllJobs,
             boolean reportQueued
     ) {
-
         BotSchedule schedule = schedules.get(botId);
 
         if (schedule == null) {
@@ -392,8 +376,33 @@ public class BotRunScheduler {
 
         schedule.workingJobType = null;
 
-        long now = System.currentTimeMillis();
+        boolean adaptiveFailure = !delayAllJobs && !reportQueued;
         long safeDelayMillis = Math.max(0L, nextDelayMillis);
+
+        if (adaptiveFailure) {
+            int failureCount = incrementFailureCountUnsafe(
+                    schedule,
+                    jobType
+            );
+
+            safeDelayMillis = ScheduledJobFailureBackoffPolicy.delayMillis(
+                    jobType,
+                    failureCount,
+                    safeDelayMillis
+            );
+
+            log.warn(
+                    "[SCHEDULER BACKOFF] Bot {} {} consecutive failure #{}. Retry delayed by about {} minute(s). Other job types keep independent schedules and counters.",
+                    botId,
+                    jobType,
+                    failureCount,
+                    Math.max(1L, TimeUnit.MILLISECONDS.toMinutes(safeDelayMillis))
+            );
+        } else if (reportQueued) {
+            resetFailureCountUnsafe(schedule, jobType);
+        }
+
+        long now = System.currentTimeMillis();
         long readyAt = safeAdd(now, safeDelayMillis);
 
         if (delayAllJobs) {
@@ -417,7 +426,6 @@ public class BotRunScheduler {
                                     readyAt
                             )
                             : NEVER;
-
         } else {
             switch (jobType) {
                 case CATALOG_SCAN ->
@@ -435,7 +443,7 @@ public class BotRunScheduler {
             }
         }
 
-        if (reportQueued) {
+        if (reportQueued || adaptiveFailure) {
             reportQueuedStateUnsafe(botId, schedule);
         }
 
@@ -517,7 +525,6 @@ public class BotRunScheduler {
             boolean hasActiveNegotiations,
             long now
     ) {
-
         BotSchedule schedule = schedules.get(botId);
 
         if (schedule == null) {
@@ -586,6 +593,28 @@ public class BotRunScheduler {
         return earliest;
     }
 
+    private int incrementFailureCountUnsafe(
+            BotSchedule schedule,
+            ScheduledJobType jobType
+    ) {
+        return switch (jobType) {
+            case CATALOG_SCAN -> ++schedule.catalogFailureCount;
+            case NEGOTIATION_CHECK -> ++schedule.negotiationFailureCount;
+            case PRICE_PROBE -> ++schedule.priceProbeFailureCount;
+        };
+    }
+
+    private void resetFailureCountUnsafe(
+            BotSchedule schedule,
+            ScheduledJobType jobType
+    ) {
+        switch (jobType) {
+            case CATALOG_SCAN -> schedule.catalogFailureCount = 0;
+            case NEGOTIATION_CHECK -> schedule.negotiationFailureCount = 0;
+            case PRICE_PROBE -> schedule.priceProbeFailureCount = 0;
+        }
+    }
+
     private long safeAdd(long base, long increment) {
         if (increment > Long.MAX_VALUE - base) {
             return Long.MAX_VALUE;
@@ -608,5 +637,8 @@ public class BotRunScheduler {
         private long nextCatalogAtEpochMs;
         private long nextNegotiationAtEpochMs = NEVER;
         private long nextPriceProbeAtEpochMs = NEVER;
+        private int catalogFailureCount;
+        private int negotiationFailureCount;
+        private int priceProbeFailureCount;
     }
 }
