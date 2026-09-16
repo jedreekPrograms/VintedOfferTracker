@@ -7,6 +7,7 @@ import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.bot.dto.*;
+import pl.flipbot.bot.runtime.BotSessionPreviewService;
 import pl.flipbot.exception.BotAlreadyExistsException;
 import pl.flipbot.exception.BotNotFoundException;
 import pl.flipbot.listing.Listing;
@@ -37,6 +38,7 @@ public class BotService {
     private final BotConfigurationRepository botConfigurationRepository;
     private final ListingRepository listingRepository;
     private final BotMapper botMapper;
+    private final BotSessionPreviewService sessionPreviewService;
 
     public List<BotResponse> getAllBots() {
         return botRepository.findAll().stream().map(botMapper::map).toList();
@@ -170,6 +172,8 @@ public class BotService {
     @Transactional
     public void stopBot(Long botId) {
         getBotEntity(botId).setStatus(BotStatus.STOPPED);
+        // Do not depend on the scheduler observing STOPPED between STOP/START.
+        sessionPreviewService.setPreviewRequested(botId, false);
     }
 
     public BotPlaywrightResponse getPlaywrightBot(Long botId) {

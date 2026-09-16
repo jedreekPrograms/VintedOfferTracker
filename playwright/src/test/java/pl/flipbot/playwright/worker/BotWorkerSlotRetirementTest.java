@@ -24,7 +24,8 @@ public class BotWorkerSlotRetirementTest {
                 7,
                 scheduler,
                 config(),
-                telemetry
+                telemetry,
+                new BotSessionPreviewRegistry()
         );
         Thread thread = new Thread(slot, "retirement-test-slot");
 

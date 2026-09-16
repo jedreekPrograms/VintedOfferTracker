@@ -23,6 +23,7 @@ public class BotWorkerSlot implements Runnable {
     private final BotRunScheduler scheduler;
     private final WorkerRuntimeConfig config;
     private final RuntimeTelemetryReporter telemetryReporter;
+    private final BotSessionPreviewRegistry sessionPreviewRegistry;
 
     private final BotApiClient botApiClient = new BotApiClient();
     private final AtomicBoolean retirementRequested = new AtomicBoolean(false);
@@ -31,12 +32,14 @@ public class BotWorkerSlot implements Runnable {
             int slotNumber,
             BotRunScheduler scheduler,
             WorkerRuntimeConfig config,
-            RuntimeTelemetryReporter telemetryReporter
+            RuntimeTelemetryReporter telemetryReporter,
+            BotSessionPreviewRegistry sessionPreviewRegistry
     ) {
         this.slotNumber = slotNumber;
         this.scheduler = scheduler;
         this.config = config;
         this.telemetryReporter = telemetryReporter;
+        this.sessionPreviewRegistry = sessionPreviewRegistry;
     }
 
     boolean requestRetirement() {
@@ -179,26 +182,35 @@ public class BotWorkerSlot implements Runnable {
                 boolean reportQueuedAfterRun = true;
                 long startedAtNanos = System.nanoTime();
 
+                boolean previewRequested =
+                        config.schedulerHeadless()
+                                && sessionPreviewRegistry.isPreviewRequested(botId);
+                boolean jobHeadless =
+                        config.schedulerHeadless() && !previewRequested;
+
                 telemetryReporter.runStarted(botId, slotNumber);
 
                 try {
                     log.info(
-                            "[SLOT {}] Claimed {} for bot {}. Queue={}, working={}.",
+                            "[SLOT {}] Claimed {} for bot {}. Queue={}, working={}, headless={}, sessionPreview={}.",
                             slotNumber,
                             jobType,
                             botId,
                             scheduler.queuedCount(),
-                            scheduler.workingCount()
+                            scheduler.workingCount(),
+                            jobHeadless,
+                            previewRequested
                     );
 
                     if (browserManager == null) {
                         log.info(
-                                "[SLOT {}] Launching Playwright browser runtime for claimed job. headless={}, reuseBetweenJobs={}",
+                                "[SLOT {}] Launching Playwright browser runtime for claimed job. headless={}, reuseBetweenJobs={}, sessionPreview={}",
                                 slotNumber,
-                                config.schedulerHeadless(),
-                                keepBrowserBetweenJobs
+                                jobHeadless,
+                                keepBrowserBetweenJobs,
+                                previewRequested
                         );
-                        browserManager = new BrowserManager(config.schedulerHeadless());
+                        browserManager = new BrowserManager(jobHeadless);
                     }
 
                     BotDetailsDto bot = botApiClient.getBot(botId);
@@ -350,7 +362,7 @@ public class BotWorkerSlot implements Runnable {
 
                         browserManager = WorkerBrowserRetentionPolicy.afterJob(
                                 browserManager,
-                                config.schedulerHeadless(),
+                                jobHeadless,
                                 runtime -> closeBrowserRuntime(
                                         runtime,
                                         closeReason
