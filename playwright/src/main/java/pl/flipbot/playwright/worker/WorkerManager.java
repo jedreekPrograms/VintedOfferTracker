@@ -35,6 +35,9 @@ public class WorkerManager implements AutoCloseable {
                     telemetryReporter
             );
 
+    private final BotSessionPreviewRegistry sessionPreviewRegistry =
+            new BotSessionPreviewRegistry();
+
     private final ScheduledExecutorService syncExecutor =
             Executors.newSingleThreadScheduledExecutor(
                     namedThreadFactory("flipbot-scheduler-sync-")
@@ -105,13 +108,19 @@ public class WorkerManager implements AutoCloseable {
         }
 
         try {
-            Map<Long, Boolean> runningBots =
+            List<RunningBotDto> runningBotDtos =
                     botApiClient.getRunningBots()
                             .stream()
                             .filter(
                                     bot -> bot.getId() != null
                                             && bot.getId() > 0
                             )
+                            .toList();
+
+            sessionPreviewRegistry.replaceFrom(runningBotDtos);
+
+            Map<Long, Boolean> runningBots =
+                    runningBotDtos.stream()
                             .collect(
                                     Collectors.toMap(
                                             RunningBotDto::getId,
@@ -231,7 +240,8 @@ public class WorkerManager implements AutoCloseable {
                             slotNumber,
                             scheduler,
                             config,
-                            telemetryReporter
+                            telemetryReporter,
+                            sessionPreviewRegistry
                     );
 
             Future<?> future = slotExecutor.submit(slot);
@@ -303,6 +313,7 @@ public class WorkerManager implements AutoCloseable {
         );
 
         scheduler.shutdown();
+        sessionPreviewRegistry.clear();
         syncExecutor.shutdownNow();
 
         slotHandles.forEach(handle -> handle.future().cancel(true));
