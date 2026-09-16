@@ -1,10 +1,6 @@
 package pl.flipbot.playwright.filters.category;
 
-import com.microsoft.playwright.Locator;
-import com.microsoft.playwright.Page;
 import com.microsoft.playwright.TimeoutError;
-import com.microsoft.playwright.options.AriaRole;
-import com.microsoft.playwright.options.WaitForSelectorState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.filters.FilterActions;
@@ -22,7 +18,6 @@ public class CategoryNavigator {
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
     private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
 
-    private final Page page;
     private final FilterActions actions;
 
     public void select(List<String> categoryPath) {
@@ -157,19 +152,12 @@ public class CategoryNavigator {
             );
 
             try {
-                Locator exactCategoryOption = page.getByRole(
-                        AriaRole.BUTTON,
-                        new Page.GetByRoleOptions()
-                                .setName(category)
-                                .setExact(true)
-                );
-
-                exactCategoryOption.waitFor(
-                        new Locator.WaitForOptions()
-                                .setState(WaitForSelectorState.VISIBLE)
-                                .setTimeout(timeoutMs)
-                );
-                exactCategoryOption.click();
+                /*
+                 * A quoted role-selector name is an exact accessible-name
+                 * match. This is deliberately category-only: generic brand
+                 * and model lookup keep their existing behaviour.
+                 */
+                actions.clickSelector(exactCategoryRoleSelector(category));
 
                 log.info(
                         "[FILTER CATEGORY] Selected exact option: {}",
@@ -184,6 +172,18 @@ public class CategoryNavigator {
                 );
             }
         }
+    }
+
+    static String exactCategoryRoleSelector(String category) {
+        if (category == null || category.isBlank()) {
+            throw new IllegalArgumentException("Category cannot be blank");
+        }
+
+        String escaped = category
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"");
+
+        return "role=button[name=\"" + escaped + "\"]";
     }
 
     private void logSelectionFailure(
