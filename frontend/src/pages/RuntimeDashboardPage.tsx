@@ -2,6 +2,7 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 
@@ -41,8 +42,14 @@ function RuntimeDashboardPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
     const [previewUpdatingBotId, setPreviewUpdatingBotId] = useState<number | null>(null);
+    const runtimeRefreshInFlightRef = useRef(false);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
+        if (runtimeRefreshInFlightRef.current) {
+            return;
+        }
+
+        runtimeRefreshInFlightRef.current = true;
         if (showLoading) {
             setIsLoading(true);
         }
@@ -61,6 +68,7 @@ function RuntimeDashboardPage() {
             if (showLoading) {
                 setIsLoading(false);
             }
+            runtimeRefreshInFlightRef.current = false;
         }
     }, []);
 
@@ -87,26 +95,40 @@ function RuntimeDashboardPage() {
     useEffect(() => {
         void loadRuntime(true);
 
-        const intervalId = window.setInterval(
-            () => {
+        const refreshWhenVisible = () => {
+            if (!document.hidden) {
                 void loadRuntime(false);
-            },
+            }
+        };
+
+        const intervalId = window.setInterval(
+            refreshWhenVisible,
             5_000,
         );
+        document.addEventListener("visibilitychange", refreshWhenVisible);
 
         return () => {
             window.clearInterval(intervalId);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
         };
     }, [loadRuntime]);
 
     useEffect(() => {
+        const updateClockWhenVisible = () => {
+            if (!document.hidden) {
+                setNowMs(Date.now());
+            }
+        };
+
         const intervalId = window.setInterval(
-            () => setNowMs(Date.now()),
+            updateClockWhenVisible,
             1_000,
         );
+        document.addEventListener("visibilitychange", updateClockWhenVisible);
 
         return () => {
             window.clearInterval(intervalId);
+            document.removeEventListener("visibilitychange", updateClockWhenVisible);
         };
     }, []);
 
