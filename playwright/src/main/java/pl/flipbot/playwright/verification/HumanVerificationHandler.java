@@ -4,6 +4,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 
 import java.util.List;
@@ -16,6 +17,8 @@ public class HumanVerificationHandler {
     private static final double VERIFICATION_TIMEOUT_MS = 180_000;
     private static final double POLL_INTERVAL_MS = 1_000;
     private static final double LOG_INTERVAL_MS = 15_000;
+    private static final double SESSION_REFRESH_TIMEOUT_MS = 15_000;
+    private static final double SESSION_REFRESH_POLL_INTERVAL_MS = 250;
 
     private static final List<String> STRONG_VERIFICATION_TEXTS = List.of(
             "sprawdzanie, czy jesteś człowiekiem",
@@ -46,6 +49,17 @@ public class HumanVerificationHandler {
 
     public void waitUntilVerified(Page page) {
         Objects.requireNonNull(page, "Page cannot be null");
+
+        /*
+         * Some direct inbox navigations briefly land on Vinted's own
+         * /session-refresh route before returning to the requested page.
+         * Conversation code calls this handler immediately after navigation,
+         * so validating DOM/URL before that redirect settles creates false
+         * negotiation failures. Wait only for this trusted Vinted transition;
+         * if it does not finish quickly, fail closed instead of continuing on
+         * a partial page.
+         */
+        waitForVintedSessionRefresh(page);
 
         /* A hard Vinted session/IP block is not a CAPTCHA. Do not sit on it for
          * three minutes: surface it immediately so the scheduler can apply the
@@ -147,6 +161,57 @@ public class HumanVerificationHandler {
             );
             return null;
         }
+    }
+
+    private void waitForVintedSessionRefresh(Page page) {
+        if (page.isClosed()) {
+            throw new IllegalStateException("Browser page was closed before verification checks");
+        }
+
+        String initialUrl = page.url();
+        if (!MarketplaceUrls.isSessionRefreshUrl(initialUrl)) {
+            return;
+        }
+
+        log.warn(
+                "[SESSION REFRESH] Verification/negotiation flow reached Vinted session-refresh. Waiting up to {}ms before inspecting the page. refreshUrl={}",
+                (int) SESSION_REFRESH_TIMEOUT_MS,
+                initialUrl
+        );
+
+        long deadline = System.currentTimeMillis() + (long) SESSION_REFRESH_TIMEOUT_MS;
+
+        while (System.currentTimeMillis() < deadline) {
+            if (page.isClosed()) {
+                throw new IllegalStateException(
+                        "Browser page was closed while waiting for Vinted session-refresh"
+                );
+            }
+
+            String currentUrl = page.url();
+            if (!MarketplaceUrls.isSessionRefreshUrl(currentUrl)) {
+                if (!MarketplaceUrls.isVintedUrl(currentUrl)) {
+                    throw new IllegalStateException(
+                            "Vinted session-refresh ended on an unexpected URL: " + currentUrl
+                    );
+                }
+
+                log.info(
+                        "[SESSION REFRESH] Vinted session-refresh completed before verification checks. finalUrl={}",
+                        currentUrl
+                );
+                return;
+            }
+
+            page.waitForTimeout(SESSION_REFRESH_POLL_INTERVAL_MS);
+        }
+
+        throw new IllegalStateException(
+                "Vinted session-refresh did not finish within "
+                        + Math.round(SESSION_REFRESH_TIMEOUT_MS)
+                        + "ms. Current URL: "
+                        + page.url()
+        );
     }
 
     private String renderedVerificationIframeEvidence(Page page) {

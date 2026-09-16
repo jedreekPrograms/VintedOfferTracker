@@ -18,6 +18,8 @@ import java.util.Objects;
 public class PreparedNextStepStateVerifier {
 
     private static final double ELEMENT_TIMEOUT_MS = 15_000;
+    private static final double CONVERSATION_STABILIZATION_TIMEOUT_MS = 3_000;
+    private static final double CONVERSATION_STABILIZATION_POLL_MS = 100;
 
     private final BotContext context;
     private final HumanVerificationHandler humanVerificationHandler =
@@ -33,12 +35,7 @@ public class PreparedNextStepStateVerifier {
         Page page = context.getPage();
         humanVerificationHandler.waitUntilVerified(page);
 
-        String openedConversationId = extractConversationId(page.url());
-        if (!listing.conversationId().equals(openedConversationId)) {
-            throw new IllegalStateException(
-                    "Prepared next-step form belongs to an unexpected conversation"
-            );
-        }
+        waitForExpectedConversation(page, listing.conversationId());
 
         Locator priceInput =
                 page.getByTestId(NegotiationSelectors.OFFER_PRICE_INPUT).first();
@@ -76,6 +73,47 @@ public class PreparedNextStepStateVerifier {
                 listing.listingId(),
                 nextStep.getStepNumber(),
                 nextStep.getOfferPrice()
+        );
+    }
+
+    private void waitForExpectedConversation(
+            Page page,
+            String expectedConversationId
+    ) {
+        long deadline = System.currentTimeMillis()
+                + (long) CONVERSATION_STABILIZATION_TIMEOUT_MS;
+        String lastUrl = null;
+        String lastConversationId = null;
+
+        while (System.currentTimeMillis() <= deadline) {
+            if (page.isClosed()) {
+                throw new IllegalStateException(
+                        "Browser page was closed while verifying prepared next-step conversation"
+                );
+            }
+
+            lastUrl = page.url();
+
+            try {
+                lastConversationId = extractConversationId(lastUrl);
+            } catch (IllegalArgumentException ignored) {
+                lastConversationId = null;
+            }
+
+            if (expectedConversationId.equals(lastConversationId)) {
+                return;
+            }
+
+            page.waitForTimeout(CONVERSATION_STABILIZATION_POLL_MS);
+        }
+
+        throw new IllegalStateException(
+                "Prepared next-step form belongs to an unexpected conversation. Expected: "
+                        + expectedConversationId
+                        + ", actual: "
+                        + (lastConversationId == null ? "<unresolved>" : lastConversationId)
+                        + ", URL: "
+                        + lastUrl
         );
     }
 
