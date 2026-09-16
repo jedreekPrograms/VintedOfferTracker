@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 
+import java.time.Clock;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -22,6 +23,7 @@ public class BotRunScheduler {
     private final WorkerRuntimeConfig config;
     private final RuntimeTelemetryReporter telemetryReporter;
     private final CatalogConcurrencyConfig catalogConcurrencyConfig;
+    private final Clock clock;
 
     private boolean shuttingDown;
 
@@ -41,9 +43,19 @@ public class BotRunScheduler {
             RuntimeTelemetryReporter telemetryReporter,
             CatalogConcurrencyConfig catalogConcurrencyConfig
     ) {
+        this(config, telemetryReporter, catalogConcurrencyConfig, Clock.systemUTC());
+    }
+
+    BotRunScheduler(
+            WorkerRuntimeConfig config,
+            RuntimeTelemetryReporter telemetryReporter,
+            CatalogConcurrencyConfig catalogConcurrencyConfig,
+            Clock clock
+    ) {
         this.config = config;
         this.telemetryReporter = telemetryReporter;
         this.catalogConcurrencyConfig = catalogConcurrencyConfig;
+        this.clock = clock;
 
         log.info(
                 "[SCHEDULER CAPACITY] Max concurrent catalog scans={}. Catalog work waits for a released slot instead of retry-polling every second.",
@@ -76,7 +88,7 @@ public class BotRunScheduler {
             disableBot(botId);
         }
 
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
 
         normalizedRunningBots.forEach(
                 (botId, hasActiveNegotiations) -> enableOrRefreshBot(
@@ -98,7 +110,7 @@ public class BotRunScheduler {
                 );
             }
 
-            long now = System.currentTimeMillis();
+            long now = clock.millis();
             Candidate candidate = bestClaimableCandidateUnsafe(now);
 
             if (candidate != null) {
@@ -156,7 +168,7 @@ public class BotRunScheduler {
                     TimeUnit.NANOSECONDS.toMillis(remainingNanos)
             );
             long untilPotentialJob = millisUntilNextPotentialJobUnsafe(
-                    System.currentTimeMillis()
+                    clock.millis()
             );
 
             long waitMillis = untilPotentialJob == NEVER
@@ -174,7 +186,7 @@ public class BotRunScheduler {
 
     private ScheduledBotTask claimReadyNowUnsafe() {
         Candidate candidate = bestClaimableCandidateUnsafe(
-                System.currentTimeMillis()
+                clock.millis()
         );
 
         return candidate == null ? null : claimUnsafe(candidate);
@@ -350,6 +362,35 @@ public class BotRunScheduler {
             boolean delayAllJobs,
             boolean reportQueued
     ) {
+        completeRunUnsafe(botId, jobType, nextDelayMillis, delayAllJobs, reportQueued, null);
+    }
+
+    /**
+     * Compute the retry and publish its failure event before releasing the
+     * scheduler monitor. A following RUN_STARTED cannot overtake this event,
+     * and QUEUED must not immediately erase ERROR on the dashboard.
+     */
+    public synchronized void completeFailedRun(
+            Long botId,
+            ScheduledJobType jobType,
+            long fallbackDelayMillis,
+            long durationMillis,
+            String errorMessage
+    ) {
+        completeRunUnsafe(
+                botId, jobType, fallbackDelayMillis, false, false,
+                new RunFailure(durationMillis, errorMessage)
+        );
+    }
+
+    private void completeRunUnsafe(
+            Long botId,
+            ScheduledJobType jobType,
+            long nextDelayMillis,
+            boolean delayAllJobs,
+            boolean reportQueued,
+            RunFailure failure
+    ) {
         BotSchedule schedule = schedules.get(botId);
 
         if (schedule == null) {
@@ -402,7 +443,7 @@ public class BotRunScheduler {
             resetFailureCountUnsafe(schedule, jobType);
         }
 
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         long readyAt = safeAdd(now, safeDelayMillis);
 
         if (delayAllJobs) {
@@ -443,7 +484,14 @@ public class BotRunScheduler {
             }
         }
 
-        if (reportQueued || adaptiveFailure) {
+        if (failure != null) {
+            telemetryReporter.runFailed(
+                    botId,
+                    failure.durationMillis(),
+                    earliestScheduledEpochMsUnsafe(schedule),
+                    failure.errorMessage()
+            );
+        } else if (reportQueued || adaptiveFailure) {
             reportQueuedStateUnsafe(botId, schedule);
         }
 
@@ -621,6 +669,9 @@ public class BotRunScheduler {
         }
 
         return base + increment;
+    }
+
+    private record RunFailure(long durationMillis, String errorMessage) {
     }
 
     private record Candidate(
