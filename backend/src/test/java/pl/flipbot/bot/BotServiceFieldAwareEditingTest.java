@@ -56,7 +56,8 @@ class BotServiceFieldAwareEditingTest {
                 botRepository,
                 configurationRepository,
                 listingRepository,
-                botMapper
+                botMapper,
+                new pl.flipbot.bot.runtime.BotSessionPreviewService()
         );
 
         configuration = BotConfiguration.builder()
