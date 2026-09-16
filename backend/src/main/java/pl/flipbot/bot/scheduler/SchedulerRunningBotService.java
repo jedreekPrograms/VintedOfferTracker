@@ -7,6 +7,7 @@ import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
 import pl.flipbot.bot.dto.RunningBotResponse;
+import pl.flipbot.bot.runtime.BotSessionPreviewService;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 
@@ -20,6 +21,7 @@ public class SchedulerRunningBotService {
 
     private final BotRepository botRepository;
     private final ListingRepository listingRepository;
+    private final BotSessionPreviewService sessionPreviewService;
 
     @Transactional(readOnly = true)
     public List<RunningBotResponse> getRunningBots() {
@@ -30,6 +32,7 @@ public class SchedulerRunningBotService {
                 );
 
         if (runningBots.isEmpty()) {
+            sessionPreviewService.retainRunningBots(List.of());
             return List.of();
         }
 
@@ -37,6 +40,13 @@ public class SchedulerRunningBotService {
                 runningBots.stream()
                         .map(Bot::getId)
                         .toList();
+
+        /*
+         * Preview is deliberately process-local. A stopped bot must never keep
+         * a latent headed-browser request that unexpectedly comes back after a
+         * later START.
+         */
+        sessionPreviewService.retainRunningBots(runningBotIds);
 
         Set<Long> botsWithActiveNegotiations =
                 new HashSet<>(
@@ -52,6 +62,11 @@ public class SchedulerRunningBotService {
                                 .id(bot.getId())
                                 .hasActiveNegotiations(
                                         botsWithActiveNegotiations.contains(
+                                                bot.getId()
+                                        )
+                                )
+                                .sessionPreviewRequested(
+                                        sessionPreviewService.isPreviewRequested(
                                                 bot.getId()
                                         )
                                 )
