@@ -2,6 +2,7 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 
@@ -41,6 +42,7 @@ function RuntimeDashboardPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
     const [previewUpdatingBotId, setPreviewUpdatingBotId] = useState<number | null>(null);
+    const runtimeAutoRefreshInFlightRef = useRef(false);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
         if (showLoading) {
@@ -87,26 +89,45 @@ function RuntimeDashboardPage() {
     useEffect(() => {
         void loadRuntime(true);
 
+        const refreshWhenVisible = () => {
+            if (document.hidden || runtimeAutoRefreshInFlightRef.current) {
+                return;
+            }
+
+            runtimeAutoRefreshInFlightRef.current = true;
+            void loadRuntime(false).finally(() => {
+                runtimeAutoRefreshInFlightRef.current = false;
+            });
+        };
+
         const intervalId = window.setInterval(
-            () => {
-                void loadRuntime(false);
-            },
+            refreshWhenVisible,
             5_000,
         );
+        document.addEventListener("visibilitychange", refreshWhenVisible);
 
         return () => {
             window.clearInterval(intervalId);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
         };
     }, [loadRuntime]);
 
     useEffect(() => {
+        const updateClockWhenVisible = () => {
+            if (!document.hidden) {
+                setNowMs(Date.now());
+            }
+        };
+
         const intervalId = window.setInterval(
-            () => setNowMs(Date.now()),
+            updateClockWhenVisible,
             1_000,
         );
+        document.addEventListener("visibilitychange", updateClockWhenVisible);
 
         return () => {
             window.clearInterval(intervalId);
+            document.removeEventListener("visibilitychange", updateClockWhenVisible);
         };
     }, []);
 

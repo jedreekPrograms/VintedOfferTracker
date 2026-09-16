@@ -2,6 +2,7 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 import { Link } from "react-router-dom";
@@ -38,6 +39,7 @@ function BotsPage() {
     const [pendingBulkAction, setPendingBulkAction] = useState<BulkAction | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const supplementaryRefreshInFlightRef = useRef(false);
 
     const loadBots = useCallback(async (mode: LoadMode) => {
         if (mode === "initial") {
@@ -107,8 +109,19 @@ function BotsPage() {
     }, [loadBots]);
 
     useEffect(() => {
-        const timer = window.setInterval(() => setNowMs(Date.now()), 15_000);
-        return () => window.clearInterval(timer);
+        const updateClockWhenVisible = () => {
+            if (!document.hidden) {
+                setNowMs(Date.now());
+            }
+        };
+
+        const timer = window.setInterval(updateClockWhenVisible, 15_000);
+        document.addEventListener("visibilitychange", updateClockWhenVisible);
+
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", updateClockWhenVisible);
+        };
     }, []);
 
     useEffect(() => {
@@ -116,62 +129,87 @@ function BotsPage() {
             return;
         }
 
+        let cancelled = false;
+
         const refreshSupplementaryData = async () => {
-            const results = await Promise.all(
-                bots.map(async (bot) => {
-                    const [activityResult, runtimeResult] = await Promise.allSettled([
-                        getBotDailyActivity(bot.id),
-                        getBotRuntimeState(bot.id),
-                    ]);
+            if (document.hidden || supplementaryRefreshInFlightRef.current) {
+                return;
+            }
 
-                    if (activityResult.status === "rejected") {
-                        console.error(
-                            `Nie udało się odświeżyć dzisiejszej aktywności bota ${bot.id}.`,
-                            activityResult.reason,
-                        );
-                    }
-                    if (runtimeResult.status === "rejected") {
-                        console.error(
-                            `Nie udało się odświeżyć runtime bota ${bot.id}.`,
-                            runtimeResult.reason,
-                        );
-                    }
+            supplementaryRefreshInFlightRef.current = true;
 
-                    return {
-                        botId: bot.id,
-                        activity: activityResult.status === "fulfilled" ? activityResult.value : null,
-                        runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
-                    };
-                }),
-            );
+            try {
+                const results = await Promise.all(
+                    bots.map(async (bot) => {
+                        const [activityResult, runtimeResult] = await Promise.allSettled([
+                            getBotDailyActivity(bot.id),
+                            getBotRuntimeState(bot.id),
+                        ]);
 
-            setActivityByBotId((previous) => {
-                const next = { ...previous };
-                for (const result of results) {
-                    if (result.activity !== null) {
-                        next[result.botId] = result.activity;
-                    }
+                        if (activityResult.status === "rejected") {
+                            console.error(
+                                `Nie udało się odświeżyć dzisiejszej aktywności bota ${bot.id}.`,
+                                activityResult.reason,
+                            );
+                        }
+                        if (runtimeResult.status === "rejected") {
+                            console.error(
+                                `Nie udało się odświeżyć runtime bota ${bot.id}.`,
+                                runtimeResult.reason,
+                            );
+                        }
+
+                        return {
+                            botId: bot.id,
+                            activity: activityResult.status === "fulfilled" ? activityResult.value : null,
+                            runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
+                        };
+                    }),
+                );
+
+                if (cancelled) {
+                    return;
                 }
-                return next;
-            });
 
-            setRuntimeByBotId((previous) => {
-                const next = { ...previous };
-                for (const result of results) {
-                    if (result.runtime !== null) {
-                        next[result.botId] = result.runtime;
+                setActivityByBotId((previous) => {
+                    const next = { ...previous };
+                    for (const result of results) {
+                        if (result.activity !== null) {
+                            next[result.botId] = result.activity;
+                        }
                     }
-                }
-                return next;
-            });
-            setNowMs(Date.now());
+                    return next;
+                });
+
+                setRuntimeByBotId((previous) => {
+                    const next = { ...previous };
+                    for (const result of results) {
+                        if (result.runtime !== null) {
+                            next[result.botId] = result.runtime;
+                        }
+                    }
+                    return next;
+                });
+                setNowMs(Date.now());
+            } finally {
+                supplementaryRefreshInFlightRef.current = false;
+            }
         };
 
-        const timer = window.setInterval(() => {
-            void refreshSupplementaryData();
-        }, 5_000);
+        const refreshWhenVisible = () => {
+            if (!document.hidden) {
+                void refreshSupplementaryData();
+            }
+        };
 
-        return () => window.clearInterval(timer);
+        const timer = window.setInterval(refreshWhenVisible, 5_000);
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+        };
     }, [bots]);
 
     const runningBots = useMemo(
