@@ -9,15 +9,17 @@ import { Link } from "react-router-dom";
 
 import {
     getBotDailyActivity,
-    getBotRuntimeState,
     getBots,
     startBot,
     stopBot,
 } from "../api/botsApi";
 import type {
     BotDailyActivity,
-    BotRuntimeState,
 } from "../api/botsApi";
+import {
+    getRuntimeDashboard,
+    type RuntimeDashboardBot,
+} from "../api/dashboardApi";
 import AppDialog from "../components/AppDialog";
 import MarketStatsObserverCard from "../components/MarketStatsObserverCard";
 import type { BotListItem } from "../types/bots";
@@ -25,12 +27,75 @@ import type { BotListItem } from "../types/bots";
 type BulkAction = "START" | "STOP";
 type LoadMode = "initial" | "background";
 
+const DAILY_ACTIVITY_REFRESH_MS = 30_000;
+const DAILY_ACTIVITY_CONCURRENCY = 8;
+
+async function fetchDailyActivitySnapshot(
+    bots: BotListItem[],
+): Promise<Record<number, BotDailyActivity>> {
+    const nextActivityByBotId: Record<number, BotDailyActivity> = {};
+
+    for (
+        let batchStart = 0;
+        batchStart < bots.length;
+        batchStart += DAILY_ACTIVITY_CONCURRENCY
+    ) {
+        const batch = bots.slice(
+            batchStart,
+            batchStart + DAILY_ACTIVITY_CONCURRENCY,
+        );
+        const results = await Promise.all(
+            batch.map(async (bot) => {
+                try {
+                    return {
+                        botId: bot.id,
+                        activity: await getBotDailyActivity(bot.id),
+                    };
+                } catch (error) {
+                    console.error(
+                        `Nie udało się pobrać dzisiejszej aktywności bota ${bot.id}.`,
+                        error,
+                    );
+                    return {
+                        botId: bot.id,
+                        activity: null,
+                    };
+                }
+            }),
+        );
+
+        for (const result of results) {
+            if (result.activity !== null) {
+                nextActivityByBotId[result.botId] = result.activity;
+            }
+        }
+    }
+
+    return nextActivityByBotId;
+}
+
+async function fetchRuntimeSnapshot(): Promise<Record<number, RuntimeDashboardBot> | null> {
+    try {
+        const dashboard = await getRuntimeDashboard();
+        const nextRuntimeByBotId: Record<number, RuntimeDashboardBot> = {};
+
+        for (const runtime of dashboard.bots) {
+            nextRuntimeByBotId[runtime.botId] = runtime;
+        }
+
+        return nextRuntimeByBotId;
+    } catch (error) {
+        console.error("Nie udało się pobrać zbiorczego runtime botów.", error);
+        return null;
+    }
+}
+
 function BotsPage() {
     const [bots, setBots] = useState<BotListItem[]>([]);
     const [activityByBotId, setActivityByBotId] =
         useState<Record<number, BotDailyActivity>>({});
     const [runtimeByBotId, setRuntimeByBotId] =
-        useState<Record<number, BotRuntimeState>>({});
+        useState<Record<number, RuntimeDashboardBot>>({});
     const [nowMs, setNowMs] = useState(() => Date.now());
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -39,7 +104,8 @@ function BotsPage() {
     const [pendingBulkAction, setPendingBulkAction] = useState<BulkAction | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
-    const supplementaryRefreshInFlightRef = useRef(false);
+    const runtimeRefreshInFlightRef = useRef(false);
+    const activityRefreshInFlightRef = useRef(false);
 
     const loadBots = useCallback(async (mode: LoadMode) => {
         if (mode === "initial") {
@@ -53,45 +119,15 @@ function BotsPage() {
             const loadedBots = await getBots();
             setBots(loadedBots);
 
-            const supplementaryResults = await Promise.all(
-                loadedBots.map(async (bot) => {
-                    const [activityResult, runtimeResult] = await Promise.allSettled([
-                        getBotDailyActivity(bot.id),
-                        getBotRuntimeState(bot.id),
-                    ]);
+            const [activitySnapshot, runtimeSnapshot] = await Promise.all([
+                fetchDailyActivitySnapshot(loadedBots),
+                fetchRuntimeSnapshot(),
+            ]);
 
-                    if (activityResult.status === "rejected") {
-                        console.error(
-                            `Nie udało się pobrać dzisiejszej aktywności bota ${bot.id}.`,
-                            activityResult.reason,
-                        );
-                    }
-                    if (runtimeResult.status === "rejected") {
-                        console.error(`Nie udało się pobrać runtime bota ${bot.id}.`, runtimeResult.reason);
-                    }
-
-                    return {
-                        botId: bot.id,
-                        activity: activityResult.status === "fulfilled" ? activityResult.value : null,
-                        runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
-                    };
-                }),
-            );
-
-            const nextActivityByBotId: Record<number, BotDailyActivity> = {};
-            const nextRuntimeByBotId: Record<number, BotRuntimeState> = {};
-
-            for (const result of supplementaryResults) {
-                if (result.activity !== null) {
-                    nextActivityByBotId[result.botId] = result.activity;
-                }
-                if (result.runtime !== null) {
-                    nextRuntimeByBotId[result.botId] = result.runtime;
-                }
+            setActivityByBotId(activitySnapshot);
+            if (runtimeSnapshot !== null) {
+                setRuntimeByBotId(runtimeSnapshot);
             }
-
-            setActivityByBotId(nextActivityByBotId);
-            setRuntimeByBotId(nextRuntimeByBotId);
             setNowMs(Date.now());
         } catch (error) {
             setErrorMessage(getErrorMessage(error, "Nie udało się pobrać botów."));
@@ -131,78 +167,77 @@ function BotsPage() {
 
         let cancelled = false;
 
-        const refreshSupplementaryData = async () => {
-            if (document.hidden || supplementaryRefreshInFlightRef.current) {
+        const refreshRuntime = async () => {
+            if (document.hidden || runtimeRefreshInFlightRef.current) {
                 return;
             }
 
-            supplementaryRefreshInFlightRef.current = true;
+            runtimeRefreshInFlightRef.current = true;
 
             try {
-                const results = await Promise.all(
-                    bots.map(async (bot) => {
-                        const [activityResult, runtimeResult] = await Promise.allSettled([
-                            getBotDailyActivity(bot.id),
-                            getBotRuntimeState(bot.id),
-                        ]);
-
-                        if (activityResult.status === "rejected") {
-                            console.error(
-                                `Nie udało się odświeżyć dzisiejszej aktywności bota ${bot.id}.`,
-                                activityResult.reason,
-                            );
-                        }
-                        if (runtimeResult.status === "rejected") {
-                            console.error(
-                                `Nie udało się odświeżyć runtime bota ${bot.id}.`,
-                                runtimeResult.reason,
-                            );
-                        }
-
-                        return {
-                            botId: bot.id,
-                            activity: activityResult.status === "fulfilled" ? activityResult.value : null,
-                            runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
-                        };
-                    }),
-                );
-
-                if (cancelled) {
-                    return;
+                const snapshot = await fetchRuntimeSnapshot();
+                if (!cancelled && snapshot !== null) {
+                    setRuntimeByBotId(snapshot);
+                    setNowMs(Date.now());
                 }
-
-                setActivityByBotId((previous) => {
-                    const next = { ...previous };
-                    for (const result of results) {
-                        if (result.activity !== null) {
-                            next[result.botId] = result.activity;
-                        }
-                    }
-                    return next;
-                });
-
-                setRuntimeByBotId((previous) => {
-                    const next = { ...previous };
-                    for (const result of results) {
-                        if (result.runtime !== null) {
-                            next[result.botId] = result.runtime;
-                        }
-                    }
-                    return next;
-                });
-                setNowMs(Date.now());
             } finally {
-                supplementaryRefreshInFlightRef.current = false;
+                runtimeRefreshInFlightRef.current = false;
             }
         };
 
         const refreshWhenVisible = () => {
             if (!document.hidden) {
-                void refreshSupplementaryData();
+                void refreshRuntime();
             }
         };
 
         const timer = window.setInterval(refreshWhenVisible, 5_000);
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+        };
+    }, [bots.length]);
+
+    useEffect(() => {
+        if (bots.length === 0) {
+            return;
+        }
+
+        let cancelled = false;
+
+        const refreshActivity = async () => {
+            if (document.hidden || activityRefreshInFlightRef.current) {
+                return;
+            }
+
+            activityRefreshInFlightRef.current = true;
+
+            try {
+                const snapshot = await fetchDailyActivitySnapshot(bots);
+                if (!cancelled) {
+                    setActivityByBotId((previous) => ({
+                        ...previous,
+                        ...snapshot,
+                    }));
+                }
+            } finally {
+                activityRefreshInFlightRef.current = false;
+            }
+        };
+
+        const refreshWhenVisible = () => {
+            if (!document.hidden) {
+                void refreshActivity();
+            }
+        };
+
+        const timer = window.setInterval(
+            refreshWhenVisible,
+            DAILY_ACTIVITY_REFRESH_MS,
+        );
         document.addEventListener("visibilitychange", refreshWhenVisible);
 
         return () => {
@@ -570,7 +605,7 @@ function BotStatus({
     nowMs,
 }: {
     status: string;
-    runtime: BotRuntimeState | undefined;
+    runtime: RuntimeDashboardBot | undefined;
     nowMs: number;
 }) {
     const normalizedStatus = status.toUpperCase();
