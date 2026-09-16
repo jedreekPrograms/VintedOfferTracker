@@ -8,12 +8,12 @@ import static org.junit.Assert.assertTrue;
 public class BrowserResourceOptimizationConfigTest {
 
     @Test
-    public void headlessBlocksServiceWorkersByDefault() {
-        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+    public void headlessKeepsServiceWorkersEnabledByDefault() {
+        assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 null
         ));
-        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+        assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 "   "
         ));
@@ -32,7 +32,7 @@ public class BrowserResourceOptimizationConfigTest {
     }
 
     @Test
-    public void headlessOverrideCanDisableBlocking() {
+    public void headlessOverrideCanKeepBlockingDisabled() {
         assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 "false"
@@ -48,12 +48,16 @@ public class BrowserResourceOptimizationConfigTest {
     }
 
     @Test
-    public void headlessOverrideAcceptsEnabledValuesAndFailsSafeToDefault() {
+    public void headlessOverrideCanEnableBlockingAndInvalidValueFallsBackToDefault() {
         assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 "yes"
         ));
         assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+                true,
+                "true"
+        ));
+        assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 "invalid-value"
         ));
