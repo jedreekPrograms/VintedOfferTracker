@@ -42,14 +42,9 @@ function RuntimeDashboardPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
     const [previewUpdatingBotId, setPreviewUpdatingBotId] = useState<number | null>(null);
-    const runtimeRefreshInFlightRef = useRef(false);
+    const runtimeAutoRefreshInFlightRef = useRef(false);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
-        if (runtimeRefreshInFlightRef.current) {
-            return;
-        }
-
-        runtimeRefreshInFlightRef.current = true;
         if (showLoading) {
             setIsLoading(true);
         }
@@ -68,7 +63,6 @@ function RuntimeDashboardPage() {
             if (showLoading) {
                 setIsLoading(false);
             }
-            runtimeRefreshInFlightRef.current = false;
         }
     }, []);
 
@@ -96,9 +90,14 @@ function RuntimeDashboardPage() {
         void loadRuntime(true);
 
         const refreshWhenVisible = () => {
-            if (!document.hidden) {
-                void loadRuntime(false);
+            if (document.hidden || runtimeAutoRefreshInFlightRef.current) {
+                return;
             }
+
+            runtimeAutoRefreshInFlightRef.current = true;
+            void loadRuntime(false).finally(() => {
+                runtimeAutoRefreshInFlightRef.current = false;
+            });
         };
 
         const intervalId = window.setInterval(
