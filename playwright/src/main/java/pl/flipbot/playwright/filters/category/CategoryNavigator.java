@@ -1,6 +1,10 @@
 package pl.flipbot.playwright.filters.category;
 
+import com.microsoft.playwright.Locator;
+import com.microsoft.playwright.Page;
 import com.microsoft.playwright.TimeoutError;
+import com.microsoft.playwright.options.AriaRole;
+import com.microsoft.playwright.options.WaitForSelectorState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.filters.FilterActions;
@@ -18,6 +22,7 @@ public class CategoryNavigator {
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
     private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
 
+    private final Page page;
     private final FilterActions actions;
 
     public void select(List<String> categoryPath) {
@@ -146,17 +151,28 @@ public class CategoryNavigator {
                             : STANDARD_OPTION_TIMEOUT_MS;
 
             log.debug(
-                    "[FILTER CATEGORY] Waiting for: {} (timeout={}ms)",
+                    "[FILTER CATEGORY] Waiting for exact option: {} (timeout={}ms)",
                     category,
                     (int) timeoutMs
             );
 
             try {
-                actions.waitForOption(category, timeoutMs);
-                actions.selectOption(category);
+                Locator exactCategoryOption = page.getByRole(
+                        AriaRole.BUTTON,
+                        new Page.GetByRoleOptions()
+                                .setName(category)
+                                .setExact(true)
+                );
+
+                exactCategoryOption.waitFor(
+                        new Locator.WaitForOptions()
+                                .setState(WaitForSelectorState.VISIBLE)
+                                .setTimeout(timeoutMs)
+                );
+                exactCategoryOption.click();
 
                 log.info(
-                        "[FILTER CATEGORY] Selected: {}",
+                        "[FILTER CATEGORY] Selected exact option: {}",
                         category
                 );
 
@@ -179,7 +195,7 @@ public class CategoryNavigator {
         String message;
 
         if (exception instanceof TimeoutError) {
-            message = "option not visible after "
+            message = "exact option not visible after "
                     + Math.round(timeoutMilliseconds / 1_000)
                     + "s";
         } else {
@@ -188,7 +204,7 @@ public class CategoryNavigator {
 
         if (attempt < MAX_ATTEMPTS) {
             log.info(
-                    "[FILTER CATEGORY] Attempt {}/{} needs retry at '{}': {}.",
+                    "[FILTER CATEGORY] Attempt {}/{} needs retry at exact option '{}': {}.",
                     attempt,
                     MAX_ATTEMPTS,
                     category,
@@ -196,7 +212,7 @@ public class CategoryNavigator {
             );
         } else {
             log.warn(
-                    "[FILTER CATEGORY] Final attempt {}/{} failed at '{}': {}.",
+                    "[FILTER CATEGORY] Final attempt {}/{} failed at exact option '{}': {}.",
                     attempt,
                     MAX_ATTEMPTS,
                     category,
@@ -256,7 +272,7 @@ public class CategoryNavigator {
         }
 
         if (exception instanceof TimeoutError) {
-            return "Vinted did not render the expected option within the timeout";
+            return "Vinted did not render the exact expected option within the timeout";
         }
 
         String message = exception.getMessage();
