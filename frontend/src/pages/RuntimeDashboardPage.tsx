@@ -1,7 +1,7 @@
 import {
     useCallback,
-    useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 
@@ -12,6 +12,9 @@ import {
     type RuntimeDashboardResponse,
     type RuntimeStatus,
 } from "../api/dashboardApi";
+
+import { useVisiblePolling } from "../hooks/useVisiblePolling";
+import { useVisibleNow } from "../hooks/useVisibleNow";
 
 import AppSelect, {
     type AppSelectOption,
@@ -39,40 +42,45 @@ function RuntimeDashboardPage() {
     const [search, setSearch] = useState("");
     const [isLoading, setIsLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [nowMs, setNowMs] = useState(() => Date.now());
-    const [previewUpdatingBotId, setPreviewUpdatingBotId] = useState<number | null>(null);
+    const [previewUpdatingBotIds, setPreviewUpdatingBotIds] = useState<ReadonlySet<number>>(new Set());
+    const previewRequests = useRef(new Set<number>());
 
-    const loadRuntime = useCallback(async (showLoading: boolean) => {
-        if (showLoading) {
-            setIsLoading(true);
-        }
-
+    const loadRuntime = useCallback(async (signal: AbortSignal) => {
         try {
-            const response = await getRuntimeDashboard();
-            setData(response);
-            setErrorMessage(null);
+            const response = await getRuntimeDashboard(signal);
+            if (!signal.aborted) {
+                setData(response);
+                setErrorMessage(null);
+            }
         } catch (error) {
-            setErrorMessage(
-                error instanceof Error
-                    ? error.message
-                    : "Nie udało się pobrać stanu runtime.",
-            );
+            if (!signal.aborted) {
+                setErrorMessage(
+                    error instanceof Error
+                        ? error.message
+                        : "Nie udało się pobrać stanu runtime.",
+                );
+            }
         } finally {
-            if (showLoading) {
+            if (!signal.aborted) {
                 setIsLoading(false);
             }
         }
     }, []);
+    const refreshRuntime = useVisiblePolling(loadRuntime, 5_000);
 
     const handleSessionPreview = useCallback(async (
         botId: number,
         enabled: boolean,
     ) => {
-        setPreviewUpdatingBotId(botId);
+        if (previewRequests.current.has(botId)) {
+            return;
+        }
+        previewRequests.current.add(botId);
+        setPreviewUpdatingBotIds(new Set(previewRequests.current));
 
         try {
             await setRuntimeSessionPreview(botId, enabled);
-            await loadRuntime(false);
+            await refreshRuntime();
         } catch (error) {
             setErrorMessage(
                 error instanceof Error
@@ -80,35 +88,10 @@ function RuntimeDashboardPage() {
                     : "Nie udało się zmienić podglądu sesji.",
             );
         } finally {
-            setPreviewUpdatingBotId(null);
+            previewRequests.current.delete(botId);
+            setPreviewUpdatingBotIds(new Set(previewRequests.current));
         }
-    }, [loadRuntime]);
-
-    useEffect(() => {
-        void loadRuntime(true);
-
-        const intervalId = window.setInterval(
-            () => {
-                void loadRuntime(false);
-            },
-            5_000,
-        );
-
-        return () => {
-            window.clearInterval(intervalId);
-        };
-    }, [loadRuntime]);
-
-    useEffect(() => {
-        const intervalId = window.setInterval(
-            () => setNowMs(Date.now()),
-            1_000,
-        );
-
-        return () => {
-            window.clearInterval(intervalId);
-        };
-    }, []);
+    }, [refreshRuntime]);
 
     const filteredBots = useMemo(() => {
         if (data === null) {
@@ -157,7 +140,8 @@ function RuntimeDashboardPage() {
                     type="button"
                     disabled={isLoading}
                     onClick={() => {
-                        void loadRuntime(true);
+                        setIsLoading(true);
+                        void refreshRuntime().finally(() => setIsLoading(false));
                     }}
                 >
                     {isLoading ? "Odświeżanie..." : "Odśwież"}
@@ -263,8 +247,7 @@ function RuntimeDashboardPage() {
                                         <RuntimeRow
                                             key={bot.botId}
                                             bot={bot}
-                                            nowMs={nowMs}
-                                            previewUpdating={previewUpdatingBotId === bot.botId}
+                                            previewUpdating={previewUpdatingBotIds.has(bot.botId)}
                                             onSessionPreview={handleSessionPreview}
                                         />
                                     ))}
@@ -318,16 +301,15 @@ function RuntimeStat({
 
 function RuntimeRow({
     bot,
-    nowMs,
     previewUpdating,
     onSessionPreview,
 }: {
     bot: RuntimeDashboardBot;
-    nowMs: number;
     previewUpdating: boolean;
     onSessionPreview: (botId: number, enabled: boolean) => Promise<void>;
 }) {
     const sessionBlocked = bot.sessionBlockedSince !== null;
+    const nowMs = useVisibleNow(1_000, sessionBlocked);
     const canPreview = bot.botStatus === "RUNNING";
 
     return (

@@ -7,8 +7,7 @@ import {
 import { Link } from "react-router-dom";
 
 import {
-    getBotDailyActivity,
-    getBotRuntimeState,
+    getBotDailyActivities,
     getBots,
     startBot,
     stopBot,
@@ -17,6 +16,9 @@ import type {
     BotDailyActivity,
     BotRuntimeState,
 } from "../api/botsApi";
+import { getRuntimeDashboard } from "../api/dashboardApi";
+import { useVisiblePolling } from "../hooks/useVisiblePolling";
+import { useVisibleNow } from "../hooks/useVisibleNow";
 import AppDialog from "../components/AppDialog";
 import MarketStatsObserverCard from "../components/MarketStatsObserverCard";
 import type { BotListItem } from "../types/bots";
@@ -30,7 +32,7 @@ function BotsPage() {
         useState<Record<number, BotDailyActivity>>({});
     const [runtimeByBotId, setRuntimeByBotId] =
         useState<Record<number, BotRuntimeState>>({});
-    const [nowMs, setNowMs] = useState(() => Date.now());
+    const nowMs = useVisibleNow(15_000);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [actionBotId, setActionBotId] = useState<number | null>(null);
@@ -38,6 +40,27 @@ function BotsPage() {
     const [pendingBulkAction, setPendingBulkAction] = useState<BulkAction | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+    const loadSupplementary = useCallback(async (signal: AbortSignal) => {
+        const [activity, runtime] = await Promise.allSettled([
+            getBotDailyActivities(signal),
+            getRuntimeDashboard(signal),
+        ]);
+        if (signal.aborted) {
+            return;
+        }
+        if (activity.status === "fulfilled") {
+            setActivityByBotId(Object.fromEntries(activity.value.map(item => [item.botId, item])));
+        } else {
+            console.error("Nie udało się odświeżyć dzisiejszej aktywności botów.", activity.reason);
+        }
+        if (runtime.status === "fulfilled") {
+            setRuntimeByBotId(Object.fromEntries(runtime.value.bots.map(item => [item.botId, item])));
+        } else {
+            console.error("Nie udało się odświeżyć runtime botów.", runtime.reason);
+        }
+    }, []);
+    const refreshSupplementary = useVisiblePolling(loadSupplementary, 5_000);
 
     const loadBots = useCallback(async (mode: LoadMode) => {
         if (mode === "initial") {
@@ -48,49 +71,10 @@ function BotsPage() {
         setErrorMessage(null);
 
         try {
-            const loadedBots = await getBots();
-            setBots(loadedBots);
-
-            const supplementaryResults = await Promise.all(
-                loadedBots.map(async (bot) => {
-                    const [activityResult, runtimeResult] = await Promise.allSettled([
-                        getBotDailyActivity(bot.id),
-                        getBotRuntimeState(bot.id),
-                    ]);
-
-                    if (activityResult.status === "rejected") {
-                        console.error(
-                            `Nie udało się pobrać dzisiejszej aktywności bota ${bot.id}.`,
-                            activityResult.reason,
-                        );
-                    }
-                    if (runtimeResult.status === "rejected") {
-                        console.error(`Nie udało się pobrać runtime bota ${bot.id}.`, runtimeResult.reason);
-                    }
-
-                    return {
-                        botId: bot.id,
-                        activity: activityResult.status === "fulfilled" ? activityResult.value : null,
-                        runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
-                    };
-                }),
-            );
-
-            const nextActivityByBotId: Record<number, BotDailyActivity> = {};
-            const nextRuntimeByBotId: Record<number, BotRuntimeState> = {};
-
-            for (const result of supplementaryResults) {
-                if (result.activity !== null) {
-                    nextActivityByBotId[result.botId] = result.activity;
-                }
-                if (result.runtime !== null) {
-                    nextRuntimeByBotId[result.botId] = result.runtime;
-                }
+            setBots(await getBots());
+            if (mode === "background") {
+                await refreshSupplementary();
             }
-
-            setActivityByBotId(nextActivityByBotId);
-            setRuntimeByBotId(nextRuntimeByBotId);
-            setNowMs(Date.now());
         } catch (error) {
             setErrorMessage(getErrorMessage(error, "Nie udało się pobrać botów."));
         } finally {
@@ -100,79 +84,11 @@ function BotsPage() {
                 setIsRefreshing(false);
             }
         }
-    }, []);
+    }, [refreshSupplementary]);
 
     useEffect(() => {
         void loadBots("initial");
     }, [loadBots]);
-
-    useEffect(() => {
-        const timer = window.setInterval(() => setNowMs(Date.now()), 15_000);
-        return () => window.clearInterval(timer);
-    }, []);
-
-    useEffect(() => {
-        if (bots.length === 0) {
-            return;
-        }
-
-        const refreshSupplementaryData = async () => {
-            const results = await Promise.all(
-                bots.map(async (bot) => {
-                    const [activityResult, runtimeResult] = await Promise.allSettled([
-                        getBotDailyActivity(bot.id),
-                        getBotRuntimeState(bot.id),
-                    ]);
-
-                    if (activityResult.status === "rejected") {
-                        console.error(
-                            `Nie udało się odświeżyć dzisiejszej aktywności bota ${bot.id}.`,
-                            activityResult.reason,
-                        );
-                    }
-                    if (runtimeResult.status === "rejected") {
-                        console.error(
-                            `Nie udało się odświeżyć runtime bota ${bot.id}.`,
-                            runtimeResult.reason,
-                        );
-                    }
-
-                    return {
-                        botId: bot.id,
-                        activity: activityResult.status === "fulfilled" ? activityResult.value : null,
-                        runtime: runtimeResult.status === "fulfilled" ? runtimeResult.value : null,
-                    };
-                }),
-            );
-
-            setActivityByBotId((previous) => {
-                const next = { ...previous };
-                for (const result of results) {
-                    if (result.activity !== null) {
-                        next[result.botId] = result.activity;
-                    }
-                }
-                return next;
-            });
-
-            setRuntimeByBotId((previous) => {
-                const next = { ...previous };
-                for (const result of results) {
-                    if (result.runtime !== null) {
-                        next[result.botId] = result.runtime;
-                    }
-                }
-                return next;
-            });
-            setNowMs(Date.now());
-        };
-
-        const timer = window.setInterval(() => {
-            void refreshSupplementaryData();
-        }, 5_000);
-
-        return () => window.clearInterval(timer);
-    }, [bots]);
 
     const runningBots = useMemo(
         () => bots.filter((bot) => bot.status.toUpperCase() === "RUNNING"),

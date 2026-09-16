@@ -48,6 +48,15 @@ export interface BotRuntimeState {
     updatedAt: string | null;
 }
 
+export async function getBotDailyActivities(signal?: AbortSignal): Promise<BotDailyActivity[]> {
+    const response = await fetch(`${BOTS_BASE_URL}/activity/today`, { signal });
+    await assertApiResponse(
+        response,
+        `Nie udało się pobrać dzisiejszej aktywności botów. Status HTTP: ${response.status}.`,
+    );
+    return response.json() as Promise<BotDailyActivity[]>;
+}
+
 export async function getBots(): Promise<BotListItem[]> {
     const response = await fetch(BOTS_BASE_URL);
 
