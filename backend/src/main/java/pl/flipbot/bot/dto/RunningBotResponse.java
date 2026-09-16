@@ -11,4 +11,6 @@ public class RunningBotResponse {
 
     private boolean hasActiveNegotiations;
 
+    private boolean sessionPreviewRequested;
+
 }

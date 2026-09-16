@@ -41,6 +41,7 @@ export interface RuntimeDashboardBot {
     workerSlot: number | null;
     sessionBlockedSince: string | null;
     sessionBlockCount: number;
+    sessionPreviewRequested: boolean;
     updatedAt: string | null;
 }
 
@@ -80,4 +81,21 @@ export async function getRuntimeDashboard(): Promise<RuntimeDashboardResponse> {
     );
 
     return response.json() as Promise<RuntimeDashboardResponse>;
+}
+
+export async function setRuntimeSessionPreview(
+    botId: number,
+    enabled: boolean,
+): Promise<void> {
+    const response = await fetch(
+        `/api/dashboard/runtime/${encodeURIComponent(botId)}/session-preview?enabled=${enabled}`,
+        {
+            method: "PUT",
+        },
+    );
+
+    await assertApiResponse(
+        response,
+        `Nie udało się ${enabled ? "włączyć" : "wyłączyć"} podglądu sesji. Status HTTP: ${response.status}.`,
+    );
 }
