@@ -22,10 +22,14 @@ public class HumanVerificationHandler {
             "sprawdzanie czy jesteś człowiekiem",
             "potwierdź, że jesteś człowiekiem",
             "potwierdz, ze jestes czlowiekiem",
+            "potwierdź, że nie jesteś robotem",
+            "potwierdz, ze nie jestes robotem",
             "verify you are human",
             "verify that you are human",
+            "prove you are human",
             "checking if you are human",
-            "checking your browser"
+            "checking your browser",
+            "complete the security check"
     );
 
     private static final List<String> VERIFICATION_TITLE_TEXTS = List.of(
@@ -38,7 +42,17 @@ public class HumanVerificationHandler {
                     + "iframe[src*='challenge-platform'], "
                     + "iframe[src*='hcaptcha.com'], "
                     + "iframe[src*='recaptcha'], "
-                    + "iframe[src*='turnstile']";
+                    + "iframe[src*='turnstile'], "
+                    + "iframe[src*='captcha-delivery.com'], "
+                    + "iframe[src*='datadome'], "
+                    + "iframe[src*='arkoselabs'], "
+                    + "iframe[src*='funcaptcha'], "
+                    + "iframe[src*='geetest'], "
+                    + "iframe[src*='captcha'], "
+                    + "iframe[src*='challenge'], "
+                    + "iframe[title*='captcha' i], "
+                    + "iframe[title*='challenge' i], "
+                    + "iframe[title*='human' i]";
 
     private final CookieConsentHandler cookieConsentHandler = new CookieConsentHandler();
     private final VintedSessionBlockDetector sessionBlockDetector =
@@ -179,11 +193,18 @@ public class HumanVerificationHandler {
                 }
 
                 String src = iframe.getAttribute("src");
-                String safeSrc = src == null || src.isBlank()
-                        ? "unknown-src"
-                        : abbreviate(src, 180);
+                String title = iframe.getAttribute("title");
+                String descriptor;
 
-                return "rendered challenge iframe " + safeSrc;
+                if (src != null && !src.isBlank()) {
+                    descriptor = abbreviate(src, 180);
+                } else if (title != null && !title.isBlank()) {
+                    descriptor = "title=" + abbreviate(title, 120);
+                } else {
+                    descriptor = "unknown-src";
+                }
+
+                return "rendered challenge iframe " + descriptor;
             } catch (PlaywrightException exception) {
                 log.debug("Verification iframe changed while its visibility was being inspected.");
             }
