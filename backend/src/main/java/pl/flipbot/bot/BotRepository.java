@@ -9,6 +9,28 @@ import java.util.Optional;
 
 public interface BotRepository extends JpaRepository<Bot, Long> {
 
+    interface RuntimeBot {
+        Long getId();
+        String getName();
+        BotStatus getStatus();
+    }
+
+    @Query("""
+            select bot.id as id, bot.name as name, bot.status as status
+            from Bot bot where bot.marketStatsObserver = false
+            order by bot.id asc
+            """)
+    List<RuntimeBot> findRuntimeBots();
+
+    @Query("""
+            select bot.id from Bot bot
+            where bot.status = :status and bot.marketStatsObserver = false
+            order by bot.id asc
+            """)
+    List<Long> findIdsByStatus(@Param("status") BotStatus status);
+
+    long countByStatusAndMarketStatsObserverFalse(BotStatus status);
+
     boolean existsByEmail(String email);
 
     boolean existsByEmailAndIdNot(

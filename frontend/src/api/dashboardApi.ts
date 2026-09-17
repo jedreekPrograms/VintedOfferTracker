@@ -72,8 +72,8 @@ export async function getDashboardStats(
     return response.json() as Promise<DashboardStatsResponse>;
 }
 
-export async function getRuntimeDashboard(): Promise<RuntimeDashboardResponse> {
-    const response = await fetch("/api/dashboard/runtime");
+export async function getRuntimeDashboard(signal?: AbortSignal): Promise<RuntimeDashboardResponse> {
+    const response = await fetch("/api/dashboard/runtime", { signal });
 
     await assertApiResponse(
         response,

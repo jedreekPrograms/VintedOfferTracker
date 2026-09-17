@@ -3,7 +3,6 @@ package pl.flipbot.dashboard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
 import pl.flipbot.bot.runtime.BotRuntimeState;
@@ -29,7 +28,7 @@ public class RuntimeDashboardService {
 
     @Transactional(readOnly = true)
     public RuntimeDashboardResponse getRuntimeDashboard() {
-        List<Bot> bots = botRepository.findAll();
+        List<BotRepository.RuntimeBot> bots = botRepository.findRuntimeBots();
 
         Map<Long, BotRuntimeState> runtimeByBotId =
                 runtimeStateRepository.findAll()
@@ -79,7 +78,7 @@ public class RuntimeDashboardService {
     }
 
     private RuntimeDashboardBotResponse toRow(
-            Bot bot,
+            BotRepository.RuntimeBot bot,
             BotRuntimeState runtime
     ) {
         BotRuntimeStatus runtimeStatus =

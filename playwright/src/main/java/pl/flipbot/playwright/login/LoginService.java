@@ -113,18 +113,19 @@ public class LoginService {
         );
     }
 
-    private void acceptCookiesIfVisible(Page page) {
+    static void acceptCookiesIfVisible(Page page) {
         try {
             Locator button = page.locator("#onetrust-accept-btn-handler");
 
-            button.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(WaitForSelectorState.VISIBLE)
-                            .setTimeout(5_000)
-            );
-
+            // A restored session usually has no banner. The context's OneTrust
+            // guard still handles banners rendered later, without adding five
+            // seconds to every healthy login. Bound the click in case that guard
+            // dismisses the button between this visibility check and the click.
+            if (!button.isVisible()) {
+                return;
+            }
             log.info("[LOGIN] Accepting Vinted cookie banner.");
-            button.click();
+            button.click(new Locator.ClickOptions().setTimeout(1_500));
         } catch (Exception exception) {
             log.debug("[LOGIN] Cookie banner not displayed.");
         }

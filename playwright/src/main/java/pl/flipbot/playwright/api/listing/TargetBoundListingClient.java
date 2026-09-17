@@ -16,9 +16,26 @@ import java.util.Objects;
 public class TargetBoundListingClient extends ListingClient {
 
     private final Long additionalTargetId;
+    private final Long snapshotBotId;
+    private final List<ListingResponseDto> negotiationSnapshot;
 
     public TargetBoundListingClient(Long additionalTargetId) {
         this.additionalTargetId = additionalTargetId;
+        this.snapshotBotId = null;
+        this.negotiationSnapshot = null;
+    }
+
+    /** An immutable read snapshot for one existing-negotiation job only. */
+    public TargetBoundListingClient(
+            Long additionalTargetId,
+            Long snapshotBotId,
+            List<ListingResponseDto> negotiations
+    ) {
+        this.additionalTargetId = additionalTargetId;
+        this.snapshotBotId = Objects.requireNonNull(snapshotBotId);
+        this.negotiationSnapshot = negotiations.stream()
+                .filter(listing -> Objects.equals(listing.additionalTargetId(), additionalTargetId))
+                .toList();
     }
 
     @Override
@@ -36,6 +53,12 @@ public class TargetBoundListingClient extends ListingClient {
 
     @Override
     public List<ListingResponseDto> getNegotiatingListings(Long botId) {
+        if (negotiationSnapshot != null) {
+            if (!Objects.equals(snapshotBotId, botId)) {
+                throw new IllegalArgumentException("Negotiation snapshot belongs to another bot");
+            }
+            return negotiationSnapshot;
+        }
         return super.getNegotiatingListings(botId)
                 .stream()
                 .filter(listing -> Objects.equals(

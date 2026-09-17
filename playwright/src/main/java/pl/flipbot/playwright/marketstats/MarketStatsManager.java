@@ -1,6 +1,8 @@
 package pl.flipbot.playwright.marketstats;
 
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.browser.BrowserCapacityController;
+import pl.flipbot.playwright.browser.BrowserCapacityUnavailableException;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -84,7 +86,10 @@ public class MarketStatsManager implements AutoCloseable {
         int passStartIndex = nextTargetStartIndex;
         ResumableMarketStatsApiClient apiClient = null;
 
-        try {
+        // One permit spans the pass, including browser recycling. Admission is
+        // before any model is started, so resource deferral cannot skip/repeat a
+        // partially completed batch or change the observer's resume policy.
+        try (BrowserCapacityController.Permit ignored = BrowserCapacityController.shared().acquire()) {
             int batchStartIndex = passStartIndex;
             int attemptedTargets = 0;
             int totalTargets = -1;
@@ -177,6 +182,9 @@ public class MarketStatsManager implements AutoCloseable {
                     Math.max(0, totalTargets),
                     config.refreshCooldownMinutes()
             );
+        } catch (BrowserCapacityUnavailableException exception) {
+            nextAttemptAtMillis = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(OBSERVER_POLL_SECONDS);
+            log.debug("[MARKET STATS] Waiting for local browser capacity: {}", exception.getMessage());
         } catch (Exception exception) {
             String message = exception.getMessage();
 
@@ -196,6 +204,8 @@ public class MarketStatsManager implements AutoCloseable {
             }
 
             if (containsTrafficBackoffMarker(exception)) {
+                BrowserCapacityController.shared().marketplaceBackoff(
+                        TimeUnit.MINUTES.toMillis(FAILURE_RETRY_MINUTES));
                 int previousStartIndex = nextTargetStartIndex;
                 nextTargetStartIndex = apiClient == null
                         ? previousStartIndex
