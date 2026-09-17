@@ -24,13 +24,14 @@ class SessionPreviewFlowTest {
                 Bot.builder().id(7L).name("First").status(BotStatus.RUNNING).build(),
                 Bot.builder().id(8L).name("Second").status(BotStatus.RUNNING).build()
         );
-        when(bots.findRuntimeBots()).thenReturn(running.stream().map(bot -> {
+        var runtimeRows = running.stream().map(bot -> {
             var row = mock(BotRepository.RuntimeBot.class);
             when(row.getId()).thenReturn(bot.getId());
             when(row.getName()).thenReturn(bot.getName());
             when(row.getStatus()).thenReturn(bot.getStatus());
             return row;
-        }).toList());
+        }).toList();
+        when(bots.findRuntimeBots()).thenReturn(runtimeRows);
         when(bots.findIdsByStatus(BotStatus.RUNNING)).thenReturn(List.of(7L, 8L));
         BotSessionPreviewService previews = new BotSessionPreviewService();
         RuntimeDashboardService runtime = new RuntimeDashboardService(

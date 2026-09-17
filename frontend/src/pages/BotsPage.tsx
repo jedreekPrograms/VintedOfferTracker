@@ -73,6 +73,7 @@ function BotsPage() {
 
     useEffect(() => {
         if (bots.length === 0) return;
+        const visibleBotIds = new Set(bots.map((bot) => bot.id));
         let disposed = false;
         let inFlight = false;
         let timer: ReturnType<typeof window.setTimeout> | undefined;
@@ -103,15 +104,18 @@ function BotsPage() {
                 ]);
                 if (disposed) return;
                 setActivityByBotId((previous) => {
-                    const next = { ...previous };
+                    const next = Object.fromEntries(
+                        Object.entries(previous).filter(([id]) => visibleBotIds.has(Number(id))),
+                    );
                     for (const { botId, activity } of activities) next[botId] = activity;
                     return next;
                 });
                 if (runtimeResult.status === "fulfilled" && runtimeResult.value) {
                     const runtime = runtimeResult.value;
                     setRuntimeByBotId((previous) => ({
-                        ...previous,
-                        ...Object.fromEntries(runtime.bots.map((bot) => [bot.botId, bot])),
+                        ...Object.fromEntries(Object.entries(previous).filter(([id]) => visibleBotIds.has(Number(id)))),
+                        ...Object.fromEntries(runtime.bots.filter((bot) => visibleBotIds.has(bot.botId))
+                            .map((bot) => [bot.botId, bot])),
                     }));
                 }
                 setNowMs(Date.now());

@@ -30,6 +30,7 @@ public final class BrowserCapacityController {
     private int target;
     private long sequence;
     private long nextStartAt;
+    private long lastDeferralLogAt = Long.MIN_VALUE;
     private long nextReductionAt;
     private long growthNotBefore;
     private long healthySince = -1L;
@@ -127,6 +128,13 @@ public final class BrowserCapacityController {
         long requiredFree = reserve + (warming + 1L) * LAUNCH_RESERVE_BYTES;
         if (pressure || active.size() >= target || now < nextStartAt
                 || (knownMemory && r.freeBytes() < requiredFree)) {
+            if (lastDeferralLogAt == Long.MIN_VALUE || now - lastDeferralLogAt >= 30_000L) {
+                log.info("[BROWSER CAPACITY] New work waits. active={}/{}, ceiling={}, freeMiB={}, "
+                                + "requiredFreeMiB={}, cpu={}; existing jobs continue.",
+                        active.size(), target, maximum, knownMemory ? r.freeBytes() / MIB : -1,
+                        knownMemory ? requiredFree / MIB : -1, r.cpuLoad());
+                lastDeferralLogAt = now;
+            }
             throw new BrowserCapacityUnavailableException(
                     "Waiting for local browser capacity: active=" + active.size()
                             + ", target=" + target + ", ceiling=" + maximum
