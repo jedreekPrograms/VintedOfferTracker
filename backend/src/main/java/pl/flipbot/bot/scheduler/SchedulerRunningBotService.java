@@ -3,7 +3,6 @@ package pl.flipbot.bot.scheduler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
 import pl.flipbot.bot.dto.RunningBotResponse;
@@ -26,20 +25,15 @@ public class SchedulerRunningBotService {
     @Transactional(readOnly = true)
     public List<RunningBotResponse> getRunningBots() {
 
-        List<Bot> runningBots =
-                botRepository.findByStatus(
+        List<Long> runningBotIds =
+                botRepository.findIdsByStatus(
                         BotStatus.RUNNING
                 );
 
-        if (runningBots.isEmpty()) {
+        if (runningBotIds.isEmpty()) {
             sessionPreviewService.retainRunningBots(List.of());
             return List.of();
         }
-
-        List<Long> runningBotIds =
-                runningBots.stream()
-                        .map(Bot::getId)
-                        .toList();
 
         /*
          * Preview is deliberately process-local. A stopped bot must never keep
@@ -56,18 +50,18 @@ public class SchedulerRunningBotService {
                         )
                 );
 
-        return runningBots.stream()
+        return runningBotIds.stream()
                 .map(
-                        bot -> RunningBotResponse.builder()
-                                .id(bot.getId())
+                        botId -> RunningBotResponse.builder()
+                                .id(botId)
                                 .hasActiveNegotiations(
                                         botsWithActiveNegotiations.contains(
-                                                bot.getId()
+                                                botId
                                         )
                                 )
                                 .sessionPreviewRequested(
                                         sessionPreviewService.isPreviewRequested(
-                                                bot.getId()
+                                                botId
                                         )
                                 )
                                 .build()

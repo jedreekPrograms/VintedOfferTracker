@@ -1,6 +1,7 @@
 package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.browser.BrowserCapacityController;
 
 @Slf4j
 record CatalogConcurrencyConfig(
@@ -28,9 +29,14 @@ record CatalogConcurrencyConfig(
     }
 
     static CatalogConcurrencyConfig fromEnvironment() {
-        return fromRaw(
-                System.getenv(MAX_CONCURRENT_CATALOG_SCANS_ENV)
-        );
+        String configured = System.getenv(MAX_CONCURRENT_CATALOG_SCANS_ENV);
+        BrowserCapacityController capacity = BrowserCapacityController.shared();
+        if ((configured == null || configured.isBlank()) && capacity.adaptiveEnabled()) {
+            // The scheduler ceiling allows growth; the shared browser admission
+            // controller still starts conservatively and checks real OS headroom.
+            return new CatalogConcurrencyConfig(capacity.maximumConcurrency(), DEFAULT_RETRY_DELAY_MILLIS);
+        }
+        return fromRaw(configured);
     }
 
     static CatalogConcurrencyConfig fromRaw(String rawMaxConcurrentScans) {

@@ -6,7 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
 import pl.flipbot.dashboard.dto.DashboardStatsResponse;
-import pl.flipbot.listing.Listing;
+import pl.flipbot.listing.ListingRepository.PurchaseAmounts;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 
@@ -26,194 +26,34 @@ public class DashboardStatsService {
 
 
     @Transactional(readOnly = true)
-    public DashboardStatsResponse getStats(
-            DashboardPeriod period
-    ) {
-
-        List<Listing> listings =
-                listingRepository.findAll();
-
-
-        /*
-         * Te trzy wartości pokazują aktualny stan systemu,
-         * więc nie filtrujemy ich po czasie.
-         */
-
-        long activeBotsCount =
-                botRepository.findAll()
-                        .stream()
-                        .filter(
-                                bot ->
-                                        bot.getStatus()
-                                                == BotStatus.RUNNING
-                        )
-                        .count();
-
-
-        long negotiatingCount =
-                listings.stream()
-                        .filter(
-                                listing ->
-                                        listing.getStatus()
-                                                == ListingStatus.NEGOTIATING
-                        )
-                        .count();
-
-
-        long actionRequiredCount =
-                listings.stream()
-                        .filter(
-                                listing ->
-                                        listing.getStatus()
-                                                == ListingStatus.ACTION_REQUIRED
-                        )
-                        .count();
-
-
-        /*
-         * Historia decyzji jest filtrowana
-         * według wybranego okresu. Wpisy ręcznie usunięte z historii
-         * pozostają w bazie jako zabezpieczenie przed ponownym odkryciem
-         * tej samej oferty, ale nie wpływają już na statystyki historyczne.
-         */
-
-        List<Listing> listingsInPeriod =
-                listings.stream()
-                        .filter(
-                                listing ->
-                                        !listing.isHistoryHidden()
-                        )
-                        .filter(
-                                listing ->
-                                        isInPeriod(
-                                                listing,
-                                                period
-                                        )
-                        )
-                        .toList();
-
-
-        List<Listing> purchasedListings =
-                listingsInPeriod.stream()
-                        .filter(
-                                listing ->
-                                        listing.getStatus()
-                                                == ListingStatus.PURCHASED
-                        )
-                        .toList();
-
-
-        long purchasedCount =
-                purchasedListings.size();
-
-
-        long skippedByUserCount =
-                listingsInPeriod.stream()
-                        .filter(
-                                listing ->
-                                        listing.getStatus()
-                                                == ListingStatus.SKIPPED_BY_USER
-                        )
-                        .count();
-
-
-        BigDecimal totalSpent =
-                purchasedListings.stream()
-                        .map(
-                                Listing::getCurrentPrice
-                        )
-                        .filter(
-                                price ->
-                                        price != null
-                        )
-                        .reduce(
-                                BigDecimal.ZERO,
-                                BigDecimal::add
-                        );
-
-
-        BigDecimal totalNegotiatedSavings =
-                purchasedListings.stream()
-                        .map(
-                                this::calculateSavings
-                        )
-                        .reduce(
-                                BigDecimal.ZERO,
-                                BigDecimal::add
-                        );
-
-
-        BigDecimal averagePurchasePrice =
-                calculateAveragePurchasePrice(
-                        purchasedListings,
-                        totalSpent
-                );
-
-
-        BigDecimal averageDiscountPercentage =
-                calculateAverageDiscountPercentage(
-                        purchasedListings
-                );
-
-
+    public DashboardStatsResponse getStats(DashboardPeriod period) {
+        // Counts stay in SQL. Money uses lightweight scalar rows so the exact
+        // existing BigDecimal/rounding rules remain unchanged.
+        var currentCounts = listingRepository.countByListingStatus();
+        boolean allTime = period == DashboardPeriod.ALL;
+        LocalDateTime from = allTime ? LocalDate.now().atStartOfDay() : getPeriodStart(period);
+        var historyCounts = listingRepository.countVisibleHistory(
+                List.of(ListingStatus.PURCHASED, ListingStatus.SKIPPED_BY_USER), allTime, from);
+        List<PurchaseAmounts> purchasedListings = listingRepository.findPurchaseAmounts(
+                ListingStatus.PURCHASED, allTime, from);
+        BigDecimal totalSpent = purchasedListings.stream().map(PurchaseAmounts::getCurrentPrice)
+                .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal savings = purchasedListings.stream().map(this::calculateSavings)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         return new DashboardStatsResponse(
-                activeBotsCount,
-                negotiatingCount,
-                actionRequiredCount,
-                purchasedCount,
-                skippedByUserCount,
-                totalSpent,
-                totalNegotiatedSavings,
-                averagePurchasePrice,
-                averageDiscountPercentage
-        );
+                botRepository.countByStatusAndMarketStatsObserverFalse(BotStatus.RUNNING),
+                count(currentCounts, ListingStatus.NEGOTIATING),
+                count(currentCounts, ListingStatus.ACTION_REQUIRED),
+                count(historyCounts, ListingStatus.PURCHASED),
+                count(historyCounts, ListingStatus.SKIPPED_BY_USER),
+                totalSpent, savings, calculateAveragePurchasePrice(purchasedListings, totalSpent),
+                calculateAverageDiscountPercentage(purchasedListings));
     }
 
-
-    private boolean isInPeriod(
-            Listing listing,
-            DashboardPeriod period
-    ) {
-
-        if (
-                period == DashboardPeriod.ALL
-        ) {
-
-            return true;
-        }
-
-
-        LocalDateTime decisionAt =
-                listing.getDecisionAt();
-
-
-        /*
-         * DISCOVERED, NEGOTIATING i ACTION_REQUIRED
-         * nie mają decisionAt.
-         *
-         * Przy statystykach historycznych interesują
-         * nas PURCHASED i SKIPPED_BY_USER.
-         */
-
-        if (
-                decisionAt == null
-        ) {
-
-            return false;
-        }
-
-
-        LocalDateTime from =
-                getPeriodStart(
-                        period
-                );
-
-
-        return !decisionAt.isBefore(
-                from
-        );
+    private long count(List<ListingRepository.StatusCount> rows, ListingStatus status) {
+        return rows.stream().filter(row -> row.getStatus() == status)
+                .mapToLong(ListingRepository.StatusCount::getTotal).sum();
     }
-
 
     private LocalDateTime getPeriodStart(
             DashboardPeriod period
@@ -249,7 +89,7 @@ public class DashboardStatsService {
 
 
     private BigDecimal calculateSavings(
-            Listing listing
+            PurchaseAmounts listing
     ) {
 
         if (
@@ -283,7 +123,7 @@ public class DashboardStatsService {
 
 
     private BigDecimal calculateAveragePurchasePrice(
-            List<Listing> purchasedListings,
+            List<PurchaseAmounts> purchasedListings,
             BigDecimal totalSpent
     ) {
 
@@ -316,7 +156,7 @@ public class DashboardStatsService {
 
 
     private BigDecimal calculateAverageDiscountPercentage(
-            List<Listing> purchasedListings
+            List<PurchaseAmounts> purchasedListings
     ) {
 
         List<BigDecimal> discounts =
@@ -363,7 +203,7 @@ public class DashboardStatsService {
 
 
     private BigDecimal calculateDiscountPercentage(
-            Listing listing
+            PurchaseAmounts listing
     ) {
 
         BigDecimal originalPrice =

@@ -110,8 +110,9 @@ export async function getBotOfferQuota(
 
 export async function getBotDailyActivity(
     botId: number,
+    signal?: AbortSignal,
 ): Promise<BotDailyActivity> {
-    const response = await fetch(`${BOTS_BASE_URL}/${botId}/activity/today`);
+    const response = await fetch(`${BOTS_BASE_URL}/${botId}/activity/today`, { signal });
 
     if (response.status === 404) {
         throw new Error(`Nie znaleziono bota ${botId}.`);

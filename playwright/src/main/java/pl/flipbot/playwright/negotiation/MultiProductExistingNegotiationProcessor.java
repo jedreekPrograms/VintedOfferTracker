@@ -30,6 +30,7 @@ public class MultiProductExistingNegotiationProcessor
             new ConcurrentHashMap<>();
 
     private final BotContext context;
+    private final ListingClient listingClient;
     private final ListingStatusUpdater listingStatusUpdater;
     private final boolean realNextStepsEnabled;
     private final int maxRealNextStepsPerRun;
@@ -52,6 +53,7 @@ public class MultiProductExistingNegotiationProcessor
                 maxRealNextStepsPerRun
         );
         this.context = context;
+        this.listingClient = listingClient;
         this.listingStatusUpdater = listingStatusUpdater;
         this.realNextStepsEnabled = realNextStepsEnabled;
         this.maxRealNextStepsPerRun = maxRealNextStepsPerRun;
@@ -85,13 +87,16 @@ public class MultiProductExistingNegotiationProcessor
                         .toList()
         );
 
+        // Fetch once for this account/job. Per-action guards and quota remain
+        // authoritative; this snapshot only replaces duplicate listing reads.
+        var negotiations = listingClient.getNegotiatingListings(botId);
         boolean sentAny = false;
         try {
             for (BotProductExecutionPlan.Target target : targets) {
                 context.getBot().setConfiguration(target.configuration());
 
                 ListingClient targetClient = new TargetBoundListingClient(
-                        target.additionalTargetId()
+                        target.additionalTargetId(), botId, negotiations
                 );
                 ExistingNegotiationProcessor delegate =
                         new ExistingNegotiationProcessor(

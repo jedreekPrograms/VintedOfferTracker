@@ -1,6 +1,7 @@
 package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.browser.BrowserCapacityController;
 
 @Slf4j
 public record WorkerRuntimeConfig(
@@ -30,11 +31,13 @@ public record WorkerRuntimeConfig(
     private static final boolean DEFAULT_SCHEDULER_HEADLESS = true;
 
     public static WorkerRuntimeConfig fromEnvironment() {
-
+        BrowserCapacityController capacity = BrowserCapacityController.shared();
+        int defaultWorkers = capacity.adaptiveEnabled()
+                ? capacity.maximumConcurrency() : DEFAULT_WORKER_COUNT;
         return new WorkerRuntimeConfig(
                 readInt(
                         "FLIPBOT_WORKER_COUNT",
-                        DEFAULT_WORKER_COUNT,
+                        defaultWorkers,
                         1,
                         MAX_WORKER_COUNT
                 ),

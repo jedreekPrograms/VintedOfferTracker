@@ -7,7 +7,6 @@ import pl.flipbot.listing.dto.ListingHistoryResponse;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.Comparator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -20,23 +19,16 @@ public class ListingHistoryService {
     @Transactional(readOnly = true)
     public List<ListingHistoryResponse> getHistory() {
 
-        return listingRepository
-                .findAll()
-                .stream()
-                .filter(
-                        this::isVisibleHistoryListing
-                )
-                .sorted(
-                        Comparator.comparing(
-                                Listing::getDecisionAt,
-                                Comparator.nullsLast(
-                                        Comparator.reverseOrder()
-                                )
-                        )
-                )
-                .map(
-                        this::map
-                )
+        return listingRepository.findVisibleHistory(List.of(
+                        ListingStatus.PURCHASED, ListingStatus.SKIPPED_BY_USER))
+                .stream().map(row -> ListingHistoryResponse.builder()
+                        .id(row.getId()).listingId(row.getListingId())
+                        .title(row.getTitle()).url(row.getUrl())
+                        .originalPrice(row.getOriginalPrice()).currentPrice(row.getCurrentPrice())
+                        .currentStep(row.getCurrentStep()).status(row.getStatus().name())
+                        .decisionAt(row.getDecisionAt()).botId(row.getBotId()).botName(row.getBotName())
+                        .additionalTargetId(row.getAdditionalTargetId())
+                        .productTargetLabel(row.getProductTargetLabel()).build())
                 .toList();
     }
 
@@ -93,10 +85,6 @@ public class ListingHistoryService {
         }
 
         return listing;
-    }
-
-    private boolean isVisibleHistoryListing(Listing listing) {
-        return isHistoryListing(listing) && !listing.isHistoryHidden();
     }
 
     private boolean isHistoryListing(
