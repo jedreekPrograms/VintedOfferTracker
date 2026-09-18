@@ -137,6 +137,28 @@ public interface ListingRepository
         BigDecimal getCurrentPrice();
     }
 
+    interface ActionRequiredRow extends PurchaseAmounts {
+        Long getId();
+        String getListingId();
+        String getTitle();
+        String getUrl();
+        Integer getCurrentStep();
+        Boolean getAwaitingSellerResponse();
+        String getConversationId();
+        String getConversationUrl();
+        ListingStatus getStatus();
+        LocalDateTime getDecisionAt();
+        LocalDateTime getCurrentStepStartedAt();
+        LocalDateTime getSellerActivityAt();
+        LocalDateTime getReadDetectedAt();
+        String getFormalResponseFingerprint();
+        LocalDateTime getFormalResponseDetectedAt();
+        Long getBotId();
+        String getBotName();
+        Long getAdditionalTargetId();
+        String getProductTargetLabel();
+    }
+
     interface HistoryRow extends PurchaseAmounts {
         Long getId();
         String getListingId();
@@ -153,6 +175,32 @@ public interface ListingRepository
 
     @Query("select listing.status as status, count(listing) as total from Listing listing group by listing.status")
     List<StatusCount> countByListingStatus();
+
+    long countByStatus(ListingStatus status);
+
+    @Query("""
+            select listing.id as id, listing.listingId as listingId, listing.title as title,
+                   listing.url as url, listing.originalPrice as originalPrice,
+                   listing.currentPrice as currentPrice, listing.currentStep as currentStep,
+                   listing.awaitingSellerResponse as awaitingSellerResponse,
+                   listing.conversationId as conversationId, listing.conversationUrl as conversationUrl,
+                   listing.status as status, listing.decisionAt as decisionAt,
+                   listing.currentStepStartedAt as currentStepStartedAt,
+                   listing.sellerActivityAt as sellerActivityAt, listing.readDetectedAt as readDetectedAt,
+                   listing.formalResponseFingerprint as formalResponseFingerprint,
+                   listing.formalResponseDetectedAt as formalResponseDetectedAt,
+                   bot.id as botId, bot.name as botName, target.id as additionalTargetId,
+                   listing.productTargetLabel as productTargetLabel
+            from Listing listing
+            join listing.bot bot
+            left join listing.additionalTarget target
+            where listing.status = :status
+            order by listing.id asc
+            """)
+    List<ActionRequiredRow> findActionRequiredRows(
+            @Param("status") ListingStatus status
+    );
+
 
     @Query("""
             select listing.status as status, count(listing) as total from Listing listing
