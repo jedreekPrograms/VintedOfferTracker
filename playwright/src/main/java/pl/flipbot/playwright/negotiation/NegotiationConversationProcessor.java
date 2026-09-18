@@ -144,7 +144,8 @@ public class NegotiationConversationProcessor {
 
             NegotiationConversationSnapshot snapshot =
                     readLatestNegotiationEvent(
-                            page
+                            page,
+                            listing
                     );
 
             /*
@@ -186,7 +187,8 @@ public class NegotiationConversationProcessor {
     }
 
     private NegotiationConversationSnapshot readLatestNegotiationEvent(
-            Page page
+            Page page,
+            ListingResponseDto listing
     ) {
 
         try {
@@ -259,6 +261,23 @@ public class NegotiationConversationProcessor {
                             parsePrice(
                                     rawText
                             );
+
+                    if (!isPlausibleSellerCounterOffer(
+                            listing.originalPrice(),
+                            counterOfferPrice
+                    )) {
+                        log.error(
+                                "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
+                                listing.listingId(),
+                                rawText,
+                                counterOfferPrice,
+                                listing.originalPrice()
+                        );
+
+                        return NegotiationConversationSnapshot.unknown(
+                                rawText
+                        );
+                    }
 
                     log.info(
                             "[CONVERSATION] Latest negotiation event is "
@@ -376,6 +395,23 @@ public class NegotiationConversationProcessor {
                 rawStatus
         );
 
+    }
+
+    static boolean isPlausibleSellerCounterOffer(
+            BigDecimal originalPrice,
+            BigDecimal counterOfferPrice
+    ) {
+        if (counterOfferPrice == null
+                || counterOfferPrice.signum() <= 0) {
+            return false;
+        }
+
+        if (originalPrice == null
+                || originalPrice.signum() <= 0) {
+            return true;
+        }
+
+        return counterOfferPrice.compareTo(originalPrice) <= 0;
     }
 
     private BigDecimal parsePrice(
