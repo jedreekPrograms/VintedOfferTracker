@@ -44,6 +44,7 @@ function RuntimeDashboardPage() {
     const [previewUpdatingBotIds, setPreviewUpdatingBotIds] = useState<ReadonlySet<number>>(new Set());
     const previewRequests = useRef(new Set<number>());
     const runtimeRequest = useRef(0);
+    const runtimeAutoRefreshInFlightRef = useRef(false);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
         const request = ++runtimeRequest.current;
@@ -100,26 +101,65 @@ function RuntimeDashboardPage() {
     useEffect(() => {
         void loadRuntime(true);
 
+        const refreshWhenVisible = () => {
+            if (document.hidden || runtimeAutoRefreshInFlightRef.current) {
+                return;
+            }
+
+            runtimeAutoRefreshInFlightRef.current = true;
+            void loadRuntime(false).finally(() => {
+                runtimeAutoRefreshInFlightRef.current = false;
+            });
+        };
+
         const intervalId = window.setInterval(
-            () => {
-                void loadRuntime(false);
-            },
+            refreshWhenVisible,
             5_000,
+        );
+
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                refreshWhenVisible();
+            }
+        };
+
+        document.addEventListener(
+            "visibilitychange",
+            handleVisibilityChange,
         );
 
         return () => {
             window.clearInterval(intervalId);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
         };
     }, [loadRuntime]);
 
     useEffect(() => {
+        const updateClockWhenVisible = () => {
+            if (!document.hidden) {
+                setNowMs(Date.now());
+            }
+        };
+
         const intervalId = window.setInterval(
-            () => setNowMs(Date.now()),
+            updateClockWhenVisible,
             1_000,
+        );
+
+        document.addEventListener(
+            "visibilitychange",
+            updateClockWhenVisible,
         );
 
         return () => {
             window.clearInterval(intervalId);
+            document.removeEventListener(
+                "visibilitychange",
+                updateClockWhenVisible,
+            );
         };
     }, []);
 
@@ -342,6 +382,13 @@ function RuntimeRow({
 }) {
     const sessionBlocked = bot.sessionBlockedSince !== null;
     const canPreview = bot.botStatus === "RUNNING";
+    const nextRunAtMs = bot.nextRunAt === null
+        ? Number.NaN
+        : Date.parse(bot.nextRunAt);
+    const readyAndQueued = !sessionBlocked
+        && bot.runtimeStatus === "QUEUED"
+        && Number.isFinite(nextRunAtMs)
+        && nextRunAtMs <= nowMs;
 
     return (
         <tr>
@@ -408,6 +455,13 @@ function RuntimeRow({
                         <div>{formatDateTime(bot.nextRunAt)}</div>
                         <div className="runtime-cell-secondary">
                             {formatRetryCountdown(bot.nextRunAt, nowMs)}
+                        </div>
+                    </>
+                ) : readyAndQueued ? (
+                    <>
+                        <div>Gotowy do uruchomienia</div>
+                        <div className="runtime-cell-secondary">
+                            oczekuje na wolny slot
                         </div>
                     </>
                 ) : (
