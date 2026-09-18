@@ -26,6 +26,8 @@ public class LoginService {
     private static final double CREDENTIAL_STABILITY_WAIT_MS = 650;
     private static final double SUBMIT_TRANSITION_TIMEOUT_MS = 6_000;
     private static final double POST_LOGIN_TIMEOUT_MS = 60_000;
+    private static final int RESTORED_SESSION_SETTLE_POLLS = 32;
+    private static final double RESTORED_SESSION_SETTLE_POLL_MS = 250;
 
     private static final int MAX_REGISTER_SWITCH_ATTEMPTS = 6;
     private static final int MAX_CREDENTIAL_FILL_ATTEMPTS = 4;
@@ -94,6 +96,28 @@ public class LoginService {
         acceptCookiesIfVisible(page);
 
         String existingSignal = authenticatedSignal(page);
+
+        if (existingSignal == null && context.isStoredSessionRestored()) {
+            existingSignal = waitForRestoredSessionSignal(page);
+
+            if (existingSignal != null) {
+                log.info(
+                        "[SESSION] Restored session for bot {} became authenticated after UI stabilization. signal={}",
+                        context.getBot().getId(),
+                        existingSignal
+                );
+            } else {
+                log.warn(
+                        "[SESSION] Restored session for bot {} still exposes no strong authenticated signal after {}ms. Proceeding to interactive login without clearing cookies, storage or the persisted session file.",
+                        context.getBot().getId(),
+                        Math.round(
+                                RESTORED_SESSION_SETTLE_POLLS
+                                        * RESTORED_SESSION_SETTLE_POLL_MS
+                        )
+                );
+            }
+        }
+
         if (existingSignal != null) {
             log.info(
                     "[LOGIN] Bot {} is already logged in. signal={}",
@@ -104,6 +128,19 @@ public class LoginService {
         }
 
         performLogin(page);
+    }
+
+    String waitForRestoredSessionSignal(Page page) {
+        for (int poll = 0; poll < RESTORED_SESSION_SETTLE_POLLS; poll++) {
+            String signal = authenticatedSignal(page);
+            if (signal != null) {
+                return signal;
+            }
+
+            page.waitForTimeout(RESTORED_SESSION_SETTLE_POLL_MS);
+        }
+
+        return authenticatedSignal(page);
     }
 
     private void hideAutomation(Page page) {

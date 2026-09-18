@@ -2,7 +2,11 @@ package pl.flipbot.playwright.negotiation;
 
 import org.junit.Test;
 
+import java.math.BigDecimal;
+
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class NegotiationConversationProcessorStatusTest {
 
@@ -51,6 +55,32 @@ public class NegotiationConversationProcessorStatusTest {
         assertStatus(
                 "Odrzucono",
                 NegotiationConversationResult.REJECTED
+        );
+    }
+
+    @Test
+    public void rejectsCounterofferAboveCapturedOriginalPrice() {
+        assertFalse(
+                NegotiationConversationProcessor.isPlausibleSellerCounterOffer(
+                        new BigDecimal("1091.18"),
+                        new BigDecimal("2346.19")
+                )
+        );
+    }
+
+    @Test
+    public void acceptsCounterofferAtOrBelowCapturedOriginalPrice() {
+        assertTrue(
+                NegotiationConversationProcessor.isPlausibleSellerCounterOffer(
+                        new BigDecimal("1192.76"),
+                        new BigDecimal("1102.26")
+                )
+        );
+        assertTrue(
+                NegotiationConversationProcessor.isPlausibleSellerCounterOffer(
+                        new BigDecimal("1192.76"),
+                        new BigDecimal("1192.76")
+                )
         );
     }
 
