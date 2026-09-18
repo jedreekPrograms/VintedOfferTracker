@@ -67,7 +67,9 @@ public class ScheduledBotRunExecutor {
 
     private void executeInternal(ScheduledJobType jobType) {
         Long botId = bot.getId();
-        BotContext context = new BotContext(bot, browserManager);
+        BotContext context = jobType == ScheduledJobType.PRICE_PROBE
+                ? BotContext.isolated(bot, browserManager)
+                : new BotContext(bot, browserManager);
         boolean loginReady = false;
         boolean jobCompleted = false;
         boolean authenticatedCheckpointReady = false;
