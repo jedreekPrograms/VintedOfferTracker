@@ -17,6 +17,7 @@ public class CategoryNavigator {
     private static final double FIRST_ROOT_OPTION_TIMEOUT_MS = 10_000;
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
     private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
+    private static final double CATEGORY_LEVEL_SETTLE_MS = 350;
 
     private final FilterActions actions;
 
@@ -146,19 +147,27 @@ public class CategoryNavigator {
                             : STANDARD_OPTION_TIMEOUT_MS;
 
             log.debug(
-                    "[FILTER CATEGORY] Waiting for: {} (timeout={}ms)",
+                    "[FILTER CATEGORY] Waiting for exact option: {} (timeout={}ms)",
                     category,
                     (int) timeoutMs
             );
 
             try {
-                actions.waitForOption(category, timeoutMs);
-                actions.selectOption(category);
+                actions.clickExactButtonOption(
+                        category,
+                        timeoutMs
+                );
 
                 log.info(
-                        "[FILTER CATEGORY] Selected: {}",
+                        "[FILTER CATEGORY] Selected exact option: {}",
                         category
                 );
+
+                if (index < categoryPath.size() - 1) {
+                    actions.waitForTimeout(
+                            CATEGORY_LEVEL_SETTLE_MS
+                    );
+                }
 
             } catch (RuntimeException exception) {
                 throw new CategorySelectionException(
@@ -179,7 +188,7 @@ public class CategoryNavigator {
         String message;
 
         if (exception instanceof TimeoutError) {
-            message = "option not visible after "
+            message = "exact option not visible after "
                     + Math.round(timeoutMilliseconds / 1_000)
                     + "s";
         } else {
@@ -188,7 +197,7 @@ public class CategoryNavigator {
 
         if (attempt < MAX_ATTEMPTS) {
             log.info(
-                    "[FILTER CATEGORY] Attempt {}/{} needs retry at '{}': {}.",
+                    "[FILTER CATEGORY] Attempt {}/{} needs retry at exact option '{}': {}.",
                     attempt,
                     MAX_ATTEMPTS,
                     category,
@@ -196,7 +205,7 @@ public class CategoryNavigator {
             );
         } else {
             log.warn(
-                    "[FILTER CATEGORY] Final attempt {}/{} failed at '{}': {}.",
+                    "[FILTER CATEGORY] Final attempt {}/{} failed at exact option '{}': {}.",
                     attempt,
                     MAX_ATTEMPTS,
                     category,
@@ -256,7 +265,7 @@ public class CategoryNavigator {
         }
 
         if (exception instanceof TimeoutError) {
-            return "Vinted did not render the expected option within the timeout";
+            return "Vinted did not render the exact expected option within the timeout";
         }
 
         String message = exception.getMessage();
