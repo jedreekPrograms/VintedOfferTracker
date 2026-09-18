@@ -33,10 +33,16 @@ public class PreparedNextStepStateVerifier {
         Page page = context.getPage();
         humanVerificationHandler.waitUntilVerified(page);
 
-        String openedConversationId = extractConversationId(page.url());
+        String currentUrl = page.url();
+        String openedConversationId = extractConversationId(currentUrl);
         if (!listing.conversationId().equals(openedConversationId)) {
             throw new IllegalStateException(
-                    "Prepared next-step form belongs to an unexpected conversation"
+                    "Prepared next-step form belongs to an unexpected conversation. Expected: "
+                            + listing.conversationId()
+                            + ", actual: "
+                            + openedConversationId
+                            + ", URL: "
+                            + currentUrl
             );
         }
 
