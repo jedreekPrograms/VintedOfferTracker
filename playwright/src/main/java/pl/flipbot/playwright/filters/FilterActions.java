@@ -96,6 +96,33 @@ public class FilterActions {
         waitUntilVisible(getOptionLocator(option), timeoutMilliseconds);
     }
 
+    public void clickExactButtonOption(
+            String option,
+            double timeoutMilliseconds
+    ) {
+        if (option == null || option.isBlank()) {
+            throw new IllegalArgumentException("Filter option cannot be blank");
+        }
+
+        ensureVintedBeforeFilterAction(
+                "selecting exact filter option '" + option + "'"
+        );
+
+        Locator locator = page.getByRole(
+                AriaRole.BUTTON,
+                new Page.GetByRoleOptions()
+                        .setName(option)
+                        .setExact(true)
+        );
+
+        waitUntilVisible(locator, timeoutMilliseconds);
+        locator.click();
+
+        assertStillOnVinted(
+                "selecting exact filter option '" + option + "'"
+        );
+    }
+
     public void fillInput(String testId, String value) {
         ensureVintedBeforeFilterAction("filling filter input " + testId);
         Locator input = page.getByTestId(testId);
