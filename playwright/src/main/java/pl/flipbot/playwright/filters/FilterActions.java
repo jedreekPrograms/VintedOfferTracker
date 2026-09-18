@@ -5,8 +5,9 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 
 import java.net.URLDecoder;
@@ -19,7 +20,6 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 @Slf4j
-@RequiredArgsConstructor
 public class FilterActions {
 
     private static final double FILTER_TIMEOUT_MS = 10_000;
@@ -44,6 +44,14 @@ public class FilterActions {
             "--title";
 
     private final Page page;
+    private final MarketplaceNavigator marketplaceNavigator;
+
+    public FilterActions(
+            BotContext context
+    ) {
+        this.page = context.getPage();
+        this.marketplaceNavigator = new MarketplaceNavigator(context);
+    }
 
     private String activeFilterTestId;
     private String activeFilterBaseUrl;
@@ -1194,11 +1202,8 @@ public class FilterActions {
             );
         }
 
-        page.navigate(
-                url,
-                new Page.NavigateOptions()
-                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
-                        .setTimeout(RELOAD_TIMEOUT_MS)
+        marketplaceNavigator.goToTrustedVintedUrl(
+                url
         );
 
         if (!MarketplaceUrls.isVintedUrl(page.url())) {

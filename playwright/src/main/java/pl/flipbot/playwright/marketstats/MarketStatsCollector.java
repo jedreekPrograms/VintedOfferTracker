@@ -586,11 +586,13 @@ public class MarketStatsCollector {
         }
 
         try {
-            context.getPage().navigate(nextUrl, catalogPageNavigateOptions());
+            new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                    nextUrl
+            );
             context.getPage().waitForTimeout(PAGE_WAIT_MS);
 
             log.debug(
-                    "[MARKET STATS] Opened filtered catalog page {} after DOMContentLoaded. url={}",
+                    "[MARKET STATS] Opened filtered catalog page {} after DOMContentLoaded/session-refresh handling. url={}",
                     pageNumber,
                     context.getPage().url()
             );

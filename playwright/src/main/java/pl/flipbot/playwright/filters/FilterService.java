@@ -8,6 +8,7 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.filters.category.CategoryNavigator;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 
 import java.math.BigDecimal;
 import java.net.URLDecoder;
@@ -36,6 +37,8 @@ public class FilterService {
 
     private final Page page;
 
+    private final MarketplaceNavigator marketplaceNavigator;
+
     private final FilterActions actions;
 
     private final CategoryNavigator
@@ -49,9 +52,14 @@ public class FilterService {
         this.page =
                 context.getPage();
 
+        this.marketplaceNavigator =
+                new MarketplaceNavigator(
+                        context
+                );
+
         this.actions =
                 new FilterActions(
-                        page
+                        context
                 );
 
         this.categoryNavigator =
@@ -629,7 +637,7 @@ public class FilterService {
         );
 
 
-        page.navigate(
+        marketplaceNavigator.goToTrustedVintedUrl(
                 correctedUrl
         );
 
@@ -779,7 +787,9 @@ public class FilterService {
                     correctedUrl
             );
 
-            page.navigate(correctedUrl);
+            marketplaceNavigator.goToTrustedVintedUrl(
+                    correctedUrl
+            );
             actions.waitForTimeout(1_000);
         }
 
