@@ -3,6 +3,9 @@ package pl.flipbot.bot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import pl.flipbot.bot.runtime.BotRuntimeState;
+import pl.flipbot.bot.runtime.BotRuntimeStateRepository;
+import pl.flipbot.bot.runtime.BotRuntimeStatus;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.negotiation.guard.RealActionGuardRepository;
@@ -23,6 +26,7 @@ class BotDeletionServiceTest {
     private BotRepository botRepository;
     private ListingRepository listingRepository;
     private RealActionGuardRepository guardRepository;
+    private BotRuntimeStateRepository runtimeStateRepository;
     private JdbcTemplate jdbcTemplate;
     private BotDeletionService service;
 
@@ -31,12 +35,14 @@ class BotDeletionServiceTest {
         botRepository = mock(BotRepository.class);
         listingRepository = mock(ListingRepository.class);
         guardRepository = mock(RealActionGuardRepository.class);
+        runtimeStateRepository = mock(BotRuntimeStateRepository.class);
         jdbcTemplate = mock(JdbcTemplate.class);
 
         service = new BotDeletionService(
                 botRepository,
                 listingRepository,
                 guardRepository,
+                runtimeStateRepository,
                 jdbcTemplate
         );
 
@@ -47,6 +53,7 @@ class BotDeletionServiceTest {
                 .build();
 
         when(botRepository.findById(5L)).thenReturn(Optional.of(bot));
+        when(runtimeStateRepository.findById(5L)).thenReturn(Optional.empty());
         when(listingRepository.findByBotIdAndStatusOrderByIdAsc(
                 5L,
                 ListingStatus.NEGOTIATING
@@ -55,6 +62,7 @@ class BotDeletionServiceTest {
                 5L,
                 ListingStatus.ACTION_REQUIRED
         )).thenReturn(List.of());
+        when(guardRepository.countUnresolvedByBotId(5L)).thenReturn(0L);
         when(jdbcTemplate.queryForObject(
                 anyString(),
                 eq(Boolean.class),
@@ -63,8 +71,24 @@ class BotDeletionServiceTest {
     }
 
     @Test
+    void workingRuntimeBlocksDeletionEvenAfterBotWasStopped() {
+        BotRuntimeState state = new BotRuntimeState();
+        state.setRuntimeStatus(BotRuntimeStatus.WORKING);
+        when(runtimeStateRepository.findById(5L)).thenReturn(Optional.of(state));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service.deleteBot(5L)
+        );
+
+        verify(botRepository, never()).delete(
+                org.mockito.ArgumentMatchers.any(Bot.class)
+        );
+    }
+
+    @Test
     void unresolvedRealActionGuardBlocksDeletion() {
-        when(guardRepository.countByListing_Bot_Id(5L))
+        when(guardRepository.countUnresolvedByBotId(5L))
                 .thenReturn(1L);
 
         assertThrows(
@@ -79,8 +103,6 @@ class BotDeletionServiceTest {
 
     @Test
     void unconfirmedMarketplaceClaimBlocksDeletionEvenWithoutGuard() {
-        when(guardRepository.countByListing_Bot_Id(5L))
-                .thenReturn(0L);
         when(jdbcTemplate.queryForObject(
                 anyString(),
                 eq(Boolean.class),
@@ -98,10 +120,21 @@ class BotDeletionServiceTest {
     }
 
     @Test
-    void stoppedBotWithoutActiveListingsOrUnresolvedActionsCanBeDeleted() {
-        when(guardRepository.countByListing_Bot_Id(5L))
+    void confirmedStaleGuardDoesNotBlockDeletion() {
+        when(guardRepository.countUnresolvedByBotId(5L))
                 .thenReturn(0L);
 
+        service.deleteBot(5L);
+
+        verify(botRepository).delete(
+                org.mockito.ArgumentMatchers.argThat(
+                        bot -> bot != null && Long.valueOf(5L).equals(bot.getId())
+                )
+        );
+    }
+
+    @Test
+    void stoppedBotWithoutActiveListingsOrUnresolvedActionsCanBeDeleted() {
         service.deleteBot(5L);
 
         verify(botRepository).delete(
