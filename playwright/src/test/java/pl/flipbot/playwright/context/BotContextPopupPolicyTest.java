@@ -53,4 +53,15 @@ public class BotContextPopupPolicyTest {
 
         assertTrue(BotContext.shouldRestoreStoredSession(bot));
     }
+
+    @Test
+    public void isolatedJobNeverRestoresProductionSession() {
+        BotDetailsDto bot = new BotDetailsDto();
+        bot.setId(3L);
+        bot.setName("Galaxy S25");
+        bot.setEmail("bot@example.com");
+        bot.setPassword("secret");
+
+        assertFalse(BotContext.shouldRestoreStoredSession(bot, false));
+    }
 }
