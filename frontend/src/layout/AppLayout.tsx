@@ -1,15 +1,27 @@
-import { useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 
 import {
     NavLink,
     Outlet,
 } from "react-router-dom";
 
+import {
+    getDashboardStats,
+} from "../api/dashboardApi";
+
 interface NavigationItem {
     label: string;
     path: string;
     end?: boolean;
 }
+
+const ACTION_REQUIRED_COUNT_POLL_INTERVAL_MS =
+    15_000;
 
 const navigationItems: NavigationItem[] = [
     {
@@ -53,7 +65,101 @@ const navigationItems: NavigationItem[] = [
 ];
 
 function AppLayout() {
-    const [isNavigationOpen, setIsNavigationOpen] = useState(false);
+    const [
+        isNavigationOpen,
+        setIsNavigationOpen,
+    ] = useState(false);
+
+    const [
+        actionRequiredCount,
+        setActionRequiredCount,
+    ] = useState(0);
+
+    const countRefreshInFlightRef =
+        useRef(false);
+
+    const refreshActionRequiredCount =
+        useCallback(
+            async () => {
+                if (
+                    countRefreshInFlightRef.current
+                ) {
+                    return;
+                }
+
+                countRefreshInFlightRef.current =
+                    true;
+
+                try {
+                    const stats =
+                        await getDashboardStats(
+                            "ALL",
+                        );
+
+                    setActionRequiredCount(
+                        stats.actionRequiredCount,
+                    );
+                } catch {
+                    /*
+                     * A transient dashboard read failure must not erase an
+                     * already visible warning count. The next poll retries.
+                     */
+                } finally {
+                    countRefreshInFlightRef.current =
+                        false;
+                }
+            },
+            [],
+        );
+
+    useEffect(
+        () => {
+            void refreshActionRequiredCount();
+
+            const refreshIfVisible =
+                () => {
+                    if (
+                        !document.hidden
+                    ) {
+                        void refreshActionRequiredCount();
+                    }
+                };
+
+            const intervalId =
+                window.setInterval(
+                    refreshIfVisible,
+                    ACTION_REQUIRED_COUNT_POLL_INTERVAL_MS,
+                );
+
+            const handleVisibilityChange =
+                () => {
+                    if (
+                        !document.hidden
+                    ) {
+                        void refreshActionRequiredCount();
+                    }
+                };
+
+            document.addEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+
+            return () => {
+                window.clearInterval(
+                    intervalId,
+                );
+
+                document.removeEventListener(
+                    "visibilitychange",
+                    handleVisibilityChange,
+                );
+            };
+        },
+        [
+            refreshActionRequiredCount,
+        ],
+    );
 
     return (
         <div className="app-layout">
@@ -110,6 +216,10 @@ function AppLayout() {
                             onClick={() => setIsNavigationOpen(false)}
                         >
                             {item.label}
+                            {item.path === "/action-required"
+                                && actionRequiredCount > 0
+                                ? ` (${actionRequiredCount})`
+                                : ""}
                         </NavLink>
                     ))}
                 </nav>
