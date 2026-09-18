@@ -8,12 +8,12 @@ import static org.junit.Assert.assertTrue;
 public class BrowserResourceOptimizationConfigTest {
 
     @Test
-    public void headlessBlocksServiceWorkersByDefault() {
-        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+    public void headlessKeepsServiceWorkersEnabledByDefault() {
+        assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 null
         ));
-        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+        assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 "   "
         ));
@@ -32,7 +32,23 @@ public class BrowserResourceOptimizationConfigTest {
     }
 
     @Test
-    public void headlessOverrideCanDisableBlocking() {
+    public void headlessOverrideCanExplicitlyEnableBlocking() {
+        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+                true,
+                "true"
+        ));
+        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+                true,
+                "1"
+        ));
+        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+                true,
+                "yes"
+        ));
+    }
+
+    @Test
+    public void disabledAndInvalidOverridesKeepCompatibilityDefault() {
         assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 "false"
@@ -45,15 +61,7 @@ public class BrowserResourceOptimizationConfigTest {
                 true,
                 "off"
         ));
-    }
-
-    @Test
-    public void headlessOverrideAcceptsEnabledValuesAndFailsSafeToDefault() {
-        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
-                true,
-                "yes"
-        ));
-        assertTrue(BrowserResourceOptimizationConfig.blockServiceWorkers(
+        assertFalse(BrowserResourceOptimizationConfig.blockServiceWorkers(
                 true,
                 "invalid-value"
         ));
