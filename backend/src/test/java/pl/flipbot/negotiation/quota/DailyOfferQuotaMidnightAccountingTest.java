@@ -79,8 +79,8 @@ class DailyOfferQuotaMidnightAccountingTest {
         when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                 eq(3L), any(LocalDateTime.class), any(LocalDateTime.class)
         )).thenReturn(List.of(audit(requestId)));
-        when(reservationRepository.findById(requestId))
-                .thenReturn(Optional.of(yesterdayReservation));
+        when(reservationRepository.findAllById(any()))
+                .thenReturn(List.of(yesterdayReservation));
 
         DailyOfferQuotaResponse response = service.getQuota(3L);
 
@@ -104,8 +104,8 @@ class DailyOfferQuotaMidnightAccountingTest {
         when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                 eq(3L), any(LocalDateTime.class), any(LocalDateTime.class)
         )).thenReturn(List.of(audit(requestId)));
-        when(reservationRepository.findById(requestId))
-                .thenReturn(Optional.of(todayReservation));
+        when(reservationRepository.findAllById(any()))
+                .thenReturn(List.of(todayReservation));
 
         DailyOfferQuotaResponse response = service.getQuota(3L);
 

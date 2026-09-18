@@ -28,7 +28,7 @@ class BotDailyActivityServiceTest {
         RealActionAuditRepository auditRepository = mock(RealActionAuditRepository.class);
         DailyOfferQuotaService quotaService = mock(DailyOfferQuotaService.class);
 
-        when(quotaService.getQuota(4L)).thenReturn(
+        when(quotaService.getQuotaSnapshot(4L)).thenReturn(
                 new DailyOfferQuotaResponse(25, 5, 20)
         );
         when(listingRepository.countByBotIdAndStatus(
