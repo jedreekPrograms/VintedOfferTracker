@@ -4,6 +4,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.login.LoginSelectors;
 
 import java.util.Locale;
 
@@ -40,7 +41,7 @@ public final class VintedSessionPersistenceGuard {
             return new Check(true, "visible /inbox link");
         }
 
-        if (hasVisible(page.locator("[data-testid='header-login-button']"))) {
+        if (hasVisible(page.getByTestId(LoginSelectors.LOGIN_BUTTON))) {
             return new Check(false, "Vinted login control is visible at job end");
         }
 
