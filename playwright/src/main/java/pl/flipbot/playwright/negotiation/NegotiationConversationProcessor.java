@@ -329,7 +329,7 @@ public class NegotiationConversationProcessor {
 
     }
 
-    private NegotiationConversationSnapshot createStatusSnapshot(
+    NegotiationConversationSnapshot createStatusSnapshot(
             String rawStatus
     ) {
 
@@ -338,8 +338,15 @@ public class NegotiationConversationProcessor {
                         rawStatus
                 );
 
+        /*
+         * Vinted has used multiple Polish grammatical forms for the same
+         * offer state across UI variants (for example "Zaakceptowane",
+         * "Zaakceptowana" and "Zaakceptowano"). Matching the stable word
+         * stem keeps those presentation changes from silently leaving a
+         * genuinely accepted offer in NEGOTIATING.
+         */
         if (normalizedStatus.contains(
-                "oczekujace"
+                "oczekuj"
         )) {
 
             return NegotiationConversationSnapshot.pending(
@@ -348,8 +355,10 @@ public class NegotiationConversationProcessor {
 
         }
 
-        if (normalizedStatus.contains(
-                "zaakceptowane"
+        if (!normalizedStatus.contains(
+                "niezaakceptowan"
+        ) && normalizedStatus.contains(
+                "zaakceptowan"
         )) {
 
             return NegotiationConversationSnapshot.accepted(
@@ -359,7 +368,7 @@ public class NegotiationConversationProcessor {
         }
 
         if (normalizedStatus.contains(
-                "odrzucone"
+                "odrzucon"
         )) {
 
             return NegotiationConversationSnapshot.rejected(
