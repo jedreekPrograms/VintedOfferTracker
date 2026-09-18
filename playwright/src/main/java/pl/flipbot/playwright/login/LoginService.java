@@ -27,7 +27,6 @@ public class LoginService {
     private static final double SUBMIT_TRANSITION_TIMEOUT_MS = 6_000;
     private static final double POST_LOGIN_TIMEOUT_MS = 60_000;
 
-    private static final int POST_LOGIN_STABLE_FALLBACK_POLLS = 4;
     private static final int MAX_REGISTER_SWITCH_ATTEMPTS = 6;
     private static final int MAX_CREDENTIAL_FILL_ATTEMPTS = 4;
     private static final int MAX_SUBMIT_ATTEMPTS = 3;
@@ -94,7 +93,7 @@ public class LoginService {
 
         acceptCookiesIfVisible(page);
 
-        String existingSignal = authenticatedSignal(page, true);
+        String existingSignal = authenticatedSignal(page);
         if (existingSignal != null) {
             log.info(
                     "[LOGIN] Bot {} is already logged in. signal={}",
@@ -665,7 +664,7 @@ public class LoginService {
                         + (long) SUBMIT_TRANSITION_TIMEOUT_MS;
 
         while (System.currentTimeMillis() <= deadline) {
-            String authenticated = authenticatedSignal(page, false);
+            String authenticated = authenticatedSignal(page);
             if (authenticated != null) {
                 return "authenticated by " + authenticated;
             }
@@ -677,7 +676,7 @@ public class LoginService {
 
                 humanVerificationHandler.waitUntilVerified(page);
 
-                String afterVerification = authenticatedSignal(page, false);
+                String afterVerification = authenticatedSignal(page);
                 if (afterVerification != null) {
                     return "human verification completed; authenticated by "
                             + afterVerification;
@@ -707,10 +706,8 @@ public class LoginService {
                 System.currentTimeMillis()
                         + (long) POST_LOGIN_TIMEOUT_MS;
 
-        int stableFallbackPolls = 0;
-
         while (System.currentTimeMillis() <= deadline) {
-            String strongSignal = authenticatedSignal(page, false);
+            String strongSignal = authenticatedSignal(page);
 
             if (strongSignal != null) {
                 return strongSignal;
@@ -721,21 +718,7 @@ public class LoginService {
                         "[LOGIN] Human verification is visibly present while waiting for authenticated session."
                 );
                 humanVerificationHandler.waitUntilVerified(page);
-                stableFallbackPolls = 0;
                 continue;
-            }
-
-            if (looksLikeCompletedLoginWithoutKnownHeaderSelector(page)) {
-                stableFallbackPolls++;
-
-                if (stableFallbackPolls >= POST_LOGIN_STABLE_FALLBACK_POLLS) {
-                    return "login controls and auth form disappeared on a trusted Vinted page"
-                            + " for "
-                            + POST_LOGIN_STABLE_FALLBACK_POLLS
-                            + " consecutive checks";
-                }
-            } else {
-                stableFallbackPolls = 0;
             }
 
             String explicitError = detectExplicitLoginError(page);
@@ -750,7 +733,7 @@ public class LoginService {
         }
 
         log.error(
-                "[LOGIN] Login submission could not be verified within {}s for bot {}. Current URL: {}. The session will NOT be saved as authenticated.",
+                "[LOGIN] Login submission could not be verified by a strong authenticated signal within {}s for bot {}. Current URL: {}. The session will NOT be saved as authenticated.",
                 Math.round(POST_LOGIN_TIMEOUT_MS / 1_000),
                 context.getBot().getId(),
                 page.url()
@@ -758,7 +741,7 @@ public class LoginService {
         logLoginDiagnostics(page);
 
         throw new IllegalStateException(
-                "Vinted login submission could not be verified. Current URL: "
+                "Vinted login submission could not be verified by a strong authenticated signal. Current URL: "
                         + page.url()
         );
     }
@@ -864,9 +847,8 @@ public class LoginService {
         return null;
     }
 
-    private String authenticatedSignal(
-            Page page,
-            boolean allowStableControlAbsenceFallback
+    String authenticatedSignal(
+            Page page
     ) {
         Locator conversationsButtons =
                 page.getByTestId(LoginSelectors.CONVERSATIONS_BUTTON);
@@ -881,35 +863,7 @@ public class LoginService {
             return "visible /inbox link";
         }
 
-        if (allowStableControlAbsenceFallback
-                && looksLikeCompletedLoginWithoutKnownHeaderSelector(page)) {
-            return "login controls absent on trusted Vinted page";
-        }
-
         return null;
-    }
-
-    private boolean looksLikeCompletedLoginWithoutKnownHeaderSelector(Page page) {
-        if (!MarketplaceUrls.isVintedUrl(page.url())
-                || isAuthenticationUrl(page.url())) {
-            return false;
-        }
-
-        Locator loginButton = page.getByTestId(LoginSelectors.LOGIN_BUTTON);
-        Locator emailInput = page.locator("#" + LoginSelectors.EMAIL_INPUT);
-        Locator passwordInput = page.locator("#" + LoginSelectors.PASSWORD_INPUT);
-        Locator registerView = page.getByTestId(REGISTER_VIEW_TEST_ID);
-        Locator loginView = page.getByTestId(LOGIN_VIEW_TEST_ID);
-        Locator switchToLogin = page.getByTestId(REGISTER_SWITCH_TEST_ID);
-        Locator emailLogin = page.getByTestId(LOGIN_EMAIL_TEST_ID);
-
-        return !hasVisible(loginButton)
-                && !hasVisible(emailInput)
-                && !hasVisible(passwordInput)
-                && !hasVisible(registerView)
-                && !hasVisible(loginView)
-                && !hasVisible(switchToLogin)
-                && !hasVisible(emailLogin);
     }
 
     private boolean hasAuthenticationViewChanged(
