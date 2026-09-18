@@ -160,7 +160,11 @@ public class BotWorkerSlot implements Runnable {
                 } catch (BrowserCapacityUnavailableException exception) {
                     // No browser or marketplace action started. Keep this a
                     // queued job, without touching failures or session state.
-                    scheduler.completeRun(botId, jobType, 5_000L, false, true);
+                    scheduler.deferRunForCapacity(
+                            botId,
+                            jobType,
+                            5_000L
+                    );
                     log.debug("[BROWSER CAPACITY] Deferred bot {} / {}: {}", botId, jobType, exception.getMessage());
                     continue;
                 }
