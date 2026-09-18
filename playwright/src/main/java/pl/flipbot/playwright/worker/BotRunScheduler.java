@@ -383,6 +383,59 @@ public class BotRunScheduler {
         );
     }
 
+    /**
+     * Release a claimed job that never started because local browser capacity
+     * was unavailable. This is neither a success nor a failure: preserve the
+     * job type's existing adaptive failure counter and retry shortly.
+     */
+    public synchronized void deferRunForCapacity(
+            Long botId,
+            ScheduledJobType jobType,
+            long retryDelayMillis
+    ) {
+        BotSchedule schedule = schedules.get(botId);
+
+        if (schedule == null || !schedule.enabled) {
+            notifyAll();
+            return;
+        }
+
+        if (schedule.workingJobType != jobType) {
+            log.warn(
+                    "[SCHEDULER CAPACITY] Bot {} deferred {}, but scheduler recorded workingJobType={}. Releasing conservatively.",
+                    botId,
+                    jobType,
+                    schedule.workingJobType
+            );
+        }
+
+        schedule.workingJobType = null;
+
+        long now = clock.millis();
+        long readyAt = safeAdd(
+                now,
+                Math.max(0L, retryDelayMillis)
+        );
+
+        switch (jobType) {
+            case CATALOG_SCAN ->
+                    schedule.nextCatalogAtEpochMs = readyAt;
+            case NEGOTIATION_CHECK ->
+                    schedule.nextNegotiationAtEpochMs =
+                            schedule.hasActiveNegotiations
+                                    ? readyAt
+                                    : NEVER;
+            case PRICE_PROBE ->
+                    schedule.nextPriceProbeAtEpochMs =
+                            PRICE_PROBE_CONFIG.enabled()
+                                    ? readyAt
+                                    : NEVER;
+        }
+
+        reportQueuedStateUnsafe(botId, schedule);
+        notifyAll();
+    }
+
     private void completeRunUnsafe(
             Long botId,
             ScheduledJobType jobType,
