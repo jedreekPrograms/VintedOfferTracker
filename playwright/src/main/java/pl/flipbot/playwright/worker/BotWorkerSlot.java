@@ -198,6 +198,8 @@ public class BotWorkerSlot implements Runnable {
                     boolean delayAllJobs = false;
                     boolean reportQueuedAfterRun = true;
                     long startedAtNanos = System.nanoTime();
+                    long runFailureDurationMillis = 0L;
+                    String runFailureMessage = null;
 
                     boolean previewRequested =
                             config.schedulerHeadless()
@@ -354,24 +356,15 @@ public class BotWorkerSlot implements Runnable {
                         delayAllJobs = false;
                         reportQueuedAfterRun = false;
 
-                        long durationMs = elapsedMillis(startedAtNanos);
-                        long nextRunAtEpochMs = System.currentTimeMillis() + nextDelayMillis;
-
-                        telemetryReporter.runFailed(
-                                botId,
-                                durationMs,
-                                nextRunAtEpochMs,
-                                errorMessage(exception)
-                        );
+                        runFailureDurationMillis = elapsedMillis(startedAtNanos);
+                        runFailureMessage = errorMessage(exception);
 
                         log.error(
-                                "[SLOT {}] Bot {} failed during {}. Only {} will retry in {} seconds; the bot's other scheduled job type keeps its own schedule. reason={}",
+                                "[SLOT {}] Bot {} failed during {}. The scheduler will apply this job type's adaptive backoff; other job types keep their schedules. reason={}",
                                 slotNumber,
                                 botId,
                                 jobType,
-                                jobType,
-                                config.failureDelaySeconds(),
-                                errorMessage(exception)
+                                runFailureMessage
                         );
                         log.debug(
                                 "[SLOT {}] Full failure for bot {} during {}.",
@@ -383,13 +376,23 @@ public class BotWorkerSlot implements Runnable {
 
                     } finally {
                         try {
-                            scheduler.completeRun(
-                                    botId,
-                                    jobType,
-                                    nextDelayMillis,
-                                    delayAllJobs,
-                                    reportQueuedAfterRun
-                            );
+                            if (runFailureMessage != null) {
+                                scheduler.completeFailedRun(
+                                        botId,
+                                        jobType,
+                                        nextDelayMillis,
+                                        runFailureDurationMillis,
+                                        runFailureMessage
+                                );
+                            } else {
+                                scheduler.completeRun(
+                                        botId,
+                                        jobType,
+                                        nextDelayMillis,
+                                        delayAllJobs,
+                                        reportQueuedAfterRun
+                                );
+                            }
                         } finally {
                             String closeReason =
                                     "scheduled job finished for bot "

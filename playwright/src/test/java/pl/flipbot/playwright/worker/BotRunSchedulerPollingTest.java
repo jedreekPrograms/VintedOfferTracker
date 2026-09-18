@@ -55,7 +55,7 @@ public class BotRunSchedulerPollingTest {
     }
 
     @Test
-    public void catalogConcurrencyLimitDefersExtraCatalogWithoutBlockingNegotiation()
+    public void catalogCapacityWaitDoesNotBlockNewNegotiation()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
         BotRunScheduler scheduler = new BotRunScheduler(
@@ -83,16 +83,16 @@ public class BotRunSchedulerPollingTest {
             assertEquals(1, scheduler.workingCatalogCount());
 
             /*
-             * Bot 2's ready catalog task is consumed and rescheduled because
-             * the single catalog slot is already occupied. No worker remains
-             * blocked waiting for capacity.
+             * Bot 2 stays scheduler-pending while catalog capacity is full.
+             * No worker is claimed and there is no synthetic +1s retry task.
              */
             assertNull(scheduler.pollNext(30L));
             assertEquals(1, scheduler.workingCatalogCount());
+            assertEquals(1, scheduler.queuedCount());
 
             /*
-             * A newly-active negotiation for bot 2 must pre-empt the deferred
-             * catalog even while bot 1 still owns the catalog capacity.
+             * A newly-active negotiation for bot 2 remains eligible even while
+             * its catalog is waiting for the single catalog slot.
              */
             scheduler.reconcileRunningBots(
                     Map.of(
@@ -110,6 +110,51 @@ public class BotRunSchedulerPollingTest {
                     negotiation.jobType()
             );
             assertEquals(1, scheduler.workingCatalogCount());
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
+    public void releasedCatalogCapacityImmediatelyHandsOffToWaitingCatalog()
+            throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(
+                config(),
+                telemetry,
+                /*
+                 * A very large legacy retry value proves capacity hand-off no
+                 * longer depends on retry polling.
+                 */
+                new CatalogConcurrencyConfig(1, 60_000L)
+        );
+
+        try {
+            scheduler.reconcileRunningBots(
+                    Map.of(
+                            1L, false,
+                            2L, false
+                    )
+            );
+
+            ScheduledBotTask first = scheduler.pollNext(100L);
+            assertNotNull(first);
+            assertEquals(Long.valueOf(1L), first.botId());
+            assertNull(scheduler.pollNext(20L));
+
+            scheduler.completeRun(
+                    first.botId(),
+                    first.jobType(),
+                    60_000L,
+                    false,
+                    false
+            );
+
+            ScheduledBotTask second = scheduler.pollNext(100L);
+            assertNotNull(second);
+            assertEquals(Long.valueOf(2L), second.botId());
+            assertEquals(ScheduledJobType.CATALOG_SCAN, second.jobType());
         } finally {
             scheduler.shutdown();
             telemetry.close();
