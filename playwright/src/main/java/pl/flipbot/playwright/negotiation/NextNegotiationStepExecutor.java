@@ -5,13 +5,13 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.WaitForSelectorState;
-import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
@@ -23,9 +23,6 @@ import java.util.regex.Pattern;
 @Slf4j
 @RequiredArgsConstructor
 public class NextNegotiationStepExecutor {
-
-    private static final double NAVIGATION_TIMEOUT_MS =
-            30_000;
 
     private static final double ELEMENT_TIMEOUT_MS =
             15_000;
@@ -313,15 +310,8 @@ public class NextNegotiationStepExecutor {
                 listing.conversationUrl()
         );
 
-        page.navigate(
-                listing.conversationUrl(),
-                new Page.NavigateOptions()
-                        .setWaitUntil(
-                                WaitUntilState.DOMCONTENTLOADED
-                        )
-                        .setTimeout(
-                                NAVIGATION_TIMEOUT_MS
-                        )
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listing.conversationUrl()
         );
 
         humanVerificationHandler.waitUntilVerified(
