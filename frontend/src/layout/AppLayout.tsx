@@ -11,8 +11,8 @@ import {
 } from "react-router-dom";
 
 import {
-    getDashboardStats,
-} from "../api/dashboardApi";
+    getActionRequiredCount,
+} from "../api/listingsApi";
 
 interface NavigationItem {
     label: string;
@@ -91,13 +91,8 @@ function AppLayout() {
                     true;
 
                 try {
-                    const stats =
-                        await getDashboardStats(
-                            "ALL",
-                        );
-
                     setActionRequiredCount(
-                        stats.actionRequiredCount,
+                        await getActionRequiredCount(),
                     );
                 } catch {
                     /*
