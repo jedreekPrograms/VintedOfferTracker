@@ -38,7 +38,7 @@ public class BotDailyActivityService {
         LocalDateTime nextDayStart = today.plusDays(1).atStartOfDay();
 
         DailyOfferQuotaResponse quota =
-                dailyOfferQuotaService.getQuota(botId);
+                dailyOfferQuotaService.getQuotaSnapshot(botId);
 
         List<RealActionAudit> audits = realActionAuditRepository
                 .findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
