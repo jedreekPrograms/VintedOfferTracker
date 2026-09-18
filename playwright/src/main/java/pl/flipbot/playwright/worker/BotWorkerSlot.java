@@ -10,6 +10,7 @@ import pl.flipbot.playwright.browser.BrowserCapacityUnavailableException;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.target.VintedRateLimitException;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
+import pl.flipbot.playwright.verification.HumanVerificationRequiredException;
 
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
@@ -292,6 +293,24 @@ public class BotWorkerSlot implements Runnable {
                                 botId,
                                 jobType,
                                 exception
+                        );
+
+                    } catch (HumanVerificationRequiredException exception) {
+                        nextDelayMillis = HumanVerificationRequiredException.RETRY_DELAY_MILLIS;
+                        BrowserCapacityController.shared().marketplaceBackoff(nextDelayMillis);
+                        delayAllJobs = true;
+                        reportQueuedAfterRun = false;
+                        telemetryReporter.runFailed(
+                                botId,
+                                elapsedMillis(startedAtNanos),
+                                System.currentTimeMillis() + nextDelayMillis,
+                                errorMessage(exception)
+                        );
+                        log.warn(
+                                "[HUMAN VERIFICATION] Bot {} still requires manual CAPTCHA completion after {}. All jobs for this bot wait {} minutes; saved session files are retained. This is not classified as a confirmed session block.",
+                                botId,
+                                jobType,
+                                TimeUnit.MILLISECONDS.toMinutes(nextDelayMillis)
                         );
 
                     } catch (VintedRateLimitException exception) {

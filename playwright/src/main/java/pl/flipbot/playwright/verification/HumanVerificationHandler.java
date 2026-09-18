@@ -9,6 +9,7 @@ import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.function.LongSupplier;
 
 @Slf4j
 public class HumanVerificationHandler {
@@ -57,6 +58,15 @@ public class HumanVerificationHandler {
     private final CookieConsentHandler cookieConsentHandler = new CookieConsentHandler();
     private final VintedSessionBlockDetector sessionBlockDetector =
             new VintedSessionBlockDetector();
+    private final LongSupplier clock;
+
+    public HumanVerificationHandler() {
+        this(System::currentTimeMillis);
+    }
+
+    HumanVerificationHandler(LongSupplier clock) {
+        this.clock = clock;
+    }
 
     public void waitUntilVerified(Page page) {
         Objects.requireNonNull(page, "Page cannot be null");
@@ -79,12 +89,12 @@ public class HumanVerificationHandler {
                 evidence
         );
 
-        double startedAt = System.currentTimeMillis();
+        double startedAt = clock.getAsLong();
         double deadline = startedAt + VERIFICATION_TIMEOUT_MS;
         double nextLogTime = startedAt + LOG_INTERVAL_MS;
         String latestEvidence = evidence;
 
-        while (System.currentTimeMillis() < deadline) {
+        while (clock.getAsLong() < deadline) {
             if (page.isClosed()) {
                 throw new IllegalStateException("Browser page was closed during human verification");
             }
@@ -100,7 +110,7 @@ public class HumanVerificationHandler {
                 return;
             }
 
-            double currentTime = System.currentTimeMillis();
+            double currentTime = clock.getAsLong();
             if (currentTime >= nextLogTime) {
                 long elapsedSeconds = Math.round((currentTime - startedAt) / 1_000);
                 log.warn(
@@ -112,10 +122,10 @@ public class HumanVerificationHandler {
             }
         }
 
-        throw new IllegalStateException(
+        throw new HumanVerificationRequiredException(
                 "Human verification was not completed within "
                         + Math.round(VERIFICATION_TIMEOUT_MS / 1_000)
-                        + " seconds. Last evidence: "
+                        + " seconds. Manual completion is required; all scheduled jobs for this bot will back off. Last evidence: "
                         + latestEvidence
         );
     }

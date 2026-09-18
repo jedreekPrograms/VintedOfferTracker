@@ -15,11 +15,11 @@ import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
-import pl.flipbot.playwright.session.SessionManager;
-import pl.flipbot.playwright.session.VintedSessionPersistenceGuard;
+import pl.flipbot.playwright.session.JobSessionPersistence;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
 import pl.flipbot.playwright.target.VintedSessionFailureClassifier;
+import pl.flipbot.playwright.verification.HumanVerificationRequiredException;
 
 @Slf4j
 public class ScheduledBotRunExecutor {
@@ -38,8 +38,7 @@ public class ScheduledBotRunExecutor {
     private final BrowserManager browserManager;
     private final VintedSessionBlockDetector sessionBlockDetector =
             new VintedSessionBlockDetector();
-    private final VintedSessionPersistenceGuard sessionPersistenceGuard =
-            new VintedSessionPersistenceGuard();
+    private final JobSessionPersistence sessionPersistence = new JobSessionPersistence();
 
     public ScheduledBotRunExecutor(
             BotDetailsDto bot,
@@ -221,7 +220,7 @@ public class ScheduledBotRunExecutor {
             }
 
             jobCompleted = true;
-        } catch (VintedSessionBlockedException exception) {
+        } catch (VintedSessionBlockedException | HumanVerificationRequiredException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             classifyLateSessionBlock(
@@ -232,8 +231,6 @@ public class ScheduledBotRunExecutor {
 
             if (VintedSessionFailureClassifier.shouldUseProtectiveCooldown(exception)) {
                 String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
-
-                restoreLastKnownGoodSession(botId, "authentication stall");
 
                 log.warn(
                         "[SESSION BLOCK] Bot {} hit a repeated Vinted authentication stall during {}. Treating it as a protective session cooldown instead of RUN_FAILED so all bot jobs back off together.",
@@ -252,50 +249,9 @@ public class ScheduledBotRunExecutor {
 
             throw exception;
         } finally {
-            if (loginReady && jobCompleted) {
-                if (authenticatedCheckpointReady) {
-                    VintedSessionPersistenceGuard.Check check =
-                            sessionPersistenceGuard.check(context);
-
-                    if (check.healthy()) {
-                        try {
-                            context.saveSession();
-                        } catch (Exception exception) {
-                            log.warn(
-                                    "[SCHEDULED JOB] Could not save session for bot {} after a successful, authenticated job; the pre-job checkpoint remains protected.",
-                                    botId,
-                                    exception
-                            );
-                        }
-                    } else {
-                        log.warn(
-                                "[SESSION] Bot {} job returned normally but its final Vinted state is not safe to persist. Refusing to replace bot-{}.json and restoring the authenticated pre-job checkpoint. reason={}",
-                                botId,
-                                botId,
-                                check.reason()
-                        );
-                        restoreLastKnownGoodSession(
-                                botId,
-                                "unhealthy end-of-job authentication state"
-                        );
-                    }
-                } else {
-                    try {
-                        context.saveSession();
-                    } catch (Exception exception) {
-                        log.warn(
-                                "[SCHEDULED JOB] Could not save session for bot {} after a successful job; the previous active session remains protected.",
-                                botId,
-                                exception
-                        );
-                    }
-                }
-            } else if (loginReady) {
-                log.warn(
-                        "[SESSION] Bot {} job did not complete successfully. Refusing to persist the current browser state so a transient logout/error cannot replace the last-known-good session.",
-                        botId
-                );
-            }
+            sessionPersistence.finish(
+                    context, loginReady, jobCompleted, authenticatedCheckpointReady
+            );
 
             log.info(
                     "[BROWSER LIFECYCLE] Bot {} {} job is finished. Closing only this job's isolated browser context/page.",
@@ -312,29 +268,6 @@ public class ScheduledBotRunExecutor {
                         exception
                 );
             }
-        }
-    }
-
-    private void restoreLastKnownGoodSession(
-            Long botId,
-            String reason
-    ) {
-        try {
-            boolean restored = new SessionManager().restoreLastKnownGood(botId);
-            if (!restored) {
-                log.warn(
-                        "[SESSION] Bot {} could not roll back after {} because no last-known-good snapshot exists yet.",
-                        botId,
-                        reason
-                );
-            }
-        } catch (RuntimeException restoreFailure) {
-            log.error(
-                    "[SESSION] Failed to restore last-known-good state for bot {} after {}. Active session was not intentionally deleted.",
-                    botId,
-                    reason,
-                    restoreFailure
-            );
         }
     }
 
