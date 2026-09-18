@@ -6,12 +6,12 @@ import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.WaitForSelectorState;
-import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
@@ -43,9 +43,6 @@ public class FirstOfferExecutor {
 
     private static final BigDecimal VINTED_MIN_OFFER_RATIO =
             new BigDecimal("0.60");
-
-    private static final double NAVIGATION_TIMEOUT_MS =
-            30_000;
 
     private static final double LISTING_STATE_TIMEOUT_MS =
             15_000;
@@ -599,15 +596,8 @@ public class FirstOfferExecutor {
                 listingUrl
         );
 
-        page.navigate(
-                listingUrl,
-                new Page.NavigateOptions()
-                        .setWaitUntil(
-                                WaitUntilState.DOMCONTENTLOADED
-                        )
-                        .setTimeout(
-                                NAVIGATION_TIMEOUT_MS
-                        )
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listingUrl
         );
 
         humanVerificationHandler.waitUntilVerified(

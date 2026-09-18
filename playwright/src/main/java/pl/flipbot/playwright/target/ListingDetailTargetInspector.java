@@ -2,10 +2,10 @@ package pl.flipbot.playwright.target;
 
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
-import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
@@ -18,7 +18,6 @@ import java.util.Optional;
 @Slf4j
 public class ListingDetailTargetInspector {
 
-    private static final double NAVIGATION_TIMEOUT_MS = 30_000;
     private static final double IDENTITY_TIMEOUT_MS = 10_000;
     private static final double IDENTITY_POLL_INTERVAL_MS = 250;
 
@@ -270,11 +269,8 @@ public class ListingDetailTargetInspector {
                 listing.url()
         );
 
-        page.navigate(
-                listing.url(),
-                new Page.NavigateOptions()
-                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
-                        .setTimeout(NAVIGATION_TIMEOUT_MS)
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listing.url()
         );
 
         throwIfRateLimited(page, listing);

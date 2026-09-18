@@ -3,11 +3,11 @@ package pl.flipbot.playwright.negotiation;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
-import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.math.BigDecimal;
@@ -18,9 +18,6 @@ import java.util.Objects;
 @Slf4j
 @RequiredArgsConstructor
 public class NegotiationConversationProcessor {
-
-    private static final double NAVIGATION_TIMEOUT_MS =
-            30_000;
 
     private static final double CONVERSATION_STATE_TIMEOUT_MS =
             20_000;
@@ -102,15 +99,8 @@ public class NegotiationConversationProcessor {
                 listing.listingId()
         );
 
-        page.navigate(
-                listing.conversationUrl(),
-                new Page.NavigateOptions()
-                        .setWaitUntil(
-                                WaitUntilState.DOMCONTENTLOADED
-                        )
-                        .setTimeout(
-                                NAVIGATION_TIMEOUT_MS
-                        )
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listing.conversationUrl()
         );
 
         humanVerificationHandler.waitUntilVerified(

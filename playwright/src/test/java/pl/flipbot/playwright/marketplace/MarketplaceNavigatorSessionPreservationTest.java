@@ -48,6 +48,28 @@ public class MarketplaceNavigatorSessionPreservationTest {
     }
 
     @Test
+    public void trustedConversationNavigationRecoversFromSessionRefreshWithoutTouchingStoredSession() {
+        Fixture f = new Fixture();
+        String conversationUrl =
+                "https://www.vinted.pl/inbox/01a0b449-c614-7a1b-b5cc-c2bc11309fa7"
+                        + "?referrer=%2Fitems%2F10034864145-samsung-galaxy-s25-fe";
+        AtomicInteger attempts = new AtomicInteger();
+
+        when(f.page.navigate(eq(conversationUrl), any(Page.NavigateOptions.class))).thenAnswer(call -> {
+            f.url.set(attempts.incrementAndGet() == 1
+                    ? "https://www.vinted.pl/session-refresh?ref_url=%2Finbox%2F01a0b449-c614-7a1b-b5cc-c2bc11309fa7"
+                    : conversationUrl);
+            return null;
+        });
+
+        f.navigator.goToTrustedVintedUrl(conversationUrl);
+
+        assertEquals(2, attempts.get());
+        assertEquals(conversationUrl, f.url.get());
+        f.assertSessionUntouched();
+    }
+
+    @Test
     public void partialHomepageDoesNotTriggerACleanLoginReset() {
         Fixture f = new Fixture();
 
