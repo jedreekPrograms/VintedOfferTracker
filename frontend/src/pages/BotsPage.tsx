@@ -24,6 +24,10 @@ import type { BotListItem } from "../types/bots";
 type BulkAction = "START" | "STOP";
 type LoadMode = "initial" | "background";
 
+const RUNTIME_REFRESH_MS = 5_000;
+const DAILY_ACTIVITY_REFRESH_MS = 30_000;
+const DAILY_ACTIVITY_CONCURRENCY = 3;
+
 function BotsPage() {
     const [bots, setBots] = useState<BotListItem[]>([]);
     const [activityByBotId, setActivityByBotId] =
@@ -77,16 +81,21 @@ function BotsPage() {
         let disposed = false;
         let inFlight = false;
         let timer: ReturnType<typeof window.setTimeout> | undefined;
+        let lastActivityRefreshAt = 0;
         const controller = new AbortController();
 
         const refresh = async () => {
             if (disposed || inFlight || document.hidden) return;
             inFlight = true;
             if (timer !== undefined) window.clearTimeout(timer);
+
             try {
+                const refreshStartedAt = Date.now();
+                const shouldRefreshActivities =
+                    refreshStartedAt - lastActivityRefreshAt >= DAILY_ACTIVITY_REFRESH_MS;
                 const activities: Array<{ botId: number; activity: BotDailyActivity }> = [];
                 let cursor = 0;
-                // Bound quota reads. Runtime is fetched once for all bots.
+
                 const readActivities = async () => {
                     while (!controller.signal.aborted && cursor < bots.length) {
                         const bot = bots[cursor++];
@@ -94,40 +103,71 @@ function BotsPage() {
                             const activity = await getBotDailyActivity(bot.id, controller.signal);
                             activities.push({ botId: bot.id, activity });
                         } catch (error) {
-                            if (!controller.signal.aborted) console.error("Nie udało się odświeżyć aktywności bota.", error);
+                            if (!controller.signal.aborted) {
+                                console.error("Nie udało się odświeżyć aktywności bota.", error);
+                            }
                         }
                     }
                 };
+
+                const activityWorkers = shouldRefreshActivities
+                    ? Array.from(
+                        { length: Math.min(DAILY_ACTIVITY_CONCURRENCY, bots.length) },
+                        readActivities,
+                    )
+                    : [];
+
                 const [runtimeResult] = await Promise.allSettled([
                     getRuntimeDashboard(controller.signal),
-                    ...Array.from({ length: Math.min(3, bots.length) }, readActivities),
+                    ...activityWorkers,
                 ]);
+
                 if (disposed) return;
-                setActivityByBotId((previous) => {
-                    const next = Object.fromEntries(
-                        Object.entries(previous).filter(([id]) => visibleBotIds.has(Number(id))),
-                    );
-                    for (const { botId, activity } of activities) next[botId] = activity;
-                    return next;
-                });
+
+                if (shouldRefreshActivities) {
+                    lastActivityRefreshAt = Date.now();
+                    setActivityByBotId((previous) => {
+                        const next = Object.fromEntries(
+                            Object.entries(previous).filter(([id]) => visibleBotIds.has(Number(id))),
+                        );
+                        for (const { botId, activity } of activities) next[botId] = activity;
+                        return next;
+                    });
+                }
+
                 if (runtimeResult.status === "fulfilled" && runtimeResult.value) {
                     const runtime = runtimeResult.value;
                     setRuntimeByBotId((previous) => ({
-                        ...Object.fromEntries(Object.entries(previous).filter(([id]) => visibleBotIds.has(Number(id)))),
-                        ...Object.fromEntries(runtime.bots.filter((bot) => visibleBotIds.has(bot.botId))
-                            .map((bot) => [bot.botId, bot])),
+                        ...Object.fromEntries(
+                            Object.entries(previous).filter(([id]) => visibleBotIds.has(Number(id))),
+                        ),
+                        ...Object.fromEntries(
+                            runtime.bots
+                                .filter((bot) => visibleBotIds.has(bot.botId))
+                                .map((bot) => [bot.botId, bot]),
+                        ),
                     }));
                 }
                 setNowMs(Date.now());
             } finally {
                 inFlight = false;
-                if (!disposed && !document.hidden) timer = window.setTimeout(() => void refresh(), 5_000);
+                if (!disposed && !document.hidden) {
+                    timer = window.setTimeout(() => void refresh(), RUNTIME_REFRESH_MS);
+                }
             }
         };
+
         const onVisibilityChange = () => {
             if (timer !== undefined) window.clearTimeout(timer);
-            if (!document.hidden) void refresh();
+            if (!document.hidden) {
+                // Refresh both fast runtime state and slower daily counters after
+                // returning to the tab, even when the 30-second cadence has not
+                // elapsed while the document was hidden.
+                lastActivityRefreshAt = 0;
+                void refresh();
+            }
         };
+
         document.addEventListener("visibilitychange", onVisibilityChange);
         void refresh();
         return () => {
