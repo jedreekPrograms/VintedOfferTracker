@@ -77,10 +77,12 @@ public class MarketStatsCollector {
         int failedTargets = 0;
 
         try (BrowserManager browserManager = new BrowserManager(config.headless());
-             BotContext context = new BotContext(observerBot, browserManager)) {
+             BotContext context = BotContext.readOnlySessionClone(
+                     observerBot,
+                     browserManager
+             )) {
 
-            boolean authenticatedObserverSession =
-                    prepareObserverCatalogSession(context, observerBot);
+            prepareObserverCatalogSession(context, observerBot);
 
             try {
                 for (int index = 0; index < targets.size(); index++) {
@@ -125,20 +127,9 @@ public class MarketStatsCollector {
                     }
                 }
             } finally {
-                if (authenticatedObserverSession) {
-                    try {
-                        context.saveSession();
-                    } catch (Exception exception) {
-                        log.warn(
-                                "[MARKET STATS] Could not save observer session after daily scan.",
-                                exception
-                        );
-                    }
-                } else {
-                    log.info(
-                            "[MARKET STATS] Observer collection ran without an authenticated session. Skipping session save so anonymous storage state cannot replace the saved observer session."
-                    );
-                }
+                log.info(
+                        "[MARKET STATS] Read-only observer context finished. Production bot session state was never persisted by the market-stats job."
+                );
             }
         }
 

@@ -16,6 +16,7 @@ import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
 import pl.flipbot.playwright.session.JobSessionPersistence;
+import pl.flipbot.playwright.session.VintedSessionPersistenceGuard;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
 import pl.flipbot.playwright.target.VintedSessionFailureClassifier;
@@ -39,6 +40,8 @@ public class ScheduledBotRunExecutor {
     private final VintedSessionBlockDetector sessionBlockDetector =
             new VintedSessionBlockDetector();
     private final JobSessionPersistence sessionPersistence = new JobSessionPersistence();
+    private final VintedSessionPersistenceGuard sessionPersistenceGuard =
+            new VintedSessionPersistenceGuard();
 
     public ScheduledBotRunExecutor(
             BotDetailsDto bot,
@@ -202,11 +205,26 @@ public class ScheduledBotRunExecutor {
             loginService.login();
             loginReady = true;
 
+            VintedSessionPersistenceGuard.Check checkpointCheck =
+                    sessionPersistenceGuard.check(
+                            context
+                    );
+
+            if (!checkpointCheck.healthy()) {
+                throw new IllegalStateException(
+                        "Refusing to replace the stored session for bot "
+                                + botId
+                                + " because login returned without strong authenticated evidence. reason="
+                                + checkpointCheck.reason()
+                );
+            }
+
             context.saveSession();
             authenticatedCheckpointReady = true;
             log.debug(
-                    "[SESSION] Captured authenticated pre-job checkpoint for bot {}.",
-                    botId
+                    "[SESSION] Captured authenticated pre-job checkpoint for bot {}. verifiedBy={}",
+                    botId,
+                    checkpointCheck.reason()
             );
 
             if (jobType == null) {

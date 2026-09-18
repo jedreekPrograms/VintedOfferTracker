@@ -348,6 +348,8 @@ public class BotContext implements AutoCloseable {
 
     private final SessionManager sessionManager;
 
+    private final boolean sessionRestoreEnabled;
+
     private final boolean sessionPersistenceEnabled;
 
     private final AtomicInteger extraPageEvents = new AtomicInteger();
@@ -356,33 +358,51 @@ public class BotContext implements AutoCloseable {
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
-        this(bot, browserManager, true);
+        this(bot, browserManager, true, true);
     }
 
     public static BotContext isolated(
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
-        return new BotContext(bot, browserManager, false);
+        return new BotContext(bot, browserManager, false, false);
+    }
+
+    public static BotContext readOnlySessionClone(
+            BotDetailsDto bot,
+            BrowserManager browserManager
+    ) {
+        return new BotContext(bot, browserManager, true, false);
     }
 
     private BotContext(
             BotDetailsDto bot,
             BrowserManager browserManager,
+            boolean sessionRestoreEnabled,
             boolean sessionPersistenceEnabled
     ) {
         this.bot = bot;
         this.sessionManager = new SessionManager();
+        this.sessionRestoreEnabled = sessionRestoreEnabled;
         this.sessionPersistenceEnabled = sessionPersistenceEnabled;
 
         Path sessionFile = null;
 
-        if (!sessionPersistenceEnabled) {
+        if (!sessionRestoreEnabled && !sessionPersistenceEnabled) {
             log.info(
                     "[SESSION] Bot {} is using an isolated browser context. Stored production session state will not be restored or persisted by this job.",
                     bot.getId()
             );
-        } else if (shouldRestoreStoredSession(bot)
+        } else if (sessionRestoreEnabled
+                && !sessionPersistenceEnabled) {
+            log.info(
+                    "[SESSION] Bot {} is using a read-only clone of its stored production session. The session may be restored, but this job cannot persist any browser state back to bot-{}.json.",
+                    bot.getId(),
+                    bot.getId()
+            );
+        }
+
+        if (shouldRestoreStoredSession(bot, sessionRestoreEnabled)
                 && sessionManager.sessionExists(bot.getId())) {
             sessionFile = sessionManager.sessionFile(bot.getId());
         } else if (isAnonymousMarketObserver(bot)) {
@@ -618,8 +638,9 @@ public class BotContext implements AutoCloseable {
     public void saveSession() {
         if (!sessionPersistenceEnabled) {
             log.debug(
-                    "[SESSION] Skipping session save for isolated bot {} context.",
-                    bot.getId()
+                    "[SESSION] Skipping session save for non-persistent bot {} context. restoreEnabled={}.",
+                    bot.getId(),
+                    sessionRestoreEnabled
             );
             return;
         }
