@@ -5,10 +5,7 @@ import pl.flipbot.playwright.api.audit.RealActionAuditClient;
 import pl.flipbot.playwright.api.audit.dto.RealActionAuditRequestDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.model.NegotiationStepDto;
-
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -20,15 +17,28 @@ public class RealActionAuditCoordinator {
     private static final String MESSAGE_UNKNOWN = "UNKNOWN";
 
     private final BotContext context;
-    private final RealActionAuditClient auditClient =
-            new RealActionAuditClient();
+    private final RealActionAuditClient auditClient;
 
     public RealActionAuditCoordinator(
             BotContext context
     ) {
+        this(
+                context,
+                new RealActionAuditClient()
+        );
+    }
+
+    RealActionAuditCoordinator(
+            BotContext context,
+            RealActionAuditClient auditClient
+    ) {
         this.context = Objects.requireNonNull(
                 context,
                 "Bot context cannot be null"
+        );
+        this.auditClient = Objects.requireNonNull(
+                auditClient,
+                "Audit client cannot be null"
         );
     }
 
@@ -36,12 +46,14 @@ public class RealActionAuditCoordinator {
             ListingResponseDto listing,
             String actionType,
             Integer stepNumber,
+            BigDecimal offerPrice,
             UUID requestId
     ) {
         record(
                 listing,
                 actionType,
                 stepNumber,
+                offerPrice,
                 requestId,
                 OUTCOME_CONFIRMED,
                 MESSAGE_UNKNOWN,
@@ -53,6 +65,7 @@ public class RealActionAuditCoordinator {
             ListingResponseDto listing,
             String actionType,
             Integer stepNumber,
+            BigDecimal offerPrice,
             UUID requestId,
             Throwable failure
     ) {
@@ -65,6 +78,7 @@ public class RealActionAuditCoordinator {
                     listing,
                     actionType,
                     stepNumber,
+                    offerPrice,
                     requestId,
                     OUTCOME_AMBIGUOUS,
                     MESSAGE_UNKNOWN,
@@ -91,6 +105,7 @@ public class RealActionAuditCoordinator {
             ListingResponseDto listing,
             String actionType,
             Integer stepNumber,
+            BigDecimal offerPrice,
             UUID requestId,
             String outcome,
             String messageStatus,
@@ -107,7 +122,8 @@ public class RealActionAuditCoordinator {
                 "Bot id cannot be null"
         );
 
-        BigDecimal offerPrice = resolveOfferPrice(stepNumber);
+        BigDecimal verifiedOfferPrice =
+                requirePositiveOfferPrice(offerPrice);
 
         auditClient.record(
                 botId,
@@ -116,7 +132,7 @@ public class RealActionAuditCoordinator {
                         requestId,
                         actionType,
                         stepNumber,
-                        offerPrice,
+                        verifiedOfferPrice,
                         outcome,
                         messageStatus,
                         failureReason
@@ -124,35 +140,15 @@ public class RealActionAuditCoordinator {
         );
     }
 
-    private BigDecimal resolveOfferPrice(
-            Integer stepNumber
+    private BigDecimal requirePositiveOfferPrice(
+            BigDecimal offerPrice
     ) {
-        if (context.getBot().getConfiguration() == null) {
-            throw new IllegalStateException("Bot configuration is missing");
+        if (offerPrice == null || offerPrice.signum() <= 0) {
+            throw new IllegalStateException(
+                    "Effective offer price must be positive for real-action audit"
+            );
         }
-
-        List<NegotiationStepDto> steps =
-                context.getBot().getConfiguration().getNegotiationSteps();
-
-        if (steps == null) {
-            throw new IllegalStateException("Negotiation steps are missing");
-        }
-
-        return steps.stream()
-                .filter(Objects::nonNull)
-                .filter(step -> Objects.equals(
-                        stepNumber,
-                        step.getStepNumber()
-                ))
-                .map(NegotiationStepDto::getOfferPrice)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElseThrow(
-                        () -> new IllegalStateException(
-                                "Could not resolve configured offer price for negotiation step "
-                                        + stepNumber
-                        )
-                );
+        return offerPrice;
     }
 
     private String friendlyMessage(

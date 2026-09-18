@@ -92,6 +92,7 @@ public class PreparedNextStepCoordinator {
                     listing,
                     ACTION_TYPE,
                     decision.nextStep().getStepNumber(),
+                    decision.nextStep().getOfferPrice(),
                     requestId,
                     exception
             );
@@ -112,6 +113,7 @@ public class PreparedNextStepCoordinator {
                     listing,
                     ACTION_TYPE,
                     decision.nextStep().getStepNumber(),
+                    decision.nextStep().getOfferPrice(),
                     requestId,
                     exception
             );
@@ -122,6 +124,7 @@ public class PreparedNextStepCoordinator {
                 listing,
                 ACTION_TYPE,
                 decision.nextStep().getStepNumber(),
+                decision.nextStep().getOfferPrice(),
                 requestId
         );
 
