@@ -6,11 +6,7 @@ import {
 } from "react";
 
 import {
-    getBots,
-} from "../../../api/botsApi";
-
-import {
-    getActionRequiredListings,
+    getAllActionRequiredListings,
 } from "../../../api/listingsApi";
 
 import type {
@@ -18,15 +14,11 @@ import type {
 } from "../../../types/listings";
 
 const ACTION_REQUIRED_POLL_INTERVAL_MS = 15_000;
-const MAX_CONCURRENT_BOT_REQUESTS = 3;
 
 interface UseActionRequiredListingsResult {
     listings: ActionRequiredListing[];
-
     isLoading: boolean;
-
     errorMessage: string | null;
-
     reload: () => Promise<void>;
 }
 
@@ -45,14 +37,10 @@ export function useActionRequiredListings():
     const [
         errorMessage,
         setErrorMessage,
-    ] = useState<string | null>(
-        null,
-    );
+    ] = useState<string | null>(null);
 
     const inFlightRef =
-        useRef<Promise<void> | null>(
-            null,
-        );
+        useRef<Promise<void> | null>(null);
 
     const loadListings =
         useCallback(
@@ -68,102 +56,19 @@ export function useActionRequiredListings():
 
                 const request =
                     (async () => {
-                        if (
-                            !background
-                        ) {
-                            setIsLoading(
-                                true,
-                            );
-
-                            setErrorMessage(
-                                null,
-                            );
+                        if (!background) {
+                            setIsLoading(true);
+                            setErrorMessage(null);
                         }
 
                         try {
-                            const bots =
-                                await getBots();
-
-                            const listingsPerBot:
-                                ActionRequiredListing[][] =
-                                new Array(
-                                    bots.length,
-                                );
-
-                            let nextBotIndex =
-                                0;
-
-                            async function worker() {
-                                while (true) {
-                                    const currentIndex =
-                                        nextBotIndex++;
-
-                                    if (
-                                        currentIndex
-                                        >= bots.length
-                                    ) {
-                                        return;
-                                    }
-
-                                    const bot =
-                                        bots[
-                                            currentIndex
-                                        ];
-
-                                    const botListings =
-                                        await getActionRequiredListings(
-                                            bot.id,
-                                        );
-
-                                    listingsPerBot[
-                                        currentIndex
-                                    ] =
-                                        botListings.map(
-                                            (listing) => ({
-                                                botId:
-                                                    bot.id,
-
-                                                botName:
-                                                    bot.name,
-
-                                                listing,
-                                            }),
-                                        );
-                                }
-                            }
-
-                            const workerCount =
-                                Math.min(
-                                    MAX_CONCURRENT_BOT_REQUESTS,
-                                    bots.length,
-                                );
-
-                            await Promise.all(
-                                Array.from(
-                                    {
-                                        length:
-                                            workerCount,
-                                    },
-                                    () =>
-                                        worker(),
-                                ),
-                            );
-
                             setListings(
-                                listingsPerBot.flat(),
+                                await getAllActionRequiredListings(),
                             );
-
-                            setErrorMessage(
-                                null,
-                            );
+                            setErrorMessage(null);
                         } catch (error) {
-                            if (
-                                !background
-                            ) {
-                                setListings(
-                                    [],
-                                );
-
+                            if (!background) {
+                                setListings([]);
                                 setErrorMessage(
                                     getErrorMessage(
                                         error,
@@ -172,12 +77,8 @@ export function useActionRequiredListings():
                                 );
                             }
                         } finally {
-                            if (
-                                !background
-                            ) {
-                                setIsLoading(
-                                    false,
-                                );
+                            if (!background) {
+                                setIsLoading(false);
                             }
                         }
                     })();
@@ -203,34 +104,31 @@ export function useActionRequiredListings():
     const reload =
         useCallback(
             async () => {
-                await loadListings(
-                    false,
-                );
+                await loadListings(false);
             },
             [
                 loadListings,
             ],
         );
 
-    useEffect(() => {
-        void reload();
-    }, [
-        reload,
-    ]);
+    useEffect(
+        () => {
+            void reload();
+        },
+        [
+            reload,
+        ],
+    );
 
     useEffect(
         () => {
             const refreshInBackground =
                 () => {
-                    if (
-                        document.hidden
-                    ) {
+                    if (document.hidden) {
                         return;
                     }
 
-                    void loadListings(
-                        true,
-                    );
+                    void loadListings(true);
                 };
 
             const intervalId =
@@ -241,9 +139,7 @@ export function useActionRequiredListings():
 
             const handleVisibilityChange =
                 () => {
-                    if (
-                        !document.hidden
-                    ) {
+                    if (!document.hidden) {
                         refreshInBackground();
                     }
                 };
@@ -254,10 +150,7 @@ export function useActionRequiredListings():
             );
 
             return () => {
-                window.clearInterval(
-                    intervalId,
-                );
-
+                window.clearInterval(intervalId);
                 document.removeEventListener(
                     "visibilitychange",
                     handleVisibilityChange,
@@ -271,11 +164,8 @@ export function useActionRequiredListings():
 
     return {
         listings,
-
         isLoading,
-
         errorMessage,
-
         reload,
     };
 }
@@ -284,11 +174,7 @@ function getErrorMessage(
     error: unknown,
     fallbackMessage: string,
 ): string {
-    if (
-        error instanceof Error
-    ) {
-        return error.message;
-    }
-
-    return fallbackMessage;
+    return error instanceof Error
+        ? error.message
+        : fallbackMessage;
 }
