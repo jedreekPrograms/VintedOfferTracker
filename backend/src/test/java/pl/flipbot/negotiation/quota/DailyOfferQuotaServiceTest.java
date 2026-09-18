@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class DailyOfferQuotaServiceTest {
@@ -116,6 +117,29 @@ class DailyOfferQuotaServiceTest {
         assertEquals(3, response.used());
         assertEquals(22, response.remaining());
         verify(quotaRepository).save(quota);
+    }
+
+    @Test
+    void readOnlyQuotaSnapshotUsesDurableFloorWithoutLockingOrRepairing() {
+        DailyOfferQuota quota = quota(1);
+        DailyOfferQuotaReservation first =
+                activeReservation(UUID.randomUUID());
+        DailyOfferQuotaReservation second =
+                activeReservation(UUID.randomUUID());
+
+        when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class)))
+                .thenReturn(Optional.of(quota));
+        when(reservationRepository.findAllByBotIdAndUsageDateAndActiveTrue(
+                eq(3L), any(LocalDate.class)
+        )).thenReturn(List.of(first, second));
+
+        DailyOfferQuotaResponse response = service.getQuotaSnapshot(3L);
+
+        assertEquals(25, response.limit());
+        assertEquals(2, response.used());
+        assertEquals(23, response.remaining());
+        verifyNoInteractions(jdbcTemplate);
+        verify(quotaRepository, never()).save(any());
     }
 
     @Test
