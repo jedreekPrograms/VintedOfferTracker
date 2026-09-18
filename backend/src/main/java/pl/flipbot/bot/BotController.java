@@ -1,8 +1,13 @@
 package pl.flipbot.bot;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import pl.flipbot.bot.dto.BotEditCapabilitiesResponse;
 import pl.flipbot.bot.dto.BotPlaywrightResponse;
 import pl.flipbot.bot.dto.BotResponse;
@@ -10,6 +15,7 @@ import pl.flipbot.bot.dto.CreateBotRequest;
 import pl.flipbot.bot.dto.RunningBotResponse;
 import pl.flipbot.bot.dto.UpdateBotRequest;
 
+import java.net.InetAddress;
 import java.util.List;
 
 @RestController
@@ -86,9 +92,31 @@ public class BotController {
     }
 
     @GetMapping("/{botId}/playwright")
-    public BotPlaywrightResponse getPlaywrightBot(
-            @PathVariable Long botId
+    public ResponseEntity<BotPlaywrightResponse> getPlaywrightBot(
+            @PathVariable Long botId,
+            HttpServletRequest request
     ) {
-        return botService.getPlaywrightBot(botId);
+        if (!isLoopbackAddress(request.getRemoteAddr())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Playwright credential endpoint is available only from the local machine."
+            );
+        }
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(botService.getPlaywrightBot(botId));
+    }
+
+    static boolean isLoopbackAddress(String rawAddress) {
+        if (rawAddress == null || rawAddress.isBlank()) {
+            return false;
+        }
+
+        try {
+            return InetAddress.getByName(rawAddress).isLoopbackAddress();
+        } catch (Exception exception) {
+            return false;
+        }
     }
 }
