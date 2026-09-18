@@ -352,6 +352,8 @@ public class BotContext implements AutoCloseable {
 
     private final boolean sessionPersistenceEnabled;
 
+    private final boolean storedSessionRestored;
+
     private final AtomicInteger extraPageEvents = new AtomicInteger();
 
     public BotContext(
@@ -413,6 +415,8 @@ public class BotContext implements AutoCloseable {
                     bot.getId()
             );
         }
+
+        this.storedSessionRestored = sessionFile != null;
 
         /*
          * A stored production session is authoritative. BrowserManager already
