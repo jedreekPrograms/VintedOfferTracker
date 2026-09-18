@@ -48,6 +48,50 @@ public class BotRunSchedulerFailureReportingTest {
     }
 
     @Test
+    public void localCapacityDeferralDoesNotResetCatalogFailureBackoff() throws Exception {
+        try (RecordingTelemetry telemetry = new RecordingTelemetry()) {
+            MutableClock clock = new MutableClock();
+            BotRunScheduler scheduler = scheduler(telemetry, clock);
+
+            scheduler.reconcileRunningBots(Map.of(1L, false));
+            assertEquals(ScheduledJobType.CATALOG_SCAN, scheduler.pollNext(0L).jobType());
+
+            scheduler.completeFailedRun(
+                    1L,
+                    ScheduledJobType.CATALOG_SCAN,
+                    minutes(1),
+                    1L,
+                    "first failure"
+            );
+
+            clock.advance(minutes(2));
+            assertEquals(ScheduledJobType.CATALOG_SCAN, scheduler.pollNext(0L).jobType());
+
+            scheduler.deferRunForCapacity(
+                    1L,
+                    ScheduledJobType.CATALOG_SCAN,
+                    5_000L
+            );
+
+            clock.advance(5_000L);
+            assertEquals(ScheduledJobType.CATALOG_SCAN, scheduler.pollNext(0L).jobType());
+
+            scheduler.completeFailedRun(
+                    1L,
+                    ScheduledJobType.CATALOG_SCAN,
+                    minutes(1),
+                    1L,
+                    "second failure"
+            );
+
+            assertEquals(
+                    clock.millis() + minutes(5),
+                    telemetry.nextRunAt
+            );
+        }
+    }
+
+    @Test
     public void successfulNegotiationDoesNotResetCatalogBackoff() throws Exception {
         try (RecordingTelemetry telemetry = new RecordingTelemetry()) {
             MutableClock clock = new MutableClock();
