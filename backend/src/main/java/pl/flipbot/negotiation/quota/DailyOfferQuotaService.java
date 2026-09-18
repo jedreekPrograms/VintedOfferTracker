@@ -20,9 +20,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -49,6 +51,25 @@ public class DailyOfferQuotaService {
                 .orElse(null);
         int usageFloor = getDurableUsageFloor(botId, today);
         int used = reconcileToUsageFloor(bot, today, quota, usageFloor);
+
+        return createQuotaResponse(resolveDailyLimit(bot), used);
+    }
+
+    /**
+     * Read-only view used by dashboards. It keeps the same conservative
+     * durable usage floor as the mutation path, but never acquires the bot
+     * row FOR UPDATE and never repairs quota rows during UI polling.
+     */
+    @Transactional(readOnly = true)
+    public DailyOfferQuotaResponse getQuotaSnapshot(Long botId) {
+        Bot bot = getBot(botId);
+        LocalDate today = getToday();
+        int persistedUsed = dailyOfferQuotaRepository
+                .findByBot_IdAndUsageDate(botId, today)
+                .map(DailyOfferQuota::getUsedCount)
+                .orElse(0);
+        int durableUsageFloor = getDurableUsageFloor(botId, today);
+        int used = Math.max(persistedUsed, durableUsageFloor);
 
         return createQuotaResponse(resolveDailyLimit(bot), used);
     }
@@ -322,16 +343,33 @@ public class DailyOfferQuotaService {
             durableRequestIds.add(reservation.getRequestId());
         }
 
-        for (RealActionAudit audit : getAuditedActions(botId, usageDate)) {
+        List<RealActionAudit> auditedActions = getAuditedActions(botId, usageDate);
+        Set<UUID> auditedRequestIds = auditedActions.stream()
+                .filter(audit -> audit.getOutcome() == RealActionAuditOutcome.CONFIRMED
+                        || audit.getOutcome() == RealActionAuditOutcome.AMBIGUOUS)
+                .map(RealActionAudit::getRequestId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<UUID, DailyOfferQuotaReservation> reservationsByRequestId =
+                auditedRequestIds.isEmpty()
+                        ? Map.of()
+                        : reservationRepository.findAllById(auditedRequestIds)
+                                .stream()
+                                .collect(Collectors.toMap(
+                                        DailyOfferQuotaReservation::getRequestId,
+                                        reservation -> reservation
+                                ));
+
+        for (RealActionAudit audit : auditedActions) {
             if ((audit.getOutcome() != RealActionAuditOutcome.CONFIRMED
                     && audit.getOutcome() != RealActionAuditOutcome.AMBIGUOUS)
                     || audit.getRequestId() == null) {
                 continue;
             }
 
-            DailyOfferQuotaReservation reservation = reservationRepository
-                    .findById(audit.getRequestId())
-                    .orElse(null);
+            DailyOfferQuotaReservation reservation =
+                    reservationsByRequestId.get(audit.getRequestId());
 
             if (reservation == null) {
                 // Legacy audit from before the reservation ledger existed: its audit
