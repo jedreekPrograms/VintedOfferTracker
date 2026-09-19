@@ -61,13 +61,9 @@ public class CreateBotConfigurationRequest {
     private List<CreateNegotiationStepRequest> negotiationSteps;
 
     @AssertTrue(
-            message = "Negotiation step offer prices must be strictly increasing when adaptive pricing is enabled."
+            message = "Negotiation step offer prices must be strictly increasing."
     )
     public boolean isNegotiationOfferLadderIncreasing() {
-        if (!Boolean.TRUE.equals(autoRaiseOfferToVintedMinimum)) {
-            return true;
-        }
-
         if (negotiationSteps == null || negotiationSteps.size() < 2) {
             return true;
         }
