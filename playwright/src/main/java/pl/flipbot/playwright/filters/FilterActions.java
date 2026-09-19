@@ -33,7 +33,7 @@ public class FilterActions {
     private static final double BRAND_PANEL_SETTLE_MS = 400;
 
     private static final int MODEL_MAX_UI_ATTEMPTS = 3;
-    private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 10_000;
+    private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 15_000;
     private static final double MODEL_OPTION_POLL_INTERVAL_MS = 250;
     private static final double MODEL_PERSIST_TIMEOUT_MS = 5_000;
     private static final double MODEL_RETRY_DELAY_MS = 1_000;
@@ -322,7 +322,7 @@ public class FilterActions {
 
         selectedModelOption = model;
 
-        String selector = "[data-testid^='" + MODEL_TEST_ID_PREFIX + "']";
+        String selector = "[data-testid^='" + MODEL_TEST_ID_PREFIX + "'][role='button']";
         Locator allModelOptions = page.locator(selector);
         long deadline = System.currentTimeMillis() + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
         List<String> lastVisiblePartialLabels = List.of();
@@ -476,22 +476,35 @@ public class FilterActions {
             Locator evidenceLocator
     ) {
         String canonicalTestId = canonicalModelRowTestId(collectionId);
-        Locator canonicalRow = page.getByTestId(canonicalTestId).first();
 
-        if (safeIsVisible(canonicalRow)) {
-            return canonicalRow;
+        /*
+         * clickModel() now searches only canonical role=button rows. Prefer the
+         * exact row that supplied the matching text instead of resolving a
+         * page-wide .first() which can point at a stale/responsive duplicate.
+         */
+        if (canonicalTestId.equals(safeAttribute(evidenceLocator, "data-testid"))
+                && safeIsVisible(evidenceLocator)) {
+            return evidenceLocator;
+        }
+
+        Locator canonicalRows = page.getByTestId(canonicalTestId);
+        int rowCount = safeCount(canonicalRows);
+        for (int index = 0; index < rowCount; index++) {
+            Locator candidate = canonicalRows.nth(index);
+            if (safeIsVisible(candidate)) {
+                return candidate;
+            }
         }
 
         /*
-         * Some Vinted variants expose the test id only on a nested title.
-         * In that case walk to the nearest ancestor that contains the proven
-         * title, instead of clicking the title text itself.
+         * Compatibility fallback for a future Vinted variant where exact text
+         * evidence comes from a child instead of the canonical row itself.
          */
         Locator ancestorCandidate = evidenceLocator.locator(
-                "xpath=ancestor::*[.//input[@type='checkbox'] or .//*[@role='checkbox'] or self::label][1]"
+                "xpath=ancestor::*[@role='button' and @data-testid='" + canonicalTestId + "'][1]"
         );
 
-        if (ancestorCandidate.count() > 0
+        if (safeCount(ancestorCandidate) > 0
                 && safeIsVisible(ancestorCandidate.first())) {
             return ancestorCandidate.first();
         }
@@ -531,18 +544,16 @@ public class FilterActions {
         );
 
         /*
-         * The captured Vinted DOM exposes an explicit interactive suffix for the
-         * exact model row:
+         * The exact right-hand suffix is the real click area observed in the
+         * live Vinted DOM:
          *
-         *   data-testid="selectable-item-brand_collection-<ID>--suffix"
+         *   selectable-item-brand_collection-<ID>--suffix
          *
-         * This is the right-hand area the user actually clicks. The checkbox
-         * itself is nested below .u-no-pointer-events, so do not target the
-         * input/span as the primary pointer target. Click this exact suffix and
-         * then verify the native checkbox belonging to the proven collection id.
+         * Resolve it INSIDE the already-proven row. This avoids stale duplicate
+         * controls and keeps S25 / S25 FE / Ultra / Edge completely isolated.
          */
-        Locator modelSuffix = page.getByTestId(
-                exactModelSuffixTestId(collectionId)
+        Locator modelSuffix = modelRow.locator(
+                "[data-testid='" + exactModelSuffixTestId(collectionId) + "']"
         ).first();
 
         if (safeCount(modelSuffix) > 0 && safeIsVisible(modelSuffix)) {
@@ -562,27 +573,23 @@ public class FilterActions {
                 if (waitForExactModelSelected(
                         modelRow,
                         collectionId,
-                        2_000
+                        1_500
                 )) {
                     log.info(
-                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact suffix click.",
+                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact suffix Playwright click.",
                             model,
                             collectionId
                     );
                     return;
                 }
 
-                log.warn(
-                        "[FILTER MODEL] Exact suffix click for '{}' / collectionId={} did not set the exact checkbox. Retrying the same suffix with forced pointer delivery.",
-                        model,
-                        collectionId
-                );
-
-                modelSuffix.click(
-                        new Locator.ClickOptions()
-                                .setForce(true)
-                                .setTimeout(2_000)
-                );
+                /*
+                 * Some Vinted builds put pointer-events:none on the checkbox
+                 * subtree while the parent Cell owns the handler. HTMLElement
+                 * click on the exact suffix bubbles to that Cell without fuzzy
+                 * coordinates or another model row.
+                 */
+                modelSuffix.evaluate("element => element.click()");
 
                 if (waitForExactModelSelected(
                         modelRow,
@@ -590,16 +597,52 @@ public class FilterActions {
                         1_500
                 )) {
                     log.info(
-                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by forced exact suffix click.",
+                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact suffix DOM click.",
                             model,
                             collectionId
                     );
                     return;
                 }
+
+                /*
+                 * Last suffix-specific pointer path: click the visual center of
+                 * THIS exact suffix with Chromium's mouse. This reproduces the
+                 * manual click while still deriving the target from collectionId.
+                 */
+                modelSuffix.scrollIntoViewIfNeeded();
+                var suffixBox = modelSuffix.boundingBox();
+
+                if (suffixBox != null
+                        && suffixBox.width > 0
+                        && suffixBox.height > 0) {
+                    double clickX = suffixBox.x + (suffixBox.width / 2.0);
+                    double clickY = suffixBox.y + (suffixBox.height / 2.0);
+
+                    page.mouse().click(clickX, clickY);
+
+                    if (waitForExactModelSelected(
+                            modelRow,
+                            collectionId,
+                            1_500
+                    )) {
+                        log.info(
+                                "[FILTER MODEL] Exact model '{}' / collectionId={} selected by physical exact-suffix click.",
+                                model,
+                                collectionId
+                        );
+                        return;
+                    }
+                }
+
+                log.warn(
+                        "[FILTER MODEL] All exact-suffix click paths for '{}' / collectionId={} left the checkbox unchecked. Trying bounded compatibility fallbacks.",
+                        model,
+                        collectionId
+                );
             } catch (RuntimeException exception) {
                 primaryFailure = exception;
                 log.warn(
-                        "[FILTER MODEL] Exact suffix click failed for '{}' / collectionId={}: {}. Trying compatibility fallbacks.",
+                        "[FILTER MODEL] Exact suffix activation failed for '{}' / collectionId={}: {}. Trying bounded compatibility fallbacks.",
                         model,
                         collectionId,
                         getFriendlyErrorMessage(exception)
@@ -607,7 +650,7 @@ public class FilterActions {
             }
         } else {
             log.warn(
-                    "[FILTER MODEL] Exact suffix '{}' is missing or not visible for '{}' / collectionId={}. Trying compatibility fallbacks.",
+                    "[FILTER MODEL] Exact suffix '{}' is missing or not visible inside canonical row for '{}' / collectionId={}. Trying bounded compatibility fallbacks.",
                     exactModelSuffixTestId(collectionId),
                     model,
                     collectionId
