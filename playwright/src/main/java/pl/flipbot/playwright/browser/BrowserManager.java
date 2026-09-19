@@ -104,9 +104,7 @@ public class BrowserManager implements AutoCloseable {
         context.addInitScript(VintedInformationalDialogGuard.script());
         context.addInitScript(OneTrustConsentGuard.script());
 
-        if (headless) {
-            installCatalogHeavyResourceGuard(context);
-        }
+        installRequestGuards(context);
 
         if (blockServiceWorkers) {
             log.info(
@@ -122,31 +120,42 @@ public class BrowserManager implements AutoCloseable {
         return context;
     }
 
-    private void installCatalogHeavyResourceGuard(BrowserContext context) {
+    private void installRequestGuards(BrowserContext context) {
         context.route(
                 "**/*",
                 route -> {
                     try {
                         var request = route.request();
-                        String topLevelPageUrl = request.frame().page().url();
 
-                        if (CatalogHeavyResourcePolicy.shouldBlock(
-                                topLevelPageUrl,
-                                request.resourceType(),
+                        if (AdTechRequestPolicy.shouldBlock(
                                 request.url()
                         )) {
                             route.abort();
                             return;
                         }
+
+                        if (headless) {
+                            String topLevelPageUrl =
+                                    request.frame().page().url();
+
+                            if (CatalogHeavyResourcePolicy.shouldBlock(
+                                    topLevelPageUrl,
+                                    request.resourceType(),
+                                    request.url()
+                            )) {
+                                route.abort();
+                                return;
+                            }
+                        }
                     } catch (RuntimeException exception) {
                         /*
-                         * This optimization is never allowed to make browser
-                         * correctness depend on route-inspection details. If a
-                         * frame/page is changing during navigation, fail open
-                         * and let Chromium load the resource normally.
+                         * Request filtering is an optimization/safety layer, not
+                         * business logic. If a frame/page disappears while the
+                         * request is being classified, fail open rather than
+                         * breaking Vinted navigation, login or CAPTCHA.
                          */
                         log.trace(
-                                "[BROWSER MEMORY] Could not classify a resource request safely; allowing it.",
+                                "[BROWSER REQUEST GUARD] Could not classify a request safely; allowing it.",
                                 exception
                         );
                     }
@@ -156,8 +165,14 @@ public class BrowserManager implements AutoCloseable {
         );
 
         log.info(
-                "[BROWSER MEMORY] Headless heavy-resource guard installed. Vinted catalog/item-detail image and media transfers may be skipped; functional traffic and challenge assets remain enabled."
+                "[BROWSER ADS] Conservative ad-tech request guard installed for all browser contexts. Observed RTB/ad domains are aborted before their documents/scripts can load; Vinted and challenge traffic remain allowed."
         );
+
+        if (headless) {
+            log.info(
+                    "[BROWSER MEMORY] Headless heavy-resource guard installed. Vinted catalog/item-detail image and media transfers may be skipped; functional traffic and challenge assets remain enabled."
+            );
+        }
     }
 
     @Override
