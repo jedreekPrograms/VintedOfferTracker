@@ -69,8 +69,9 @@ public class PreparedNextStepCoordinator {
             return false;
         }
 
+        ListingResponseDto canonicalListing;
         try {
-            new PreparedNextStepStateVerifier(context)
+            canonicalListing = new PreparedNextStepStateVerifier(context)
                     .verify(listing, decision.nextStep());
         } catch (Exception exception) {
             releaseQuota(botId, requestId);
@@ -86,10 +87,10 @@ public class PreparedNextStepCoordinator {
         NextStepExecutionResult result;
         try {
             result = new PreparedNextStepSubmitter(context)
-                    .submitPrepared(listing, decision.nextStep());
+                    .submitPrepared(canonicalListing, decision.nextStep());
         } catch (Exception exception) {
             audit.recordAmbiguousBestEffort(
-                    listing,
+                    canonicalListing,
                     ACTION_TYPE,
                     decision.nextStep().getStepNumber(),
                     decision.nextStep().getOfferPrice(),
@@ -121,7 +122,7 @@ public class PreparedNextStepCoordinator {
         }
 
         audit.recordConfirmedRequired(
-                listing,
+                canonicalListing,
                 ACTION_TYPE,
                 decision.nextStep().getStepNumber(),
                 decision.nextStep().getOfferPrice(),
