@@ -368,8 +368,8 @@ function RuntimeRow({
                             type="button"
                             disabled={previewUpdating}
                             title={bot.sessionPreviewRequested
-                                ? "Wyłącza widoczne okno dla kolejnych zadań. Trwające zadanie nie jest przerywane."
-                                : "Następne zaplanowane zadanie tego bota uruchomi się w widocznym oknie. Oczekiwanie zależy od kolejki i dostępnego miejsca."}
+                                ? "Zamyka bezpieczny podgląd. Normalne joby bota wznowią się dopiero po pełnym zamknięciu widocznego Chromium."
+                                : "Otwiera osobny widoczny, tylko-do-odczytu podgląd zapisanej sesji. Normalne joby tego bota są na czas podglądu wstrzymane, więc nie ma dwóch browserów używających tej samej sesji."}
                             onClick={() => {
                                 void onSessionPreview(
                                     bot.botId,
@@ -385,7 +385,7 @@ function RuntimeRow({
                         </button>
                         {bot.sessionPreviewRequested && (
                             <div className="runtime-cell-secondary">
-                                Podgląd od następnego zadania
+                                Bezpieczny podgląd · joby bota wstrzymane
                             </div>
                         )}
                     </>

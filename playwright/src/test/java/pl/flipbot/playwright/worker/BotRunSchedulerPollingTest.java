@@ -4,10 +4,13 @@ import org.junit.Test;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
 
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class BotRunSchedulerPollingTest {
 
@@ -110,6 +113,75 @@ public class BotRunSchedulerPollingTest {
                     negotiation.jobType()
             );
             assertEquals(1, scheduler.workingCatalogCount());
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
+    public void pausedPreviewBotCannotBeClaimedAndResumesWithoutLosingDueWork()
+            throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+
+        try {
+            scheduler.setPausedBotIds(Set.of(7L));
+            scheduler.reconcileRunningBots(Map.of(7L, false));
+
+            assertTrue(scheduler.isPaused(7L));
+            assertNull(scheduler.pollNext(30L));
+
+            scheduler.setPausedBotIds(Set.of());
+
+            ScheduledBotTask resumed = scheduler.pollNext(100L);
+
+            assertNotNull(resumed);
+            assertEquals(Long.valueOf(7L), resumed.botId());
+            assertEquals(
+                    ScheduledJobType.CATALOG_SCAN,
+                    resumed.jobType()
+            );
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
+    public void previewPauseLetsAlreadyWorkingJobFinishButQueuesNothingUntilResume()
+            throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+
+        try {
+            scheduler.reconcileRunningBots(Map.of(8L, true));
+
+            ScheduledBotTask running = scheduler.pollNext(100L);
+            assertNotNull(running);
+            assertTrue(scheduler.isWorking(8L));
+
+            scheduler.setPausedBotIds(Set.of(8L));
+
+            assertTrue(scheduler.isPaused(8L));
+            assertTrue(scheduler.isWorking(8L));
+
+            scheduler.completeRun(
+                    running.botId(),
+                    running.jobType(),
+                    0L,
+                    false,
+                    true
+            );
+
+            assertFalse(scheduler.isWorking(8L));
+            assertNull(scheduler.pollNext(30L));
+
+            scheduler.setPausedBotIds(Set.of());
+
+            ScheduledBotTask resumed = scheduler.pollNext(100L);
+            assertNotNull(resumed);
+            assertEquals(Long.valueOf(8L), resumed.botId());
         } finally {
             scheduler.shutdown();
             telemetry.close();

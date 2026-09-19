@@ -30,6 +30,16 @@ public class BotRunScheduler {
     private final Map<Long, BotSchedule> schedules =
             new HashMap<>();
 
+    /*
+     * Session preview owns the bot's Vinted session while it is visible.
+     * Paused bots keep their due timestamps, but no scheduled job may be
+     * queued or claimed until the preview runtime has closed on its owner
+     * thread. This prevents two browser contexts from using the same account
+     * session at the same time.
+     */
+    private final Set<Long> pausedBotIds =
+            new HashSet<>();
+
     private final WorkerRuntimeConfig config;
     private final RuntimeTelemetryReporter telemetryReporter;
     private final CatalogConcurrencyConfig catalogConcurrencyConfig;
@@ -161,6 +171,17 @@ public class BotRunScheduler {
             return null;
         }
 
+        if (pausedBotIds.contains(task.botId())) {
+            if (schedule.state == RunState.QUEUED
+                    && schedule.queuedJobType == task.jobType()
+                    && schedule.queuedRunAtNanos == task.runAtNanos()) {
+                schedule.state = null;
+                schedule.queuedJobType = null;
+                schedule.queuedRunAtNanos = 0L;
+            }
+            return null;
+        }
+
         if (schedule.state != RunState.QUEUED) {
             return null;
         }
@@ -284,12 +305,85 @@ public class BotRunScheduler {
         schedule.reportQueuedStatus = reportQueued;
         schedule.state = null;
 
-        enqueueEarliestJob(botId, schedule, now);
+        if (!pausedBotIds.contains(botId)) {
+            enqueueEarliestJob(botId, schedule, now);
+        }
+    }
+
+    public synchronized void setPausedBotIds(Set<Long> requestedPausedBotIds) {
+        Set<Long> normalized = new HashSet<>();
+
+        if (requestedPausedBotIds != null) {
+            requestedPausedBotIds.stream()
+                    .filter(botId -> botId != null && botId > 0L)
+                    .forEach(normalized::add);
+        }
+
+        Set<Long> newlyPaused = new HashSet<>(normalized);
+        newlyPaused.removeAll(pausedBotIds);
+
+        Set<Long> resumed = new HashSet<>(pausedBotIds);
+        resumed.removeAll(normalized);
+
+        long now = System.currentTimeMillis();
+
+        for (Long botId : newlyPaused) {
+            BotSchedule schedule = schedules.get(botId);
+
+            if (schedule == null) {
+                continue;
+            }
+
+            if (schedule.state == RunState.QUEUED) {
+                removeQueuedTask(botId);
+                schedule.state = null;
+                schedule.queuedJobType = null;
+                schedule.queuedRunAtNanos = 0L;
+            }
+
+            log.info(
+                    "[SESSION PREVIEW] Scheduler paused bot {}. Existing WORKING job, if any, may finish; no new job will be claimed.",
+                    botId
+            );
+        }
+
+        pausedBotIds.clear();
+        pausedBotIds.addAll(normalized);
+
+        for (Long botId : resumed) {
+            BotSchedule schedule = schedules.get(botId);
+
+            if (schedule == null
+                    || !schedule.enabled
+                    || schedule.state != null) {
+                continue;
+            }
+
+            schedule.reportQueuedStatus = true;
+            enqueueEarliestJob(botId, schedule, now);
+
+            log.info(
+                    "[SESSION PREVIEW] Scheduler resumed bot {} after preview ownership ended.",
+                    botId
+            );
+        }
+    }
+
+    public synchronized boolean isWorking(Long botId) {
+        BotSchedule schedule = schedules.get(botId);
+
+        return schedule != null
+                && schedule.state == RunState.WORKING;
+    }
+
+    public synchronized boolean isPaused(Long botId) {
+        return botId != null && pausedBotIds.contains(botId);
     }
 
     public synchronized void shutdown() {
         schedules.clear();
         queue.clear();
+        pausedBotIds.clear();
     }
 
     public synchronized int queuedCount() {
@@ -394,7 +488,8 @@ public class BotRunScheduler {
             long now
     ) {
 
-        if (!schedule.enabled) {
+        if (!schedule.enabled
+                || pausedBotIds.contains(botId)) {
             return;
         }
 
