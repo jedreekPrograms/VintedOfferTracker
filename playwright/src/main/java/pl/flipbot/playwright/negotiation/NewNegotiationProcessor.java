@@ -413,8 +413,32 @@ public class NewNegotiationProcessor {
                 );
 
             } catch (Exception exception) {
+                boolean reconciled =
+                        firstOfferExecutor.reconcilePreparedFirstNegotiationAfterAmbiguousSubmit(
+                                listing
+                        );
+
+                if (reconciled) {
+                    firstOfferActionGuardCoordinator.releaseAfterConfirmedSuccessBestEffort(
+                            botId,
+                            listing,
+                            actionGuardRequestId
+                    );
+
+                    startedNegotiations++;
+
+                    log.warn(
+                            "[REAL OFFER] Post-submit failure for listing {} was reconciled from strong Vinted conversation evidence. "
+                                    + "The backend is NEGOTIATING and no duplicate offer was sent. Original error: {}",
+                            listing.listingId(),
+                            getFriendlyErrorMessage(exception)
+                    );
+                    continue;
+                }
+
                 log.error(
-                        "[REAL OFFER] Failure occurred after quota reservation while submitting marketplace listing {}: {}. Quota will NOT be released automatically and FIRST_OFFER action guard will remain persisted because the real submit action may have been attempted.",
+                        "[REAL OFFER] Failure occurred after quota reservation while submitting marketplace listing {}: {}. "
+                                + "Strong reconciliation could not prove delivery. Quota will NOT be released automatically and FIRST_OFFER action guard remains persisted to prevent a duplicate offer.",
                         listing.listingId(),
                         getFriendlyErrorMessage(exception)
                 );
