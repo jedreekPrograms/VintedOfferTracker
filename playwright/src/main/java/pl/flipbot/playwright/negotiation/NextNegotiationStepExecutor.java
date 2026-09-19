@@ -12,6 +12,7 @@ import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
+import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
@@ -1514,18 +1515,63 @@ public class NextNegotiationStepExecutor {
 
         }
 
-        if (listing.currentPrice() != null
-                && nextStep.getOfferPrice().compareTo(listing.currentPrice()) <= 0) {
+        if (listing.currentPrice() != null) {
+            int priceComparison =
+                    nextStep.getOfferPrice().compareTo(listing.currentPrice());
 
-            throw new IllegalArgumentException(
-                    "Next negotiation offer must be greater than the current offer. Current price: "
-                            + listing.currentPrice()
-                            + ", next price: "
-                            + nextStep.getOfferPrice()
-            );
+            if (priceComparison < 0) {
+                throw new IllegalArgumentException(
+                        "Next negotiation offer cannot be lower than the current offer. Current price: "
+                                + listing.currentPrice()
+                                + ", next price: "
+                                + nextStep.getOfferPrice()
+                );
+            }
 
+            if (priceComparison == 0
+                    && !isAllowedAdaptiveCapPlateau(listing, nextStep)) {
+                throw new IllegalArgumentException(
+                        "Next negotiation offer may equal the current offer only after the adaptive global cap has been reached. Current price: "
+                                + listing.currentPrice()
+                                + ", next price: "
+                                + nextStep.getOfferPrice()
+                );
+            }
         }
 
+    }
+
+    boolean isAllowedAdaptiveCapPlateau(
+            ListingResponseDto listing,
+            NegotiationStepDto nextStep
+    ) {
+        if (listing == null
+                || nextStep == null
+                || listing.currentPrice() == null
+                || nextStep.getOfferPrice() == null
+                || context.getBot() == null) {
+            return false;
+        }
+
+        BotConfigurationDto configuration =
+                context.getBot().getConfiguration();
+
+        if (configuration == null
+                || !Boolean.TRUE.equals(
+                configuration.getAutoRaiseOfferToVintedMinimum()
+        )
+                || configuration.getMaxAutomaticOffer() == null
+                || configuration.getMaxAutomaticOffer().signum() <= 0) {
+            return false;
+        }
+
+        BigDecimal cap = configuration.getMaxAutomaticOffer();
+
+        return listing.currentPrice().compareTo(cap) == 0
+                && nextStep.getOfferPrice().compareTo(cap) == 0
+                && listing.currentStep() != null
+                && nextStep.getStepNumber() != null
+                && nextStep.getStepNumber() > listing.currentStep();
     }
 
     private record SubmittedOffer(
