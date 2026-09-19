@@ -532,7 +532,7 @@ public class FirstOfferExecutor {
         }
 
         try {
-            assertPreparedOfferMatchesListing(listing);
+            requireMatchingPreparedOffer(listing);
 
             Page page = context.getPage();
             String conversationUrl = page.url();
