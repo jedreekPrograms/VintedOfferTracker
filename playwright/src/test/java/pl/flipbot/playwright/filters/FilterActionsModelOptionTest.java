@@ -65,10 +65,10 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
-    public void exactModelCheckboxVisualSelectorTargetsSiblingControlForProvenCollection() {
+    public void exactModelSuffixTestIdTargetsTheClickableSuffixForProvenCollection() {
         assertEquals(
-                "input[type='checkbox'][name='brand_collection_ids[]'][value='9977'] + span",
-                FilterActions.exactModelCheckboxVisualSelector("9977")
+                "selectable-item-brand_collection-9977--suffix",
+                FilterActions.exactModelSuffixTestId("9977")
         );
     }
 
