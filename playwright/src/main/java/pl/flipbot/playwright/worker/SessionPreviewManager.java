@@ -46,7 +46,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 final class SessionPreviewManager implements AutoCloseable {
 
-    private static final long PREVIEW_POLL_MS = 250L;
+    /*
+     * Keep this short in headed LIVE mode. Synchronous Playwright dispatches
+     * browser events while Java calls into Playwright; a long plain-Java poll
+     * gap makes an already-created ad popup visibly linger before onPopup /
+     * onPage callbacks get a chance to close it.
+     */
+    private static final long PREVIEW_POLL_MS = 50L;
+    private static final double PREVIEW_EVENT_PUMP_MS = 10.0;
     private static final long STOP_TIMEOUT_SECONDS = 8L;
     private static final long SESSION_BLOCK_FALLBACK_DELAY_MINUTES = 15L;
     private static final int LIVE_PREVIEW_TELEMETRY_SLOT = 0;
@@ -175,6 +182,8 @@ final class SessionPreviewManager implements AutoCloseable {
                     );
 
                     if (task == null) {
+                        pumpVisibleBrowserEvents(idleContext);
+
                         observeManualRecovery(
                                 idleContext,
                                 recoveryMonitor,
@@ -280,6 +289,28 @@ final class SessionPreviewManager implements AutoCloseable {
         );
 
         return context;
+    }
+
+    private void pumpVisibleBrowserEvents(BotContext context) {
+        if (context == null
+                || context.getPage() == null
+                || context.getPage().isClosed()) {
+            return;
+        }
+
+        try {
+            /*
+             * Unlike Thread.sleep(), Page.waitForTimeout() keeps Playwright's
+             * synchronous event dispatcher alive. This lets popup/page events
+             * be delivered and closed while LIVE preview is otherwise idle.
+             */
+            context.getPage().waitForTimeout(PREVIEW_EVENT_PUMP_MS);
+        } catch (RuntimeException exception) {
+            log.trace(
+                    "[SESSION PREVIEW] Could not pump headed browser events while idle.",
+                    exception
+            );
+        }
     }
 
     private void observeManualRecovery(
