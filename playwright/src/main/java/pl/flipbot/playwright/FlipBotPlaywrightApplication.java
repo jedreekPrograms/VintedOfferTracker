@@ -2,6 +2,7 @@ package pl.flipbot.playwright;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.marketstats.MarketStatsManager;
+import pl.flipbot.playwright.session.PlaywrightRuntimeInstanceLock;
 import pl.flipbot.playwright.session.SessionTempFileCleaner;
 import pl.flipbot.playwright.worker.WorkerManager;
 
@@ -16,55 +17,60 @@ public class FlipBotPlaywrightApplication {
                 "Starting FlipBot Playwright..."
         );
 
-        SessionTempFileCleaner.cleanupDefaultDirectory();
+        try (PlaywrightRuntimeInstanceLock runtimeLock =
+                     PlaywrightRuntimeInstanceLock.acquireDefault()) {
 
+            SessionTempFileCleaner.cleanupDefaultDirectory();
 
-        WorkerManager workerManager =
-                new WorkerManager();
+            WorkerManager workerManager =
+                    new WorkerManager();
 
-        MarketStatsManager marketStatsManager =
-                new MarketStatsManager();
+            MarketStatsManager marketStatsManager =
+                    new MarketStatsManager();
 
+            Thread shutdownHook =
+                    new Thread(
+                            () -> {
+                                marketStatsManager.stop();
+                                workerManager.stop();
+                            },
+                            "flipbot-shutdown"
+                    );
 
-        Thread shutdownHook =
-                new Thread(
-                        () -> {
-                            marketStatsManager.stop();
-                            workerManager.stop();
-                        },
-                        "flipbot-shutdown"
+            Runtime.getRuntime()
+                    .addShutdownHook(
+                            shutdownHook
+                    );
+
+            try {
+
+                workerManager.start();
+                marketStatsManager.start();
+
+                Thread.currentThread()
+                        .join();
+
+            } catch (InterruptedException exception) {
+
+                Thread.currentThread()
+                        .interrupt();
+
+                log.info(
+                        "FlipBot Playwright main thread was interrupted."
                 );
 
+            } finally {
 
-        Runtime.getRuntime()
-                .addShutdownHook(
-                        shutdownHook
-                );
+                marketStatsManager.stop();
+                workerManager.stop();
+            }
 
-
-        try {
-
-            workerManager.start();
-            marketStatsManager.start();
-
-
-            Thread.currentThread()
-                    .join();
-
-        } catch (InterruptedException exception) {
-
-            Thread.currentThread()
-                    .interrupt();
-
-
-            log.info(
-                    "FlipBot Playwright main thread was interrupted."
+        } catch (IllegalStateException exception) {
+            log.error(
+                    "FlipBot Playwright refused to start safely. reason={}",
+                    exception.getMessage(),
+                    exception
             );
-
-        } finally {
-
-            marketStatsManager.stop();
-            workerManager.stop();
         }
     }
 }
