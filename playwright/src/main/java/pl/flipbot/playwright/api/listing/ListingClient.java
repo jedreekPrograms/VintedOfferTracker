@@ -6,6 +6,7 @@ import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.api.listing.dto.DiscoverListingsRequestDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.NegotiationCapacityResponseDto;
+import pl.flipbot.playwright.api.listing.dto.UpdateConversationIdentityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 
 import java.net.http.HttpResponse;
@@ -213,6 +214,58 @@ public class ListingClient extends ApiClient {
 
         return allowedNewNegotiations;
 
+    }
+
+    public ListingResponseDto updateConversationIdentity(
+            Long botId,
+            Long backendListingId,
+            UpdateConversationIdentityRequestDto request
+    ) {
+        Objects.requireNonNull(botId, "Bot id cannot be null");
+        Objects.requireNonNull(
+                backendListingId,
+                "Backend listing id cannot be null"
+        );
+        Objects.requireNonNull(
+                request,
+                "Conversation identity request cannot be null"
+        );
+
+        String path =
+                "/api/bots/"
+                        + botId
+                        + "/listings/"
+                        + backendListingId
+                        + "/conversation";
+
+        HttpResponse<String> response =
+                patch(
+                        path,
+                        request
+                );
+
+        validateResponse(
+                response,
+                "update conversation identity for listing "
+                        + backendListingId
+                        + " / bot "
+                        + botId
+        );
+
+        ListingResponseDto updated =
+                readBody(
+                        response,
+                        ListingResponseDto.class
+                );
+
+        log.warn(
+                "[CONVERSATION] Backend canonical conversation identity updated for listing {}. conversationId={}, conversationUrl={}",
+                backendListingId,
+                updated.conversationId(),
+                updated.conversationUrl()
+        );
+
+        return updated;
     }
 
     public ListingResponseDto updateListing(
