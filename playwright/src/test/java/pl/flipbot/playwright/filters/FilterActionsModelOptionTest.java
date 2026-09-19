@@ -65,6 +65,14 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
+    public void exactModelCheckboxVisualSelectorTargetsSiblingControlForProvenCollection() {
+        assertEquals(
+                "input[type='checkbox'][name='brand_collection_ids[]'][value='9977'] + span",
+                FilterActions.exactModelCheckboxVisualSelector("9977")
+        );
+    }
+
+    @Test
     public void titleChildEvidenceAlwaysResolvesBackToCanonicalSelectableRow() {
         String collectionId = FilterActions.modelCollectionIdFromTestId(
                 "selectable-item-brand_collection-10632--title"
