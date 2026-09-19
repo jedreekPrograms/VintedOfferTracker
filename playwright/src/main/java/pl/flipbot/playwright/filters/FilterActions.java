@@ -116,19 +116,173 @@ public class FilterActions {
                 "selecting exact filter option '" + option + "'"
         );
 
-        Locator locator = page.getByRole(
-                AriaRole.BUTTON,
-                new Page.GetByRoleOptions()
-                        .setName(option)
-                        .setExact(true)
+        long deadline =
+                System.currentTimeMillis()
+                        + Math.max(1L, Math.round(timeoutMilliseconds));
+
+        while (System.currentTimeMillis() <= deadline) {
+            Locator exactAccessibleButtons = page.getByRole(
+                    AriaRole.BUTTON,
+                    new Page.GetByRoleOptions()
+                            .setName(option)
+                            .setExact(true)
+            );
+
+            Locator exactButton = uniqueVisibleLocator(
+                    exactAccessibleButtons,
+                    option,
+                    "exact accessible button"
+            );
+
+            if (exactButton != null) {
+                exactButton.click();
+                assertStillOnVinted(
+                        "selecting exact filter option '" + option + "'"
+                );
+                return;
+            }
+
+            /*
+             * Vinted does not use one stable accessibility shape for every
+             * category level. In particular, leaf categories can render the
+             * requested label inside another clickable control whose accessible
+             * name contains extra UI text. Requiring role=button + exact name
+             * therefore rejects a visually exact leaf such as
+             * "Telefony komórkowe" or "Tablety".
+             *
+             * The fallback is still fail-closed: Playwright must expose an
+             * exact visible text match, that text must belong to a known
+             * clickable control, and there must be exactly one such candidate.
+             * Partial labels (for example "Telefony komórkowe i komunikacja")
+             * are never accepted for "Telefony komórkowe".
+             */
+            Locator exactClickableText = uniqueExactClickableTextOption(option);
+
+            if (exactClickableText != null) {
+                log.debug(
+                        "[FILTER CATEGORY] Exact accessible button was unavailable for '{}'; using unique exact visible text inside a clickable control.",
+                        option
+                );
+                exactClickableText.click();
+                assertStillOnVinted(
+                        "selecting exact filter option '" + option + "'"
+                );
+                return;
+            }
+
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) {
+                break;
+            }
+
+            page.waitForTimeout(Math.min(100, remaining));
+        }
+
+        throw new IllegalStateException(
+                "Vinted did not render a unique exact clickable filter option for '"
+                        + option
+                        + "' within "
+                        + Math.round(timeoutMilliseconds / 1_000)
+                        + " seconds"
+        );
+    }
+
+    private Locator uniqueVisibleLocator(
+            Locator locator,
+            String option,
+            String evidenceType
+    ) {
+        int count = locator.count();
+        Locator match = null;
+        int visibleMatches = 0;
+
+        for (int index = 0; index < count; index++) {
+            Locator candidate = locator.nth(index);
+            if (!safeIsVisible(candidate)) {
+                continue;
+            }
+
+            visibleMatches++;
+            match = candidate;
+
+            if (visibleMatches > 1) {
+                throw new IllegalStateException(
+                        "Vinted rendered multiple visible "
+                                + evidenceType
+                                + " matches for exact option '"
+                                + option
+                                + "'. Refusing an ambiguous category click."
+                );
+            }
+        }
+
+        return match;
+    }
+
+    private Locator uniqueExactClickableTextOption(String option) {
+        Locator exactTextMatches = page.getByText(
+                option,
+                new Page.GetByTextOptions().setExact(true)
         );
 
-        waitUntilVisible(locator, timeoutMilliseconds);
-        locator.click();
+        int count = exactTextMatches.count();
+        Locator match = null;
+        int visibleClickableMatches = 0;
 
-        assertStillOnVinted(
-                "selecting exact filter option '" + option + "'"
-        );
+        for (int index = 0; index < count; index++) {
+            Locator textCandidate = exactTextMatches.nth(index);
+
+            if (!safeIsVisible(textCandidate)) {
+                continue;
+            }
+
+            String visibleText = safeInnerText(textCandidate);
+            if (visibleText.isBlank()) {
+                visibleText = safeTextContent(textCandidate);
+            }
+
+            if (!exactFilterOptionTextMatches(option, visibleText)) {
+                continue;
+            }
+
+            Locator clickableAncestor = textCandidate.locator(
+                    "xpath=ancestor-or-self::*["
+                            + "self::button or self::a or self::label "
+                            + "or @role='button' or @role='option' "
+                            + "or @role='radio' or @role='menuitem' "
+                            + "or @role='menuitemradio' or @role='treeitem'"
+                            + "][1]"
+            );
+
+            if (clickableAncestor.count() == 0
+                    || !safeIsVisible(clickableAncestor.nth(0))) {
+                continue;
+            }
+
+            visibleClickableMatches++;
+            match = textCandidate;
+
+            if (visibleClickableMatches > 1) {
+                throw new IllegalStateException(
+                        "Vinted rendered multiple visible clickable controls with exact text '"
+                                + option
+                                + "'. Refusing an ambiguous category click."
+                );
+            }
+        }
+
+        return match;
+    }
+
+    static boolean exactFilterOptionTextMatches(
+            String requestedOption,
+            String visibleText
+    ) {
+        String requested = normalizeOptionText(requestedOption);
+        String visible = normalizeOptionText(visibleText);
+
+        return !requested.isBlank()
+                && requested.equalsIgnoreCase(visible);
     }
 
     public void fillInput(String testId, String value) {
