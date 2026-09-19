@@ -6,8 +6,10 @@ import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
 import pl.flipbot.playwright.model.RunningBotDto;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -37,6 +39,9 @@ public class WorkerManager implements AutoCloseable {
 
     private final BotSessionPreviewRegistry sessionPreviewRegistry =
             new BotSessionPreviewRegistry();
+
+    private final SessionPreviewManager sessionPreviewManager =
+            new SessionPreviewManager();
 
     private final ScheduledExecutorService syncExecutor =
             Executors.newSingleThreadScheduledExecutor(
@@ -117,6 +122,31 @@ public class WorkerManager implements AutoCloseable {
                             )
                             .toList();
 
+            Set<Long> previewRequestedBotIds =
+                    runningBotDtos.stream()
+                            .filter(RunningBotDto::isSessionPreviewRequested)
+                            .map(RunningBotDto::getId)
+                            .collect(Collectors.toSet());
+
+            /*
+             * Closing ownership comes first. A bot whose preview was disabled
+             * must not be unpaused until its visible Chromium has actually
+             * exited on the preview owner thread.
+             */
+            sessionPreviewManager.stopUnrequested(
+                    previewRequestedBotIds
+            );
+
+            Set<Long> schedulerPausedBotIds =
+                    new HashSet<>(previewRequestedBotIds);
+            schedulerPausedBotIds.addAll(
+                    sessionPreviewManager.activeBotIds()
+            );
+
+            scheduler.setPausedBotIds(
+                    schedulerPausedBotIds
+            );
+
             sessionPreviewRegistry.replaceFrom(runningBotDtos);
 
             Map<Long, Boolean> runningBots =
@@ -130,6 +160,16 @@ public class WorkerManager implements AutoCloseable {
                             );
 
             scheduler.reconcileRunningBots(runningBots);
+
+            /*
+             * Start only after scheduler pause ownership is installed. If a
+             * normal job was already WORKING at click time, it finishes first;
+             * the next sync opens the preview instead of racing the job.
+             */
+            sessionPreviewManager.startRequestedWhenSafe(
+                    previewRequestedBotIds,
+                    scheduler
+            );
 
             int requiredSlots = Math.min(
                     config.workerCount(),
@@ -315,6 +355,12 @@ public class WorkerManager implements AutoCloseable {
         scheduler.shutdown();
         sessionPreviewRegistry.clear();
         syncExecutor.shutdownNow();
+
+        /*
+         * Preview runtimes own Playwright objects on their own threads. Ask
+         * them to close themselves before worker threads are interrupted.
+         */
+        sessionPreviewManager.close();
 
         slotHandles.forEach(handle -> handle.future().cancel(true));
         slotExecutor.shutdownNow();
