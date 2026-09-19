@@ -429,6 +429,10 @@ public class SessionManager {
         }
     }
 
+    Path runtimeLockFile() {
+        return sessionDirectory.resolve(".flipbot-playwright-runtime.lock");
+    }
+
     public Path sessionFile(Long botId) {
         if (botId == null || botId <= 0) {
             throw new IllegalArgumentException(

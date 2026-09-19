@@ -26,7 +26,7 @@ final class BrowserResourceOptimizationConfig {
                 headless,
                 System.getenv(BLOCK_SERVICE_WORKERS_ENV),
                 BLOCK_SERVICE_WORKERS_ENV,
-                true
+                false
         );
     }
 
@@ -38,7 +38,7 @@ final class BrowserResourceOptimizationConfig {
                 headless,
                 rawOverride,
                 BLOCK_SERVICE_WORKERS_ENV,
-                true
+                false
         );
     }
 
