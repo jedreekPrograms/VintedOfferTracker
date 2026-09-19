@@ -12,6 +12,7 @@ import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
+import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
@@ -516,6 +517,104 @@ public class FirstOfferExecutor {
 
         return NegotiationStartResult
                 .STARTED;
+    }
+
+
+    /**
+     * Reconciles only a strongly-confirmed post-submit state. This method never
+     * clicks submit and never guesses from a missing button/redirect alone.
+     */
+    public boolean reconcilePreparedFirstNegotiationAfterAmbiguousSubmit(
+            ListingResponseDto listing
+    ) {
+        if (preparedOffer == null || listing == null) {
+            return false;
+        }
+
+        try {
+            assertPreparedOfferMatchesListing(listing);
+
+            Page page = context.getPage();
+            String conversationUrl = page.url();
+
+            if (!MarketplaceUrls.isVintedUrl(conversationUrl)
+                    || conversationUrl == null
+                    || !conversationUrl.contains("/inbox/")) {
+                log.warn(
+                        "[REAL OFFER RECONCILE] Cannot confirm marketplace listing {} after ambiguous submit because the page is not a trusted Vinted conversation. URL={}",
+                        listing.listingId(),
+                        conversationUrl
+                );
+                return false;
+            }
+
+            String conversationId = extractConversationId(conversationUrl);
+
+            Locator ownOfferPrices =
+                    page.getByTestId(NegotiationSelectors.OWN_OFFER_PRICE);
+            int count = ownOfferPrices.count();
+
+            if (count <= 0) {
+                log.warn(
+                        "[REAL OFFER RECONCILE] Conversation {} is open for listing {}, but no own-offer price is visible. Keeping the action ambiguous.",
+                        conversationId,
+                        listing.listingId()
+                );
+                return false;
+            }
+
+            Locator latestOwnOffer = ownOfferPrices.nth(count - 1);
+            if (!latestOwnOffer.isVisible()) {
+                return false;
+            }
+
+            BigDecimal displayedPrice = parsePrice(latestOwnOffer.innerText());
+            if (displayedPrice.compareTo(preparedOffer.offerPrice()) != 0) {
+                log.error(
+                        "[REAL OFFER RECONCILE] Refusing reconciliation for listing {} because latest own offer price {} differs from prepared price {}.",
+                        listing.listingId(),
+                        displayedPrice,
+                        preparedOffer.offerPrice()
+                );
+                return false;
+            }
+
+            ListingResponseDto updatedListing = markNegotiationStarted(
+                    listing,
+                    preparedOffer.offerPrice(),
+                    preparedOffer.stepNumber(),
+                    conversationId,
+                    conversationUrl
+            );
+
+            sendFirstMessageSafely(
+                    page,
+                    listing,
+                    preparedOffer.message()
+            );
+
+            log.warn(
+                    "[REAL OFFER RECONCILE] Recovered confirmed first offer for listing {}. Backend status={}, conversation={}, price={}. No second submit was attempted.",
+                    listing.listingId(),
+                    updatedListing.status(),
+                    conversationId,
+                    displayedPrice
+            );
+
+            clearPreparedState();
+            return true;
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[REAL OFFER RECONCILE] Strong reconciliation did not complete for listing {}. Keeping the persistent action guard fail-closed. Reason: {}",
+                    listing == null ? null : listing.listingId(),
+                    getFriendlyErrorMessage(exception)
+            );
+            log.trace(
+                    "[REAL OFFER RECONCILE] Full reconciliation failure.",
+                    exception
+            );
+            return false;
+        }
     }
 
 
