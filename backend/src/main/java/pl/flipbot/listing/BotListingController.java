@@ -184,6 +184,24 @@ public class BotListingController {
 
     }
 
+    @PatchMapping("/{listingId}/conversation")
+    public ResponseEntity<ListingResponse>
+    updateConversationIdentity(
+            @PathVariable Long botId,
+            @PathVariable Long listingId,
+            @Valid
+            @RequestBody
+            UpdateConversationIdentityRequest request
+    ) {
+        return ResponseEntity.ok(
+                listingService.updateConversationIdentity(
+                        botId,
+                        listingId,
+                        request
+                )
+        );
+    }
+
     @PatchMapping("/{listingId}/negotiation-activity")
     public ResponseEntity<NegotiationActivityResponse>
     recordNegotiationActivity(
