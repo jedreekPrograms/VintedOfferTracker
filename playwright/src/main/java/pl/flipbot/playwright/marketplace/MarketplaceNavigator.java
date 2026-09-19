@@ -68,6 +68,16 @@ public class MarketplaceNavigator {
         navigate(MarketplaceUrls.INBOX);
     }
 
+    /**
+     * Opens an arbitrary trusted Vinted URL with the same bounded retry and
+     * session-refresh handling used by home/catalog navigation. Callers must
+     * still verify the business-specific destination (item/conversation id)
+     * after this method returns.
+     */
+    public void goToTrustedVintedUrl(String url) {
+        navigate(url);
+    }
+
     public Page page() {
         return context.getPage();
     }

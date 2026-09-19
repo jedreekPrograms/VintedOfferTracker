@@ -136,41 +136,19 @@ public class ExistingNegotiationProcessor {
                             configuration
                     );
 
-                    if (pending.action() == PendingNegotiationDecision.Action.WAIT) {
-                        log.info(
-                                "[PENDING POLICY] Listing {} remains NEGOTIATING. Reason: {}",
-                                listing.listingId(),
-                                pending.reason()
-                        );
-                        continue;
-                    }
-
-                    if (pending.action() == PendingNegotiationDecision.Action.EXPIRE) {
-                        ListingResponseDto expired = listingStatusUpdater.markExpired(listing);
-                        clearContactUnavailableSuspicion(listing);
-                        log.warn(
-                                "[PENDING POLICY] Listing {} changed to EXPIRED. Reason: {}",
-                                expired.listingId(),
-                                pending.reason()
-                        );
-                        continue;
-                    }
-
-                    if (pending.nextStep() == null) {
+                    if (pending.action() != PendingNegotiationDecision.Action.WAIT) {
                         throw new IllegalStateException(
-                                "Pending policy selected SEND_NEXT_STEP without a next step"
+                                "Explicit Vinted PENDING state must never trigger a price increase or terminal status. "
+                                        + "Unexpected pending-policy action: " + pending.action()
                         );
                     }
 
-                    stepSent = handleDecision(
-                            listing,
-                            snapshot,
-                            NegotiationDecision.sendNextStep(
-                                    pending.nextStep(),
-                                    null,
-                                    pending.reason()
-                            )
+                    log.info(
+                            "[PENDING POLICY] Listing {} remains NEGOTIATING. Reason: {}",
+                            listing.listingId(),
+                            pending.reason()
                     );
+                    continue;
                 } else {
                     stepSent = handleDecision(
                             listing,
@@ -288,54 +266,49 @@ public class ExistingNegotiationProcessor {
                 decision.reason()
         );
 
-        ConversationContactAssessment contactAssessment = contactAvailabilityDetector.inspect(listing);
+        ConversationContactAssessment contactAssessment =
+                contactAvailabilityDetector.inspect(listing);
 
-        if (contactAssessment.state() == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
+        if (contactAssessment.state()
+                == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
             clearContactUnavailableSuspicion(listing);
             log.warn(
-                    "[CONTACT AVAILABILITY] Listing {} can still be messaged, but Vinted currently exposes no enabled offer action. The bot will not throw a generic timeout or reserve quota; it will retry on a later negotiation check. Reason: {}",
+                    "[CONTACT AVAILABILITY] Listing {} can still be messaged, but Vinted currently exposes no enabled offer action. "
+                            + "No quota or offer will be attempted this cycle; the conversation stays NEGOTIATING. Reason: {}",
                     listing.listingId(),
                     contactAssessment.reason()
             );
             return false;
         }
 
-        if (contactAssessment.state() == ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE) {
-            ListingResponseDto updated = listingStatusUpdater.markContactUnavailable(listing);
+        if (contactAssessment.state()
+                == ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE) {
+            ListingResponseDto updated =
+                    listingStatusUpdater.markContactUnavailable(listing);
             clearContactUnavailableSuspicion(listing);
             log.warn(
-                    "[CONTACT AVAILABILITY] Listing {} changed to CONTACT_UNAVAILABLE. The bot will stop retrying this conversation. Reason: {}",
+                    "[CONTACT AVAILABILITY] Listing {} changed to CONTACT_UNAVAILABLE only because Vinted exposed explicit contact-disabled/block evidence. Reason: {}",
                     updated.listingId(),
                     contactAssessment.reason()
             );
             return false;
         }
 
-        if (contactAssessment.state() == ConversationContactAssessment.State.SUSPECTED_UNAVAILABLE) {
+        if (contactAssessment.state()
+                == ConversationContactAssessment.State.SUSPECTED_UNAVAILABLE) {
             int consecutiveChecks = contactUnavailableTracker.recordSuspected(
                     context.getBot().getId(),
                     listing.listingId()
             );
 
-            if (contactUnavailableTracker.shouldClose(consecutiveChecks)) {
-                ListingResponseDto updated = listingStatusUpdater.markContactUnavailable(listing);
-                clearContactUnavailableSuspicion(listing);
-                log.warn(
-                        "[CONTACT AVAILABILITY] Listing {} changed to CONTACT_UNAVAILABLE after {} consecutive checks with no usable message composer and no offer action. This avoids an endless 2-minute retry loop. Last observation: {}",
-                        updated.listingId(),
-                        consecutiveChecks,
-                        contactAssessment.reason()
-                );
-            } else {
-                log.warn(
-                        "[CONTACT AVAILABILITY] Listing {} may no longer allow contact. Observation {}/{}: {} No offer will be attempted this cycle; the conversation will be checked again before being closed permanently.",
-                        listing.listingId(),
-                        consecutiveChecks,
-                        ConsecutiveContactUnavailableTracker.REQUIRED_CONSECUTIVE_SUSPECTED_CHECKS,
-                        contactAssessment.reason()
-                );
-            }
-
+            log.warn(
+                    "[CONTACT AVAILABILITY] Listing {} remains NEGOTIATING despite ambiguous missing controls. Observation count={}. "
+                            + "Only explicit Vinted evidence may close it as CONTACT_UNAVAILABLE. "
+                            + "No quota or offer will be attempted this cycle. Last observation: {}",
+                    listing.listingId(),
+                    consecutiveChecks,
+                    contactAssessment.reason()
+            );
             return false;
         }
 
