@@ -164,9 +164,17 @@ public class BrowserManager implements AutoCloseable {
                 }
         );
 
-        log.info(
-                "[BROWSER ADS] Conservative ad-tech request guard installed for all browser contexts. Observed RTB/ad domains are aborted before their documents/scripts can load; Vinted and challenge traffic remain allowed."
-        );
+        if (AdTechRequestPolicy.enabled()) {
+            log.info(
+                    "[BROWSER ADS] Conservative ad-tech request guard installed for all browser contexts. Observed RTB/ad domains are aborted before their documents/scripts can load; Vinted and challenge traffic remain allowed. Emergency disable: {}=false.",
+                    AdTechRequestPolicy.BLOCK_AD_TECH_ENV
+            );
+        } else {
+            log.warn(
+                    "[BROWSER ADS] Ad-tech request blocking is DISABLED by {}. Popup DOM guard and single-page fail-safe remain active.",
+                    AdTechRequestPolicy.BLOCK_AD_TECH_ENV
+            );
+        }
 
         if (headless) {
             log.info(
