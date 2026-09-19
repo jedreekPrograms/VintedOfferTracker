@@ -317,9 +317,19 @@ public class ExistingNegotiationProcessor {
                     listing.listingId()
             );
 
-            if (contactUnavailableTracker.shouldClose(consecutiveChecks)) {
-                ListingResponseDto updated = listingStatusUpdater.markContactUnavailable(listing);
-                clearContactUnavailableSuspicion(listing);
+            log.warn(
+                    "[CONTACT AVAILABILITY] Listing {} remains NEGOTIATING despite ambiguous missing controls. Observation count={}. "
+                            + "Only explicit Vinted evidence such as a blocking/contact-disabled message may close it as CONTACT_UNAVAILABLE. "
+                            + "No offer will be attempted this cycle. Observation: {}",
+                    listing.listingId(),
+                    consecutiveChecks,
+                    contactAssessment.reason()
+            );
+
+            return false;
+        }
+
+        clearContactUnavailableSuspicion(listing);
                 log.warn(
                         "[CONTACT AVAILABILITY] Listing {} changed to CONTACT_UNAVAILABLE after {} consecutive checks with no usable message composer and no offer action. This avoids an endless 2-minute retry loop. Last observation: {}",
                         updated.listingId(),
