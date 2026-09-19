@@ -177,7 +177,8 @@ final class SessionPreviewManager implements AutoCloseable {
                     if (task == null) {
                         observeManualRecovery(
                                 idleContext,
-                                recoveryMonitor
+                                recoveryMonitor,
+                                scheduler
                         );
                         continue;
                     }
@@ -211,6 +212,12 @@ final class SessionPreviewManager implements AutoCloseable {
                         idleContext,
                         "live preview close"
                 );
+                closeContext(
+                        idleContext,
+                        botId,
+                        "live preview close"
+                );
+                idleContext = null;
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -261,7 +268,8 @@ final class SessionPreviewManager implements AutoCloseable {
         }
 
         recoveryMonitor.recoveryObserved = !isHealthyAuthenticated(context)
-                || isVerificationVisible(page);
+                || isVerificationVisible(page)
+                || hasPersistedSessionBlock(bot.getId());
 
         log.info(
                 "[SESSION PREVIEW] LIVE window READY for bot {}. url={}, storedSessionRestored={}, recoveryObserved={}. Normal bot jobs continue in this headed Chromium owner.",
@@ -276,7 +284,8 @@ final class SessionPreviewManager implements AutoCloseable {
 
     private void observeManualRecovery(
             BotContext context,
-            RecoveryMonitor monitor
+            RecoveryMonitor monitor,
+            BotRunScheduler scheduler
     ) {
         if (context == null
                 || context.getPage() == null
@@ -299,6 +308,12 @@ final class SessionPreviewManager implements AutoCloseable {
 
         try {
             context.saveSession();
+            telemetryReporter.sessionRecovered(
+                    context.getBot().getId()
+            );
+            scheduler.resumeAfterSessionRecovery(
+                    context.getBot().getId()
+            );
             monitor.recoveryObserved = false;
 
             log.warn(
@@ -533,6 +548,22 @@ final class SessionPreviewManager implements AutoCloseable {
                     delayAllJobs,
                     reportQueuedAfterRun
             );
+        }
+    }
+
+    private boolean hasPersistedSessionBlock(Long botId) {
+        try {
+            RuntimeTelemetryStateResponse state =
+                    telemetryReporter.currentState(botId);
+
+            return state != null
+                    && state.sessionBlockedSince() != null;
+        } catch (Exception exception) {
+            log.debug(
+                    "[SESSION PREVIEW] Could not read persisted session-block marker for bot {} while opening live preview. The visible page state remains authoritative for recovery detection.",
+                    botId
+            );
+            return false;
         }
     }
 
