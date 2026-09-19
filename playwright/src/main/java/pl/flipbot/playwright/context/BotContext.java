@@ -119,20 +119,11 @@ public class BotContext implements AutoCloseable {
                  * scripts can use it to create a popup even when the capture
                  * listener above is present, so guard the imperative APIs too.
                  */
-                const nativeFormSubmit = HTMLFormElement.prototype.submit;
-                HTMLFormElement.prototype.submit = function(...args) {
-                    if (opensNewBrowsingContext(effectiveTarget(this))) {
-                        return;
-                    }
+                try {
+                    const nativeFormSubmit =
+                        HTMLFormElement.prototype.submit;
 
-                    return nativeFormSubmit.apply(this, args);
-                };
-
-                const nativeRequestSubmit =
-                    HTMLFormElement.prototype.requestSubmit;
-
-                if (typeof nativeRequestSubmit === "function") {
-                    HTMLFormElement.prototype.requestSubmit =
+                    HTMLFormElement.prototype.submit =
                         function(...args) {
                             if (opensNewBrowsingContext(
                                     effectiveTarget(this)
@@ -140,8 +131,30 @@ public class BotContext implements AutoCloseable {
                                 return;
                             }
 
-                            return nativeRequestSubmit.apply(this, args);
+                            return nativeFormSubmit.apply(this, args);
                         };
+                } catch (_) {
+                    // Capture listener + onPage remain fail-safes.
+                }
+
+                try {
+                    const nativeRequestSubmit =
+                        HTMLFormElement.prototype.requestSubmit;
+
+                    if (typeof nativeRequestSubmit === "function") {
+                        HTMLFormElement.prototype.requestSubmit =
+                            function(...args) {
+                                if (opensNewBrowsingContext(
+                                        effectiveTarget(this)
+                                )) {
+                                    return;
+                                }
+
+                                return nativeRequestSubmit.apply(this, args);
+                            };
+                    }
+                } catch (_) {
+                    // Capture listener + onPage remain fail-safes.
                 }
             })();
             """;
