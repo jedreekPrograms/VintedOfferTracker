@@ -6,6 +6,7 @@ import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.api.listing.dto.DiscoverListingsRequestDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.NegotiationCapacityResponseDto;
+import pl.flipbot.playwright.api.listing.dto.UpdateConversationIdentityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 
 import java.net.http.HttpResponse;
@@ -19,113 +20,109 @@ public class ListingClient extends ApiClient {
             Long botId,
             DiscoverListingsRequestDto request
     ) {
+        return discoverListings(botId, null, request);
+    }
 
-        Objects.requireNonNull(
-                botId,
-                "Bot id cannot be null"
-        );
+    public List<ListingResponseDto> discoverListings(
+            Long botId,
+            Long additionalTargetId,
+            DiscoverListingsRequestDto request
+    ) {
 
-        Objects.requireNonNull(
-                request,
-                "Discover listings request cannot be null"
-        );
+        Objects.requireNonNull(botId, "Bot id cannot be null");
+        Objects.requireNonNull(request, "Discover listings request cannot be null");
 
-        int listingCount =
-                request.listings() == null
-                        ? 0
-                        : request.listings().size();
+        int listingCount = request.listings() == null
+                ? 0
+                : request.listings().size();
 
         log.info(
-                "Sending {} discovered listings to backend for bot {}",
+                "Sending {} discovered listings to backend for bot {}, target {}",
                 listingCount,
-                botId
+                botId,
+                additionalTargetId == null ? "MAIN" : additionalTargetId
         );
 
-        String path =
-                "/api/bots/"
-                        + botId
-                        + "/listings/discover";
+        String path = additionalTargetId == null
+                ? "/api/bots/" + botId + "/listings/discover"
+                : "/api/bots/" + botId + "/listings/discover/additional/" + additionalTargetId;
 
-        HttpResponse<String> response =
-                post(
-                        path,
-                        request
-                );
-
+        HttpResponse<String> response = post(path, request);
         validateResponse(
                 response,
-                "discover listings for bot "
-                        + botId
+                "discover listings for bot " + botId
+                        + " target " + (additionalTargetId == null ? "MAIN" : additionalTargetId)
         );
 
         if (isEmptyBody(response)) {
-
-            log.info(
-                    "Backend returned no new listings for bot {}",
-                    botId
-            );
-
+            log.info("Backend returned no new listings for bot {}", botId);
             return List.of();
-
         }
 
-        List<ListingResponseDto> claimedListings =
-                readListingList(
-                        response
-                );
-
+        List<ListingResponseDto> claimedListings = readListingList(response);
         log.info(
-                "Backend assigned {} new listings to bot {}",
+                "Backend assigned {} new listings to bot {} target {}",
                 claimedListings.size(),
-                botId
+                botId,
+                additionalTargetId == null ? "MAIN" : additionalTargetId
         );
-
         return claimedListings;
+    }
 
+    /**
+     * Legacy all-target view retained for non-catalog callers. New catalog
+     * processing should use getDiscoveredListings(botId, targetId), where NULL
+     * explicitly means the original/main product.
+     */
+    public List<ListingResponseDto> getDiscoveredListings(Long botId) {
+        Objects.requireNonNull(botId, "Bot id cannot be null");
+        return loadDiscovered(
+                botId,
+                "/api/bots/" + botId + "/listings/discovered",
+                "ALL"
+        );
     }
 
     public List<ListingResponseDto> getDiscoveredListings(
-            Long botId
+            Long botId,
+            Long additionalTargetId
     ) {
+        Objects.requireNonNull(botId, "Bot id cannot be null");
 
-        Objects.requireNonNull(
+        String path = additionalTargetId == null
+                ? "/api/bots/" + botId + "/listings/discovered/primary"
+                : "/api/bots/" + botId + "/listings/discovered/additional/" + additionalTargetId;
+
+        return loadDiscovered(
                 botId,
-                "Bot id cannot be null"
+                path,
+                additionalTargetId == null ? "MAIN" : additionalTargetId.toString()
         );
+    }
 
-        String path =
-                "/api/bots/"
-                        + botId
-                        + "/listings/discovered";
-
-        HttpResponse<String> response =
-                get(
-                        path
-                );
-
+    private List<ListingResponseDto> loadDiscovered(
+            Long botId,
+            String path,
+            String targetLabel
+    ) {
+        HttpResponse<String> response = get(path);
         validateResponse(
                 response,
-                "load discovered listings for bot "
-                        + botId
+                "load discovered listings for bot " + botId + " target " + targetLabel
         );
 
         if (isEmptyBody(response)) {
             return List.of();
         }
 
-        List<ListingResponseDto> listings =
-                readListingList(
-                        response
-                );
-
+        List<ListingResponseDto> listings = readListingList(response);
         log.info(
-                "Loaded {} discovered listings for bot {}",
+                "Loaded {} discovered listings for bot {} target {}",
                 listings.size(),
-                botId
+                botId,
+                targetLabel
         );
-
         return listings;
-
     }
 
     public List<ListingResponseDto> getNegotiatingListings(
@@ -217,6 +214,58 @@ public class ListingClient extends ApiClient {
 
         return allowedNewNegotiations;
 
+    }
+
+    public ListingResponseDto updateConversationIdentity(
+            Long botId,
+            Long backendListingId,
+            UpdateConversationIdentityRequestDto request
+    ) {
+        Objects.requireNonNull(botId, "Bot id cannot be null");
+        Objects.requireNonNull(
+                backendListingId,
+                "Backend listing id cannot be null"
+        );
+        Objects.requireNonNull(
+                request,
+                "Conversation identity request cannot be null"
+        );
+
+        String path =
+                "/api/bots/"
+                        + botId
+                        + "/listings/"
+                        + backendListingId
+                        + "/conversation";
+
+        HttpResponse<String> response =
+                patch(
+                        path,
+                        request
+                );
+
+        validateResponse(
+                response,
+                "update conversation identity for listing "
+                        + backendListingId
+                        + " / bot "
+                        + botId
+        );
+
+        ListingResponseDto updated =
+                readBody(
+                        response,
+                        ListingResponseDto.class
+                );
+
+        log.warn(
+                "[CONVERSATION] Backend canonical conversation identity updated for listing {}. conversationId={}, conversationUrl={}",
+                backendListingId,
+                updated.conversationId(),
+                updated.conversationUrl()
+        );
+
+        return updated;
     }
 
     public ListingResponseDto updateListing(

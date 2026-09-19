@@ -43,4 +43,8 @@ public class ListingResponse {
     private String formalResponseFingerprint;
 
     private LocalDateTime formalResponseDetectedAt;
+
+    private Long additionalTargetId;
+
+    private String productTargetLabel;
 }

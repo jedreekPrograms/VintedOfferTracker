@@ -40,11 +40,11 @@ public class ExistingNegotiationSupportTest {
     }
 
     @Test
-    public void existingS25NegotiationRejectsConclusiveGalaxyTabMismatch() {
+    public void existingVintedModelNegotiationTrustsNativeFilterDespiteStoredTitle() {
         ExistingNegotiationSupport support =
                 new ExistingNegotiationSupport(null, null, null, null);
 
-        assertFalse(
+        assertTrue(
                 support.matchesConfiguredTarget(
                         listing(
                                 "Samsung Galaxy Tab S9 FE+",
@@ -56,11 +56,11 @@ public class ExistingNegotiationSupportTest {
     }
 
     @Test
-    public void existingS25NegotiationRejectsFoldMismatchFromUrl() {
+    public void existingVintedModelNegotiationDoesNotRecheckStoredUrl() {
         ExistingNegotiationSupport support =
                 new ExistingNegotiationSupport(null, null, null, null);
 
-        assertFalse(
+        assertTrue(
                 support.matchesConfiguredTarget(
                         listing(
                                 "Samsung telefon 256 GB",
@@ -83,6 +83,27 @@ public class ExistingNegotiationSupportTest {
                                 "https://www.vinted.pl/items/123-telefon-samsung"
                         ),
                         samsungS25()
+                )
+        );
+    }
+
+    @Test
+    public void existingSearchQueryNegotiationStillRejectsConclusiveWrongVariant() {
+        ExistingNegotiationSupport support =
+                new ExistingNegotiationSupport(null, null, null, null);
+
+        BotConfigurationDto configuration = new BotConfigurationDto();
+        configuration.setTargetMode("SEARCH_QUERY");
+        configuration.setBrand("Samsung");
+        configuration.setSearchQuery("Galaxy S25");
+
+        assertFalse(
+                support.matchesConfiguredTarget(
+                        listing(
+                                "Samsung Galaxy S25 Ultra 256 GB",
+                                "https://www.vinted.pl/items/123-samsung-galaxy-s25-ultra"
+                        ),
+                        configuration
                 )
         );
     }

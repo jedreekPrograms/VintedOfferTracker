@@ -10,11 +10,12 @@ import pl.flipbot.playwright.api.listing.dto.NegotiationActivityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
-import pl.flipbot.playwright.target.VintedModelTargetGuard;
+import pl.flipbot.playwright.target.ListingTargetAssessment;
+import pl.flipbot.playwright.target.ListingTargetMatcher;
 
-import java.text.Normalizer;
-import java.util.Locale;
-import java.util.Optional;
+
+
+
 
 @Slf4j
 @RequiredArgsConstructor
@@ -28,8 +29,8 @@ public class ExistingNegotiationSupport {
     private final ListingStatusUpdater listingStatusUpdater;
     private final NegotiationActivityClient negotiationActivityClient;
 
-    private final VintedModelTargetGuard vintedModelTargetGuard =
-            new VintedModelTargetGuard();
+    private final ListingTargetMatcher listingTargetMatcher =
+            new ListingTargetMatcher();
 
     public void logConversationActivity(
             ListingResponseDto listing,
@@ -120,79 +121,40 @@ public class ExistingNegotiationSupport {
                 || targetMode.isBlank()
                 || VINTED_MODEL.equalsIgnoreCase(targetMode.trim())) {
             /*
-             * Existing negotiations are historical business state, so we do
-             * not require positive model proof again and risk terminating a
-             * legitimate conversation because of a generic seller title.
-             *
-             * We DO stop follow-ups when the stored title or URL contains
-             * conclusive evidence of a different model. This prevents a legacy
-             * wrong-target negotiation from sending any additional steps.
+             * Native Vinted model-filter mode is authoritative by design.
+             * Existing conversations must never be stopped because a seller
+             * title/URL looks generic or contradictory after the negotiation
+             * has already been started from that exact native filter.
              */
-            Optional<String> titleMismatch =
-                    vintedModelTargetGuard.findConclusiveMismatch(
-                            configuration.getModel(),
-                            listing.title()
-                    );
-
-            if (titleMismatch.isPresent()) {
-                log.error(
-                        "[TARGET GUARD] Existing VINTED_MODEL negotiation {} is a conclusive wrong target from stored title. Configured='{}', title='{}'. Reason: {}",
-                        listing.listingId(),
-                        configuration.getModel(),
-                        listing.title(),
-                        titleMismatch.get()
-                );
-                return false;
-            }
-
-            Optional<String> urlMismatch =
-                    vintedModelTargetGuard.findConclusiveMismatch(
-                            configuration.getModel(),
-                            listing.url()
-                    );
-
-            if (urlMismatch.isPresent()) {
-                log.error(
-                        "[TARGET GUARD] Existing VINTED_MODEL negotiation {} is a conclusive wrong target from stored URL. Configured='{}', url='{}'. Reason: {}",
-                        listing.listingId(),
-                        configuration.getModel(),
-                        listing.url(),
-                        urlMismatch.get()
-                );
-                return false;
-            }
-
             log.debug(
-                    "[TARGET GUARD] Existing VINTED_MODEL negotiation {} has no conclusive conflicting model evidence. It may continue.",
+                    "[TARGET GUARD] Skipping post-filter target guard for existing VINTED_MODEL negotiation {}.",
                     listing.listingId()
             );
             return true;
         }
 
-        String model = normalize(configuration.getModel());
-        if (model.isBlank()) {
-            return true;
-        }
+        /*
+         * SEARCH_QUERY remains guarded. For historical conversations we stop
+         * only on a conclusive mismatch; ambiguous stored text is not enough to
+         * terminate an already-started conversation.
+         */
+        ListingTargetAssessment assessment =
+                listingTargetMatcher.assessCatalogListing(
+                        listing,
+                        configuration
+                );
 
-        String brand = normalize(configuration.getBrand());
-        String expected = brand.isBlank()
-                || model.equals(brand)
-                || model.startsWith(brand + " ")
-                ? model
-                : brand + " " + model;
-
-        String actual = normalize(listing.title());
-        boolean matches = expected.equals(actual);
-
-        if (!matches) {
+        if (assessment == ListingTargetAssessment.MISMATCH) {
             log.error(
-                    "[TARGET GUARD] Listing {} target mismatch. Expected='{}', actual='{}'.",
+                    "[TARGET GUARD] Existing SEARCH_QUERY negotiation {} has a conclusive target mismatch. query='{}', title='{}'.",
                     listing.listingId(),
-                    expected,
-                    actual
+                    configuration.getSearchQuery(),
+                    listing.title()
             );
+            return false;
         }
-        return matches;
+
+        return true;
     }
 
     public ListingResponseDto finishWrongTargetNegotiation(
@@ -265,20 +227,4 @@ public class ExistingNegotiationSupport {
                 : normalized.substring(0, max) + "...";
     }
 
-    private String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        String prepared = value.replace("+", " plus ").replace("＋", " plus ");
-        String withoutDiacritics = Normalizer.normalize(
-                        prepared,
-                        Normalizer.Form.NFD
-                )
-                .replaceAll("\\p{M}+", "");
-        return withoutDiacritics
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", " ")
-                .trim()
-                .replaceAll("\\s+", " ");
-    }
 }

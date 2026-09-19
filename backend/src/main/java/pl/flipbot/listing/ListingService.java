@@ -13,6 +13,7 @@ import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.listing.dto.NegotiationActivityRequest;
 import pl.flipbot.listing.dto.NegotiationActivityResponse;
+import pl.flipbot.listing.dto.UpdateConversationIdentityRequest;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
 
@@ -257,6 +258,45 @@ public class ListingService {
                     now
             );
         }
+
+        return listingMapper.map(listing);
+    }
+
+    @Transactional
+    public ListingResponse updateConversationIdentity(
+            Long botId,
+            Long listingId,
+            UpdateConversationIdentityRequest request
+    ) {
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Listing " + listingId + " was not found for bot " + botId
+                ));
+
+        if (listing.getStatus() != ListingStatus.NEGOTIATING) {
+            throw new IllegalStateException(
+                    "Conversation identity can only be updated for a NEGOTIATING listing. Listing "
+                            + listingId
+                            + " currently has status "
+                            + listing.getStatus()
+            );
+        }
+
+        String previousConversationId = listing.getConversationId();
+        String previousConversationUrl = listing.getConversationUrl();
+
+        listing.setConversationId(request.conversationId());
+        listing.setConversationUrl(request.conversationUrl());
+
+        log.warn(
+                "Listing {} for bot {} canonicalized Vinted conversation identity from id={} url={} to id={} url={}. Business negotiation state and timers were left unchanged.",
+                listingId,
+                botId,
+                previousConversationId,
+                previousConversationUrl,
+                request.conversationId(),
+                request.conversationUrl()
+        );
 
         return listingMapper.map(listing);
     }

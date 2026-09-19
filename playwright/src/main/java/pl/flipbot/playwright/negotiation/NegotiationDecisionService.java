@@ -140,7 +140,9 @@ public class NegotiationDecisionService {
         );
 
         if (effectiveNextStep.isEmpty()) {
-            return NegotiationDecision.rejected(
+            return new NegotiationDecision(
+                    NegotiationDecisionType.MARK_ACTION_REQUIRED,
+                    null,
                     sellerPrice,
                     noNextStepReason(
                             listing,
@@ -148,6 +150,7 @@ public class NegotiationDecisionService {
                             "The seller counteroffer " + sellerPrice
                                     + " is above the accepted limit " + acceptedLimit
                     )
+                            + ". The seller has made an active price proposal, so it is surfaced for manual review instead of being marked REJECTED."
             );
         }
 

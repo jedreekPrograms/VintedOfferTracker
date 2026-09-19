@@ -3,11 +3,11 @@ package pl.flipbot.playwright.api.runtime;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -15,16 +15,11 @@ import java.util.concurrent.TimeoutException;
 public class RuntimeTelemetryReporter implements AutoCloseable {
 
     private static final long SYNCHRONOUS_EVENT_TIMEOUT_SECONDS = 10L;
+    private static final int MAX_PENDING_EVENTS = 256;
 
     private final RuntimeTelemetryClient client = new RuntimeTelemetryClient();
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(
-            runnable -> {
-                Thread thread = new Thread(runnable, "flipbot-runtime-telemetry");
-                thread.setDaemon(true);
-                return thread;
-            }
-    );
+    private final ThreadPoolExecutor executor = createExecutor();
 
     public void queued(Long botId, long nextRunAtEpochMs) {
         send(botId, new RuntimeTelemetryEventRequest(
@@ -77,8 +72,10 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
      * Session blocking is scheduler-significant: the backend owns the
      * persistent attempt counter and calculates the next exponential retry.
      * This method therefore waits for the response on the SAME single-threaded
-     * telemetry executor. Any earlier RUN_STARTED event is guaranteed to reach
-     * the backend first, while the worker receives the authoritative retry time.
+     * telemetry executor. Any earlier accepted event remains FIFO-ordered before
+     * this call. If the bounded telemetry queue is saturated, submit() fails
+     * explicitly and BotWorkerSlot uses its existing conservative fallback
+     * cooldown instead of letting telemetry consume unbounded memory.
      */
     public SessionBlockCooldown sessionBlocked(
             Long botId,
@@ -116,6 +113,12 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         );
     }
 
+    public void sessionRecovered(Long botId) {
+        send(botId, new RuntimeTelemetryEventRequest(
+                "SESSION_RECOVERED", null, null, null, null
+        ));
+    }
+
     public void idle(Long botId) {
         send(botId, new RuntimeTelemetryEventRequest(
                 "IDLE", null, null, null, null
@@ -126,8 +129,20 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         try {
             executor.execute(() -> sendNow(botId, request));
         } catch (RejectedExecutionException exception) {
-            log.debug(
-                    "[TELEMETRY] Reporter is already shutting down. Dropping {} for bot {}.",
+            if (executor.isShutdown()) {
+                log.debug(
+                        "[TELEMETRY] Reporter is already shutting down. Dropping {} for bot {}.",
+                        request.eventType(),
+                        botId
+                );
+                return;
+            }
+
+            log.warn(
+                    "[TELEMETRY] Pending telemetry queue reached its hard limit of {} event(s). "
+                            + "Dropping {} for bot {} instead of allowing unbounded memory growth. "
+                            + "Scheduler work continues.",
+                    MAX_PENDING_EVENTS,
                     request.eventType(),
                     botId
             );
@@ -151,8 +166,14 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         try {
             return executor.submit(callable);
         } catch (RejectedExecutionException exception) {
+            String reason = executor.isShutdown()
+                    ? "Runtime telemetry reporter is shutting down."
+                    : "Runtime telemetry queue is saturated at "
+                            + MAX_PENDING_EVENTS
+                            + " pending event(s).";
+
             throw new IllegalStateException(
-                    "Runtime telemetry reporter is shutting down.",
+                    reason,
                     exception
             );
         }
@@ -191,6 +212,29 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
             Thread.currentThread().interrupt();
             executor.shutdownNow();
         }
+    }
+
+    static ThreadPoolExecutor createExecutor() {
+        return new ThreadPoolExecutor(
+                1,
+                1,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(MAX_PENDING_EVENTS),
+                runnable -> {
+                    Thread thread = new Thread(
+                            runnable,
+                            "flipbot-runtime-telemetry"
+                    );
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
+    }
+
+    static int maxPendingEvents() {
+        return MAX_PENDING_EVENTS;
     }
 
     public record SessionBlockCooldown(

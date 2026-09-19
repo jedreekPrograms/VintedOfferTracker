@@ -16,6 +16,7 @@ public record RuntimeDashboardBotResponse(
         Integer workerSlot,
         Instant sessionBlockedSince,
         int sessionBlockCount,
+        boolean sessionPreviewRequested,
         Instant updatedAt
 ) {
 }

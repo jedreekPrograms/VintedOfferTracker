@@ -11,6 +11,7 @@ import RuntimeDashboardPage from "./pages/RuntimeDashboardPage";
 import BotsPage from "./pages/BotsPage";
 import CreateBotPage from "./pages/CreateBotPage";
 import EditBotWithDeletePage from "./pages/EditBotWithDeletePage";
+import AdditionalProductEditorPage from "./pages/AdditionalProductEditorPage";
 import ActionRequiredPage from "./pages/ActionRequiredPage";
 import HistoryPage from "./pages/HistoryPage";
 import DictionariesPage from "./pages/DictionariesPage";
@@ -49,6 +50,16 @@ function App() {
                 <Route
                     path="/bots/:botId/edit"
                     element={<EditBotWithDeletePage />}
+                />
+
+                <Route
+                    path="/bots/:botId/additional-products/new"
+                    element={<AdditionalProductEditorPage />}
+                />
+
+                <Route
+                    path="/bots/:botId/additional-products/:targetId/edit"
+                    element={<AdditionalProductEditorPage />}
                 />
 
                 <Route

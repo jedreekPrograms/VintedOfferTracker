@@ -2,11 +2,13 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 
 import {
     getRuntimeDashboard,
+    setRuntimeSessionPreview,
     type RuntimeDashboardBot,
     type RuntimeDashboardResponse,
     type RuntimeStatus,
@@ -39,28 +41,61 @@ function RuntimeDashboardPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [nowMs, setNowMs] = useState(() => Date.now());
+    const [previewUpdatingBotIds, setPreviewUpdatingBotIds] = useState<ReadonlySet<number>>(new Set());
+    const previewRequests = useRef(new Set<number>());
+    const runtimeRequest = useRef(0);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
+        const request = ++runtimeRequest.current;
         if (showLoading) {
             setIsLoading(true);
         }
 
         try {
             const response = await getRuntimeDashboard();
-            setData(response);
-            setErrorMessage(null);
+            if (request === runtimeRequest.current) {
+                setData(response);
+                setErrorMessage(null);
+            }
         } catch (error) {
-            setErrorMessage(
-                error instanceof Error
-                    ? error.message
-                    : "Nie udało się pobrać stanu runtime.",
-            );
+            if (request === runtimeRequest.current) {
+                setErrorMessage(
+                    error instanceof Error
+                        ? error.message
+                        : "Nie udało się pobrać stanu runtime.",
+                );
+            }
         } finally {
             if (showLoading) {
                 setIsLoading(false);
             }
         }
     }, []);
+
+    const handleSessionPreview = useCallback(async (
+        botId: number,
+        enabled: boolean,
+    ) => {
+        if (previewRequests.current.has(botId)) {
+            return;
+        }
+        previewRequests.current.add(botId);
+        setPreviewUpdatingBotIds(new Set(previewRequests.current));
+
+        try {
+            await setRuntimeSessionPreview(botId, enabled);
+            await loadRuntime(false);
+        } catch (error) {
+            setErrorMessage(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się zmienić podglądu sesji.",
+            );
+        } finally {
+            previewRequests.current.delete(botId);
+            setPreviewUpdatingBotIds(new Set(previewRequests.current));
+        }
+    }, [loadRuntime]);
 
     useEffect(() => {
         void loadRuntime(true);
@@ -227,6 +262,7 @@ function RuntimeDashboardPage() {
                                         <TableHeader>Bot</TableHeader>
                                         <TableHeader>Bot status</TableHeader>
                                         <TableHeader>Runtime</TableHeader>
+                                        <TableHeader>Sesja</TableHeader>
                                         <TableHeader>Slot</TableHeader>
                                         <TableHeader>Ostatni job</TableHeader>
                                         <TableHeader>Następny job</TableHeader>
@@ -241,6 +277,8 @@ function RuntimeDashboardPage() {
                                             key={bot.botId}
                                             bot={bot}
                                             nowMs={nowMs}
+                                            previewUpdating={previewUpdatingBotIds.has(bot.botId)}
+                                            onSessionPreview={handleSessionPreview}
                                         />
                                     ))}
                                 </tbody>
@@ -294,11 +332,16 @@ function RuntimeStat({
 function RuntimeRow({
     bot,
     nowMs,
+    previewUpdating,
+    onSessionPreview,
 }: {
     bot: RuntimeDashboardBot;
     nowMs: number;
+    previewUpdating: boolean;
+    onSessionPreview: (botId: number, enabled: boolean) => Promise<void>;
 }) {
     const sessionBlocked = bot.sessionBlockedSince !== null;
+    const canPreview = bot.botStatus === "RUNNING";
 
     return (
         <tr>
@@ -317,8 +360,45 @@ function RuntimeRow({
                     nowMs={nowMs}
                 />
             </TableCell>
+            <TableCell label="Sesja">
+                {canPreview ? (
+                    <>
+                        <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={previewUpdating}
+                            title={bot.sessionPreviewRequested
+                                ? "Wyłącza tryb LIVE i po pełnym zamknięciu widocznego Chromium oddaje bota zwykłym workerom."
+                                : "Otwiera widoczne Chromium w trybie LIVE. Bot dalej wykonuje normalne skany i negocjacje w tym oknie; możesz obserwować działanie i ręcznie przejść CAPTCHA, a potwierdzona zalogowana sesja zostanie bezpiecznie zapisana."}
+                            onClick={() => {
+                                void onSessionPreview(
+                                    bot.botId,
+                                    !bot.sessionPreviewRequested,
+                                );
+                            }}
+                        >
+                            {previewUpdating
+                                ? "Zapisywanie..."
+                                : bot.sessionPreviewRequested
+                                    ? "Ukryj sesję"
+                                    : "Wyświetl sesję"}
+                        </button>
+                        {bot.sessionPreviewRequested && (
+                            <div className="runtime-cell-secondary">
+                                LIVE · bot normalnie pracuje w widocznym Chromium
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    "—"
+                )}
+            </TableCell>
             <TableCell label="Slot">
-                {bot.workerSlot === null ? "—" : `#${bot.workerSlot}`}
+                {bot.workerSlot === null
+                    ? "—"
+                    : bot.workerSlot === 0
+                        ? "LIVE"
+                        : `#${bot.workerSlot}`}
             </TableCell>
             <TableCell label="Ostatni job">
                 <div>{formatDateTime(bot.lastRunFinishedAt)}</div>

@@ -48,6 +48,7 @@ public class BotRuntimeStateService {
             case RUN_FAILED -> applyRunFailed(state, request, now);
             case RATE_LIMITED -> applyRateLimited(state, request, now);
             case SESSION_BLOCKED -> applySessionBlocked(state, request, now);
+            case SESSION_RECOVERED -> applySessionRecovered(state);
             case IDLE -> applyIdle(state);
         }
 
@@ -191,6 +192,15 @@ public class BotRuntimeStateService {
         state.setConsecutiveFailures(0);
         state.setLastError(normalizeError(request.getErrorMessage()));
         state.setWorkerSlot(null);
+    }
+
+    private void applySessionRecovered(BotRuntimeState state) {
+        state.setRuntimeStatus(BotRuntimeStatus.IDLE);
+        state.setNextRunAt(null);
+        state.setConsecutiveFailures(0);
+        state.setLastError(null);
+        state.setWorkerSlot(null);
+        clearSessionBlockEpisode(state);
     }
 
     private void applyIdle(BotRuntimeState state) {

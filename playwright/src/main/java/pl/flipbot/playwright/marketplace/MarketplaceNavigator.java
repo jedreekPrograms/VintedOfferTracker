@@ -4,14 +4,13 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
 
 import java.util.Locale;
+import java.util.function.LongSupplier;
 
 @Slf4j
-@RequiredArgsConstructor
 public class MarketplaceNavigator {
 
     private static final int NAVIGATION_MAX_ATTEMPTS = 3;
@@ -33,37 +32,27 @@ public class MarketplaceNavigator {
                     + "a[href*='/inbox']:visible";
 
     private final BotContext context;
+    private final LongSupplier clock;
+
+    public MarketplaceNavigator(BotContext context) {
+        this(context, System::currentTimeMillis);
+    }
+
+    MarketplaceNavigator(BotContext context, LongSupplier clock) {
+        this.context = context;
+        this.clock = clock;
+    }
 
     public void goToHome() {
-        try {
-            navigate(MarketplaceUrls.HOME, true);
-            waitForHomeShell();
-            return;
-        } catch (RuntimeException exception) {
-            Page page = context.getPage();
-
-            if (isPageClosedFailure(exception)
-                    || !MarketplaceUrls.isVintedUrl(safePageUrl(page))
-                    || !isRecoverableHomeSessionFailure(page, exception)) {
-                throw exception;
-            }
-
-            log.warn(
-                    "[SESSION REFRESH] Vinted homepage is not usable with the restored session. "
-                            + "Performing one final clean-session recovery before LoginService decides whether credentials must be submitted. bot={}, currentUrl={}, reason={}",
-                    context.getBot() == null ? null : context.getBot().getId(),
-                    safePageUrl(page),
-                    friendlyMessage(exception)
-            );
-
-            resetStoredSessionForCleanLogin(page);
-            navigate(MarketplaceUrls.HOME, false);
-            waitForHomeShell();
-        }
+        // A slow refresh or incomplete UI does not prove that authentication
+        // is invalid. Retry navigation with the same cookies/storage and let
+        // the job fail without turning a transient timeout into a logout.
+        navigate(MarketplaceUrls.HOME);
+        waitForHomeShell();
     }
 
     public void goToCatalog() {
-        navigate(MarketplaceUrls.CATALOG, false);
+        navigate(MarketplaceUrls.CATALOG);
 
         if (!MarketplaceUrls.isCatalogUrl(page().url())) {
             throw new IllegalStateException(
@@ -76,17 +65,24 @@ public class MarketplaceNavigator {
     }
 
     public void goToInbox() {
-        navigate(MarketplaceUrls.INBOX, false);
+        navigate(MarketplaceUrls.INBOX);
+    }
+
+    /**
+     * Opens an arbitrary trusted Vinted URL with the same bounded retry and
+     * session-refresh handling used by home/catalog navigation. Callers must
+     * still verify the business-specific destination (item/conversation id)
+     * after this method returns.
+     */
+    public void goToTrustedVintedUrl(String url) {
+        navigate(url);
     }
 
     public Page page() {
         return context.getPage();
     }
 
-    private void navigate(
-            String url,
-            boolean allowStoredSessionRecovery
-    ) {
+    private void navigate(String url) {
         if (!MarketplaceUrls.isVintedUrl(url)) {
             throw new IllegalArgumentException(
                     "MarketplaceNavigator accepts only trusted Vinted URLs: "
@@ -96,7 +92,6 @@ public class MarketplaceNavigator {
 
         Page page = context.getPage();
         RuntimeException lastException = null;
-        boolean storedSessionRecoveryUsed = false;
 
         for (int attempt = 1; attempt <= NAVIGATION_MAX_ATTEMPTS; attempt++) {
             try {
@@ -136,16 +131,6 @@ public class MarketplaceNavigator {
 
             } catch (RuntimeException exception) {
                 lastException = exception;
-
-                boolean sessionRefreshFailure =
-                        isSessionRefreshFailure(page, exception);
-
-                if (sessionRefreshFailure
-                        && allowStoredSessionRecovery
-                        && !storedSessionRecoveryUsed) {
-                    storedSessionRecoveryUsed = true;
-                    resetStoredSessionForCleanLogin(page);
-                }
 
                 if (isPageClosedFailure(exception)
                         || !isRetryableNavigationFailure(page, exception)
@@ -195,10 +180,10 @@ public class MarketplaceNavigator {
         );
 
         long deadline =
-                System.currentTimeMillis()
+                clock.getAsLong()
                         + (long) SESSION_REFRESH_TIMEOUT_MS;
 
-        while (System.currentTimeMillis() < deadline) {
+        while (clock.getAsLong() < deadline) {
             if (page.isClosed()) {
                 throw new IllegalStateException(
                         "Vinted page was closed while waiting for session refresh"
@@ -219,6 +204,10 @@ public class MarketplaceNavigator {
             page.waitForTimeout(SESSION_REFRESH_POLL_INTERVAL_MS);
         }
 
+        log.warn(
+                "[SESSION REFRESH] Refresh did not finish within {}ms. Keeping browser cookies, storage and the saved session unchanged; navigation may retry without a clean login reset.",
+                (int) SESSION_REFRESH_TIMEOUT_MS
+        );
         throw new IllegalStateException(
                 "Vinted session refresh remained stuck for "
                         + Math.round(SESSION_REFRESH_TIMEOUT_MS)
@@ -229,49 +218,10 @@ public class MarketplaceNavigator {
         );
     }
 
-    private void resetStoredSessionForCleanLogin(Page page) {
-        Long botId = context.getBot() == null
-                ? null
-                : context.getBot().getId();
-
-        log.warn(
-                "[SESSION REFRESH] Stored Vinted session appears stuck during homepage navigation. "
-                        + "Invalidating persisted state and clearing this browser context once so LoginService can perform a clean login. bot={}",
-                botId
-        );
-
-        if (botId != null && botId > 0) {
-            context.getSessionManager().invalidateSession(botId);
-        }
-
-        try {
-            if (!page.isClosed() && MarketplaceUrls.isVintedUrl(page.url())) {
-                page.evaluate(
-                        "() => { try { localStorage.clear(); } catch (_) {} "
-                                + "try { sessionStorage.clear(); } catch (_) {} }"
-                );
-            }
-        } catch (RuntimeException exception) {
-            log.debug(
-                    "[SESSION REFRESH] Could not clear page storage while recovering the session: {}",
-                    friendlyMessage(exception)
-            );
-        }
-
-        try {
-            context.getBrowserContext().clearCookies();
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "[SESSION REFRESH] Could not clear browser cookies while recovering the session: {}",
-                    friendlyMessage(exception)
-            );
-        }
-    }
-
     private void waitForHomeShell() {
         Page page = context.getPage();
         long deadline =
-                System.currentTimeMillis()
+                clock.getAsLong()
                         + (long) HOME_SHELL_TIMEOUT_MS;
 
         Locator loginControl =
@@ -279,7 +229,7 @@ public class MarketplaceNavigator {
         Locator authenticatedControl =
                 page.locator(HOME_AUTHENTICATED_CONTROL_SELECTOR);
 
-        while (System.currentTimeMillis() < deadline) {
+        while (clock.getAsLong() < deadline) {
             String currentUrl = safePageUrl(page);
 
             if (MarketplaceUrls.isSessionRefreshUrl(currentUrl)) {
@@ -347,21 +297,6 @@ public class MarketplaceNavigator {
         }
     }
 
-    private boolean isRecoverableHomeSessionFailure(
-            Page page,
-            Throwable throwable
-    ) {
-        if (isSessionRefreshFailure(page, throwable)) {
-            return true;
-        }
-
-        String message = friendlyMessage(throwable)
-                .toLowerCase(Locale.ROOT);
-
-        return message.contains("homepage did not expose either a login control")
-                || message.contains("homepage returned to session-refresh");
-    }
-
     private boolean isRetryableNavigationFailure(
             Page page,
             Throwable throwable
@@ -385,19 +320,6 @@ public class MarketplaceNavigator {
         return currentUrl.startsWith("chrome-error://")
                 || currentUrl.startsWith("edge-error://")
                 || MarketplaceUrls.isSessionRefreshUrl(currentUrl);
-    }
-
-    private boolean isSessionRefreshFailure(
-            Page page,
-            Throwable throwable
-    ) {
-        if (MarketplaceUrls.isSessionRefreshUrl(safePageUrl(page))) {
-            return true;
-        }
-
-        return friendlyMessage(throwable)
-                .toLowerCase(Locale.ROOT)
-                .contains("session refresh");
     }
 
     private boolean hasVisible(Locator locator) {

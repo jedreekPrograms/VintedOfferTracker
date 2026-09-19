@@ -3,24 +3,20 @@ package pl.flipbot.playwright.negotiation;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
-import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.util.Locale;
 import java.util.Objects;
 
 @Slf4j
 @RequiredArgsConstructor
 public class NegotiationConversationProcessor {
-
-    private static final double NAVIGATION_TIMEOUT_MS =
-            30_000;
 
     private static final double CONVERSATION_STATE_TIMEOUT_MS =
             20_000;
@@ -102,34 +98,28 @@ public class NegotiationConversationProcessor {
                 listing.listingId()
         );
 
-        page.navigate(
-                listing.conversationUrl(),
-                new Page.NavigateOptions()
-                        .setWaitUntil(
-                                WaitUntilState.DOMCONTENTLOADED
-                        )
-                        .setTimeout(
-                                NAVIGATION_TIMEOUT_MS
-                        )
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listing.conversationUrl()
         );
 
         humanVerificationHandler.waitUntilVerified(
                 page
         );
 
-        validateOpenedConversation(
-                page,
-                listing
-        );
-
-        NegotiationConversationSnapshot snapshot =
-                waitForConversationSnapshot(
+        ListingResponseDto canonicalListing =
+                validateOpenedConversation(
                         page,
                         listing
                 );
 
+        NegotiationConversationSnapshot snapshot =
+                waitForConversationSnapshot(
+                        page,
+                        canonicalListing
+                );
+
         logSnapshot(
-                listing,
+                canonicalListing,
                 snapshot
         );
 
@@ -154,7 +144,8 @@ public class NegotiationConversationProcessor {
 
             NegotiationConversationSnapshot snapshot =
                     readLatestNegotiationEvent(
-                            page
+                            page,
+                            listing
                     );
 
             /*
@@ -196,7 +187,8 @@ public class NegotiationConversationProcessor {
     }
 
     private NegotiationConversationSnapshot readLatestNegotiationEvent(
-            Page page
+            Page page,
+            ListingResponseDto listing
     ) {
 
         try {
@@ -270,6 +262,23 @@ public class NegotiationConversationProcessor {
                                     rawText
                             );
 
+                    if (!isPlausibleSellerCounterOffer(
+                            listing.originalPrice(),
+                            counterOfferPrice
+                    )) {
+                        log.error(
+                                "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
+                                listing.listingId(),
+                                rawText,
+                                counterOfferPrice,
+                                listing.originalPrice()
+                        );
+
+                        return NegotiationConversationSnapshot.unknown(
+                                rawText
+                        );
+                    }
+
                     log.info(
                             "[CONVERSATION] Latest negotiation event is "
                                     + "a seller counteroffer. Raw price: {}, "
@@ -329,7 +338,7 @@ public class NegotiationConversationProcessor {
 
     }
 
-    private NegotiationConversationSnapshot createStatusSnapshot(
+    NegotiationConversationSnapshot createStatusSnapshot(
             String rawStatus
     ) {
 
@@ -338,8 +347,15 @@ public class NegotiationConversationProcessor {
                         rawStatus
                 );
 
+        /*
+         * Vinted has used multiple Polish grammatical forms for the same
+         * offer state across UI variants (for example "Zaakceptowane",
+         * "Zaakceptowana" and "Zaakceptowano"). Matching the stable word
+         * stem keeps those presentation changes from silently leaving a
+         * genuinely accepted offer in NEGOTIATING.
+         */
         if (normalizedStatus.contains(
-                "oczekujace"
+                "oczekuj"
         )) {
 
             return NegotiationConversationSnapshot.pending(
@@ -348,8 +364,10 @@ public class NegotiationConversationProcessor {
 
         }
 
-        if (normalizedStatus.contains(
-                "zaakceptowane"
+        if (!normalizedStatus.contains(
+                "niezaakceptowan"
+        ) && normalizedStatus.contains(
+                "zaakceptowan"
         )) {
 
             return NegotiationConversationSnapshot.accepted(
@@ -359,7 +377,7 @@ public class NegotiationConversationProcessor {
         }
 
         if (normalizedStatus.contains(
-                "odrzucone"
+                "odrzucon"
         )) {
 
             return NegotiationConversationSnapshot.rejected(
@@ -377,6 +395,23 @@ public class NegotiationConversationProcessor {
                 rawStatus
         );
 
+    }
+
+    static boolean isPlausibleSellerCounterOffer(
+            BigDecimal originalPrice,
+            BigDecimal counterOfferPrice
+    ) {
+        if (counterOfferPrice == null
+                || counterOfferPrice.signum() <= 0) {
+            return false;
+        }
+
+        if (originalPrice == null
+                || originalPrice.signum() <= 0) {
+            return true;
+        }
+
+        return counterOfferPrice.compareTo(originalPrice) <= 0;
     }
 
     private BigDecimal parsePrice(
@@ -573,104 +608,23 @@ public class NegotiationConversationProcessor {
 
     }
 
-    private void validateOpenedConversation(
+    private ListingResponseDto validateOpenedConversation(
             Page page,
             ListingResponseDto listing
     ) {
-
-        String currentUrl =
-                page.url();
-
-        String openedConversationId =
-                extractConversationId(
-                        currentUrl
-                );
-
-        if (!listing.conversationId().equals(
-                openedConversationId
-        )) {
-
-            throw new IllegalStateException(
-                    "Opened unexpected conversation. Expected: "
-                            + listing.conversationId()
-                            + ", actual: "
-                            + openedConversationId
-                            + ", URL: "
-                            + currentUrl
-            );
-
-        }
+        ListingResponseDto canonicalListing =
+                new ConversationIdentityCoordinator(context)
+                        .verifyAndCanonicalize(
+                                listing,
+                                "Opened conversation"
+                        );
 
         log.info(
                 "[CONVERSATION] Opened expected conversation {}",
-                openedConversationId
+                canonicalListing.conversationId()
         );
 
-    }
-
-    private String extractConversationId(
-            String conversationUrl
-    ) {
-
-        if (conversationUrl == null
-                || conversationUrl.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL cannot be blank"
-            );
-
-        }
-
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
-
-        String path =
-                uri.getPath();
-
-        if (path == null
-                || path.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL has no path: "
-                            + conversationUrl
-            );
-
-        }
-
-        String[] pathParts =
-                path.split(
-                        "/"
-                );
-
-        for (int index = 0;
-             index < pathParts.length - 1;
-             index++) {
-
-            if ("inbox".equals(
-                    pathParts[index]
-            )) {
-
-                String conversationId =
-                        pathParts[index + 1];
-
-                if (conversationId != null
-                        && !conversationId.isBlank()) {
-
-                    return conversationId;
-
-                }
-
-            }
-
-        }
-
-        throw new IllegalArgumentException(
-                "Cannot extract conversation ID from URL: "
-                        + conversationUrl
-        );
-
+        return canonicalListing;
     }
 
     private void validateListing(

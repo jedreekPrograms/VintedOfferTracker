@@ -1,0 +1,85 @@
+name: Build FlipBot Mobile APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/mobile-monitor-stable-100ebca
+    paths:
+      - "mobile/**"
+      - ".github/workflows/build-mobile-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    name: Android APK
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Apply mobile-only UI polish
+        run: |
+          python scripts/patch_mobile_ui.py
+          python scripts/patch_android_system_bars.py
+
+      - name: Type-check mobile app
+        run: npm run typecheck
+
+      - name: Generate FlipBot launcher icon
+        run: |
+          python -m pip install --disable-pip-version-check pillow
+          python scripts/generate_icon.py
+
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build standalone APK
+        shell: bash
+        run: |
+          cd android
+          chmod +x gradlew
+          for attempt in 1 2 3; do
+            echo "Gradle build attempt ${attempt}/3"
+            if ./gradlew --no-daemon assembleRelease; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          exit 1
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipbot-mobile-release-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

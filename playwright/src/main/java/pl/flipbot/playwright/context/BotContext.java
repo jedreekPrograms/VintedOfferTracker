@@ -348,18 +348,63 @@ public class BotContext implements AutoCloseable {
 
     private final SessionManager sessionManager;
 
+    private final boolean sessionRestoreEnabled;
+
+    private final boolean sessionPersistenceEnabled;
+
+    private final boolean storedSessionRestored;
+
     private final AtomicInteger extraPageEvents = new AtomicInteger();
 
     public BotContext(
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
+        this(bot, browserManager, true, true);
+    }
+
+    public static BotContext isolated(
+            BotDetailsDto bot,
+            BrowserManager browserManager
+    ) {
+        return new BotContext(bot, browserManager, false, false);
+    }
+
+    public static BotContext readOnlySessionClone(
+            BotDetailsDto bot,
+            BrowserManager browserManager
+    ) {
+        return new BotContext(bot, browserManager, true, false);
+    }
+
+    private BotContext(
+            BotDetailsDto bot,
+            BrowserManager browserManager,
+            boolean sessionRestoreEnabled,
+            boolean sessionPersistenceEnabled
+    ) {
         this.bot = bot;
         this.sessionManager = new SessionManager();
+        this.sessionRestoreEnabled = sessionRestoreEnabled;
+        this.sessionPersistenceEnabled = sessionPersistenceEnabled;
 
         Path sessionFile = null;
 
-        if (shouldRestoreStoredSession(bot)
+        if (!sessionRestoreEnabled && !sessionPersistenceEnabled) {
+            log.info(
+                    "[SESSION] Bot {} is using an isolated browser context. Stored production session state will not be restored or persisted by this job.",
+                    bot.getId()
+            );
+        } else if (sessionRestoreEnabled
+                && !sessionPersistenceEnabled) {
+            log.info(
+                    "[SESSION] Bot {} is using a read-only clone of its stored production session. The session may be restored, but this job cannot persist any browser state back to bot-{}.json.",
+                    bot.getId(),
+                    bot.getId()
+            );
+        }
+
+        if (shouldRestoreStoredSession(bot, sessionRestoreEnabled)
                 && sessionManager.sessionExists(bot.getId())) {
             sessionFile = sessionManager.sessionFile(bot.getId());
         } else if (isAnonymousMarketObserver(bot)) {
@@ -371,27 +416,16 @@ public class BotContext implements AutoCloseable {
             );
         }
 
-        BrowserContext createdContext;
+        this.storedSessionRestored = sessionFile != null;
 
-        try {
-            createdContext = browserManager.createContext(sessionFile);
-        } catch (RuntimeException exception) {
-            if (sessionFile == null || !isStoredSessionRestoreFailure(exception)) {
-                throw exception;
-            }
-
-            log.warn(
-                    "[SESSION] Stored session for bot {} could not be restored. "
-                            + "Discarding it and creating a clean browser context. reason={}",
-                    bot.getId(),
-                    safeMessage(exception)
-            );
-
-            sessionManager.invalidateSession(bot.getId());
-            createdContext = browserManager.createContext(null);
-        }
-
-        this.browserContext = createdContext;
+        /*
+         * A stored production session is authoritative. BrowserManager already
+         * fails closed when Playwright cannot restore storageState; do not add
+         * a second fallback here that could silently turn a logged-in bot into
+         * a clean context. The saved file remains untouched for diagnosis and
+         * the scheduled job can retry normally.
+         */
+        this.browserContext = browserManager.createContext(sessionFile);
 
         installPreemptivePopupSuppression();
         installAnonymousObserverUiStabilityIfNeeded();
@@ -405,7 +439,14 @@ public class BotContext implements AutoCloseable {
     static boolean shouldRestoreStoredSession(
             BotDetailsDto bot
     ) {
-        return !isAnonymousMarketObserver(bot);
+        return shouldRestoreStoredSession(bot, true);
+    }
+
+    static boolean shouldRestoreStoredSession(
+            BotDetailsDto bot,
+            boolean sessionPersistenceEnabled
+    ) {
+        return sessionPersistenceEnabled && !isAnonymousMarketObserver(bot);
     }
 
     private static boolean isAnonymousMarketObserver(
@@ -458,44 +499,6 @@ public class BotContext implements AutoCloseable {
 
     static String anonymousObserverUiStabilityScript() {
         return ANONYMOUS_OBSERVER_UI_STABILITY_SCRIPT;
-    }
-
-    private boolean isStoredSessionRestoreFailure(
-            Throwable throwable
-    ) {
-        Throwable current = throwable;
-
-        while (current != null) {
-            String message = current.getMessage();
-
-            if (message != null) {
-                String normalized = message.toLowerCase();
-
-                if (normalized.contains("unable to restore indexeddb")
-                        || normalized.contains("storagescript.restore")
-                        || normalized.contains("setstoragestate")) {
-                    return true;
-                }
-            }
-
-            current = current.getCause();
-        }
-
-        return false;
-    }
-
-    private String safeMessage(
-            Throwable throwable
-    ) {
-        if (throwable == null
-                || throwable.getMessage() == null
-                || throwable.getMessage().isBlank()) {
-            return throwable == null
-                    ? "unknown error"
-                    : throwable.getClass().getSimpleName();
-        }
-
-        return throwable.getMessage();
     }
 
     private Page resolveMainPage() {
@@ -637,6 +640,15 @@ public class BotContext implements AutoCloseable {
     }
 
     public void saveSession() {
+        if (!sessionPersistenceEnabled) {
+            log.debug(
+                    "[SESSION] Skipping session save for non-persistent bot {} context. restoreEnabled={}.",
+                    bot.getId(),
+                    sessionRestoreEnabled
+            );
+            return;
+        }
+
         if (isAnonymousMarketObserver(bot)) {
             log.info(
                     "[SESSION] Skipping session save for anonymous market observer {}.",

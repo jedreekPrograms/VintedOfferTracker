@@ -149,11 +149,10 @@ export function validateCreateBotForm({
         const offerPrice = offerResult.value;
         const maxAcceptedCounterOffer = counterResult.value;
 
-        if (form.autoRaiseOfferToVintedMinimum
-            && previousOfferPrice !== null
+        if (previousOfferPrice !== null
             && offerPrice <= previousOfferPrice) {
             return invalid(
-                `Krok ${stepNumber}: cena oferty musi być wyższa niż w poprzednim kroku, ponieważ różnica procentowa służy do skalowania adaptacyjnej drabinki.`,
+                `Krok ${stepNumber}: cena oferty musi być wyższa niż w poprzednim kroku.`,
             );
         }
 

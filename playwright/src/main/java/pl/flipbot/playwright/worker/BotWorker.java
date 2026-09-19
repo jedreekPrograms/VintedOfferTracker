@@ -9,6 +9,7 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
+import pl.flipbot.playwright.negotiation.MultiProductExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.target.VintedRateLimitException;
 
@@ -90,7 +91,7 @@ public class BotWorker implements Runnable {
 
 
         ExistingNegotiationProcessor existingNegotiationProcessor =
-                new ExistingNegotiationProcessor(
+                new MultiProductExistingNegotiationProcessor(
                         context,
                         listingClient,
                         offerQuotaClient,

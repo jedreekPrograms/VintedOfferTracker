@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "FlipBot",
+    "slug": "flipbot-mobile",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "platforms": ["android", "ios"],
+    "android": {
+      "package": "pl.flipbot.mobile",
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#172033"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "pl.flipbot.mobile",
+      "buildNumber": "2",
+      "supportsTablet": true
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}

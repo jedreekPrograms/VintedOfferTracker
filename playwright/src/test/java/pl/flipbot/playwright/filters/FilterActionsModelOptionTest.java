@@ -57,6 +57,35 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
+    public void exactModelCheckboxSelectorTargetsTheProvenCollectionOnly() {
+        assertEquals(
+                "input[type='checkbox'][name='brand_collection_ids[]'][value='9977']",
+                FilterActions.exactModelCheckboxSelector("9977")
+        );
+    }
+
+    @Test
+    public void exactModelSuffixTestIdTargetsTheClickableSuffixForProvenCollection() {
+        assertEquals(
+                "selectable-item-brand_collection-9977--suffix",
+                FilterActions.exactModelSuffixTestId("9977")
+        );
+    }
+
+    @Test
+    public void titleChildEvidenceAlwaysResolvesBackToCanonicalSelectableRow() {
+        String collectionId = FilterActions.modelCollectionIdFromTestId(
+                "selectable-item-brand_collection-10632--title"
+        );
+
+        assertEquals("10632", collectionId);
+        assertEquals(
+                "selectable-item-brand_collection-10632",
+                FilterActions.canonicalModelRowTestId(collectionId)
+        );
+    }
+
+    @Test
     public void modelCollectionIdAcceptsOnlyTheKnownVintedTitleChildSuffix() {
         assertEquals(
                 "10632",

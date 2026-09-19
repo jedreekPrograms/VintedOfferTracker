@@ -5,18 +5,18 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.WaitForSelectorState;
-import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
+import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -109,7 +109,7 @@ public class NextNegotiationStepExecutor {
                 nextStep.getOfferPrice()
         );
 
-        openConversation(
+        listing = openConversation(
                 page,
                 listing,
                 "[NEXT STEP DRY RUN]"
@@ -195,7 +195,7 @@ public class NextNegotiationStepExecutor {
                 nextStep.getOfferPrice()
         );
 
-        openConversation(
+        listing = openConversation(
                 page,
                 listing,
                 "[NEXT STEP REAL]"
@@ -300,7 +300,7 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private void openConversation(
+    private ListingResponseDto openConversation(
             Page page,
             ListingResponseDto listing,
             String logPrefix
@@ -313,25 +313,19 @@ public class NextNegotiationStepExecutor {
                 listing.conversationUrl()
         );
 
-        page.navigate(
-                listing.conversationUrl(),
-                new Page.NavigateOptions()
-                        .setWaitUntil(
-                                WaitUntilState.DOMCONTENTLOADED
-                        )
-                        .setTimeout(
-                                NAVIGATION_TIMEOUT_MS
-                        )
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listing.conversationUrl()
         );
 
         humanVerificationHandler.waitUntilVerified(
                 page
         );
 
-        validateOpenedConversation(
-                page,
-                listing
-        );
+        ListingResponseDto canonicalListing =
+                validateOpenedConversation(
+                        page,
+                        listing
+                );
 
         Locator conversationContent =
                 page.getByTestId(
@@ -352,9 +346,10 @@ public class NextNegotiationStepExecutor {
         log.info(
                 "{} Conversation {} is ready.",
                 logPrefix,
-                listing.conversationId()
+                canonicalListing.conversationId()
         );
 
+        return canonicalListing;
     }
 
     private void openOfferModal(
@@ -1311,104 +1306,23 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private void validateOpenedConversation(
+    private ListingResponseDto validateOpenedConversation(
             Page page,
             ListingResponseDto listing
     ) {
-
-        String currentUrl =
-                page.url();
-
-        String openedConversationId =
-                extractConversationId(
-                        currentUrl
-                );
-
-        if (!listing.conversationId().equals(
-                openedConversationId
-        )) {
-
-            throw new IllegalStateException(
-                    "Opened an unexpected conversation. Expected: "
-                            + listing.conversationId()
-                            + ", actual: "
-                            + openedConversationId
-                            + ", URL: "
-                            + currentUrl
-            );
-
-        }
+        ListingResponseDto canonicalListing =
+                new ConversationIdentityCoordinator(context)
+                        .verifyAndCanonicalize(
+                                listing,
+                                "Opened conversation"
+                        );
 
         log.info(
                 "Opened expected conversation {}.",
-                openedConversationId
+                canonicalListing.conversationId()
         );
 
-    }
-
-    private String extractConversationId(
-            String conversationUrl
-    ) {
-
-        if (conversationUrl == null
-                || conversationUrl.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL cannot be blank"
-            );
-
-        }
-
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
-
-        String path =
-                uri.getPath();
-
-        if (path == null
-                || path.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL has no path: "
-                            + conversationUrl
-            );
-
-        }
-
-        String[] pathParts =
-                path.split(
-                        "/"
-                );
-
-        for (int index = 0;
-             index < pathParts.length - 1;
-             index++) {
-
-            if ("inbox".equals(
-                    pathParts[index]
-            )) {
-
-                String conversationId =
-                        pathParts[index + 1];
-
-                if (conversationId != null
-                        && !conversationId.isBlank()) {
-
-                    return conversationId;
-
-                }
-
-            }
-
-        }
-
-        throw new IllegalArgumentException(
-                "Cannot extract conversation ID from URL: "
-                        + conversationUrl
-        );
-
+        return canonicalListing;
     }
 
     private void validateListing(
@@ -1521,6 +1435,63 @@ public class NextNegotiationStepExecutor {
 
         }
 
+        if (listing.currentPrice() != null) {
+            int priceComparison =
+                    nextStep.getOfferPrice().compareTo(listing.currentPrice());
+
+            if (priceComparison < 0) {
+                throw new IllegalArgumentException(
+                        "Next negotiation offer cannot be lower than the current offer. Current price: "
+                                + listing.currentPrice()
+                                + ", next price: "
+                                + nextStep.getOfferPrice()
+                );
+            }
+
+            if (priceComparison == 0
+                    && !isAllowedAdaptiveCapPlateau(listing, nextStep)) {
+                throw new IllegalArgumentException(
+                        "Next negotiation offer may equal the current offer only after the adaptive global cap has been reached. Current price: "
+                                + listing.currentPrice()
+                                + ", next price: "
+                                + nextStep.getOfferPrice()
+                );
+            }
+        }
+
+    }
+
+    boolean isAllowedAdaptiveCapPlateau(
+            ListingResponseDto listing,
+            NegotiationStepDto nextStep
+    ) {
+        if (listing == null
+                || nextStep == null
+                || listing.currentPrice() == null
+                || nextStep.getOfferPrice() == null
+                || context.getBot() == null) {
+            return false;
+        }
+
+        BotConfigurationDto configuration =
+                context.getBot().getConfiguration();
+
+        if (configuration == null
+                || !Boolean.TRUE.equals(
+                configuration.getAutoRaiseOfferToVintedMinimum()
+        )
+                || configuration.getMaxAutomaticOffer() == null
+                || configuration.getMaxAutomaticOffer().signum() <= 0) {
+            return false;
+        }
+
+        BigDecimal cap = configuration.getMaxAutomaticOffer();
+
+        return listing.currentPrice().compareTo(cap) == 0
+                && nextStep.getOfferPrice().compareTo(cap) == 0
+                && listing.currentStep() != null
+                && nextStep.getStepNumber() != null
+                && nextStep.getStepNumber() > listing.currentStep();
     }
 
     private record SubmittedOffer(

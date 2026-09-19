@@ -3,6 +3,8 @@ package pl.flipbot.playwright.model;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.List;
+
 @Getter
 @Setter
 public class BotDetailsDto {
@@ -17,4 +19,5 @@ public class BotDetailsDto {
 
     private BotConfigurationDto configuration;
 
+    private List<BotAdditionalTargetDto> additionalTargets;
 }

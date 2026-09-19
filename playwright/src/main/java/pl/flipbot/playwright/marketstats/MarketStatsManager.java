@@ -12,13 +12,10 @@ public class MarketStatsManager implements AutoCloseable {
 
     private static final long INITIAL_DELAY_SECONDS = 30L;
     private static final long OBSERVER_POLL_SECONDS = 60L;
-    private static final long FAILURE_RETRY_MINUTES = 15L;
+    private static final long FAILURE_RETRY_MINUTES = 30L;
 
     private final MarketStatsRuntimeConfig config =
             MarketStatsRuntimeConfig.fromEnvironment();
-
-    private final MarketStatsApiClient apiClient =
-            new MarketStatsApiClient();
 
     private final ScheduledExecutorService executor =
             Executors.newSingleThreadScheduledExecutor(
@@ -39,7 +36,7 @@ public class MarketStatsManager implements AutoCloseable {
             new AtomicBoolean(false);
 
     private volatile long nextAttemptAtMillis = 0L;
-    private volatile boolean failureBackoffActive = false;
+    private volatile int nextTargetStartIndex = 0;
 
     public void start() {
         if (!config.enabled()) {
@@ -55,10 +52,13 @@ public class MarketStatsManager implements AutoCloseable {
 
         log.info(
                 "[MARKET STATS] Dedicated collector is enabled. Observer is managed by the frontend. "
-                        + "First check in {}s. After each completed full pass it waits at least {}m before starting another. "
-                        + "The collector is single-threaded, so long passes never overlap.",
+                        + "First check in {}s. After every pass it respects at least {}m normal cooldown; "
+                        + "failed/rate-limited passes back off for {}m. Rate-limited passes resume from the model after the one that triggered backoff, so one large model cannot starve the rest of the queue. "
+                        + "Observer Chromium is recycled after at most {} model target(s) to cap browser peak memory.",
                 INITIAL_DELAY_SECONDS,
-                config.refreshCooldownMinutes()
+                config.refreshCooldownMinutes(),
+                FAILURE_RETRY_MINUTES,
+                config.browserRecycleTargetCount()
         );
 
         executor.scheduleWithFixedDelay(
@@ -77,40 +77,83 @@ public class MarketStatsManager implements AutoCloseable {
         long now = System.currentTimeMillis();
 
         if (now < nextAttemptAtMillis) {
-            if (failureBackoffActive) {
-                return;
-            }
-
-            try {
-                if (!apiClient.isScanNeeded()) {
-                    return;
-                }
-
-                log.info(
-                        "[MARKET STATS] A model is still waiting for a baseline. "
-                                + "Starting an early recovery pass instead of waiting for the normal {}m cooldown.",
-                        config.refreshCooldownMinutes()
-                );
-            } catch (Exception exception) {
-                log.warn(
-                        "[MARKET STATS] Could not check whether an early baseline pass is needed. Keeping the normal schedule. reason={}",
-                        friendlyMessage(exception)
-                );
-                log.debug(
-                        "[MARKET STATS] Full early-baseline check error.",
-                        exception
-                );
-                return;
-            }
+            return;
         }
 
         long startedAtMillis = System.currentTimeMillis();
+        int passStartIndex = nextTargetStartIndex;
+        ResumableMarketStatsApiClient apiClient = null;
 
         try {
-            new MarketStatsCollector(
-                    config,
-                    apiClient
-            ).collectOnce();
+            int batchStartIndex = passStartIndex;
+            int attemptedTargets = 0;
+            int totalTargets = -1;
+            int batchNumber = 0;
+
+            while (!stopping.get()) {
+                int remainingTargets = totalTargets < 0
+                        ? config.browserRecycleTargetCount()
+                        : Math.min(
+                                config.browserRecycleTargetCount(),
+                                Math.max(1, totalTargets - attemptedTargets)
+                        );
+
+                apiClient = new ResumableMarketStatsApiClient(
+                        batchStartIndex,
+                        remainingTargets
+                );
+                batchNumber++;
+
+                log.info(
+                        "[MARKET STATS] Starting browser batch {} from global target index {} with capacity {}. A fresh observer Chromium/context will be used for this batch.",
+                        batchNumber,
+                        batchStartIndex,
+                        remainingTargets
+                );
+
+                new MarketStatsCollector(config, apiClient).collectOnce();
+
+                int returnedTargets = apiClient.returnedTargetCount();
+                totalTargets = apiClient.targetCount();
+                attemptedTargets += returnedTargets;
+
+                if (totalTargets <= 0 || returnedTargets <= 0) {
+                    break;
+                }
+
+                if (attemptedTargets >= totalTargets) {
+                    break;
+                }
+
+                int nextBatchStartIndex =
+                        apiClient.resumeIndexAfterCurrentTarget();
+
+                if (nextBatchStartIndex == batchStartIndex) {
+                    throw new IllegalStateException(
+                            "Market-stats browser batching made no target-index progress. startIndex="
+                                    + batchStartIndex
+                                    + ", attempted="
+                                    + attemptedTargets
+                                    + ", total="
+                                    + totalTargets
+                    );
+                }
+
+                log.info(
+                        "[MARKET STATS] Browser batch {} completed after {} target(s). Its Chromium runtime is now closed; continuing from global target index {} with a fresh runtime. attempted={}/{}.",
+                        batchNumber,
+                        returnedTargets,
+                        nextBatchStartIndex,
+                        attemptedTargets,
+                        totalTargets
+                );
+
+                batchStartIndex = nextBatchStartIndex;
+            }
+
+            if (stopping.get()) {
+                return;
+            }
 
             long completedAtMillis = System.currentTimeMillis();
             long durationSeconds = Math.max(
@@ -120,7 +163,7 @@ public class MarketStatsManager implements AutoCloseable {
                     )
             );
 
-            failureBackoffActive = false;
+            nextTargetStartIndex = 0;
             nextAttemptAtMillis =
                     completedAtMillis
                             + TimeUnit.MINUTES.toMillis(
@@ -128,9 +171,10 @@ public class MarketStatsManager implements AutoCloseable {
                     );
 
             log.info(
-                    "[MARKET STATS] Collection completed in {}s. Next full pass may start after {}m cooldown. "
-                            + "Effective start-to-start spacing automatically includes the duration of this pass.",
+                    "[MARKET STATS] Collection completed in {}s across {} browser batch(es). All {} model target(s) were attempted; the next full pass returns to the normal target order after {}m cooldown.",
                     durationSeconds,
+                    batchNumber,
+                    Math.max(0, totalTargets),
                     config.refreshCooldownMinutes()
             );
         } catch (Exception exception) {
@@ -145,14 +189,39 @@ public class MarketStatsManager implements AutoCloseable {
                                 + "Create it on the Bots page; the collector will discover it automatically."
                 );
 
-                failureBackoffActive = false;
                 nextAttemptAtMillis =
                         System.currentTimeMillis()
                                 + TimeUnit.MINUTES.toMillis(1L);
                 return;
             }
 
-            failureBackoffActive = true;
+            if (containsTrafficBackoffMarker(exception)) {
+                int previousStartIndex = nextTargetStartIndex;
+                nextTargetStartIndex = apiClient == null
+                        ? previousStartIndex
+                        : apiClient.resumeIndexAfterCurrentTarget();
+                nextAttemptAtMillis =
+                        System.currentTimeMillis()
+                                + TimeUnit.MINUTES.toMillis(
+                                FAILURE_RETRY_MINUTES
+                        );
+
+                log.warn(
+                        "[MARKET STATS] Vinted requested traffic backoff. Pausing observer traffic for {} minutes. "
+                                + "This pass started at target index {} and the next pass will resume at target index {}, after the model that triggered backoff. "
+                                + "Normal bot scheduling is unaffected. reason={}",
+                        FAILURE_RETRY_MINUTES,
+                        previousStartIndex,
+                        nextTargetStartIndex,
+                        friendlyMessage(exception)
+                );
+                log.debug(
+                        "[MARKET STATS] Full traffic-backoff failure.",
+                        exception
+                );
+                return;
+            }
+
             nextAttemptAtMillis =
                     System.currentTimeMillis()
                             + TimeUnit.MINUTES.toMillis(
@@ -160,8 +229,9 @@ public class MarketStatsManager implements AutoCloseable {
                     );
 
             log.error(
-                    "[MARKET STATS] Collection failed. Normal bot scheduling is unaffected. Retry in {} minutes. reason={}",
+                    "[MARKET STATS] Collection failed. Normal bot scheduling is unaffected. Retry in {} minutes from target index {}. reason={}",
                     FAILURE_RETRY_MINUTES,
+                    nextTargetStartIndex,
                     friendlyMessage(exception)
             );
             log.debug(
@@ -192,6 +262,23 @@ public class MarketStatsManager implements AutoCloseable {
     @Override
     public void close() {
         stop();
+    }
+
+    private boolean containsTrafficBackoffMarker(Throwable throwable) {
+        Throwable current = throwable;
+
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null
+                    && message.contains(
+                    MarketListingPublishedAtResolver.TRAFFIC_BACKOFF_MARKER
+            )) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        return false;
     }
 
     private String friendlyMessage(Throwable exception) {

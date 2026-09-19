@@ -25,6 +25,8 @@ public class BotListingController {
 
     private final ListingService listingService;
 
+    private final BotTargetListingService botTargetListingService;
+
     private final NegotiationCapacityService
             negotiationCapacityService;
 
@@ -38,7 +40,7 @@ public class BotListingController {
     ) {
 
         List<ListingResponse> claimedListings =
-                listingService.discoverListings(
+                botTargetListingService.discoverPrimary(
                         botId,
                         request
                 );
@@ -180,6 +182,24 @@ public class BotListingController {
                 )
         );
 
+    }
+
+    @PatchMapping("/{listingId}/conversation")
+    public ResponseEntity<ListingResponse>
+    updateConversationIdentity(
+            @PathVariable Long botId,
+            @PathVariable Long listingId,
+            @Valid
+            @RequestBody
+            UpdateConversationIdentityRequest request
+    ) {
+        return ResponseEntity.ok(
+                listingService.updateConversationIdentity(
+                        botId,
+                        listingId,
+                        request
+                )
+        );
     }
 
     @PatchMapping("/{listingId}/negotiation-activity")

@@ -10,10 +10,13 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
+import pl.flipbot.playwright.negotiation.MultiProductExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
+import pl.flipbot.playwright.session.JobSessionPersistence;
+import pl.flipbot.playwright.session.VintedSessionPersistenceGuard;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 import pl.flipbot.playwright.target.VintedSessionBlockedException;
 import pl.flipbot.playwright.target.VintedSessionFailureClassifier;
@@ -35,6 +38,9 @@ public class ScheduledBotRunExecutor {
     private final BrowserManager browserManager;
     private final VintedSessionBlockDetector sessionBlockDetector =
             new VintedSessionBlockDetector();
+    private final JobSessionPersistence sessionPersistence = new JobSessionPersistence();
+    private final VintedSessionPersistenceGuard sessionPersistenceGuard =
+            new VintedSessionPersistenceGuard();
 
     public ScheduledBotRunExecutor(
             BotDetailsDto bot,
@@ -63,8 +69,12 @@ public class ScheduledBotRunExecutor {
 
     private void executeInternal(ScheduledJobType jobType) {
         Long botId = bot.getId();
-        BotContext context = new BotContext(bot, browserManager);
+        BotContext context = jobType == ScheduledJobType.PRICE_PROBE
+                ? BotContext.isolated(bot, browserManager)
+                : new BotContext(bot, browserManager);
         boolean loginReady = false;
+        boolean jobCompleted = false;
+        boolean authenticatedCheckpointReady = false;
 
         try {
             if (jobType == ScheduledJobType.PRICE_PROBE) {
@@ -79,6 +89,7 @@ public class ScheduledBotRunExecutor {
                 new SandboxCloneLoginService(context, PRICE_PROBE_CONFIG).login();
                 loginReady = true;
                 new PriceProbeProcessor(context, PRICE_PROBE_CONFIG).processOne();
+                jobCompleted = true;
                 return;
             }
 
@@ -153,7 +164,7 @@ public class ScheduledBotRunExecutor {
             );
 
             ExistingNegotiationProcessor existingNegotiationProcessor =
-                    new ExistingNegotiationProcessor(
+                    new MultiProductExistingNegotiationProcessor(
                             context,
                             listingClient,
                             offerQuotaClient,
@@ -193,6 +204,28 @@ public class ScheduledBotRunExecutor {
             loginService.login();
             loginReady = true;
 
+            VintedSessionPersistenceGuard.Check checkpointCheck =
+                    sessionPersistenceGuard.check(
+                            context
+                    );
+
+            if (!checkpointCheck.healthy()) {
+                throw new IllegalStateException(
+                        "Refusing to replace the stored session for bot "
+                                + botId
+                                + " because login returned without strong authenticated evidence. reason="
+                                + checkpointCheck.reason()
+                );
+            }
+
+            context.saveSession();
+            authenticatedCheckpointReady = true;
+            log.debug(
+                    "[SESSION] Captured authenticated pre-job checkpoint for bot {}. verifiedBy={}",
+                    botId,
+                    checkpointCheck.reason()
+            );
+
             if (jobType == null) {
                 botRunExecutor.executeOneRun();
             } else {
@@ -205,32 +238,19 @@ public class ScheduledBotRunExecutor {
                 }
             }
 
+            jobCompleted = true;
         } catch (VintedSessionBlockedException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            /*
-             * Last-resort classification for every Vinted job. Login/auth UI can
-             * fail first and the dedicated hard-block page can finish rendering a
-             * fraction of a second later. Poll briefly before turning the run into
-             * a generic failure so an actual "Twoja sesja została zablokowana"
-             * page always reaches the scheduler as VintedSessionBlockedException.
-             */
             classifyLateSessionBlock(
                     context,
                     jobType,
                     botId
             );
 
-            /*
-             * Vinted can also leave the credential form visible after all three
-             * deterministic submit mechanisms without rendering the hard-block
-             * page soon enough to read its text. Retrying that state every minute
-             * is exactly the hammering the session cooldown is meant to prevent.
-             * Only the narrow, known login-stall signatures are upgraded here;
-             * explicit credential failures and unrelated errors stay generic.
-             */
             if (VintedSessionFailureClassifier.shouldUseProtectiveCooldown(exception)) {
                 String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
+
                 log.warn(
                         "[SESSION BLOCK] Bot {} hit a repeated Vinted authentication stall during {}. Treating it as a protective session cooldown instead of RUN_FAILED so all bot jobs back off together.",
                         botId,
@@ -248,17 +268,9 @@ public class ScheduledBotRunExecutor {
 
             throw exception;
         } finally {
-            if (loginReady) {
-                try {
-                    context.saveSession();
-                } catch (Exception exception) {
-                    log.warn(
-                            "[SCHEDULED JOB] Could not save session for bot {} before closing its context.",
-                            botId,
-                            exception
-                    );
-                }
-            }
+            sessionPersistence.finish(
+                    context, loginReady, jobCompleted, authenticatedCheckpointReady
+            );
 
             log.info(
                     "[BROWSER LIFECYCLE] Bot {} {} job is finished. Closing only this job's isolated browser context/page.",
