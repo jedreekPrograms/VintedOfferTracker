@@ -111,7 +111,7 @@ public class PreparedNextStepCoordinator {
             );
 
             audit.recordAmbiguousBestEffort(
-                    listing,
+                    canonicalListing,
                     ACTION_TYPE,
                     decision.nextStep().getStepNumber(),
                     decision.nextStep().getOfferPrice(),
