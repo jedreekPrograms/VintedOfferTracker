@@ -15,6 +15,9 @@ import java.util.Set;
  */
 final class AdTechRequestPolicy {
 
+    static final String BLOCK_AD_TECH_ENV =
+            "FLIPBOT_BLOCK_AD_TECH";
+
     private static final Set<String> BLOCKED_HOST_SUFFIXES = Set.of(
             "3lift.com",
             "4dex.io",
@@ -30,7 +33,9 @@ final class AdTechRequestPolicy {
     }
 
     static boolean shouldBlock(String requestUrl) {
-        if (requestUrl == null || requestUrl.isBlank()) {
+        if (!enabled()
+                || requestUrl == null
+                || requestUrl.isBlank()) {
             return false;
         }
 
@@ -64,6 +69,17 @@ final class AdTechRequestPolicy {
 
     static Set<String> blockedHostSuffixes() {
         return BLOCKED_HOST_SUFFIXES;
+    }
+
+    static boolean enabled() {
+        String configured = System.getenv(BLOCK_AD_TECH_ENV);
+
+        if (configured == null || configured.isBlank()) {
+            return true;
+        }
+
+        return !"false".equalsIgnoreCase(configured.trim())
+                && !"0".equals(configured.trim());
     }
 
     private static String normalize(String value) {
