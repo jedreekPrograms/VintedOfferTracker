@@ -113,6 +113,12 @@ public class RuntimeTelemetryReporter implements AutoCloseable {
         );
     }
 
+    public void sessionRecovered(Long botId) {
+        send(botId, new RuntimeTelemetryEventRequest(
+                "SESSION_RECOVERED", null, null, null, null
+        ));
+    }
+
     public void idle(Long botId) {
         send(botId, new RuntimeTelemetryEventRequest(
                 "IDLE", null, null, null, null
