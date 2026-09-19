@@ -537,13 +537,29 @@ public class FirstOfferExecutor {
             Page page = context.getPage();
             String conversationUrl = page.url();
 
-            if (!MarketplaceUrls.isVintedUrl(conversationUrl)
-                    || conversationUrl == null
+            if (conversationUrl == null
+                    || !MarketplaceUrls.isVintedUrl(conversationUrl)
                     || !conversationUrl.contains("/inbox/")) {
                 log.warn(
                         "[REAL OFFER RECONCILE] Cannot confirm marketplace listing {} after ambiguous submit because the page is not a trusted Vinted conversation. URL={}",
                         listing.listingId(),
                         conversationUrl
+                );
+                return false;
+            }
+
+            URI conversationUri = URI.create(conversationUrl);
+            String rawQuery = conversationUri.getRawQuery();
+            String decodedQuery = rawQuery == null
+                    ? ""
+                    : URLDecoder.decode(rawQuery, StandardCharsets.UTF_8);
+
+            if (!decodedQuery.contains(listing.listingId())) {
+                log.warn(
+                        "[REAL OFFER RECONCILE] Conversation URL does not strongly bind to marketplace listing {}. "
+                                + "Referrer/query='{}'. Keeping the action ambiguous.",
+                        listing.listingId(),
+                        decodedQuery
                 );
                 return false;
             }
