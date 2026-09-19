@@ -531,70 +531,87 @@ public class FilterActions {
         );
 
         /*
-         * Vinted renders the visible checkbox button below .u-no-pointer-events.
-         * Calling Locator.click() on that child is therefore the wrong operation:
-         * Playwright waits for the child to receive pointer events even though a
-         * real user's click at those coordinates is intentionally hit-tested to
-         * the selectable parent Cell.
+         * The captured Vinted DOM exposes an explicit interactive suffix for the
+         * exact model row:
          *
-         * Reproduce the real browser interaction: obtain the visible square's
-         * coordinates and send a mouse click there. Because the checkbox wrapper
-         * has pointer-events:none, Chromium delivers that click to the canonical
-         * role=button row, exactly as when the user clicks the empty square.
+         *   data-testid="selectable-item-brand_collection-<ID>--suffix"
+         *
+         * This is the right-hand area the user actually clicks. The checkbox
+         * itself is nested below .u-no-pointer-events, so do not target the
+         * input/span as the primary pointer target. Click this exact suffix and
+         * then verify the native checkbox belonging to the proven collection id.
          */
-        if (hasNativeCheckbox) {
-            Locator visualCheckbox = modelRow.locator(
-                    exactModelCheckboxVisualSelector(collectionId)
-            ).first();
+        Locator modelSuffix = page.getByTestId(
+                exactModelSuffixTestId(collectionId)
+        ).first();
 
-            if (safeCount(visualCheckbox) > 0 && safeIsVisible(visualCheckbox)) {
-                try {
-                    visualCheckbox.scrollIntoViewIfNeeded();
-                    var box = visualCheckbox.boundingBox();
+        if (safeCount(modelSuffix) > 0 && safeIsVisible(modelSuffix)) {
+            try {
+                log.info(
+                        "[FILTER MODEL] Clicking exact model suffix '{}' for '{}' / collectionId={}.",
+                        exactModelSuffixTestId(collectionId),
+                        model,
+                        collectionId
+                );
 
-                    if (box != null && box.width > 0 && box.height > 0) {
-                        double clickX = box.x + (box.width / 2.0);
-                        double clickY = box.y + (box.height / 2.0);
+                modelSuffix.click(
+                        new Locator.ClickOptions()
+                                .setTimeout(2_000)
+                );
 
-                        log.info(
-                                "[FILTER MODEL] Clicking the exact visible checkbox hit-target for '{}' / collectionId={} at x={}, y={}.",
-                                model,
-                                collectionId,
-                                Math.round(clickX),
-                                Math.round(clickY)
-                        );
-
-                        page.mouse().click(clickX, clickY);
-
-                        if (waitForExactModelSelected(
-                                modelRow,
-                                collectionId,
-                                2_000
-                        )) {
-                            log.info(
-                                    "[FILTER MODEL] Exact model '{}' / collectionId={} selected by physical checkbox-area click.",
-                                    model,
-                                    collectionId
-                            );
-                            return;
-                        }
-
-                        log.warn(
-                                "[FILTER MODEL] Physical checkbox-area click for '{}' / collectionId={} did not set the exact checkbox. Trying canonical row activation.",
-                                model,
-                                collectionId
-                        );
-                    }
-                } catch (RuntimeException exception) {
-                    primaryFailure = exception;
-                    log.warn(
-                            "[FILTER MODEL] Physical checkbox-area click failed for '{}' / collectionId={}: {}. Trying canonical row activation.",
+                if (waitForExactModelSelected(
+                        modelRow,
+                        collectionId,
+                        2_000
+                )) {
+                    log.info(
+                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact suffix click.",
                             model,
-                            collectionId,
-                            getFriendlyErrorMessage(exception)
+                            collectionId
                     );
+                    return;
                 }
+
+                log.warn(
+                        "[FILTER MODEL] Exact suffix click for '{}' / collectionId={} did not set the exact checkbox. Retrying the same suffix with forced pointer delivery.",
+                        model,
+                        collectionId
+                );
+
+                modelSuffix.click(
+                        new Locator.ClickOptions()
+                                .setForce(true)
+                                .setTimeout(2_000)
+                );
+
+                if (waitForExactModelSelected(
+                        modelRow,
+                        collectionId,
+                        1_500
+                )) {
+                    log.info(
+                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by forced exact suffix click.",
+                            model,
+                            collectionId
+                    );
+                    return;
+                }
+            } catch (RuntimeException exception) {
+                primaryFailure = exception;
+                log.warn(
+                        "[FILTER MODEL] Exact suffix click failed for '{}' / collectionId={}: {}. Trying compatibility fallbacks.",
+                        model,
+                        collectionId,
+                        getFriendlyErrorMessage(exception)
+                );
             }
+        } else {
+            log.warn(
+                    "[FILTER MODEL] Exact suffix '{}' is missing or not visible for '{}' / collectionId={}. Trying compatibility fallbacks.",
+                    exactModelSuffixTestId(collectionId),
+                    model,
+                    collectionId
+            );
         }
 
         /*
@@ -734,8 +751,15 @@ public class FilterActions {
         throw new IllegalStateException(message);
     }
 
-    static String exactModelCheckboxVisualSelector(String collectionId) {
-        return exactModelCheckboxSelector(collectionId) + " + span";
+    static String exactModelSuffixTestId(String collectionId) {
+        if (collectionId == null
+                || !collectionId.matches("^\\d+$")) {
+            throw new IllegalArgumentException(
+                    "Model collection id must contain digits only"
+            );
+        }
+
+        return canonicalModelRowTestId(collectionId) + "--suffix";
     }
 
     static String exactModelCheckboxSelector(String collectionId) {
