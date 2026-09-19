@@ -19,7 +19,7 @@ public record WorkerRuntimeConfig(
     private static final int DEFAULT_WORKER_COUNT = 10;
     private static final int MAX_WORKER_COUNT = 100;
 
-    private static final long DEFAULT_SYNC_INTERVAL_SECONDS = 5L;
+    private static final long DEFAULT_SYNC_INTERVAL_SECONDS = 1L;
     private static final long DEFAULT_NEGOTIATION_CHECK_INTERVAL_SECONDS = 120L;
     private static final long DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS = 15L * 60L;
     private static final long DEFAULT_PRICE_PROBE_INTERVAL_SECONDS = 60L;
