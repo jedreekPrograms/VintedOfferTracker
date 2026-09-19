@@ -118,8 +118,11 @@ function OfferStrategySection({
                     />
 
                     <span className="form-help">
-                        Globalny twardy limit dla kolejnych automatycznych akcji.
-                        Zmiana limitu nie cofa ofert wysłanych przed zapisaniem zmiany.
+                        Globalny twardy limit ceny. Po osiągnięciu tego limitu bot
+                        nadal przechodzi przez pozostałe kroki negocjacji, używając
+                        tej samej maksymalnej ceny i wiadomości przypisanej do
+                        każdego kolejnego kroku. Zmiana limitu nie cofa ofert
+                        wysłanych przed zapisaniem zmiany.
                     </span>
                 </div>
             </div>
