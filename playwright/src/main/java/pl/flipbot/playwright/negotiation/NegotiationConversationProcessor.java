@@ -11,7 +11,6 @@ import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -107,19 +106,20 @@ public class NegotiationConversationProcessor {
                 page
         );
 
-        validateOpenedConversation(
-                page,
-                listing
-        );
-
-        NegotiationConversationSnapshot snapshot =
-                waitForConversationSnapshot(
+        ListingResponseDto canonicalListing =
+                validateOpenedConversation(
                         page,
                         listing
                 );
 
+        NegotiationConversationSnapshot snapshot =
+                waitForConversationSnapshot(
+                        page,
+                        canonicalListing
+                );
+
         logSnapshot(
-                listing,
+                canonicalListing,
                 snapshot
         );
 
@@ -608,104 +608,23 @@ public class NegotiationConversationProcessor {
 
     }
 
-    private void validateOpenedConversation(
+    private ListingResponseDto validateOpenedConversation(
             Page page,
             ListingResponseDto listing
     ) {
-
-        String currentUrl =
-                page.url();
-
-        String openedConversationId =
-                extractConversationId(
-                        currentUrl
-                );
-
-        if (!listing.conversationId().equals(
-                openedConversationId
-        )) {
-
-            throw new IllegalStateException(
-                    "Opened unexpected conversation. Expected: "
-                            + listing.conversationId()
-                            + ", actual: "
-                            + openedConversationId
-                            + ", URL: "
-                            + currentUrl
-            );
-
-        }
+        ListingResponseDto canonicalListing =
+                new ConversationIdentityCoordinator(context)
+                        .verifyAndCanonicalize(
+                                listing,
+                                "Opened conversation"
+                        );
 
         log.info(
                 "[CONVERSATION] Opened expected conversation {}",
-                openedConversationId
+                canonicalListing.conversationId()
         );
 
-    }
-
-    private String extractConversationId(
-            String conversationUrl
-    ) {
-
-        if (conversationUrl == null
-                || conversationUrl.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL cannot be blank"
-            );
-
-        }
-
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
-
-        String path =
-                uri.getPath();
-
-        if (path == null
-                || path.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL has no path: "
-                            + conversationUrl
-            );
-
-        }
-
-        String[] pathParts =
-                path.split(
-                        "/"
-                );
-
-        for (int index = 0;
-             index < pathParts.length - 1;
-             index++) {
-
-            if ("inbox".equals(
-                    pathParts[index]
-            )) {
-
-                String conversationId =
-                        pathParts[index + 1];
-
-                if (conversationId != null
-                        && !conversationId.isBlank()) {
-
-                    return conversationId;
-
-                }
-
-            }
-
-        }
-
-        throw new IllegalArgumentException(
-                "Cannot extract conversation ID from URL: "
-                        + conversationUrl
-        );
-
+        return canonicalListing;
     }
 
     private void validateListing(

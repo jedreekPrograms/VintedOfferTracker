@@ -17,7 +17,6 @@ import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -110,7 +109,7 @@ public class NextNegotiationStepExecutor {
                 nextStep.getOfferPrice()
         );
 
-        openConversation(
+        listing = openConversation(
                 page,
                 listing,
                 "[NEXT STEP DRY RUN]"
@@ -196,7 +195,7 @@ public class NextNegotiationStepExecutor {
                 nextStep.getOfferPrice()
         );
 
-        openConversation(
+        listing = openConversation(
                 page,
                 listing,
                 "[NEXT STEP REAL]"
@@ -301,7 +300,7 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private void openConversation(
+    private ListingResponseDto openConversation(
             Page page,
             ListingResponseDto listing,
             String logPrefix
@@ -322,10 +321,11 @@ public class NextNegotiationStepExecutor {
                 page
         );
 
-        validateOpenedConversation(
-                page,
-                listing
-        );
+        ListingResponseDto canonicalListing =
+                validateOpenedConversation(
+                        page,
+                        listing
+                );
 
         Locator conversationContent =
                 page.getByTestId(
@@ -346,9 +346,10 @@ public class NextNegotiationStepExecutor {
         log.info(
                 "{} Conversation {} is ready.",
                 logPrefix,
-                listing.conversationId()
+                canonicalListing.conversationId()
         );
 
+        return canonicalListing;
     }
 
     private void openOfferModal(
@@ -1305,104 +1306,23 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private void validateOpenedConversation(
+    private ListingResponseDto validateOpenedConversation(
             Page page,
             ListingResponseDto listing
     ) {
-
-        String currentUrl =
-                page.url();
-
-        String openedConversationId =
-                extractConversationId(
-                        currentUrl
-                );
-
-        if (!listing.conversationId().equals(
-                openedConversationId
-        )) {
-
-            throw new IllegalStateException(
-                    "Opened an unexpected conversation. Expected: "
-                            + listing.conversationId()
-                            + ", actual: "
-                            + openedConversationId
-                            + ", URL: "
-                            + currentUrl
-            );
-
-        }
+        ListingResponseDto canonicalListing =
+                new ConversationIdentityCoordinator(context)
+                        .verifyAndCanonicalize(
+                                listing,
+                                "Opened conversation"
+                        );
 
         log.info(
                 "Opened expected conversation {}.",
-                openedConversationId
+                canonicalListing.conversationId()
         );
 
-    }
-
-    private String extractConversationId(
-            String conversationUrl
-    ) {
-
-        if (conversationUrl == null
-                || conversationUrl.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL cannot be blank"
-            );
-
-        }
-
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
-
-        String path =
-                uri.getPath();
-
-        if (path == null
-                || path.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL has no path: "
-                            + conversationUrl
-            );
-
-        }
-
-        String[] pathParts =
-                path.split(
-                        "/"
-                );
-
-        for (int index = 0;
-             index < pathParts.length - 1;
-             index++) {
-
-            if ("inbox".equals(
-                    pathParts[index]
-            )) {
-
-                String conversationId =
-                        pathParts[index + 1];
-
-                if (conversationId != null
-                        && !conversationId.isBlank()) {
-
-                    return conversationId;
-
-                }
-
-            }
-
-        }
-
-        throw new IllegalArgumentException(
-                "Cannot extract conversation ID from URL: "
-                        + conversationUrl
-        );
-
+        return canonicalListing;
     }
 
     private void validateListing(
