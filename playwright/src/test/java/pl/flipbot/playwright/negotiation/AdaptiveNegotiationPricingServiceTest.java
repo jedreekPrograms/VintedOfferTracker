@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class AdaptiveNegotiationPricingServiceTest {
@@ -142,7 +141,7 @@ public class AdaptiveNegotiationPricingServiceTest {
     }
 
     @Test
-    public void nextStepAboveGlobalCapIsNotGenerated() {
+    public void nextStepAboveGlobalCapIsClampedToCapInsteadOfStopping() {
         BotConfigurationDto configuration = adaptiveConfiguration();
         NegotiationStepDto stepFour = step(
                 4,
@@ -171,7 +170,82 @@ public class AdaptiveNegotiationPricingServiceTest {
                 configuration
         );
 
-        assertFalse(effective.isPresent());
+        assertTrue(effective.isPresent());
+        assertEquals(
+                0,
+                new BigDecimal("1500.00").compareTo(
+                        effective.get().getOfferPrice()
+                )
+        );
+        assertEquals("step 4", effective.get().getMessage());
+    }
+
+    @Test
+    public void remainingConfiguredStepsContinueAtSameCapAndKeepTheirMessages() {
+        BotConfigurationDto configuration = new BotConfigurationDto();
+        configuration.setAutoRaiseOfferToVintedMinimum(true);
+        configuration.setMaxAutomaticOffer(new BigDecimal("1200.00"));
+
+        NegotiationStepDto stepOne =
+                step(1, "900.00", "950.00", "message 1");
+        NegotiationStepDto stepTwo =
+                step(2, "1050.00", "1100.00", "message 2");
+        NegotiationStepDto stepThree =
+                step(3, "1200.00", "1200.00", "message 3");
+        NegotiationStepDto stepFour =
+                step(4, "1300.00", "1350.00", "message 4");
+        NegotiationStepDto stepFive =
+                step(5, "1400.00", "1450.00", "message 5");
+
+        configuration.setNegotiationSteps(
+                List.of(
+                        stepOne,
+                        stepTwo,
+                        stepThree,
+                        stepFour,
+                        stepFive
+                )
+        );
+
+        Optional<NegotiationStepDto> effectiveFour = service.adaptNextStep(
+                listing(
+                        "NEGOTIATING",
+                        new BigDecimal("2000.00"),
+                        new BigDecimal("1200.00"),
+                        3
+                ),
+                stepFour,
+                configuration
+        );
+
+        assertTrue(effectiveFour.isPresent());
+        assertEquals(
+                0,
+                new BigDecimal("1200.00").compareTo(
+                        effectiveFour.get().getOfferPrice()
+                )
+        );
+        assertEquals("message 4", effectiveFour.get().getMessage());
+
+        Optional<NegotiationStepDto> effectiveFive = service.adaptNextStep(
+                listing(
+                        "NEGOTIATING",
+                        new BigDecimal("2000.00"),
+                        new BigDecimal("1200.00"),
+                        4
+                ),
+                stepFive,
+                configuration
+        );
+
+        assertTrue(effectiveFive.isPresent());
+        assertEquals(
+                0,
+                new BigDecimal("1200.00").compareTo(
+                        effectiveFive.get().getOfferPrice()
+                )
+        );
+        assertEquals("message 5", effectiveFive.get().getMessage());
     }
 
     @Test
