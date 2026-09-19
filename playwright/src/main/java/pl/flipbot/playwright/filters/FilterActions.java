@@ -397,7 +397,7 @@ public class FilterActions {
 
                     if (collectionId == null) {
                         throw new IllegalStateException(
-                                "Exact model title for '"
+                                "Exact model evidence for '"
                                         + model
                                         + "' has an unexpected data-testid='"
                                         + evidenceTestId
@@ -432,14 +432,16 @@ public class FilterActions {
                     return;
                 }
 
-                if (!modelSearchApplied && tryApplyOptionalModelSearch(model)) {
-                    modelSearchApplied = true;
-                    log.info(
-                            "[FILTER MODEL] Optional Vinted model-search input narrowed the native list to '{}'. Exact row identity is still required before any click.",
-                            model
-                    );
-                    page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
-                    continue;
+                if (tryApplyOptionalModelSearch(model)) {
+                    if (!modelSearchApplied) {
+                        modelSearchApplied = true;
+                        log.info(
+                                "[FILTER MODEL] Optional Vinted model-search input narrowed the native list to '{}'. Exact row identity is still required before any click.",
+                                model
+                        );
+                        page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
+                        continue;
+                    }
                 }
 
                 page.waitForTimeout(MODEL_OPTION_POLL_INTERVAL_MS);
@@ -539,7 +541,7 @@ public class FilterActions {
                 }
 
                 log.warn(
-                        "[FILTER MODEL] Retry {}/{} for '{}' could not render a usable model-search panel on panel-open attempt {}/{}. Rebuilding the catalog/filter state and trying again. reason={}",
+                        "[FILTER MODEL] Retry {}/{} for '{}' could not render a usable native model drawer on panel-open attempt {}/{}. Rebuilding the catalog/filter state and trying again. reason={}",
                         attempt,
                         MODEL_DISCOVERY_MAX_ATTEMPTS,
                         model,
@@ -553,7 +555,7 @@ public class FilterActions {
         }
 
         throw new IllegalStateException(
-                "Could not reopen a usable Vinted model-search panel for '"
+                "Could not reopen the native Vinted model drawer for '"
                         + model
                         + "' while preparing exact-model discovery retry "
                         + attempt
@@ -691,23 +693,6 @@ public class FilterActions {
                 visibleCount,
                 List.copyOf(partialLabels)
         );
-    }
-
-    private String modelCollectionIdFromTitleTestId(
-            String testId
-    ) {
-        if (testId == null
-                || !testId.startsWith(MODEL_TEST_ID_PREFIX)
-                || !testId.endsWith(MODEL_TITLE_TEST_ID_SUFFIX)) {
-            return null;
-        }
-
-        String id = testId.substring(
-                MODEL_TEST_ID_PREFIX.length(),
-                testId.length() - MODEL_TITLE_TEST_ID_SUFFIX.length()
-        );
-
-        return id.isBlank() ? null : id;
     }
 
     private record ExactModelTitleMatch(
