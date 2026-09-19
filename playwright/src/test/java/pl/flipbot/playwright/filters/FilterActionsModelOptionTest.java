@@ -26,6 +26,29 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
+    public void exactS26IdentityNeverAcceptsUltraOrPlus() {
+        var pattern = FilterActions.exactModelOptionPattern("Galaxy S26");
+
+        assertTrue(pattern.matcher("Galaxy S26").matches());
+        assertFalse(pattern.matcher("Galaxy S26 Ultra").matches());
+        assertFalse(pattern.matcher("Galaxy S26+").matches());
+        assertFalse(pattern.matcher("Galaxy S26 Plus").matches());
+
+        assertTrue(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S26",
+                        "Galaxy S26\\n42 przedmioty"
+                )
+        );
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S26",
+                        "Galaxy S26 Ultra\\n42 przedmioty"
+                )
+        );
+    }
+
+    @Test
     public void exactModelPatternIsCaseInsensitive() {
         var pattern = FilterActions.exactModelOptionPattern("Galaxy Tab S11 Ultra");
 
