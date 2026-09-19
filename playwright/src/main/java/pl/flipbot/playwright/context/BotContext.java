@@ -629,32 +629,61 @@ public class BotContext implements AutoCloseable {
     }
 
     private void registerSinglePageGuard() {
+        /*
+         * Register both popup-specific and context-wide hooks. Chromium can
+         * surface ad-tech windows through slightly different opener paths; the
+         * page-level popup hook gives us the earliest owner-specific callback,
+         * while BrowserContext.onPage remains the catch-all.
+         */
+        page.onPopup(
+                popup -> handleUnexpectedPageEvent(
+                        popup,
+                        "main-page popup"
+                )
+        );
+
         browserContext.onPage(
-                newPage -> {
-                    if (newPage == page) {
-                        return;
-                    }
-
-                    int eventNumber = extraPageEvents.incrementAndGet();
-
-                    /*
-                     * Close immediately, including about:blank. Do not wait for
-                     * the popup to navigate. The preemptive DOM guard should
-                     * prevent normal window.open/target=_blank popups; this
-                     * handler catches anything that still reaches Chromium.
-                     */
-                    closeUnexpectedPage(
-                            newPage,
-                            "single-page policy, extra-page event #" + eventNumber,
-                            shouldLogExtraPageEvent(eventNumber)
-                    );
-                }
+                newPage -> handleUnexpectedPageEvent(
+                        newPage,
+                        "browser-context page"
+                )
         );
 
         log.info(
                 "[BROWSER] Single-page fail-safe enabled for bot {}. Any additional browser tab/window that still reaches Chromium will be closed immediately.",
                 bot.getId()
         );
+    }
+
+    private void handleUnexpectedPageEvent(
+            Page unexpectedPage,
+            String source
+    ) {
+        try {
+            if (unexpectedPage == null
+                    || unexpectedPage == page
+                    || unexpectedPage.isClosed()) {
+                return;
+            }
+
+            int eventNumber = extraPageEvents.incrementAndGet();
+
+            closeUnexpectedPage(
+                    unexpectedPage,
+                    "single-page policy, "
+                            + source
+                            + ", extra-page event #"
+                            + eventNumber,
+                    shouldLogExtraPageEvent(eventNumber)
+            );
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[BROWSER] Failed while handling unexpected page event for bot {}. source={}",
+                    bot.getId(),
+                    source,
+                    exception
+            );
+        }
     }
 
     private boolean shouldLogExtraPageEvent(int eventNumber) {
