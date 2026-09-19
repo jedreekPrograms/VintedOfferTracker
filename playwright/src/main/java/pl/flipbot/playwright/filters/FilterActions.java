@@ -504,7 +504,7 @@ public class FilterActions {
             String model,
             String collectionId
     ) {
-        if (isModelRowSelected(modelRow)) {
+        if (isExactModelSelected(modelRow, collectionId)) {
             log.info(
                     "[FILTER MODEL] Exact model '{}' / collectionId={} is already selected.",
                     model,
@@ -513,34 +513,102 @@ public class FilterActions {
             return;
         }
 
-        /*
-         * Current Vinted DOM intentionally places the visual checkbox below
-         * a .u-no-pointer-events wrapper. The selectable Cell itself is the
-         * interactive role=button element. Therefore the row is the PRIMARY
-         * click target and the checkbox is only the post-click state oracle.
-         */
         Locator nativeCheckbox = modelRow.locator(
                 exactModelCheckboxSelector(collectionId)
         ).first();
-
         boolean hasNativeCheckbox = safeCount(nativeCheckbox) > 0;
-        RuntimeException rowClickFailure = null;
+        RuntimeException primaryFailure = null;
 
         log.info(
-                "[FILTER MODEL] Selecting exact model '{}' / collectionId={} through canonical role/button row. "
-                        + "nativeCheckboxPresent={}, checkboxAriaLabel='{}'.",
+                "[FILTER MODEL] Selecting exact model '{}' / collectionId={}. rowTestId='{}', nativeCheckboxPresent={}, checkboxAriaLabel='{}'.",
                 model,
                 collectionId,
+                safeAttribute(modelRow, "data-testid"),
                 hasNativeCheckbox,
                 hasNativeCheckbox
                         ? safeAttribute(nativeCheckbox, "aria-label")
                         : ""
         );
 
-        try {
-            modelRow.click();
+        /*
+         * Vinted renders the visible checkbox button below .u-no-pointer-events.
+         * Calling Locator.click() on that child is therefore the wrong operation:
+         * Playwright waits for the child to receive pointer events even though a
+         * real user's click at those coordinates is intentionally hit-tested to
+         * the selectable parent Cell.
+         *
+         * Reproduce the real browser interaction: obtain the visible square's
+         * coordinates and send a mouse click there. Because the checkbox wrapper
+         * has pointer-events:none, Chromium delivers that click to the canonical
+         * role=button row, exactly as when the user clicks the empty square.
+         */
+        if (hasNativeCheckbox) {
+            Locator visualCheckbox = modelRow.locator(
+                    exactModelCheckboxVisualSelector(collectionId)
+            ).first();
 
-            if (waitForModelRowSelected(modelRow, 2_000)) {
+            if (safeCount(visualCheckbox) > 0 && safeIsVisible(visualCheckbox)) {
+                try {
+                    visualCheckbox.scrollIntoViewIfNeeded();
+                    var box = visualCheckbox.boundingBox();
+
+                    if (box != null && box.width > 0 && box.height > 0) {
+                        double clickX = box.x + (box.width / 2.0);
+                        double clickY = box.y + (box.height / 2.0);
+
+                        log.info(
+                                "[FILTER MODEL] Clicking the exact visible checkbox hit-target for '{}' / collectionId={} at x={}, y={}.",
+                                model,
+                                collectionId,
+                                Math.round(clickX),
+                                Math.round(clickY)
+                        );
+
+                        page.mouse().click(clickX, clickY);
+
+                        if (waitForExactModelSelected(
+                                modelRow,
+                                collectionId,
+                                2_000
+                        )) {
+                            log.info(
+                                    "[FILTER MODEL] Exact model '{}' / collectionId={} selected by physical checkbox-area click.",
+                                    model,
+                                    collectionId
+                            );
+                            return;
+                        }
+
+                        log.warn(
+                                "[FILTER MODEL] Physical checkbox-area click for '{}' / collectionId={} did not set the exact checkbox. Trying canonical row activation.",
+                                model,
+                                collectionId
+                        );
+                    }
+                } catch (RuntimeException exception) {
+                    primaryFailure = exception;
+                    log.warn(
+                            "[FILTER MODEL] Physical checkbox-area click failed for '{}' / collectionId={}: {}. Trying canonical row activation.",
+                            model,
+                            collectionId,
+                            getFriendlyErrorMessage(exception)
+                    );
+                }
+            }
+        }
+
+        /*
+         * Keep a short normal Playwright row click as the next compatibility
+         * path. The explicit timeout prevents an actionability/interception
+         * wait from stalling the whole worker for the default Playwright timeout.
+         */
+        try {
+            modelRow.click(
+                    new Locator.ClickOptions()
+                            .setTimeout(2_000)
+            );
+
+            if (waitForExactModelSelected(modelRow, collectionId, 1_500)) {
                 log.info(
                         "[FILTER MODEL] Exact model '{}' / collectionId={} selected by canonical row click.",
                         model,
@@ -548,19 +616,40 @@ public class FilterActions {
                 );
                 return;
             }
-
-            log.warn(
-                    "[FILTER MODEL] Canonical row click for '{}' / collectionId={} did not change checkbox state. Trying keyboard activation.",
-                    model,
-                    collectionId
-            );
         } catch (RuntimeException exception) {
-            rowClickFailure = exception;
-            log.warn(
-                    "[FILTER MODEL] Canonical row click failed for '{}' / collectionId={}: {}. Trying keyboard activation.",
+            if (primaryFailure == null) {
+                primaryFailure = exception;
+            }
+            log.debug(
+                    "[FILTER MODEL] Canonical row click failed for '{}' / collectionId={}.",
                     model,
                     collectionId,
-                    getFriendlyErrorMessage(exception)
+                    exception
+            );
+        }
+
+        /*
+         * If browser actionability is the blocker, invoke the canonical Cell's
+         * click handler directly. This targets the exact proven row, not the
+         * text node and not a fuzzy model candidate.
+         */
+        try {
+            modelRow.evaluate("element => element.click()");
+
+            if (waitForExactModelSelected(modelRow, collectionId, 1_500)) {
+                log.info(
+                        "[FILTER MODEL] Exact model '{}' / collectionId={} selected by canonical row DOM activation.",
+                        model,
+                        collectionId
+                );
+                return;
+            }
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "[FILTER MODEL] Canonical row DOM activation failed for '{}' / collectionId={}.",
+                    model,
+                    collectionId,
+                    exception
             );
         }
 
@@ -568,7 +657,11 @@ public class FilterActions {
             try {
                 modelRow.press(key);
 
-                if (waitForModelRowSelected(modelRow, 1_000)) {
+                if (waitForExactModelSelected(
+                        modelRow,
+                        collectionId,
+                        1_000
+                )) {
                     log.info(
                             "[FILTER MODEL] Exact model '{}' / collectionId={} selected by row keyboard activation '{}'.",
                             model,
@@ -589,19 +682,21 @@ public class FilterActions {
         }
 
         /*
-         * Last-resort DOM activation for this exact proven checkbox. We do not
-         * use Playwright check()/label click here because Vinted deliberately
-         * disables pointer events on the checkbox wrapper. HTMLElement.click()
-         * still dispatches the native click/change event and lets React update
-         * its controlled state without coordinates or fuzzy selectors.
+         * Final state-specific fallback. This exact input is bound to the
+         * already-proven collection id, so it cannot select S25/Ultra/Edge when
+         * the requested model is S25 FE.
          */
         if (hasNativeCheckbox) {
             try {
                 nativeCheckbox.evaluate("element => element.click()");
 
-                if (waitForModelRowSelected(modelRow, 1_500)) {
+                if (waitForExactModelSelected(
+                        modelRow,
+                        collectionId,
+                        1_500
+                )) {
                     log.info(
-                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by verified checkbox DOM activation fallback.",
+                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact checkbox DOM fallback.",
                             model,
                             collectionId
                     );
@@ -609,7 +704,7 @@ public class FilterActions {
                 }
             } catch (RuntimeException exception) {
                 log.debug(
-                        "[FILTER MODEL] Verified checkbox DOM activation failed for '{}' / collectionId={}.",
+                        "[FILTER MODEL] Exact checkbox DOM fallback failed for '{}' / collectionId={}.",
                         model,
                         collectionId,
                         exception
@@ -618,7 +713,7 @@ public class FilterActions {
         }
 
         String message =
-                "Exact Vinted model row was found, but selection never became checked. Model='"
+                "Exact Vinted model row was found, but its exact checkbox never became selected. Model='"
                         + model
                         + "', collectionId="
                         + collectionId
@@ -632,11 +727,15 @@ public class FilterActions {
                         : "")
                         + "'.";
 
-        if (rowClickFailure != null) {
-            throw new IllegalStateException(message, rowClickFailure);
+        if (primaryFailure != null) {
+            throw new IllegalStateException(message, primaryFailure);
         }
 
         throw new IllegalStateException(message);
+    }
+
+    static String exactModelCheckboxVisualSelector(String collectionId) {
+        return exactModelCheckboxSelector(collectionId) + " + span";
     }
 
     static String exactModelCheckboxSelector(String collectionId) {
@@ -652,8 +751,9 @@ public class FilterActions {
                 + "']";
     }
 
-    private boolean waitForModelRowSelected(
+    private boolean waitForExactModelSelected(
             Locator modelRow,
+            String collectionId,
             double timeoutMilliseconds
     ) {
         long deadline =
@@ -661,7 +761,7 @@ public class FilterActions {
                         + (long) timeoutMilliseconds;
 
         while (System.currentTimeMillis() <= deadline) {
-            if (isModelRowSelected(modelRow)) {
+            if (isExactModelSelected(modelRow, collectionId)) {
                 return true;
             }
 
@@ -671,17 +771,25 @@ public class FilterActions {
         return false;
     }
 
-    private boolean isModelRowSelected(Locator modelRow) {
+    private boolean isExactModelSelected(
+            Locator modelRow,
+            String collectionId
+    ) {
         try {
-            Locator nativeCheckbox =
-                    modelRow.locator("input[type='checkbox']").first();
+            Locator exactCheckbox = modelRow.locator(
+                    exactModelCheckboxSelector(collectionId)
+            ).first();
 
-            if (nativeCheckbox.count() > 0
-                    && nativeCheckbox.isChecked()) {
-                return true;
+            if (exactCheckbox.count() > 0) {
+                /*
+                 * When the exact native checkbox exists, it is the authoritative
+                 * state oracle. Do not accept a generic row/role state that could
+                 * describe another custom control in the same Cell.
+                 */
+                return exactCheckbox.isChecked();
             }
         } catch (RuntimeException ignored) {
-            // Try semantic/custom state below.
+            // Fall through only for DOM variants that do not expose the input.
         }
 
         try {
@@ -722,12 +830,8 @@ public class FilterActions {
 
         String rowDataState =
                 safeAttribute(modelRow, "data-state");
-        if ("checked".equalsIgnoreCase(rowDataState)
-                || "selected".equalsIgnoreCase(rowDataState)) {
-            return true;
-        }
-
-        return false;
+        return "checked".equalsIgnoreCase(rowDataState)
+                || "selected".equalsIgnoreCase(rowDataState);
     }
 
     private int safeCount(Locator locator) {
