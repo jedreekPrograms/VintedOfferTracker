@@ -402,37 +402,53 @@ public class FilterActions {
                     );
                 }
 
-                Locator modelLocator = exactMatches.get(exactMatchIndex);
-                String evidence = readCompleteModelOptionTexts(modelLocator)
+                Locator evidenceLocator = exactMatches.get(exactMatchIndex);
+                String evidence = readCompleteModelOptionTexts(evidenceLocator)
                         .stream()
                         .filter(text -> exactVisibleModelLabelMatches(model, text))
                         .map(FilterActions::normalizeOptionText)
                         .findFirst()
                         .orElse(model);
-                String testId = modelLocator.getAttribute("data-testid");
-                String collectionId = modelCollectionIdFromTestId(testId);
+                String evidenceTestId = evidenceLocator.getAttribute("data-testid");
+                String collectionId = modelCollectionIdFromTestId(evidenceTestId);
 
                 if (collectionId == null) {
                     throw new IllegalStateException(
-                            "Exact model row for '"
+                            "Exact model evidence for '"
                                     + model
                                     + "' has an unexpected data-testid='"
-                                    + testId
+                                    + evidenceTestId
                                     + "'. Refusing to click because the persisted Vinted collection id could not be verified afterwards."
                     );
                 }
 
+                /*
+                 * The prefix selector also matches Vinted's title child:
+                 *   selectable-item-brand_collection-123--title
+                 *
+                 * Clicking that text node is not guaranteed to toggle the
+                 * checkbox. Resolve the canonical selectable row for the
+                 * proven collection id and interact only inside that row.
+                 */
+                Locator modelRow = canonicalModelRow(collectionId, evidenceLocator);
+
                 selectedModelCollectionId = collectionId;
 
                 log.info(
-                        "[FILTER MODEL] EXACT Vinted model row verified. requested='{}', testId='{}', expectedCollectionId='{}', evidence='{}'. Partial/highlight fragments and variants are rejected.",
+                        "[FILTER MODEL] EXACT Vinted model verified. requested='{}', evidenceTestId='{}', canonicalRowTestId='{}', expectedCollectionId='{}', evidence='{}'.",
                         model,
-                        testId,
+                        evidenceTestId,
+                        safeAttribute(modelRow, "data-testid"),
                         collectionId,
                         evidence
                 );
 
-                modelLocator.click();
+                selectExactModelRow(
+                        modelRow,
+                        model,
+                        collectionId
+                );
+
                 assertStillOnVinted("selecting exact model '" + model + "'");
                 return;
             }
@@ -453,6 +469,240 @@ public class FilterActions {
                         + lastVisiblePartialLabels
                         + ". Failing closed instead of clicking a similar model."
         );
+    }
+
+    private Locator canonicalModelRow(
+            String collectionId,
+            Locator evidenceLocator
+    ) {
+        String canonicalTestId = canonicalModelRowTestId(collectionId);
+        Locator canonicalRow = page.getByTestId(canonicalTestId).first();
+
+        if (safeIsVisible(canonicalRow)) {
+            return canonicalRow;
+        }
+
+        /*
+         * Some Vinted variants expose the test id only on a nested title.
+         * In that case walk to the nearest ancestor that contains the proven
+         * title, instead of clicking the title text itself.
+         */
+        Locator ancestorCandidate = evidenceLocator.locator(
+                "xpath=ancestor::*[.//input[@type='checkbox'] or .//*[@role='checkbox'] or self::label][1]"
+        );
+
+        if (ancestorCandidate.count() > 0
+                && safeIsVisible(ancestorCandidate.first())) {
+            return ancestorCandidate.first();
+        }
+
+        return evidenceLocator;
+    }
+
+    private void selectExactModelRow(
+            Locator modelRow,
+            String model,
+            String collectionId
+    ) {
+        if (isModelRowSelected(modelRow)) {
+            log.info(
+                    "[FILTER MODEL] Exact model '{}' / collectionId={} is already selected.",
+                    model,
+                    collectionId
+            );
+            return;
+        }
+
+        Locator nativeCheckbox =
+                modelRow.locator("input[type='checkbox']").first();
+        Locator roleCheckbox =
+                modelRow.getByRole(AriaRole.CHECKBOX).first();
+
+        boolean hasNativeCheckbox = safeCount(nativeCheckbox) > 0;
+        boolean hasRoleCheckbox = safeCount(roleCheckbox) > 0;
+        boolean hasSemanticCheckbox =
+                hasNativeCheckbox || hasRoleCheckbox;
+
+        RuntimeException directCheckboxFailure = null;
+
+        if (hasNativeCheckbox) {
+            try {
+                nativeCheckbox.check();
+            } catch (RuntimeException exception) {
+                directCheckboxFailure = exception;
+                log.debug(
+                        "[FILTER MODEL] Native checkbox could not be checked directly for '{}' / collectionId={}. Trying the row label/control instead.",
+                        model,
+                        collectionId,
+                        exception
+                );
+            }
+        }
+
+        if (!isModelRowSelected(modelRow) && hasRoleCheckbox) {
+            try {
+                if (safeIsVisible(roleCheckbox)) {
+                    roleCheckbox.click();
+                }
+            } catch (RuntimeException exception) {
+                log.debug(
+                        "[FILTER MODEL] Role checkbox click failed for '{}' / collectionId={}. Trying the row label/control instead.",
+                        model,
+                        collectionId,
+                        exception
+                );
+            }
+        }
+
+        if (!isModelRowSelected(modelRow)) {
+            Locator labels = modelRow.locator("label");
+
+            if (safeCount(labels) > 0
+                    && safeIsVisible(labels.first())) {
+                labels.first().click();
+            } else {
+                modelRow.click();
+            }
+        }
+
+        if (hasSemanticCheckbox) {
+            if (!waitForModelRowSelected(modelRow, 2_000)) {
+                String message =
+                        "Exact model row was found, but its checkbox did not become selected. Model='"
+                                + model
+                                + "', collectionId="
+                                + collectionId
+                                + ", rowTestId='"
+                                + safeAttribute(modelRow, "data-testid")
+                                + "'.";
+
+                if (directCheckboxFailure != null) {
+                    throw new IllegalStateException(
+                            message,
+                            directCheckboxFailure
+                    );
+                }
+
+                throw new IllegalStateException(message);
+            }
+
+            log.info(
+                    "[FILTER MODEL] Checkbox selection confirmed for exact model '{}' / collectionId={}.",
+                    model,
+                    collectionId
+            );
+            return;
+        }
+
+        /*
+         * Unknown Vinted DOM variant: keep the historical row click as a
+         * compatibility fallback. End-to-end confirmation remains fail-closed
+         * because clickConfirmButton() must still observe the exact
+         * brand_collection_ids[] value in the catalog URL.
+         */
+        log.warn(
+                "[FILTER MODEL] Exact row '{}' / collectionId={} exposes no semantic checkbox. "
+                        + "Used the verified row click fallback; final URL persistence will still be checked.",
+                model,
+                collectionId
+        );
+    }
+
+    private boolean waitForModelRowSelected(
+            Locator modelRow,
+            double timeoutMilliseconds
+    ) {
+        long deadline =
+                System.currentTimeMillis()
+                        + (long) timeoutMilliseconds;
+
+        while (System.currentTimeMillis() <= deadline) {
+            if (isModelRowSelected(modelRow)) {
+                return true;
+            }
+
+            page.waitForTimeout(100);
+        }
+
+        return false;
+    }
+
+    private boolean isModelRowSelected(Locator modelRow) {
+        try {
+            Locator nativeCheckbox =
+                    modelRow.locator("input[type='checkbox']").first();
+
+            if (nativeCheckbox.count() > 0
+                    && nativeCheckbox.isChecked()) {
+                return true;
+            }
+        } catch (RuntimeException ignored) {
+            // Try semantic/custom state below.
+        }
+
+        try {
+            Locator roleCheckbox =
+                    modelRow.getByRole(AriaRole.CHECKBOX).first();
+
+            if (roleCheckbox.count() > 0) {
+                String ariaChecked =
+                        roleCheckbox.getAttribute("aria-checked");
+
+                if ("true".equalsIgnoreCase(ariaChecked)) {
+                    return true;
+                }
+
+                try {
+                    if (roleCheckbox.isChecked()) {
+                        return true;
+                    }
+                } catch (RuntimeException ignored) {
+                    // Custom role=checkbox is not necessarily an <input>.
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Try row/custom attributes below.
+        }
+
+        String rowAriaChecked =
+                safeAttribute(modelRow, "aria-checked");
+        if ("true".equalsIgnoreCase(rowAriaChecked)) {
+            return true;
+        }
+
+        String rowAriaSelected =
+                safeAttribute(modelRow, "aria-selected");
+        if ("true".equalsIgnoreCase(rowAriaSelected)) {
+            return true;
+        }
+
+        String rowDataState =
+                safeAttribute(modelRow, "data-state");
+        if ("checked".equalsIgnoreCase(rowDataState)
+                || "selected".equalsIgnoreCase(rowDataState)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private int safeCount(Locator locator) {
+        try {
+            return locator.count();
+        } catch (RuntimeException exception) {
+            return 0;
+        }
+    }
+
+    static String canonicalModelRowTestId(String collectionId) {
+        if (collectionId == null
+                || !collectionId.matches("^\\d+$")) {
+            throw new IllegalArgumentException(
+                    "Model collection id must contain digits only"
+            );
+        }
+
+        return MODEL_TEST_ID_PREFIX + collectionId;
     }
 
     static String modelCollectionIdFromTestId(String testId) {
