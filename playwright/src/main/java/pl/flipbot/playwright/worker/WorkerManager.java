@@ -41,7 +41,10 @@ public class WorkerManager implements AutoCloseable {
             new BotSessionPreviewRegistry();
 
     private final SessionPreviewManager sessionPreviewManager =
-            new SessionPreviewManager();
+            new SessionPreviewManager(
+                    config,
+                    telemetryReporter
+            );
 
     private final ScheduledExecutorService syncExecutor =
             Executors.newSingleThreadScheduledExecutor(
@@ -129,9 +132,9 @@ public class WorkerManager implements AutoCloseable {
                             .collect(Collectors.toSet());
 
             /*
-             * Closing ownership comes first. A bot whose preview was disabled
-             * must not be unpaused until its visible Chromium has actually
-             * exited on the preview owner thread.
+             * Closing ownership comes first. A bot whose live preview was
+             * disabled must not return to generic workers until its headed
+             * Chromium has actually exited on the preview owner thread.
              */
             sessionPreviewManager.stopUnrequested(
                     previewRequestedBotIds
@@ -162,9 +165,10 @@ public class WorkerManager implements AutoCloseable {
             scheduler.reconcileRunningBots(runningBots);
 
             /*
-             * Start only after scheduler pause ownership is installed. If a
-             * normal job was already WORKING at click time, it finishes first;
-             * the next sync opens the preview instead of racing the job.
+             * Start only after exclusive scheduler ownership is installed. If
+             * a generic job was already WORKING at click time, it finishes
+             * first; then the headed owner takes over and continues normal
+             * scheduled jobs itself.
              */
             sessionPreviewManager.startRequestedWhenSafe(
                     previewRequestedBotIds,

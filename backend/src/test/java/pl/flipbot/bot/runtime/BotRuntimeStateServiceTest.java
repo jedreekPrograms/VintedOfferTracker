@@ -78,6 +78,48 @@ class BotRuntimeStateServiceTest {
         assertTrue(second.getLastError().contains("session block"));
     }
 
+    @Test
+    void verifiedManualRecoveryClearsPersistedSessionBlockEpisode() {
+        BotRepository botRepository = mock(BotRepository.class);
+        BotRuntimeStateRepository runtimeStateRepository =
+                mock(BotRuntimeStateRepository.class);
+
+        BotRuntimeState state = new BotRuntimeState();
+        state.setBotId(4L);
+        state.setRuntimeStatus(BotRuntimeStatus.COOLDOWN);
+        state.setConsecutiveFailures(0);
+        state.setLastError("Vinted session block detected");
+        state.setSessionBlockedSince(Instant.now().minusSeconds(60));
+        state.setSessionBlockCount(2);
+        state.setNextRunAt(Instant.now().plusSeconds(1800));
+        state.setUpdatedAt(Instant.now());
+
+        when(runtimeStateRepository.findById(4L))
+                .thenReturn(Optional.of(state));
+        when(runtimeStateRepository.save(any(BotRuntimeState.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        BotRuntimeStateService service = new BotRuntimeStateService(
+                botRepository,
+                runtimeStateRepository
+        );
+
+        BotRuntimeEventRequest recovered = new BotRuntimeEventRequest();
+        recovered.setEventType(RuntimeEventType.SESSION_RECOVERED);
+
+        BotRuntimeStateResponse response = service.applyEvent(
+                4L,
+                recovered
+        );
+
+        assertEquals(BotRuntimeStatus.IDLE, response.getRuntimeStatus());
+        assertEquals(0, response.getSessionBlockCount());
+        assertEquals(0, response.getConsecutiveFailures());
+        assertEquals(null, response.getSessionBlockedSince());
+        assertEquals(null, response.getNextRunAt());
+        assertEquals(null, response.getLastError());
+    }
+
     private BotRuntimeEventRequest sessionBlockedRequest() {
         BotRuntimeEventRequest request = new BotRuntimeEventRequest();
         request.setEventType(RuntimeEventType.SESSION_BLOCKED);
