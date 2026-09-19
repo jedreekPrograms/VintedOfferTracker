@@ -92,7 +92,11 @@ public class ListingDetailTargetInspector {
         }
 
         if (listingTargetMatcher.usesVintedModelFilter(configuration)) {
-            return matchesVintedModelTarget(listing, configuration);
+            log.debug(
+                    "[TARGET DETAIL] Skipping item-page target verification for marketplace listing {} because targetMode=VINTED_MODEL trusts the native Vinted model filter.",
+                    listing.listingId()
+            );
+            return true;
         }
 
         return matchesSearchQueryTarget(listing, configuration);

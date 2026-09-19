@@ -598,8 +598,6 @@ public class NewNegotiationProcessor {
 
             String verificationSource = cached
                     ? "LIVE_ITEM_IDENTITY_CACHE"
-                    : usesExactVintedModelFilter(configuration)
-                    ? "PERSISTED_VINTED_MODEL_BACKLOG_ITEM_PAGE"
                     : "VINTED_ITEM_PAGE";
 
             log.info(
@@ -713,6 +711,7 @@ public class NewNegotiationProcessor {
         int detailRequestsThisCycle = 0;
         int persistedTargetMismatches = 0;
         int persistedUnavailable = 0;
+        int deferredVintedModelOutsideCurrentScan = 0;
         Long botId = context.getBot().getId();
 
         for (ListingResponseDto listing : listings) {
@@ -722,29 +721,41 @@ public class NewNegotiationProcessor {
                     currentScanListingIds
             );
 
-            ListingTargetAssessment catalogAssessment = listingTargetMatcher
-                    .assessCatalogListing(listing, configuration);
-
-            if (currentExactModelProof) {
-                if (catalogAssessment == ListingTargetAssessment.MISMATCH) {
-                    rejectedCatalogMismatch++;
-                    listingStatusUpdater.markTargetMismatch(botId, listing);
-                    persistedTargetMismatches++;
-                    log.warn(
-                            "[TARGET PROVENANCE] Marketplace listing {} is present in the current exact Vinted model result set, but its stored catalog title contains conclusive conflicting model evidence. Failing closed and persisting SKIPPED_TARGET_MISMATCH.",
+            /*
+             * VINTED_MODEL trusts the CURRENT native Vinted model-filter result
+             * set. There is deliberately no title/URL/item-page target guard in
+             * this mode.
+             *
+             * Persisted backlog rows that are not visible in the current exact
+             * model-filter scan are deferred until a future current scan. They
+             * are not reclassified by seller text and cannot reach submit from
+             * stale provenance alone.
+             */
+            if (usesExactVintedModelFilter(configuration)) {
+                if (currentExactModelProof) {
+                    eligibleListings.add(listing);
+                    acceptedFromCurrentExactScan++;
+                    log.debug(
+                            "[TARGET PROVENANCE] Marketplace listing {} accepted directly from CURRENT native Vinted model-filter scan. No post-filter target safety guard is applied.",
                             listing.listingId()
                     );
-                    continue;
+                } else {
+                    deferredVintedModelOutsideCurrentScan++;
+                    log.debug(
+                            "[TARGET PROVENANCE] Marketplace listing {} is VINTED_MODEL backlog but is not present in the current exact native filter scan. Deferring it without title/URL/item-page target verification.",
+                            listing.listingId()
+                    );
                 }
-
-                eligibleListings.add(listing);
-                acceptedFromCurrentExactScan++;
-                log.debug(
-                        "[TARGET PROVENANCE] Marketplace listing {} accepted from CURRENT exact Vinted model scan for this bot. It is not merely inheriting proof from persisted DISCOVERED state.",
-                        listing.listingId()
-                );
                 continue;
             }
+
+            /*
+             * SEARCH_QUERY is the opposite mode: Vinted's text search is not
+             * trusted as exact model identity, so the existing target safety
+             * matcher and live item inspection remain mandatory.
+             */
+            ListingTargetAssessment catalogAssessment = listingTargetMatcher
+                    .assessCatalogListing(listing, configuration);
 
             if (catalogAssessment == ListingTargetAssessment.MATCH) {
                 eligibleListings.add(listing);
@@ -871,9 +882,10 @@ public class NewNegotiationProcessor {
         }
 
         log.info(
-                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Current exact-scan accepted: {}, catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, deferred by shared catalog detail budget: {}, shared budget={}/{}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
+                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Current native Vinted-filter accepted: {}, VINTED_MODEL backlog deferred outside current scan: {}, SEARCH_QUERY catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, deferred by shared catalog detail budget: {}, shared budget={}/{}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
                 listings.size(),
                 acceptedFromCurrentExactScan,
+                deferredVintedModelOutsideCurrentScan,
                 matchedFromCatalogTitle,
                 matchedFromUrlSlug,
                 matchedFromDetailCache,
