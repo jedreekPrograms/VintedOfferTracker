@@ -235,6 +235,42 @@ public class BotRunSchedulerPollingTest {
     }
 
     @Test
+    public void verifiedSessionRecoveryReleasesPreviewCooldownImmediately()
+            throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+
+        try {
+            scheduler.setPausedBotIds(Set.of(10L));
+            scheduler.reconcileRunningBots(Map.of(10L, true));
+
+            ScheduledBotTask blocked =
+                    scheduler.pollPreviewNext(10L, 100L);
+            assertNotNull(blocked);
+
+            scheduler.completeRun(
+                    blocked.botId(),
+                    blocked.jobType(),
+                    600_000L,
+                    true,
+                    false
+            );
+
+            assertNull(scheduler.pollPreviewNext(10L, 30L));
+
+            scheduler.resumeAfterSessionRecovery(10L);
+
+            ScheduledBotTask recovered =
+                    scheduler.pollPreviewNext(10L, 100L);
+            assertNotNull(recovered);
+            assertEquals(Long.valueOf(10L), recovered.botId());
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
     public void catalogConcurrencyAllowsConfiguredNumberOfCatalogs()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
