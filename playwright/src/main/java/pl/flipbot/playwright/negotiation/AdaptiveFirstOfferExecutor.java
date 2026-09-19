@@ -10,11 +10,11 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.target.VintedItemIdentityReader;
-import pl.flipbot.playwright.target.VintedModelTargetGuard;
+import pl.flipbot.playwright.target.ListingTargetMatcher;
 
 import java.math.BigDecimal;
-import java.text.Normalizer;
-import java.util.Locale;
+
+
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -38,14 +38,14 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
 
     private final BotContext context;
     private final AdaptiveNegotiationPricingService pricingService;
-    private final VintedModelTargetGuard modelTargetGuard;
+    private final ListingTargetMatcher listingTargetMatcher;
     private final VintedItemIdentityReader itemIdentityReader;
 
     public AdaptiveFirstOfferExecutor(BotContext context) {
         super(context);
         this.context = context;
         this.pricingService = new AdaptiveNegotiationPricingService();
-        this.modelTargetGuard = new VintedModelTargetGuard();
+        this.listingTargetMatcher = new ListingTargetMatcher();
         this.itemIdentityReader = new VintedItemIdentityReader();
     }
 
@@ -63,7 +63,7 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
                 prepareWithNegotiationActionConfirmation(listing);
 
         if (configuredResult != NegotiationPreparationResult.OFFER_TOO_LOW) {
-            return applyLiveModelConsistencyGuard(
+            return applyLiveTargetConsistencyGuard(
                     listing,
                     configuredResult
             );
@@ -109,7 +109,7 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
             }
 
             if (retryResult != NegotiationPreparationResult.OFFER_TOO_LOW) {
-                return applyLiveModelConsistencyGuard(
+                return applyLiveTargetConsistencyGuard(
                         listing,
                         retryResult
                 );
@@ -131,14 +131,14 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
     }
 
     /**
-     * Last fail-closed identity check on the already-open item page.
+     * Live target guard applies ONLY to SEARCH_QUERY mode.
      *
-     * The structured Vinted Model field is authoritative enough to reject a
-     * wrong persisted backlog entry even when h1 is generic (for example h1
-     * "Tablet z wyświetlaczem do wymiany" but Model "Galaxy Tab S9 FE+").
-     * No quota is reserved before this method returns PREPARED.
+     * VINTED_MODEL is intentionally different: the native Vinted model filter
+     * is the authoritative source of target identity. Once a listing came from
+     * the current exact filtered result set, do not re-judge it from seller h1
+     * text or a sometimes-missing structured Model field.
      */
-    private NegotiationPreparationResult applyLiveModelConsistencyGuard(
+    private NegotiationPreparationResult applyLiveTargetConsistencyGuard(
             ListingResponseDto listing,
             NegotiationPreparationResult result
     ) {
@@ -147,139 +147,56 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
         }
 
         BotConfigurationDto configuration = context.getBot().getConfiguration();
-        if (!usesVintedModelFilter(configuration)) {
+
+        if (usesVintedModelFilter(configuration)) {
+            log.debug(
+                    "[LIVE TARGET GUARD] Skipping item-page identity guard for marketplace listing {} because targetMode=VINTED_MODEL trusts the native Vinted model filter.",
+                    listing.listingId()
+            );
+            return result;
+        }
+
+        if (!usesSearchQuery(configuration)) {
             return result;
         }
 
         VintedItemIdentityReader.ItemIdentity identity =
                 itemIdentityReader.read(context.getPage());
 
-        if (identity.hasStructuredBrand()
-                && configuration.getBrand() != null
-                && !configuration.getBrand().isBlank()
-                && !normalizeIdentity(configuration.getBrand()).equals(
-                normalizeIdentity(identity.brand())
-        )) {
-            return rejectPreparedTargetMismatch(
-                    listing,
-                    configuration,
-                    identity,
-                    "configured brand '" + configuration.getBrand()
-                            + "' conflicts with structured Vinted brand '"
-                            + identity.brand() + "'"
-            );
-        }
-
-        if (identity.hasStructuredModel()) {
-            Optional<String> mismatch = modelTargetGuard.findConclusiveMismatch(
-                    configuration.getModel(),
-                    identity.model()
-            );
-
-            if (mismatch.isPresent()) {
-                return rejectPreparedTargetMismatch(
-                        listing,
-                        configuration,
-                        identity,
-                        mismatch.get()
-                );
-            }
-
-            if (!modelTargetGuard.provesConfiguredModel(
-                    configuration.getModel(),
-                    identity.model()
-            )) {
-                cancelPreparedOfferSafely();
-                throw new IllegalStateException(
-                        "Prepared VINTED_MODEL offer cannot positively prove configured model '"
-                                + configuration.getModel()
-                                + "' from structured Vinted model field '"
-                                + identity.model()
-                                + "'. Marketplace listing: "
-                                + listing.listingId()
-                                + ". No quota was reserved and no offer was sent."
-                );
-            }
-
-            log.info(
-                    "[LIVE TARGET GUARD] Marketplace listing {} passed final structured identity check. Configured model='{}', Vinted brand='{}', Vinted model='{}', h1='{}'.",
-                    listing.listingId(),
-                    configuration.getModel(),
-                    identity.brand(),
-                    identity.model(),
-                    identity.title()
-            );
-
-            return result;
-        }
-
         String visibleTitle = identity.title();
         if (visibleTitle == null || visibleTitle.isBlank()) {
             cancelPreparedOfferSafely();
             throw new IllegalStateException(
-                    "Prepared VINTED_MODEL offer cannot pass final live target consistency because neither structured Model nor visible h1 is readable before quota reservation. Marketplace listing: "
+                    "Prepared SEARCH_QUERY offer has no readable live item title for marketplace listing "
                             + listing.listingId()
+                            + ". Failing closed before quota reservation."
             );
         }
 
-        Optional<String> mismatch = modelTargetGuard.findConclusiveMismatch(
-                configuration.getModel(),
-                visibleTitle
-        );
-
-        if (mismatch.isPresent()) {
-            return rejectPreparedTargetMismatch(
-                    listing,
-                    configuration,
-                    identity,
-                    mismatch.get()
-            );
-        }
-
-        if (!modelTargetGuard.provesConfiguredModel(
-                configuration.getModel(),
-                visibleTitle
+        if (!listingTargetMatcher.matchesFullTitle(
+                visibleTitle,
+                configuration
         )) {
-            cancelPreparedOfferSafely();
-            throw new IllegalStateException(
-                    "Prepared VINTED_MODEL offer has only ambiguous h1='"
-                            + visibleTitle
-                            + "' and no readable structured Model field for configured model '"
-                            + configuration.getModel()
-                            + "'. Failing closed before quota reservation. Marketplace listing: "
-                            + listing.listingId()
+            log.error(
+                    "[LIVE TARGET GUARD] Marketplace listing {} does not match SEARCH_QUERY '{}'. h1='{}'. Prepared form will be cancelled; no quota or offer will be used.",
+                    listing.listingId(),
+                    configuration.getSearchQuery(),
+                    visibleTitle
             );
+
+            cancelPreparedOfferSafely();
+            resetStuckOfferFormBeforeSameListingRetry(listing);
+            return NegotiationPreparationResult.TARGET_MISMATCH;
         }
 
         log.info(
-                "[LIVE TARGET GUARD] Marketplace listing {} passed final title identity check for configured '{}'. Structured Model was unavailable; h1='{}'.",
+                "[LIVE TARGET GUARD] Marketplace listing {} passed SEARCH_QUERY live title verification. query='{}', h1='{}'.",
                 listing.listingId(),
-                configuration.getModel(),
+                configuration.getSearchQuery(),
                 visibleTitle
         );
 
         return result;
-    }
-
-    private NegotiationPreparationResult rejectPreparedTargetMismatch(
-            ListingResponseDto listing,
-            BotConfigurationDto configuration,
-            VintedItemIdentityReader.ItemIdentity identity,
-            String reason
-    ) {
-        log.error(
-                "[LIVE TARGET GUARD] Marketplace listing {} is the wrong target for configured Vinted model '{}'. Structured brand='{}', structured model='{}', h1='{}'. Reason: {}. Prepared form will be cancelled; no quota or offer will be used.",
-                listing.listingId(),
-                configuration.getModel(),
-                identity.brand(),
-                identity.model(),
-                identity.title(),
-                reason
-        );
-
-        cancelPreparedOfferSafely();
-        resetStuckOfferFormBeforeSameListingRetry(listing);
-        return NegotiationPreparationResult.TARGET_MISMATCH;
     }
 
     private boolean usesVintedModelFilter(BotConfigurationDto configuration) {
@@ -293,17 +210,12 @@ public class AdaptiveFirstOfferExecutor extends FirstOfferExecutor {
                 || "VINTED_MODEL".equalsIgnoreCase(targetMode.trim());
     }
 
-    private String normalizeIdentity(String value) {
-        if (value == null) {
-            return "";
-        }
-
-        return Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", " ")
-                .trim()
-                .replaceAll("\\s+", " ");
+    private boolean usesSearchQuery(BotConfigurationDto configuration) {
+        return configuration != null
+                && configuration.getTargetMode() != null
+                && "SEARCH_QUERY".equalsIgnoreCase(
+                configuration.getTargetMode().trim()
+        );
     }
 
     private void resetStuckOfferFormBeforeSameListingRetry(
