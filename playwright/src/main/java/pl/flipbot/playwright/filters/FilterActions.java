@@ -34,6 +34,7 @@ public class FilterActions {
 
     private static final int MODEL_MAX_UI_ATTEMPTS = 3;
     private static final int MODEL_DISCOVERY_MAX_ATTEMPTS = 3;
+    private static final int MODEL_RETRY_PANEL_MAX_ATTEMPTS = 3;
     private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 15_000;
     private static final double MODEL_OPTION_POLL_INTERVAL_MS = 250;
     private static final double MODEL_DISCOVERY_RETRY_DELAY_MS = 1_000;
@@ -559,32 +560,84 @@ public class FilterActions {
                 baseUrl
         );
 
-        navigateToSafeVintedUrl(baseUrl);
+        RuntimeException lastFailure = null;
 
-        if (!isCatalogPage()) {
-            throw new IllegalStateException(
-                    "Exact model discovery retry did not return to a Vinted catalog page. URL: "
-                            + page.url()
-            );
+        for (int panelAttempt = 1;
+             panelAttempt <= MODEL_RETRY_PANEL_MAX_ATTEMPTS;
+             panelAttempt++) {
+            try {
+                /*
+                 * Always start a panel retry from the same proven pre-model
+                 * catalog URL. A failed Vinted drawer render can leave an
+                 * invisible/stale model panel in the DOM; clicking that state
+                 * again is less reliable than rebuilding it from the catalog.
+                 */
+                navigateToSafeVintedUrl(baseUrl);
+
+                if (!isCatalogPage()) {
+                    throw new IllegalStateException(
+                            "Exact model discovery retry did not return to a Vinted catalog page. URL: "
+                                    + page.url()
+                    );
+                }
+
+                Locator modelFilter =
+                        page.getByTestId(FilterSelectors.MODEL_FILTER);
+                waitUntilVisible(modelFilter, FILTER_TIMEOUT_MS);
+                modelFilter.click();
+                assertStillOnVinted(
+                        "reopening model filter for discovery retry"
+                );
+                page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
+
+                Locator input =
+                        page.locator(FilterSelectors.MODEL_SEARCH_INPUT);
+                waitUntilVisible(input, OPTION_TIMEOUT_MS);
+                input.fill(model);
+                page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
+
+                log.info(
+                        "[FILTER MODEL] Exact model discovery retry {}/{} is ready for '{}' after panel-open attempt {}/{}. Current URL: {}",
+                        attempt,
+                        MODEL_DISCOVERY_MAX_ATTEMPTS,
+                        model,
+                        panelAttempt,
+                        MODEL_RETRY_PANEL_MAX_ATTEMPTS,
+                        page.url()
+                );
+                return;
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+
+                if (panelAttempt >= MODEL_RETRY_PANEL_MAX_ATTEMPTS) {
+                    break;
+                }
+
+                log.warn(
+                        "[FILTER MODEL] Retry {}/{} for '{}' could not render a usable model-search panel on panel-open attempt {}/{}. Rebuilding the catalog/filter state and trying again. reason={}",
+                        attempt,
+                        MODEL_DISCOVERY_MAX_ATTEMPTS,
+                        model,
+                        panelAttempt,
+                        MODEL_RETRY_PANEL_MAX_ATTEMPTS,
+                        exception.getMessage()
+                );
+
+                page.waitForTimeout(MODEL_DISCOVERY_RETRY_DELAY_MS);
+            }
         }
 
-        Locator modelFilter = page.getByTestId(FilterSelectors.MODEL_FILTER);
-        waitUntilVisible(modelFilter, FILTER_TIMEOUT_MS);
-        modelFilter.click();
-        assertStillOnVinted("reopening model filter for discovery retry");
-        page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
-
-        Locator input = page.locator(FilterSelectors.MODEL_SEARCH_INPUT);
-        waitUntilVisible(input, OPTION_TIMEOUT_MS);
-        input.fill(model);
-        page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
-
-        log.info(
-                "[FILTER MODEL] Exact model discovery retry {}/{} is ready for '{}'. Current URL: {}",
-                attempt,
-                MODEL_DISCOVERY_MAX_ATTEMPTS,
-                model,
-                page.url()
+        throw new IllegalStateException(
+                "Could not reopen a usable Vinted model-search panel for '"
+                        + model
+                        + "' while preparing exact-model discovery retry "
+                        + attempt
+                        + "/"
+                        + MODEL_DISCOVERY_MAX_ATTEMPTS
+                        + " after "
+                        + MODEL_RETRY_PANEL_MAX_ATTEMPTS
+                        + " panel attempts.",
+                lastFailure
         );
     }
 
