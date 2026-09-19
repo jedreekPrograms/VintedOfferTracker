@@ -15,6 +15,7 @@ import pl.flipbot.playwright.target.ListingTargetMatcher;
 import java.math.BigDecimal;
 
 
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
