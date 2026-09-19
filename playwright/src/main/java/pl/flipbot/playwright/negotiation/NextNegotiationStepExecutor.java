@@ -5,13 +5,13 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.WaitForSelectorState;
-import com.microsoft.playwright.options.WaitUntilState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
@@ -313,15 +313,8 @@ public class NextNegotiationStepExecutor {
                 listing.conversationUrl()
         );
 
-        page.navigate(
-                listing.conversationUrl(),
-                new Page.NavigateOptions()
-                        .setWaitUntil(
-                                WaitUntilState.DOMCONTENTLOADED
-                        )
-                        .setTimeout(
-                                NAVIGATION_TIMEOUT_MS
-                        )
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listing.conversationUrl()
         );
 
         humanVerificationHandler.waitUntilVerified(
@@ -1516,6 +1509,18 @@ public class NextNegotiationStepExecutor {
                     "Negotiation step "
                             + nextStep.getStepNumber()
                             + " has an invalid offer price: "
+                            + nextStep.getOfferPrice()
+            );
+
+        }
+
+        if (listing.currentPrice() != null
+                && nextStep.getOfferPrice().compareTo(listing.currentPrice()) <= 0) {
+
+            throw new IllegalArgumentException(
+                    "Next negotiation offer must be greater than the current offer. Current price: "
+                            + listing.currentPrice()
+                            + ", next price: "
                             + nextStep.getOfferPrice()
             );
 
