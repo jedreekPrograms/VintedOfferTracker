@@ -13,6 +13,7 @@ import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.listing.dto.NegotiationActivityRequest;
 import pl.flipbot.listing.dto.NegotiationActivityResponse;
+import pl.flipbot.listing.dto.UpdateConversationIdentityRequest;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
 
