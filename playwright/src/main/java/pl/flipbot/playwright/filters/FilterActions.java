@@ -356,9 +356,6 @@ public class FilterActions {
                     model
             );
 
-            String selector =
-                    "[data-testid^='" + MODEL_TEST_ID_PREFIX + "'][role='button']";
-            Locator allModelOptions = page.locator(selector);
             long deadline = System.currentTimeMillis()
                     + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
 
@@ -368,136 +365,56 @@ public class FilterActions {
                 );
 
                 /*
-                 * hasText() is deliberately only a search/narrowing mechanism.
-                 * Vinted may split a label into highlighted spans. A child span
-                 * containing "Galaxy S25" inside a "Galaxy S25 Edge" row is not
-                 * proof that the full selectable row is the requested model.
+                 * Vinted exposes the model name on a dedicated title element:
+                 *
+                 * selectable-item-brand_collection-10632--title
+                 *   -> "Galaxy S26"
+                 *
+                 * Use that as the source of truth. Do not infer identity from
+                 * the text of the whole row, because "Galaxy S26" is also a
+                 * substring of "Galaxy S26 Ultra" / "Galaxy S26+".
                  */
-                Locator textMatchedOptions = allModelOptions.filter(
-                        new Locator.FilterOptions().setHasText(model)
-                );
-                int textMatchedCount = textMatchedOptions.count();
-                Locator candidates = textMatchedCount > 0
-                        ? textMatchedOptions
-                        : allModelOptions;
-                int candidateCount = candidates.count();
+                ExactModelTitleMatch exactTitle =
+                        findExactVisibleModelTitle(model);
 
-                List<Locator> exactMatches = new ArrayList<>();
-                Set<String> partialLabels = new LinkedHashSet<>();
-                int visibleCandidateCount = 0;
+                lastTextMatchedCount = exactTitle.textMatchedCount();
+                lastVisibleCandidateCount =
+                        exactTitle.visibleTitleCount();
+                lastVisiblePartialLabels =
+                        exactTitle.visiblePartialLabels();
 
-                for (int index = 0; index < candidateCount; index++) {
-                    Locator candidate = candidates.nth(index);
-
-                    if (!safeIsVisible(candidate)) {
-                        continue;
-                    }
-
-                    visibleCandidateCount++;
-                    List<String> optionTexts =
-                            readCompleteModelOptionTexts(candidate);
-
-                    boolean exact = optionTexts.stream()
-                            .anyMatch(
-                                    text -> exactVisibleModelLabelMatches(
-                                            model,
-                                            text
-                                    )
-                            );
-
-                    if (exact) {
-                        exactMatches.add(candidate);
-                        continue;
-                    }
-
-                    for (String optionText : optionTexts) {
-                        String normalizedVisible =
-                                normalizeOptionText(optionText);
-                        if (containsIgnoreCase(
-                                normalizedVisible,
-                                normalizeOptionText(model)
-                        )) {
-                            partialLabels.add(normalizedVisible);
-                        }
-                    }
-                }
-
-                lastVisibleCandidateCount = visibleCandidateCount;
-                lastTextMatchedCount = textMatchedCount;
-                lastVisiblePartialLabels = List.copyOf(partialLabels);
-
-                if (!exactMatches.isEmpty()) {
-                    int exactMatchIndex = Math.min(
-                            modelSelectionAttempt,
-                            exactMatches.size() - 1
-                    );
-                    modelSelectionAttempt++;
-
-                    if (exactMatches.size() > 1) {
-                        log.warn(
-                                "[FILTER MODEL] Found {} visible rows that independently prove exact option '{}'. Selection attempt {} will use exact row {}/{}.",
-                                exactMatches.size(),
-                                model,
-                                modelSelectionAttempt,
-                                exactMatchIndex + 1,
-                                exactMatches.size()
-                        );
-                    }
-
-                    Locator evidenceLocator =
-                            exactMatches.get(exactMatchIndex);
-                    String evidence = readCompleteModelOptionTexts(
-                            evidenceLocator
-                    )
-                            .stream()
-                            .filter(
-                                    text -> exactVisibleModelLabelMatches(
-                                            model,
-                                            text
-                                    )
-                            )
-                            .map(FilterActions::normalizeOptionText)
-                            .findFirst()
-                            .orElse(model);
+                if (exactTitle.titleLocator() != null) {
+                    Locator titleLocator = exactTitle.titleLocator();
                     String evidenceTestId =
-                            evidenceLocator.getAttribute("data-testid");
+                            titleLocator.getAttribute("data-testid");
                     String collectionId =
-                            modelCollectionIdFromTestId(evidenceTestId);
+                            modelCollectionIdFromTitleTestId(
+                                    evidenceTestId
+                            );
 
                     if (collectionId == null) {
                         throw new IllegalStateException(
-                                "Exact model evidence for '"
+                                "Exact model title for '"
                                         + model
                                         + "' has an unexpected data-testid='"
                                         + evidenceTestId
-                                        + "'. Refusing to click because the persisted Vinted collection id could not be verified afterwards."
+                                        + "'. Refusing to click because the Vinted collection id could not be derived."
                         );
                     }
 
-                    /*
-                     * The prefix selector also matches Vinted's title child:
-                     *   selectable-item-brand_collection-123--title
-                     *
-                     * Clicking that text node is not guaranteed to toggle the
-                     * checkbox. Resolve the canonical selectable row for the
-                     * proven collection id and interact only inside that row.
-                     */
                     Locator modelRow = canonicalModelRow(
                             collectionId,
-                            evidenceLocator
+                            titleLocator
                     );
 
                     selectedModelCollectionId = collectionId;
 
                     log.info(
-                            "[FILTER MODEL] EXACT Vinted model verified on discovery attempt {}/{}. requested='{}', evidenceTestId='{}', canonicalRowTestId='{}', expectedCollectionId='{}', evidence='{}'.",
-                            discoveryAttempt,
-                            MODEL_DISCOVERY_MAX_ATTEMPTS,
+                            "[FILTER MODEL] EXACT title matched. requested='{}', titleTestId='{}', collectionId='{}', canonicalRowTestId='{}'.",
                             model,
                             evidenceTestId,
-                            safeAttribute(modelRow, "data-testid"),
                             collectionId,
-                            evidence
+                            safeAttribute(modelRow, "data-testid")
                     );
 
                     selectExactModelRow(
@@ -639,6 +556,89 @@ public class FilterActions {
                         + " panel attempts.",
                 lastFailure
         );
+    }
+
+    private ExactModelTitleMatch findExactVisibleModelTitle(
+            String requestedModel
+    ) {
+        String selector =
+                "[data-testid^='" + MODEL_TEST_ID_PREFIX
+                        + "'][data-testid$='" + MODEL_TITLE_TEST_ID_SUFFIX + "']";
+
+        Locator titles = page.locator(selector);
+        int count = safeCount(titles);
+        int visibleCount = 0;
+        int textMatchedCount = 0;
+        Set<String> partialLabels = new LinkedHashSet<>();
+        String normalizedRequested = normalizeOptionText(requestedModel);
+
+        for (int index = 0; index < count; index++) {
+            Locator title = titles.nth(index);
+
+            if (!safeIsVisible(title)) {
+                continue;
+            }
+
+            visibleCount++;
+
+            String rawText;
+            try {
+                rawText = title.innerText();
+            } catch (RuntimeException exception) {
+                continue;
+            }
+
+            String normalizedVisible = normalizeOptionText(rawText);
+
+            if (normalizedVisible.equalsIgnoreCase(normalizedRequested)) {
+                textMatchedCount++;
+                return new ExactModelTitleMatch(
+                        title,
+                        textMatchedCount,
+                        visibleCount,
+                        List.copyOf(partialLabels)
+                );
+            }
+
+            if (containsIgnoreCase(
+                    normalizedVisible,
+                    normalizedRequested
+            )) {
+                partialLabels.add(normalizedVisible);
+            }
+        }
+
+        return new ExactModelTitleMatch(
+                null,
+                textMatchedCount,
+                visibleCount,
+                List.copyOf(partialLabels)
+        );
+    }
+
+    private String modelCollectionIdFromTitleTestId(
+            String testId
+    ) {
+        if (testId == null
+                || !testId.startsWith(MODEL_TEST_ID_PREFIX)
+                || !testId.endsWith(MODEL_TITLE_TEST_ID_SUFFIX)) {
+            return null;
+        }
+
+        String id = testId.substring(
+                MODEL_TEST_ID_PREFIX.length(),
+                testId.length() - MODEL_TITLE_TEST_ID_SUFFIX.length()
+        );
+
+        return id.isBlank() ? null : id;
+    }
+
+    private record ExactModelTitleMatch(
+            Locator titleLocator,
+            int textMatchedCount,
+            int visibleTitleCount,
+            List<String> visiblePartialLabels
+    ) {
     }
 
     private Locator canonicalModelRow(
