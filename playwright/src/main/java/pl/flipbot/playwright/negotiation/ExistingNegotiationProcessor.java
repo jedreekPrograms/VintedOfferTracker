@@ -136,41 +136,19 @@ public class ExistingNegotiationProcessor {
                             configuration
                     );
 
-                    if (pending.action() == PendingNegotiationDecision.Action.WAIT) {
-                        log.info(
-                                "[PENDING POLICY] Listing {} remains NEGOTIATING. Reason: {}",
-                                listing.listingId(),
-                                pending.reason()
-                        );
-                        continue;
-                    }
-
-                    if (pending.action() == PendingNegotiationDecision.Action.EXPIRE) {
-                        ListingResponseDto expired = listingStatusUpdater.markExpired(listing);
-                        clearContactUnavailableSuspicion(listing);
-                        log.warn(
-                                "[PENDING POLICY] Listing {} changed to EXPIRED. Reason: {}",
-                                expired.listingId(),
-                                pending.reason()
-                        );
-                        continue;
-                    }
-
-                    if (pending.nextStep() == null) {
+                    if (pending.action() != PendingNegotiationDecision.Action.WAIT) {
                         throw new IllegalStateException(
-                                "Pending policy selected SEND_NEXT_STEP without a next step"
+                                "Explicit Vinted PENDING state must never trigger a price increase or terminal status. "
+                                        + "Unexpected pending-policy action: " + pending.action()
                         );
                     }
 
-                    stepSent = handleDecision(
-                            listing,
-                            snapshot,
-                            NegotiationDecision.sendNextStep(
-                                    pending.nextStep(),
-                                    null,
-                                    pending.reason()
-                            )
+                    log.info(
+                            "[PENDING POLICY] Listing {} remains NEGOTIATING. Reason: {}",
+                            listing.listingId(),
+                            pending.reason()
                     );
+                    continue;
                 } else {
                     stepSent = handleDecision(
                             listing,
