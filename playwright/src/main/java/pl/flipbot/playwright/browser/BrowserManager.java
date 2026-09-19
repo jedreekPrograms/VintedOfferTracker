@@ -7,6 +7,7 @@ import com.microsoft.playwright.options.ServiceWorkerPolicy;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class BrowserManager implements AutoCloseable {
@@ -121,15 +122,56 @@ public class BrowserManager implements AutoCloseable {
     }
 
     private void installRequestGuards(BrowserContext context) {
+        AtomicInteger blockedExternalDocuments = new AtomicInteger();
+
         context.route(
                 "**/*",
                 route -> {
                     try {
                         var request = route.request();
 
+                        boolean topLevelDocument =
+                                "document".equals(request.resourceType())
+                                        && request.isNavigationRequest()
+                                        && request.frame().parentFrame() == null;
+
+                        if (topLevelDocument
+                                && ExternalTopLevelNavigationPolicy.shouldBlock(
+                                        request.url()
+                                )) {
+                            int eventNumber =
+                                    blockedExternalDocuments.incrementAndGet();
+
+                            if (eventNumber <= 5
+                                    || eventNumber % 25 == 0) {
+                                log.warn(
+                                        "[BROWSER NAVIGATION] Blocked unexpected external top-level navigation before render. event=#{}, url={}",
+                                        eventNumber,
+                                        request.url()
+                                );
+                            }
+
+                            route.abort();
+                            return;
+                        }
+
                         if (AdTechRequestPolicy.shouldBlock(
                                 request.url()
                         )) {
+                            if (topLevelDocument) {
+                                int eventNumber =
+                                        blockedExternalDocuments.incrementAndGet();
+
+                                if (eventNumber <= 5
+                                        || eventNumber % 25 == 0) {
+                                    log.warn(
+                                            "[BROWSER ADS] Blocked ad-tech top-level document before render. event=#{}, url={}",
+                                            eventNumber,
+                                            request.url()
+                                    );
+                                }
+                            }
+
                             route.abort();
                             return;
                         }
