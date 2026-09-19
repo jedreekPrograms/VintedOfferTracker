@@ -306,16 +306,30 @@ public class NextNegotiationStepExecutor {
             String logPrefix
     ) {
 
-        log.info(
-                "{} Opening conversation {}: {}",
-                logPrefix,
-                listing.conversationId(),
-                listing.conversationUrl()
-        );
+        boolean reuseCurrentConversation =
+                isExpectedConversationAlreadyOpen(
+                        page,
+                        listing
+                );
 
-        new MarketplaceNavigator(context).goToTrustedVintedUrl(
-                listing.conversationUrl()
-        );
+        if (reuseCurrentConversation) {
+            log.info(
+                    "{} Reusing already-open expected conversation {} instead of navigating to the same inbox URL again.",
+                    logPrefix,
+                    listing.conversationId()
+            );
+        } else {
+            log.info(
+                    "{} Opening conversation {}: {}",
+                    logPrefix,
+                    listing.conversationId(),
+                    listing.conversationUrl()
+            );
+
+            new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                    listing.conversationUrl()
+            );
+        }
 
         humanVerificationHandler.waitUntilVerified(
                 page
@@ -350,6 +364,38 @@ public class NextNegotiationStepExecutor {
         );
 
         return canonicalListing;
+    }
+
+    private boolean isExpectedConversationAlreadyOpen(
+            Page page,
+            ListingResponseDto listing
+    ) {
+        if (page == null
+                || page.isClosed()
+                || listing == null
+                || listing.conversationId() == null
+                || listing.conversationId().isBlank()) {
+            return false;
+        }
+
+        try {
+            ConversationIdentityResolver.ConversationIdentityAssessment assessment =
+                    new ConversationIdentityResolver().assess(
+                            listing.conversationId(),
+                            page.url()
+                    );
+
+            if (!assessment.matchesExpectedConversation()) {
+                return false;
+            }
+
+            Locator conversationContent =
+                    page.getByTestId("conversation-content").first();
+
+            return conversationContent.isVisible();
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     private void openOfferModal(
