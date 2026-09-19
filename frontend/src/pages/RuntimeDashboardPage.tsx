@@ -368,8 +368,8 @@ function RuntimeRow({
                             type="button"
                             disabled={previewUpdating}
                             title={bot.sessionPreviewRequested
-                                ? "Zamyka bezpieczny podgląd. Normalne joby bota wznowią się dopiero po pełnym zamknięciu widocznego Chromium."
-                                : "Otwiera osobny widoczny, tylko-do-odczytu podgląd zapisanej sesji. Normalne joby tego bota są na czas podglądu wstrzymane, więc nie ma dwóch browserów używających tej samej sesji."}
+                                ? "Wyłącza tryb LIVE i po pełnym zamknięciu widocznego Chromium oddaje bota zwykłym workerom."
+                                : "Otwiera widoczne Chromium w trybie LIVE. Bot dalej wykonuje normalne skany i negocjacje w tym oknie; możesz obserwować działanie i ręcznie przejść CAPTCHA, a potwierdzona zalogowana sesja zostanie bezpiecznie zapisana."}
                             onClick={() => {
                                 void onSessionPreview(
                                     bot.botId,
@@ -385,7 +385,7 @@ function RuntimeRow({
                         </button>
                         {bot.sessionPreviewRequested && (
                             <div className="runtime-cell-secondary">
-                                Bezpieczny podgląd · joby bota wstrzymane
+                                LIVE · bot normalnie pracuje w widocznym Chromium
                             </div>
                         )}
                     </>
@@ -394,7 +394,11 @@ function RuntimeRow({
                 )}
             </TableCell>
             <TableCell label="Slot">
-                {bot.workerSlot === null ? "—" : `#${bot.workerSlot}`}
+                {bot.workerSlot === null
+                    ? "—"
+                    : bot.workerSlot === 0
+                        ? "LIVE"
+                        : `#${bot.workerSlot}`}
             </TableCell>
             <TableCell label="Ostatni job">
                 <div>{formatDateTime(bot.lastRunFinishedAt)}</div>
