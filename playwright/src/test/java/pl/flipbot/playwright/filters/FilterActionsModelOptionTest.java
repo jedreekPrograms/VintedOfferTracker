@@ -57,6 +57,19 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
+    public void titleChildEvidenceAlwaysResolvesBackToCanonicalSelectableRow() {
+        String collectionId = FilterActions.modelCollectionIdFromTestId(
+                "selectable-item-brand_collection-10632--title"
+        );
+
+        assertEquals("10632", collectionId);
+        assertEquals(
+                "selectable-item-brand_collection-10632",
+                FilterActions.canonicalModelRowTestId(collectionId)
+        );
+    }
+
+    @Test
     public void modelCollectionIdAcceptsOnlyTheKnownVintedTitleChildSuffix() {
         assertEquals(
                 "10632",
