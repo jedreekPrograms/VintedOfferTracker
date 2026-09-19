@@ -513,99 +513,143 @@ public class FilterActions {
             return;
         }
 
-        Locator nativeCheckbox =
-                modelRow.locator("input[type='checkbox']").first();
-        Locator roleCheckbox =
-                modelRow.getByRole(AriaRole.CHECKBOX).first();
+        /*
+         * Current Vinted DOM intentionally places the visual checkbox below
+         * a .u-no-pointer-events wrapper. The selectable Cell itself is the
+         * interactive role=button element. Therefore the row is the PRIMARY
+         * click target and the checkbox is only the post-click state oracle.
+         */
+        Locator nativeCheckbox = modelRow.locator(
+                exactModelCheckboxSelector(collectionId)
+        ).first();
 
         boolean hasNativeCheckbox = safeCount(nativeCheckbox) > 0;
-        boolean hasRoleCheckbox = safeCount(roleCheckbox) > 0;
-        boolean hasSemanticCheckbox =
-                hasNativeCheckbox || hasRoleCheckbox;
+        RuntimeException rowClickFailure = null;
 
-        RuntimeException directCheckboxFailure = null;
+        log.info(
+                "[FILTER MODEL] Selecting exact model '{}' / collectionId={} through canonical role/button row. "
+                        + "nativeCheckboxPresent={}, checkboxAriaLabel='{}'.",
+                model,
+                collectionId,
+                hasNativeCheckbox,
+                hasNativeCheckbox
+                        ? safeAttribute(nativeCheckbox, "aria-label")
+                        : ""
+        );
 
-        if (hasNativeCheckbox) {
-            try {
-                nativeCheckbox.check();
-            } catch (RuntimeException exception) {
-                directCheckboxFailure = exception;
-                log.debug(
-                        "[FILTER MODEL] Native checkbox could not be checked directly for '{}' / collectionId={}. Trying the row label/control instead.",
+        try {
+            modelRow.click();
+
+            if (waitForModelRowSelected(modelRow, 2_000)) {
+                log.info(
+                        "[FILTER MODEL] Exact model '{}' / collectionId={} selected by canonical row click.",
                         model,
-                        collectionId,
-                        exception
+                        collectionId
                 );
-            }
-        }
-
-        if (!isModelRowSelected(modelRow) && hasRoleCheckbox) {
-            try {
-                if (safeIsVisible(roleCheckbox)) {
-                    roleCheckbox.click();
-                }
-            } catch (RuntimeException exception) {
-                log.debug(
-                        "[FILTER MODEL] Role checkbox click failed for '{}' / collectionId={}. Trying the row label/control instead.",
-                        model,
-                        collectionId,
-                        exception
-                );
-            }
-        }
-
-        if (!isModelRowSelected(modelRow)) {
-            Locator labels = modelRow.locator("label");
-
-            if (safeCount(labels) > 0
-                    && safeIsVisible(labels.first())) {
-                labels.first().click();
-            } else {
-                modelRow.click();
-            }
-        }
-
-        if (hasSemanticCheckbox) {
-            if (!waitForModelRowSelected(modelRow, 2_000)) {
-                String message =
-                        "Exact model row was found, but its checkbox did not become selected. Model='"
-                                + model
-                                + "', collectionId="
-                                + collectionId
-                                + ", rowTestId='"
-                                + safeAttribute(modelRow, "data-testid")
-                                + "'.";
-
-                if (directCheckboxFailure != null) {
-                    throw new IllegalStateException(
-                            message,
-                            directCheckboxFailure
-                    );
-                }
-
-                throw new IllegalStateException(message);
+                return;
             }
 
-            log.info(
-                    "[FILTER MODEL] Checkbox selection confirmed for exact model '{}' / collectionId={}.",
+            log.warn(
+                    "[FILTER MODEL] Canonical row click for '{}' / collectionId={} did not change checkbox state. Trying keyboard activation.",
                     model,
                     collectionId
             );
-            return;
+        } catch (RuntimeException exception) {
+            rowClickFailure = exception;
+            log.warn(
+                    "[FILTER MODEL] Canonical row click failed for '{}' / collectionId={}: {}. Trying keyboard activation.",
+                    model,
+                    collectionId,
+                    getFriendlyErrorMessage(exception)
+            );
+        }
+
+        for (String key : List.of("Enter", "Space")) {
+            try {
+                modelRow.press(key);
+
+                if (waitForModelRowSelected(modelRow, 1_000)) {
+                    log.info(
+                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by row keyboard activation '{}'.",
+                            model,
+                            collectionId,
+                            key
+                    );
+                    return;
+                }
+            } catch (RuntimeException exception) {
+                log.debug(
+                        "[FILTER MODEL] Row keyboard activation '{}' failed for '{}' / collectionId={}.",
+                        key,
+                        model,
+                        collectionId,
+                        exception
+                );
+            }
         }
 
         /*
-         * Unknown Vinted DOM variant: keep the historical row click as a
-         * compatibility fallback. End-to-end confirmation remains fail-closed
-         * because clickConfirmButton() must still observe the exact
-         * brand_collection_ids[] value in the catalog URL.
+         * Last-resort DOM activation for this exact proven checkbox. We do not
+         * use Playwright check()/label click here because Vinted deliberately
+         * disables pointer events on the checkbox wrapper. HTMLElement.click()
+         * still dispatches the native click/change event and lets React update
+         * its controlled state without coordinates or fuzzy selectors.
          */
-        log.warn(
-                "[FILTER MODEL] Exact row '{}' / collectionId={} exposes no semantic checkbox. "
-                        + "Used the verified row click fallback; final URL persistence will still be checked.",
-                model,
-                collectionId
-        );
+        if (hasNativeCheckbox) {
+            try {
+                nativeCheckbox.evaluate("element => element.click()");
+
+                if (waitForModelRowSelected(modelRow, 1_500)) {
+                    log.info(
+                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by verified checkbox DOM activation fallback.",
+                            model,
+                            collectionId
+                    );
+                    return;
+                }
+            } catch (RuntimeException exception) {
+                log.debug(
+                        "[FILTER MODEL] Verified checkbox DOM activation failed for '{}' / collectionId={}.",
+                        model,
+                        collectionId,
+                        exception
+                );
+            }
+        }
+
+        String message =
+                "Exact Vinted model row was found, but selection never became checked. Model='"
+                        + model
+                        + "', collectionId="
+                        + collectionId
+                        + ", rowTestId='"
+                        + safeAttribute(modelRow, "data-testid")
+                        + "', checkboxPresent="
+                        + hasNativeCheckbox
+                        + ", checkboxAriaLabel='"
+                        + (hasNativeCheckbox
+                        ? safeAttribute(nativeCheckbox, "aria-label")
+                        : "")
+                        + "'.";
+
+        if (rowClickFailure != null) {
+            throw new IllegalStateException(message, rowClickFailure);
+        }
+
+        throw new IllegalStateException(message);
+    }
+
+    static String exactModelCheckboxSelector(String collectionId) {
+        if (collectionId == null
+                || !collectionId.matches("^\\d+$")) {
+            throw new IllegalArgumentException(
+                    "Model collection id must contain digits only"
+            );
+        }
+
+        return "input[type='checkbox'][name='brand_collection_ids[]'][value='"
+                + collectionId
+                + "']";
     }
 
     private boolean waitForModelRowSelected(
