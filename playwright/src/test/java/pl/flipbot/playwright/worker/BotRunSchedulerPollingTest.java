@@ -189,6 +189,52 @@ public class BotRunSchedulerPollingTest {
     }
 
     @Test
+    public void livePreviewOwnerKeepsRunningNormalDueJobsWhileGenericWorkersStayOut()
+            throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+
+        try {
+            scheduler.setPausedBotIds(Set.of(9L));
+            scheduler.reconcileRunningBots(Map.of(9L, true));
+
+            assertTrue(scheduler.isPaused(9L));
+            assertNull(scheduler.pollNext(30L));
+
+            ScheduledBotTask previewTask =
+                    scheduler.pollPreviewNext(9L, 100L);
+
+            assertNotNull(previewTask);
+            assertEquals(Long.valueOf(9L), previewTask.botId());
+            assertEquals(
+                    ScheduledJobType.NEGOTIATION_CHECK,
+                    previewTask.jobType()
+            );
+            assertTrue(scheduler.isWorking(9L));
+
+            scheduler.completeRun(
+                    previewTask.botId(),
+                    previewTask.jobType(),
+                    0L,
+                    false,
+                    true
+            );
+
+            assertFalse(scheduler.isWorking(9L));
+            assertNull(scheduler.pollNext(30L));
+
+            ScheduledBotTask secondPreviewTask =
+                    scheduler.pollPreviewNext(9L, 100L);
+
+            assertNotNull(secondPreviewTask);
+            assertEquals(Long.valueOf(9L), secondPreviewTask.botId());
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
     public void catalogConcurrencyAllowsConfiguredNumberOfCatalogs()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
