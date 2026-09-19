@@ -37,13 +37,13 @@ public class FilterActionsModelOptionTest {
         assertTrue(
                 FilterActions.exactVisibleModelLabelMatches(
                         "Galaxy S26",
-                        "Galaxy S26\\n42 przedmioty"
+                        "Galaxy S26\n42 przedmioty"
                 )
         );
         assertFalse(
                 FilterActions.exactVisibleModelLabelMatches(
                         "Galaxy S26",
-                        "Galaxy S26 Ultra\\n42 przedmioty"
+                        "Galaxy S26 Ultra\n42 przedmioty"
                 )
         );
     }
