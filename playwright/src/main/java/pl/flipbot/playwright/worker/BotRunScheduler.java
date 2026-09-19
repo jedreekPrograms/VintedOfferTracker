@@ -162,6 +162,106 @@ public class BotRunScheduler {
         }
     }
 
+    /**
+     * Claims due work for a bot whose session is exclusively owned by the
+     * visible live-preview worker. Generic worker slots cannot claim paused
+     * bots, but the dedicated preview owner must keep the bot operating on its
+     * normal schedule while the user watches it.
+     */
+    public ScheduledBotTask pollPreviewNext(
+            Long botId,
+            long timeoutMillis
+    ) throws InterruptedException {
+        if (botId == null || botId <= 0L) {
+            throw new IllegalArgumentException("Preview bot ID must be positive.");
+        }
+        if (timeoutMillis < 0L) {
+            throw new IllegalArgumentException(
+                    "Preview scheduler poll timeout cannot be negative."
+            );
+        }
+
+        long deadlineNanos = System.nanoTime()
+                + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+
+        while (true) {
+            ScheduledBotTask claimed;
+
+            synchronized (this) {
+                claimed = claimPreviewIfDue(botId);
+            }
+
+            if (claimed != null) {
+                return claimed;
+            }
+
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0L) {
+                return null;
+            }
+
+            long sleepMillis = Math.min(
+                    250L,
+                    Math.max(
+                            1L,
+                            TimeUnit.NANOSECONDS.toMillis(remainingNanos)
+                    )
+            );
+            Thread.sleep(sleepMillis);
+        }
+    }
+
+    private ScheduledBotTask claimPreviewIfDue(Long botId) {
+        BotSchedule schedule = schedules.get(botId);
+
+        if (schedule == null
+                || !schedule.enabled
+                || !pausedBotIds.contains(botId)
+                || schedule.state == RunState.WORKING) {
+            return null;
+        }
+
+        /*
+         * setPausedBotIds normally removes queued work before preview starts.
+         * Clear any stale queued marker defensively so the preview owner is the
+         * only claimant for this bot.
+         */
+        if (schedule.state == RunState.QUEUED) {
+            removeQueuedTask(botId);
+            schedule.state = null;
+            schedule.queuedJobType = null;
+            schedule.queuedRunAtNanos = 0L;
+        }
+
+        NextJob next = nextJob(schedule);
+        long now = System.currentTimeMillis();
+
+        if (next.runAtEpochMs() > now) {
+            return null;
+        }
+
+        if (next.jobType() == ScheduledJobType.CATALOG_SCAN
+                && workingCatalogCountUnsafe()
+                >= catalogConcurrencyConfig.maxConcurrentCatalogScans()) {
+            schedule.nextCatalogAtEpochMs = Math.max(
+                    schedule.nextCatalogAtEpochMs,
+                    safeAdd(now, catalogConcurrencyConfig.retryDelayMillis())
+            );
+            return null;
+        }
+
+        schedule.state = RunState.WORKING;
+        schedule.workingJobType = next.jobType();
+        schedule.queuedJobType = null;
+        schedule.queuedRunAtNanos = 0L;
+
+        return ScheduledBotTask.afterDelay(
+                botId,
+                next.jobType(),
+                0L
+        );
+    }
+
     private synchronized ScheduledBotTask claimIfCurrent(
             ScheduledBotTask task
     ) {
@@ -493,20 +593,9 @@ public class BotRunScheduler {
             return;
         }
 
-        ScheduledJobType jobType = ScheduledJobType.CATALOG_SCAN;
-        long runAtEpochMs = schedule.nextCatalogAtEpochMs;
-
-        if (schedule.hasActiveNegotiations
-                && schedule.nextNegotiationAtEpochMs <= runAtEpochMs) {
-            jobType = ScheduledJobType.NEGOTIATION_CHECK;
-            runAtEpochMs = schedule.nextNegotiationAtEpochMs;
-        }
-
-        if (PRICE_PROBE_CONFIG.enabled()
-                && schedule.nextPriceProbeAtEpochMs < runAtEpochMs) {
-            jobType = ScheduledJobType.PRICE_PROBE;
-            runAtEpochMs = schedule.nextPriceProbeAtEpochMs;
-        }
+        NextJob next = nextJob(schedule);
+        ScheduledJobType jobType = next.jobType();
+        long runAtEpochMs = next.runAtEpochMs();
 
         long delayMillis = Math.max(0L, runAtEpochMs - now);
 
@@ -527,6 +616,25 @@ public class BotRunScheduler {
         }
     }
 
+    private NextJob nextJob(BotSchedule schedule) {
+        ScheduledJobType jobType = ScheduledJobType.CATALOG_SCAN;
+        long runAtEpochMs = schedule.nextCatalogAtEpochMs;
+
+        if (schedule.hasActiveNegotiations
+                && schedule.nextNegotiationAtEpochMs <= runAtEpochMs) {
+            jobType = ScheduledJobType.NEGOTIATION_CHECK;
+            runAtEpochMs = schedule.nextNegotiationAtEpochMs;
+        }
+
+        if (PRICE_PROBE_CONFIG.enabled()
+                && schedule.nextPriceProbeAtEpochMs < runAtEpochMs) {
+            jobType = ScheduledJobType.PRICE_PROBE;
+            runAtEpochMs = schedule.nextPriceProbeAtEpochMs;
+        }
+
+        return new NextJob(jobType, runAtEpochMs);
+    }
+
     private void removeQueuedTask(Long botId) {
         queue.removeIf(task -> botId.equals(task.botId()));
     }
@@ -537,6 +645,12 @@ public class BotRunScheduler {
         }
 
         return base + increment;
+    }
+
+    private record NextJob(
+            ScheduledJobType jobType,
+            long runAtEpochMs
+    ) {
     }
 
     private static final class BotSchedule {
