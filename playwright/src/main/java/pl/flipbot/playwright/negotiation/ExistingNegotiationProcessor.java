@@ -124,7 +124,10 @@ public class ExistingNegotiationProcessor {
                     continue;
                 }
 
-                if (closeIfNegotiationControlsUnavailable(listing)) {
+                if ((snapshot.result() == NegotiationConversationResult.PENDING
+                        || snapshot.result() == NegotiationConversationResult.UNKNOWN
+                        || snapshot.result() == NegotiationConversationResult.REJECTED)
+                        && closeIfNegotiationControlsUnavailable(listing)) {
                     continue;
                 }
 
@@ -278,6 +281,15 @@ public class ExistingNegotiationProcessor {
                 decision.sellerCounterOfferPrice(),
                 decision.reason()
         );
+
+        /*
+         * Re-check immediately before an actual next-step preparation. This
+         * also covers SELLER_COUNTER_OFFER paths that legitimately bypass the
+         * generic missing-offer preflight until a new buyer offer is needed.
+         */
+        if (closeIfNegotiationControlsUnavailable(listing)) {
+            return false;
+        }
 
         if (realNextStepsEnabled) {
             return preparedNextStepCoordinator.execute(listing, decision);
