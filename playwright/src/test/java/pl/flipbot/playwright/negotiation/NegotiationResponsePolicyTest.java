@@ -172,7 +172,7 @@ public class NegotiationResponsePolicyTest {
     }
 
     @Test
-    public void sellerCounterofferOnLastStepRequiresHumanActionInsteadOfDisappearing() {
+    public void sellerCounterofferOnLastStepClosesNegotiation() {
         BotConfigurationDto configuration = configuration();
 
         NegotiationDecision decision = service.decide(
@@ -184,7 +184,7 @@ public class NegotiationResponsePolicyTest {
         );
 
         assertEquals(
-                NegotiationDecisionType.MARK_ACTION_REQUIRED,
+                NegotiationDecisionType.MARK_REJECTED,
                 decision.type()
         );
         assertEquals(new BigDecimal("1600"), decision.sellerCounterOfferPrice());
