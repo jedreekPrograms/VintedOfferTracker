@@ -136,18 +136,27 @@ public class ExistingNegotiationProcessor {
                             configuration
                     );
 
-                    if (pending.action() != PendingNegotiationDecision.Action.WAIT) {
-                        throw new IllegalStateException(
-                                "Explicit Vinted PENDING state must never trigger a price increase or terminal status. "
+                    switch (pending.action()) {
+                        case WAIT -> log.info(
+                                "[PENDING POLICY] Listing {} remains NEGOTIATING. Reason: {}",
+                                listing.listingId(),
+                                pending.reason()
+                        );
+                        case EXPIRE -> {
+                            ListingResponseDto expired =
+                                    listingStatusUpdater.markExpired(listing);
+                            clearContactUnavailableSuspicion(listing);
+                            log.warn(
+                                    "[PENDING POLICY] Listing {} changed from NEGOTIATING to EXPIRED. Reason: {}",
+                                    expired.listingId(),
+                                    pending.reason()
+                            );
+                        }
+                        case SEND_NEXT_STEP -> throw new IllegalStateException(
+                                "Explicit Vinted PENDING state must never trigger a price increase. "
                                         + "Unexpected pending-policy action: " + pending.action()
                         );
                     }
-
-                    log.info(
-                            "[PENDING POLICY] Listing {} remains NEGOTIATING. Reason: {}",
-                            listing.listingId(),
-                            pending.reason()
-                    );
                     continue;
                 } else {
                     stepSent = handleDecision(
