@@ -208,6 +208,7 @@ public class AnalyticsService {
                 modelsForBreakdown.stream()
                         .map(model -> buildModelBreakdown(
                                 model,
+                                models,
                                 history,
                                 market,
                                 range
@@ -341,14 +342,17 @@ public class AnalyticsService {
 
     private AnalyticsOverviewResponse.ModelBreakdown buildModelBreakdown(
             DictionaryModel model,
+            List<DictionaryModel> allModels,
             List<Listing> history,
             List<MarketListingObservation> market,
             TimeRange range
     ) {
+        String modelLabel = label(model);
+
         List<Listing> modelHistory = history.stream()
                 .filter(listing ->
                         historyModelResolver
-                                .resolveModelId(listing, List.of(model))
+                                .resolveModelId(listing, allModels)
                                 .map(model.getId()::equals)
                                 .orElse(false)
                 )

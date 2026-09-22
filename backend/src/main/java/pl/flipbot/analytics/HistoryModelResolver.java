@@ -6,26 +6,28 @@ import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingHistoryMetadata;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Resolves the dictionary model for history analytics.
+ * Resolves a historical buy-candidate to one dictionary model.
  *
- * New listings carry an immutable productTargetLabel snapshot and always use
- * that first. Legacy buy-candidate rows created before the snapshot existed
- * may have only a marketplace title. For those rows we use a conservative
- * title fallback:
+ * Priority:
+ *  1. immutable productTargetLabel snapshot,
+ *  2. legacy listing title matched against the COMPLETE model dictionary.
  *
- *  - brand + model must occur as a whole normalized phrase in the title,
- *  - the most specific (longest) matching model wins,
- *  - equally-specific ambiguous matches are rejected instead of guessed.
- *
- * This keeps e.g. "Galaxy S26 Ultra" out of plain "Galaxy S26" while allowing
- * old exact-title purchases such as "Samsung Galaxy S26" to participate in
- * S26 statistics.
+ * Legacy matching is intentionally conservative:
+ *  - longer/more specific variants win (S26 Ultra before S26),
+ *  - brand + model beats model-only for otherwise equal matches,
+ *  - model-only fallback is allowed for old titles which omitted the brand,
+ *  - year-in-parentheses aliases allow e.g. "iPad 10.9" to match
+ *    "iPad 10.9 (2022)",
+ *  - equally strong matches are treated as ambiguous instead of guessed.
  */
 @Component
 public class HistoryModelResolver {
@@ -44,6 +46,21 @@ public class HistoryModelResolver {
         }
 
         return resolveFromLegacyTitle(listing, models);
+    }
+
+    public Optional<DictionaryModel> resolveModel(
+            Listing listing,
+            List<DictionaryModel> models
+    ) {
+        Optional<Long> modelId = resolveModelId(listing, models);
+
+        if (modelId.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return models.stream()
+                .filter(model -> modelId.get().equals(model.getId()))
+                .findFirst();
     }
 
     private Optional<Long> resolveFromSnapshot(
@@ -84,11 +101,15 @@ public class HistoryModelResolver {
         }
 
         List<Candidate> candidates = models.stream()
-                .map(model -> candidate(model, title))
-                .flatMap(Optional::stream)
+                .flatMap(model -> candidates(model, title).stream())
                 .sorted(
                         Comparator.comparingInt(Candidate::specificity)
                                 .reversed()
+                                .thenComparing(
+                                        Comparator.comparingInt(
+                                                Candidate::confidence
+                                        ).reversed()
+                                )
                 )
                 .toList();
 
@@ -98,44 +119,98 @@ public class HistoryModelResolver {
 
         Candidate best = candidates.getFirst();
 
-        long equallySpecific = candidates.stream()
+        long equallyStrongDifferentModels = candidates.stream()
                 .filter(candidate ->
                         candidate.specificity() == best.specificity()
+                                && candidate.confidence() == best.confidence()
+                                && !candidate.modelId().equals(best.modelId())
                 )
                 .count();
 
-        if (equallySpecific > 1) {
+        if (equallyStrongDifferentModels > 0) {
             return Optional.empty();
         }
 
         return Optional.of(best.modelId());
     }
 
-    private Optional<Candidate> candidate(
+    private List<Candidate> candidates(
             DictionaryModel model,
             String canonicalTitle
     ) {
         if (model == null
                 || model.getId() == null
-                || model.getBrand() == null) {
-            return Optional.empty();
+                || model.getBrand() == null
+                || model.getName() == null) {
+            return List.of();
         }
 
-        String brandAndModel = canonical(
-                model.getBrand().getName() + " " + model.getName()
-        );
+        String brand = canonical(model.getBrand().getName());
 
-        if (brandAndModel == null
-                || !containsPhrase(canonicalTitle, brandAndModel)) {
-            return Optional.empty();
+        if (brand == null) {
+            return List.of();
         }
 
-        return Optional.of(
-                new Candidate(
-                        model.getId(),
-                        canonical(model.getName()).length()
-                )
+        List<Candidate> result = new ArrayList<>();
+
+        for (String alias : modelAliases(model.getName())) {
+            if (alias == null || alias.isBlank()) {
+                continue;
+            }
+
+            int specificity = alias.length();
+
+            if (containsPhrase(
+                    canonicalTitle,
+                    brand + " " + alias
+            )) {
+                result.add(
+                        new Candidate(
+                                model.getId(),
+                                specificity,
+                                2
+                        )
+                );
+                continue;
+            }
+
+            if (containsPhrase(canonicalTitle, alias)) {
+                result.add(
+                        new Candidate(
+                                model.getId(),
+                                specificity,
+                                1
+                        )
+                );
+            }
+        }
+
+        return result;
+    }
+
+    private Set<String> modelAliases(String rawModelName) {
+        Set<String> aliases = new LinkedHashSet<>();
+
+        String canonicalFull = canonical(rawModelName);
+        if (canonicalFull != null) {
+            aliases.add(canonicalFull);
+        }
+
+        /*
+         * Historical marketplace titles often omit the generation year which
+         * the dictionary keeps in parentheses, e.g. "iPad 10.9 (2022)".
+         */
+        String withoutParenthesizedYear = rawModelName.replaceAll(
+                "\\s*\\((?:19|20)\\d{2}\\)\\s*$",
+                ""
         );
+
+        String canonicalWithoutYear = canonical(withoutParenthesizedYear);
+        if (canonicalWithoutYear != null) {
+            aliases.add(canonicalWithoutYear);
+        }
+
+        return aliases;
     }
 
     private boolean containsPhrase(
@@ -167,7 +242,8 @@ public class HistoryModelResolver {
 
     private record Candidate(
             Long modelId,
-            int specificity
+            int specificity,
+            int confidence
     ) {
     }
 }

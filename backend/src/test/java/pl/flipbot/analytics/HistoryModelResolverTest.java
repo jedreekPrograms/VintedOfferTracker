@@ -69,6 +69,64 @@ class HistoryModelResolverTest {
     }
 
     @Test
+    void resolvesModelWithoutBrandWhenUnique() {
+        DictionaryModel s25fe = model(
+                4L,
+                "Samsung",
+                "Galaxy S25 FE"
+        );
+        Listing listing = listing("Galaxy S25 FE 256GB");
+
+        assertEquals(
+                4L,
+                resolver.resolveModelId(
+                        listing,
+                        List.of(s25fe)
+                ).orElseThrow()
+        );
+    }
+
+    @Test
+    void resolvesIpadWhenLegacyTitleOmitsDictionaryYearSuffix() {
+        DictionaryModel ipad = model(
+                5L,
+                "Apple",
+                "iPad 10.9 (2022)"
+        );
+        Listing listing = listing("Apple iPad 10.9 64GB Wi-Fi");
+
+        assertEquals(
+                5L,
+                resolver.resolveModelId(
+                        listing,
+                        List.of(ipad)
+                ).orElseThrow()
+        );
+    }
+
+    @Test
+    void ambiguousModelOnlyMatchAcrossBrandsIsNotGuessed() {
+        DictionaryModel alpha = model(
+                6L,
+                "Brand A",
+                "Model X"
+        );
+        DictionaryModel beta = model(
+                7L,
+                "Brand B",
+                "Model X"
+        );
+        Listing listing = listing("Model X 256GB");
+
+        assertTrue(
+                resolver.resolveModelId(
+                        listing,
+                        List.of(alpha, beta)
+                ).isEmpty()
+        );
+    }
+
+    @Test
     void unrelatedLegacyTitleIsNotGuessed() {
         DictionaryModel s26 = model(1L, "Samsung", "Galaxy S26");
         Listing listing = listing("Apple iPhone 16 Pro");
