@@ -120,7 +120,11 @@ public class HistoryAnalyticsSchemaInitializer implements ApplicationRunner {
                 SET buy_candidate_at = COALESCE(
                         decision_at,
                         current_step_started_at,
-                        last_fresh_discovery_at
+                        last_fresh_discovery_at,
+                        CASE
+                            WHEN status = 'ACTION_REQUIRED' THEN CURRENT_TIMESTAMP
+                            ELSE TIMESTAMP '1970-01-01 00:00:00'
+                        END
                     )
                 WHERE buy_candidate_at IS NULL
                   AND status IN (
