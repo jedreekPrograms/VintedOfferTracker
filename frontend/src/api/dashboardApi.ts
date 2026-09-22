@@ -1,11 +1,17 @@
 import {
     assertApiResponse,
 } from "./apiError";
+import type {
+    HistoryOutcome,
+    OfferAssessment,
+} from "./historyApi";
 
 export type DashboardPeriod =
     | "TODAY"
     | "LAST_7_DAYS"
     | "LAST_30_DAYS"
+    | "THIS_MONTH"
+    | "THIS_YEAR"
     | "ALL";
 
 export interface DashboardStatsResponse {
@@ -18,6 +24,13 @@ export interface DashboardStatsResponse {
     totalNegotiatedSavings: number;
     averagePurchasePrice: number;
     averageDiscountPercentage: number;
+    selectedHistoryCount: number;
+    missedOpportunityCount: number;
+    legitCount: number;
+    scamCount: number;
+    unassessedCount: number;
+    averageSelectedPrice: number | null;
+    medianSelectedPrice: number | null;
 }
 
 export type RuntimeStatus =
@@ -59,9 +72,22 @@ export interface RuntimeDashboardResponse {
 
 export async function getDashboardStats(
     period: DashboardPeriod,
+    outcomes: HistoryOutcome[] = [],
+    assessments: OfferAssessment[] = [],
 ): Promise<DashboardStatsResponse> {
+    const params = new URLSearchParams();
+    params.set("period", period);
+
+    for (const outcome of outcomes) {
+        params.append("outcomes", outcome);
+    }
+
+    for (const assessment of assessments) {
+        params.append("assessments", assessment);
+    }
+
     const response = await fetch(
-        `/api/dashboard/stats?period=${encodeURIComponent(period)}`,
+        `/api/dashboard/stats?${params.toString()}`,
     );
 
     await assertApiResponse(

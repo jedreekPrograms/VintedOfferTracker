@@ -17,6 +17,7 @@ import HistoryPage from "./pages/HistoryPage";
 import DictionariesPage from "./pages/DictionariesPage";
 import ManageDictionariesPage from "./pages/ManageDictionariesPage";
 import PriceMatrixPage from "./pages/PriceMatrixPage";
+import StatisticsPage from "./pages/StatisticsPage";
 
 
 function App() {
@@ -75,6 +76,11 @@ function App() {
                 <Route
                     path="/pricing"
                     element={<PriceMatrixPage />}
+                />
+
+                <Route
+                    path="/statistics"
+                    element={<StatisticsPage />}
                 />
 
                 <Route
