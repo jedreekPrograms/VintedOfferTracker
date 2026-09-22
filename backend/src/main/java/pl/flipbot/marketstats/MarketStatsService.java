@@ -40,7 +40,7 @@ public class MarketStatsService {
 
     private static final int TRACKING_WINDOW_DAYS = 7;
     private static final int NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
-    private static final int OBSERVATION_RETENTION_DAYS = 30;
+    private static final int OBSERVATION_RETENTION_DAYS = 400;
     private static final String CATEGORY_PATH_SEPARATOR_REGEX = "\\s*>\\s*";
     private static final ZoneId NEGOTIATION_USAGE_ZONE = ZoneId.of("Europe/Warsaw");
 

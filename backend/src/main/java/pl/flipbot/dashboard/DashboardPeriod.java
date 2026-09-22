@@ -8,5 +8,9 @@ public enum DashboardPeriod {
 
     LAST_30_DAYS,
 
+    THIS_MONTH,
+
+    THIS_YEAR,
+
     ALL
 }
