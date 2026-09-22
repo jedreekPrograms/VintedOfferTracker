@@ -1,6 +1,7 @@
 package pl.flipbot.analytics;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -11,6 +12,8 @@ import pl.flipbot.dashboard.DashboardPeriod;
 import pl.flipbot.listing.HistoryOutcome;
 import pl.flipbot.listing.OfferAssessment;
 
+import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 @RestController
@@ -27,19 +30,42 @@ public class AnalyticsController {
             @RequestParam(required = false)
             Long modelId,
             @RequestParam(required = false)
+            Set<Long> modelIds,
+            @RequestParam(required = false)
             Set<HistoryOutcome> outcomes,
             @RequestParam(required = false)
             Set<OfferAssessment> assessments,
             @RequestParam(defaultValue = "ALL")
-            AnalyticsSource source
+            AnalyticsSource source,
+            @RequestParam(defaultValue = "DAY")
+            AnalyticsGranularity granularity,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate to
     ) {
+        Set<Long> selectedModelIds = new LinkedHashSet<>();
+
+        if (modelIds != null) {
+            selectedModelIds.addAll(modelIds);
+        }
+
+        if (modelId != null) {
+            selectedModelIds.add(modelId);
+        }
+
         return ResponseEntity.ok(
                 analyticsService.getOverview(
                         period,
-                        modelId,
+                        Set.copyOf(selectedModelIds),
                         outcomes == null ? Set.of() : outcomes,
                         assessments == null ? Set.of() : assessments,
-                        source
+                        source,
+                        granularity,
+                        from,
+                        to
                 )
         );
     }
