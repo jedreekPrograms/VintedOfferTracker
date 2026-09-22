@@ -86,7 +86,7 @@ class ListingHistoryServiceTest {
     }
 
     @Test
-    void terminalNegotiationCanBeClassifiedAsMissedLegitOpportunity() {
+    void terminalBuyCandidateCanBeClassifiedAsMissedLegitOpportunity() {
         Listing unavailable = listing(9L, ListingStatus.UNAVAILABLE, "1000.00");
         when(listingRepository.findById(9L)).thenReturn(Optional.of(unavailable));
 
@@ -110,6 +110,23 @@ class ListingHistoryServiceTest {
         );
         assertEquals("MISSED_OPPORTUNITY", response.getHistoryOutcome());
         verify(listingRepository).save(unavailable);
+    }
+
+    @Test
+    void ordinaryTerminalNegotiationThatNeverReachedBuyQueueStaysOutOfHistory() {
+        Listing unavailable = listing(14L, ListingStatus.UNAVAILABLE, "1100.00");
+        unavailable.setBuyCandidateAt(null);
+        when(listingRepository.findAll()).thenReturn(List.of(unavailable));
+
+        assertTrue(service.getHistory().isEmpty());
+    }
+
+    @Test
+    void terminalListingThatPreviouslyReachedBuyQueueRemainsInHistory() {
+        Listing unavailable = listing(15L, ListingStatus.UNAVAILABLE, "1100.00");
+        when(listingRepository.findAll()).thenReturn(List.of(unavailable));
+
+        assertEquals(1, service.getHistory().size());
     }
 
     @Test
@@ -189,6 +206,7 @@ class ListingHistoryServiceTest {
                 .awaitingSellerResponse(false)
                 .status(status)
                 .decisionAt(LocalDateTime.of(2026, 8, 24, 12, 0))
+                .buyCandidateAt(LocalDateTime.of(2026, 8, 24, 11, 55))
                 .historyHidden(false)
                 .bot(bot)
                 .build();
