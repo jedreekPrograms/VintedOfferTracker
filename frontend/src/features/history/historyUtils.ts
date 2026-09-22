@@ -35,8 +35,15 @@ export function getFilteredHistory(
     return listings
         .filter(listing => {
             if (
-                filters.status !== "ALL"
-                && listing.status !== filters.status
+                filters.outcome !== "ALL"
+                && listing.historyOutcome !== filters.outcome
+            ) {
+                return false;
+            }
+
+            if (
+                filters.assessment !== "ALL"
+                && listing.offerAssessment !== filters.assessment
             ) {
                 return false;
             }
@@ -54,7 +61,10 @@ export function getFilteredHistory(
 
             return listing.title.toLowerCase().includes(normalizedSearch)
                 || listing.listingId.toLowerCase().includes(normalizedSearch)
-                || listing.botName.toLowerCase().includes(normalizedSearch);
+                || listing.botName.toLowerCase().includes(normalizedSearch)
+                || (listing.productTargetLabel ?? "")
+                    .toLowerCase()
+                    .includes(normalizedSearch);
         })
         .sort((first, second) =>
             compareListings(first, second, filters.sort),

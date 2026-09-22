@@ -4,7 +4,29 @@ import {
 
 export type ListingHistoryStatus =
     | "PURCHASED"
-    | "SKIPPED_BY_USER";
+    | "SKIPPED_BY_USER"
+    | "UNAVAILABLE"
+    | "CONTACT_UNAVAILABLE"
+    | "REJECTED"
+    | "EXPIRED"
+    | "FINISHED";
+
+export type HistoryOutcome =
+    | "UNCLASSIFIED"
+    | "PURCHASED"
+    | "REJECTED"
+    | "MISSED_OPPORTUNITY";
+
+export type OfferAssessment =
+    | "UNASSESSED"
+    | "LEGIT"
+    | "SCAM";
+
+export type MissedOpportunityReason =
+    | "SOLD_BEFORE_PURCHASE"
+    | "NO_FUNDS"
+    | "TOO_SLOW"
+    | "OTHER";
 
 export interface ListingHistoryResponse {
     id: number;
@@ -15,6 +37,9 @@ export interface ListingHistoryResponse {
     currentPrice: number;
     currentStep: number;
     status: ListingHistoryStatus;
+    historyOutcome: HistoryOutcome;
+    offerAssessment: OfferAssessment;
+    missedOpportunityReason: MissedOpportunityReason | null;
     decisionAt: string | null;
     botId: number;
     botName: string;
@@ -31,6 +56,35 @@ export async function getListingHistory(): Promise<ListingHistoryResponse[]> {
     );
 
     return response.json() as Promise<ListingHistoryResponse[]>;
+}
+
+export async function updateHistoryClassification(
+    listingId: number,
+    historyOutcome: HistoryOutcome,
+    offerAssessment: OfferAssessment,
+    missedOpportunityReason: MissedOpportunityReason | null,
+): Promise<ListingHistoryResponse> {
+    const response = await fetch(
+        `/api/listings/history/${listingId}/classification`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                historyOutcome,
+                offerAssessment,
+                missedOpportunityReason,
+            }),
+        },
+    );
+
+    await assertApiResponse(
+        response,
+        `Nie udało się zapisać klasyfikacji oferty. HTTP ${response.status}`,
+    );
+
+    return response.json() as Promise<ListingHistoryResponse>;
 }
 
 export async function updateHistoryPurchasePrice(

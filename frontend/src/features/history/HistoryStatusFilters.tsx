@@ -9,7 +9,9 @@ interface HistoryStatusFiltersProps {
     value: HistoryFilter;
     totalCount: number;
     purchasedCount: number;
-    skippedCount: number;
+    rejectedCount: number;
+    missedCount: number;
+    unclassifiedCount: number;
     onChange: (value: HistoryFilter) => void;
 }
 
@@ -17,7 +19,9 @@ function HistoryStatusFilters({
     value,
     totalCount,
     purchasedCount,
-    skippedCount,
+    rejectedCount,
+    missedCount,
+    unclassifiedCount,
     onChange,
 }: HistoryStatusFiltersProps) {
     return (
@@ -35,10 +39,22 @@ function HistoryStatusFilters({
                 onClick={() => onChange("PURCHASED")}
             />
             <HistoryFilterButton
-                active={value === "SKIPPED_BY_USER"}
+                active={value === "REJECTED"}
                 label="Odrzucone"
-                count={skippedCount}
-                onClick={() => onChange("SKIPPED_BY_USER")}
+                count={rejectedCount}
+                onClick={() => onChange("REJECTED")}
+            />
+            <HistoryFilterButton
+                active={value === "MISSED_OPPORTUNITY"}
+                label="Utracone okazje"
+                count={missedCount}
+                onClick={() => onChange("MISSED_OPPORTUNITY")}
+            />
+            <HistoryFilterButton
+                active={value === "UNCLASSIFIED"}
+                label="Do oznaczenia"
+                count={unclassifiedCount}
+                onClick={() => onChange("UNCLASSIFIED")}
             />
         </div>
     );
