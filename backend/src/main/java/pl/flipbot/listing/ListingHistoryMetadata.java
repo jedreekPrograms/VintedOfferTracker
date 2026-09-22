@@ -21,6 +21,7 @@ public final class ListingHistoryMetadata {
 
     public static boolean isHistoryListing(Listing listing) {
         return listing != null
+                && listing.getBuyCandidateAt() != null
                 && listing.getStatus() != null
                 && HISTORY_STATUSES.contains(listing.getStatus());
     }
@@ -58,6 +59,10 @@ public final class ListingHistoryMetadata {
 
         if (listing.getDecisionAt() != null) {
             return listing.getDecisionAt();
+        }
+
+        if (listing.getBuyCandidateAt() != null) {
+            return listing.getBuyCandidateAt();
         }
 
         if (listing.getCurrentStepStartedAt() != null) {
