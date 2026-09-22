@@ -1,9 +1,5 @@
 package pl.flipbot.listing;
 
-import pl.flipbot.bot.configuration.BotAdditionalTarget;
-import pl.flipbot.bot.configuration.BotConfiguration;
-import pl.flipbot.bot.configuration.TargetMode;
-
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Set;
@@ -17,8 +13,7 @@ public final class ListingHistoryMetadata {
                     ListingStatus.UNAVAILABLE,
                     ListingStatus.CONTACT_UNAVAILABLE,
                     ListingStatus.REJECTED,
-                    ListingStatus.EXPIRED,
-                    ListingStatus.FINISHED
+                    ListingStatus.EXPIRED
             );
 
     private ListingHistoryMetadata() {
@@ -83,31 +78,14 @@ public final class ListingHistoryMetadata {
             return snapshot;
         }
 
-        BotAdditionalTarget additionalTarget = listing.getAdditionalTarget();
-        if (additionalTarget != null) {
-            return label(
-                    additionalTarget.getBrand(),
-                    additionalTarget.getTargetMode(),
-                    additionalTarget.getModel(),
-                    additionalTarget.getSearchQuery()
-            );
-        }
-
-        BotConfiguration configuration =
-                listing.getBot() == null
-                        ? null
-                        : listing.getBot().getConfiguration();
-
-        if (configuration == null) {
-            return null;
-        }
-
-        return label(
-                configuration.getBrand(),
-                configuration.getTargetMode(),
-                configuration.getModel(),
-                configuration.getSearchQuery()
-        );
+        /*
+         * Never infer a missing historical product snapshot from today's bot
+         * configuration. The bot may have been repurposed since the listing
+         * was handled. V43 performs a best-effort one-time backfill for legacy
+         * rows; anything still unresolved stays unassigned rather than being
+         * silently attributed to the wrong model.
+         */
+        return null;
     }
 
     public static String modelLabel(
@@ -134,19 +112,6 @@ public final class ListingHistoryMetadata {
         return normalized == null
                 ? null
                 : normalized.toLowerCase(java.util.Locale.ROOT);
-    }
-
-    private static String label(
-            String brand,
-            TargetMode targetMode,
-            String model,
-            String searchQuery
-    ) {
-        String target = targetMode == TargetMode.SEARCH_QUERY
-                ? searchQuery
-                : model;
-
-        return modelLabel(brand, target);
     }
 
     private static String normalize(String value) {

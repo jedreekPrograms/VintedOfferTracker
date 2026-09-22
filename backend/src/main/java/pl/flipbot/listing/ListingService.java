@@ -447,8 +447,7 @@ public class ListingService {
                 || status == ListingStatus.UNAVAILABLE
                 || status == ListingStatus.CONTACT_UNAVAILABLE
                 || status == ListingStatus.REJECTED
-                || status == ListingStatus.EXPIRED
-                || status == ListingStatus.FINISHED;
+                || status == ListingStatus.EXPIRED;
     }
 
     private String normalizeOptionalText(String value) {

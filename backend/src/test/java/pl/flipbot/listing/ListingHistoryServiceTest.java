@@ -95,6 +95,14 @@ class ListingHistoryServiceTest {
     }
 
     @Test
+    void technicalFinishedWrongTargetRowsStayOutOfBusinessHistory() {
+        Listing finished = listing(13L, ListingStatus.FINISHED, "1100.00");
+        when(listingRepository.findAll()).thenReturn(List.of(finished));
+
+        assertTrue(service.getHistory().isEmpty());
+    }
+
+    @Test
     void purchasePriceCanBeCorrectedAfterManualNegotiation() {
         Listing purchased = listing(10L, ListingStatus.PURCHASED, "1100.00");
         when(listingRepository.findById(10L)).thenReturn(Optional.of(purchased));

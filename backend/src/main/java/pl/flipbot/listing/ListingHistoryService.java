@@ -9,25 +9,12 @@ import pl.flipbot.listing.dto.UpdateHistoryClassificationRequest;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class ListingHistoryService {
-
-    private static final Set<ListingStatus> HISTORY_STATUSES =
-            EnumSet.of(
-                    ListingStatus.PURCHASED,
-                    ListingStatus.SKIPPED_BY_USER,
-                    ListingStatus.UNAVAILABLE,
-                    ListingStatus.CONTACT_UNAVAILABLE,
-                    ListingStatus.REJECTED,
-                    ListingStatus.EXPIRED,
-                    ListingStatus.FINISHED
-            );
 
     private final ListingRepository listingRepository;
 
@@ -91,7 +78,8 @@ public class ListingHistoryService {
     ) {
         Listing listing = getVisibleHistoryListing(listingId);
 
-        if (effectiveOutcome(listing) != HistoryOutcome.PURCHASED) {
+        if (ListingHistoryMetadata.effectiveOutcome(listing)
+                != HistoryOutcome.PURCHASED) {
             throw new IllegalStateException(
                     "Purchase price can only be edited for history entries classified as PURCHASED."
             );
@@ -121,28 +109,6 @@ public class ListingHistoryService {
         listingRepository.save(listing);
     }
 
-    HistoryOutcome effectiveOutcome(Listing listing) {
-        if (listing.getHistoryOutcome() != null) {
-            return listing.getHistoryOutcome();
-        }
-
-        if (listing.getStatus() == ListingStatus.PURCHASED) {
-            return HistoryOutcome.PURCHASED;
-        }
-
-        if (listing.getStatus() == ListingStatus.SKIPPED_BY_USER) {
-            return HistoryOutcome.REJECTED;
-        }
-
-        return HistoryOutcome.UNCLASSIFIED;
-    }
-
-    OfferAssessment effectiveAssessment(Listing listing) {
-        return listing.getOfferAssessment() == null
-                ? OfferAssessment.UNASSESSED
-                : listing.getOfferAssessment();
-    }
-
     private Listing getVisibleHistoryListing(Long listingId) {
         Listing listing = listingRepository.findById(listingId)
                 .orElseThrow(() -> new NoSuchElementException(
@@ -163,9 +129,7 @@ public class ListingHistoryService {
     }
 
     private boolean isHistoryListing(Listing listing) {
-        return listing != null
-                && listing.getStatus() != null
-                && HISTORY_STATUSES.contains(listing.getStatus());
+        return ListingHistoryMetadata.isHistoryListing(listing);
     }
 
     private ListingHistoryResponse map(Listing listing) {
@@ -179,8 +143,12 @@ public class ListingHistoryService {
                 .currentPrice(listing.getCurrentPrice())
                 .currentStep(listing.getCurrentStep())
                 .status(listing.getStatus().name())
-                .historyOutcome(effectiveOutcome(listing).name())
-                .offerAssessment(effectiveAssessment(listing).name())
+                .historyOutcome(
+                        ListingHistoryMetadata.effectiveOutcome(listing).name()
+                )
+                .offerAssessment(
+                        ListingHistoryMetadata.effectiveAssessment(listing).name()
+                )
                 .missedOpportunityReason(
                         listing.getMissedOpportunityReason() == null
                                 ? null

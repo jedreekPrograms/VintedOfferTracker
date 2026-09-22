@@ -23,8 +23,7 @@ WHERE decision_at IS NULL
       'UNAVAILABLE',
       'CONTACT_UNAVAILABLE',
       'REJECTED',
-      'EXPIRED',
-      'FINISHED'
+      'EXPIRED'
   );
 
 -- Backfill the immutable product label for old rows when the original target

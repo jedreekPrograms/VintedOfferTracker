@@ -79,6 +79,12 @@ public class AnalyticsService {
                         )
                 );
 
+        if (modelId != null && !modelLabels.containsKey(modelId)) {
+            throw new java.util.NoSuchElementException(
+                    "Dictionary model was not found: " + modelId
+            );
+        }
+
         String selectedModelLabel = modelId == null
                 ? null
                 : modelLabels.get(modelId);
