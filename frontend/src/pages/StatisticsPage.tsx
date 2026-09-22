@@ -676,7 +676,10 @@ function PriceTimelineChart({
             dotClass: "analytics-dot-purchase-median",
             value: (point: AnalyticsTimelinePoint) => point.medianPurchasePrice,
         },
-    ].filter(item => selectedSeries.includes(item.id));
+    ].filter(item =>
+        selectedSeries.length === 0
+        || selectedSeries.includes(item.id),
+    );
 
     const usableValues = points.flatMap(point =>
         series.map(item => item.value(point)),
