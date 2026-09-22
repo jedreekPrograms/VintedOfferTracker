@@ -26,6 +26,8 @@ export type MissedOpportunityReason =
     | "SOLD_BEFORE_PURCHASE"
     | "NO_FUNDS"
     | "TOO_SLOW"
+    | "PRICE_TOO_HIGH"
+    | "CHANGED_MIND"
     | "OTHER";
 
 export interface ListingHistoryResponse {
@@ -41,6 +43,7 @@ export interface ListingHistoryResponse {
     offerAssessment: OfferAssessment;
     missedOpportunityReason: MissedOpportunityReason | null;
     decisionAt: string | null;
+    buyCandidateAt: string | null;
     botId: number;
     botName: string;
     additionalTargetId: number | null;
