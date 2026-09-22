@@ -46,6 +46,7 @@ public class AnalyticsService {
     private final ListingRepository listingRepository;
     private final MarketListingObservationRepository observationRepository;
     private final DictionaryModelRepository modelRepository;
+    private final HistoryModelResolver historyModelResolver;
 
     /**
      * Compatibility overload for older callers.
@@ -137,11 +138,6 @@ public class AnalyticsService {
             );
         }
 
-        Set<String> selectedModelLabels = selectedModelIds.stream()
-                .map(modelLabels::get)
-                .map(ListingHistoryMetadata::normalizeLabel)
-                .collect(Collectors.toSet());
-
         List<Listing> history = effectiveSource == AnalyticsSource.OBSERVER
                 ? List.of()
                 : listingRepository.findAll()
@@ -153,12 +149,11 @@ public class AnalyticsService {
                                 range
                         ))
                         .filter(listing ->
-                                selectedModelLabels.isEmpty()
-                                        || selectedModelLabels.contains(
-                                        ListingHistoryMetadata.normalizeLabel(
-                                                ListingHistoryMetadata.effectiveModelLabel(listing)
-                                        )
-                                )
+                                selectedModelIds.isEmpty()
+                                        || historyModelResolver
+                                        .resolveModelId(listing, models)
+                                        .map(selectedModelIds::contains)
+                                        .orElse(false)
                         )
                         .filter(listing ->
                                 outcomes == null
@@ -350,14 +345,12 @@ public class AnalyticsService {
             List<MarketListingObservation> market,
             TimeRange range
     ) {
-        String modelLabel = label(model);
-
         List<Listing> modelHistory = history.stream()
                 .filter(listing ->
-                        sameLabel(
-                                ListingHistoryMetadata.effectiveModelLabel(listing),
-                                modelLabel
-                        )
+                        historyModelResolver
+                                .resolveModelId(listing, List.of(model))
+                                .map(model.getId()::equals)
+                                .orElse(false)
                 )
                 .toList();
 
