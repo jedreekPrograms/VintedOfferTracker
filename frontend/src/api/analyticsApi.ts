@@ -14,6 +14,12 @@ export type AnalyticsSource =
     | "HISTORY"
     | "OBSERVER";
 
+export type AnalyticsGranularity =
+    | "DAY"
+    | "WEEK"
+    | "MONTH"
+    | "YEAR";
+
 export interface AnalyticsModelOption {
     modelId: number;
     brand: string;
@@ -38,6 +44,9 @@ export interface AnalyticsSummary {
     marketStandardDeviation: number | null;
     marketMinPrice: number | null;
     marketMaxPrice: number | null;
+    averageListingsPerDay: number | null;
+    averageListingsPerWeek: number | null;
+    averageListingsPerMonth: number | null;
     averagePurchasePrice: number | null;
     medianPurchasePrice: number | null;
     averageLegitRejectedPrice: number | null;
@@ -57,6 +66,9 @@ export interface AnalyticsModelBreakdown {
     marketPriceSampleCount: number;
     averageMarketPrice: number | null;
     medianMarketPrice: number | null;
+    averageListingsPerDay: number | null;
+    averageListingsPerWeek: number | null;
+    averageListingsPerMonth: number | null;
     purchasedCount: number;
     averagePurchasePrice: number | null;
     medianPurchasePrice: number | null;
@@ -69,11 +81,13 @@ export interface AnalyticsModelBreakdown {
 
 export interface AnalyticsTimelinePoint {
     date: string;
+    label: string;
     marketListingCount: number;
     averageMarketPrice: number | null;
     medianMarketPrice: number | null;
     purchaseCount: number;
     averagePurchasePrice: number | null;
+    medianPurchasePrice: number | null;
 }
 
 export interface AnalyticsHistogramBucket {
@@ -90,27 +104,43 @@ export interface AnalyticsOverview {
     marketPriceHistogram: AnalyticsHistogramBucket[];
 }
 
+export interface AnalyticsQuery {
+    period: DashboardPeriod;
+    modelIds: number[];
+    outcomes: HistoryOutcome[];
+    assessments: OfferAssessment[];
+    source: AnalyticsSource;
+    granularity: AnalyticsGranularity;
+    from: string | null;
+    to: string | null;
+}
+
 export async function getAnalyticsOverview(
-    period: DashboardPeriod,
-    modelId: number | null,
-    outcomes: HistoryOutcome[],
-    assessments: OfferAssessment[],
-    source: AnalyticsSource,
+    query: AnalyticsQuery,
 ): Promise<AnalyticsOverview> {
     const params = new URLSearchParams();
-    params.set("period", period);
-    params.set("source", source);
+    params.set("period", query.period);
+    params.set("source", query.source);
+    params.set("granularity", query.granularity);
 
-    if (modelId !== null) {
-        params.set("modelId", String(modelId));
+    for (const modelId of query.modelIds) {
+        params.append("modelIds", String(modelId));
     }
 
-    for (const outcome of outcomes) {
+    for (const outcome of query.outcomes) {
         params.append("outcomes", outcome);
     }
 
-    for (const assessment of assessments) {
+    for (const assessment of query.assessments) {
         params.append("assessments", assessment);
+    }
+
+    if (query.from !== null && query.from.length > 0) {
+        params.set("from", query.from);
+    }
+
+    if (query.to !== null && query.to.length > 0) {
+        params.set("to", query.to);
     }
 
     const response = await fetch(
