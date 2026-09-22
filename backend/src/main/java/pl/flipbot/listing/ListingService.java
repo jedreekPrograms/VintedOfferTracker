@@ -65,6 +65,7 @@ public class ListingService {
     public ListingResponse markAsPurchased(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
         listing.setStatus(ListingStatus.PURCHASED);
+        listing.setHistoryOutcome(HistoryOutcome.PURCHASED);
         listing.setAwaitingSellerResponse(false);
         listing.setDecisionAt(LocalDateTime.now());
 
@@ -76,6 +77,7 @@ public class ListingService {
     public ListingResponse skipByUser(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
         listing.setStatus(ListingStatus.SKIPPED_BY_USER);
+        listing.setHistoryOutcome(HistoryOutcome.REJECTED);
         listing.setAwaitingSellerResponse(false);
         listing.setDecisionAt(LocalDateTime.now());
 
@@ -231,7 +233,9 @@ public class ListingService {
         listing.setConversationUrl(request.getConversationUrl());
         listing.setStatus(request.getStatus());
 
-        if (request.getStatus() == ListingStatus.EXPIRED) {
+        if (isHistoryTerminalStatus(request.getStatus())
+                && !isHistoryTerminalStatus(previousStatus)
+                && listing.getDecisionAt() == null) {
             listing.setDecisionAt(LocalDateTime.now());
         }
 
@@ -435,6 +439,16 @@ public class ListingService {
             );
         }
         return existingByMarketplaceId;
+    }
+
+    private boolean isHistoryTerminalStatus(ListingStatus status) {
+        return status == ListingStatus.PURCHASED
+                || status == ListingStatus.SKIPPED_BY_USER
+                || status == ListingStatus.UNAVAILABLE
+                || status == ListingStatus.CONTACT_UNAVAILABLE
+                || status == ListingStatus.REJECTED
+                || status == ListingStatus.EXPIRED
+                || status == ListingStatus.FINISHED;
     }
 
     private String normalizeOptionalText(String value) {

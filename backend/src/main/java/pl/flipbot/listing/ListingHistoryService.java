@@ -4,28 +4,39 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.listing.dto.ListingHistoryResponse;
+import pl.flipbot.listing.dto.UpdateHistoryClassificationRequest;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class ListingHistoryService {
 
+    private static final Set<ListingStatus> HISTORY_STATUSES =
+            EnumSet.of(
+                    ListingStatus.PURCHASED,
+                    ListingStatus.SKIPPED_BY_USER,
+                    ListingStatus.UNAVAILABLE,
+                    ListingStatus.CONTACT_UNAVAILABLE,
+                    ListingStatus.REJECTED,
+                    ListingStatus.EXPIRED,
+                    ListingStatus.FINISHED
+            );
+
     private final ListingRepository listingRepository;
 
     @Transactional(readOnly = true)
     public List<ListingHistoryResponse> getHistory() {
-
         return listingRepository
                 .findAll()
                 .stream()
-                .filter(
-                        this::isVisibleHistoryListing
-                )
+                .filter(this::isVisibleHistoryListing)
                 .sorted(
                         Comparator.comparing(
                                 Listing::getDecisionAt,
@@ -34,10 +45,43 @@ public class ListingHistoryService {
                                 )
                         )
                 )
-                .map(
-                        this::map
-                )
+                .map(this::map)
                 .toList();
+    }
+
+    @Transactional
+    public ListingHistoryResponse updateClassification(
+            Long listingId,
+            UpdateHistoryClassificationRequest request
+    ) {
+        if (request == null
+                || request.historyOutcome() == null
+                || request.offerAssessment() == null) {
+            throw new IllegalArgumentException(
+                    "History outcome and offer assessment are required."
+            );
+        }
+
+        Listing listing = getVisibleHistoryListing(listingId);
+
+        HistoryOutcome persistedOutcome =
+                request.historyOutcome() == HistoryOutcome.UNCLASSIFIED
+                        ? null
+                        : request.historyOutcome();
+
+        listing.setHistoryOutcome(persistedOutcome);
+        listing.setOfferAssessment(request.offerAssessment());
+
+        if (request.historyOutcome() == HistoryOutcome.MISSED_OPPORTUNITY) {
+            listing.setMissedOpportunityReason(
+                    request.missedOpportunityReason()
+            );
+        } else {
+            listing.setMissedOpportunityReason(null);
+        }
+
+        listingRepository.save(listing);
+        return map(listing);
     }
 
     @Transactional
@@ -45,12 +89,11 @@ public class ListingHistoryService {
             Long listingId,
             BigDecimal purchasePrice
     ) {
-
         Listing listing = getVisibleHistoryListing(listingId);
 
-        if (listing.getStatus() != ListingStatus.PURCHASED) {
+        if (effectiveOutcome(listing) != HistoryOutcome.PURCHASED) {
             throw new IllegalStateException(
-                    "Purchase price can only be edited for PURCHASED history entries."
+                    "Purchase price can only be edited for history entries classified as PURCHASED."
             );
         }
 
@@ -73,14 +116,34 @@ public class ListingHistoryService {
 
     @Transactional
     public void hideHistoryEntry(Long listingId) {
-
         Listing listing = getVisibleHistoryListing(listingId);
         listing.setHistoryHidden(true);
         listingRepository.save(listing);
     }
 
-    private Listing getVisibleHistoryListing(Long listingId) {
+    HistoryOutcome effectiveOutcome(Listing listing) {
+        if (listing.getHistoryOutcome() != null) {
+            return listing.getHistoryOutcome();
+        }
 
+        if (listing.getStatus() == ListingStatus.PURCHASED) {
+            return HistoryOutcome.PURCHASED;
+        }
+
+        if (listing.getStatus() == ListingStatus.SKIPPED_BY_USER) {
+            return HistoryOutcome.REJECTED;
+        }
+
+        return HistoryOutcome.UNCLASSIFIED;
+    }
+
+    OfferAssessment effectiveAssessment(Listing listing) {
+        return listing.getOfferAssessment() == null
+                ? OfferAssessment.UNASSESSED
+                : listing.getOfferAssessment();
+    }
+
+    private Listing getVisibleHistoryListing(Long listingId) {
         Listing listing = listingRepository.findById(listingId)
                 .orElseThrow(() -> new NoSuchElementException(
                         "History listing " + listingId + " does not exist."
@@ -99,66 +162,39 @@ public class ListingHistoryService {
         return isHistoryListing(listing) && !listing.isHistoryHidden();
     }
 
-    private boolean isHistoryListing(
-            Listing listing
-    ) {
-
-        return listing.getStatus()
-                == ListingStatus.PURCHASED
-                || listing.getStatus()
-                == ListingStatus.SKIPPED_BY_USER;
+    private boolean isHistoryListing(Listing listing) {
+        return listing != null
+                && listing.getStatus() != null
+                && HISTORY_STATUSES.contains(listing.getStatus());
     }
 
-    private ListingHistoryResponse map(
-            Listing listing
-    ) {
-
+    private ListingHistoryResponse map(Listing listing) {
         return ListingHistoryResponse
                 .builder()
-                .id(
-                        listing.getId()
+                .id(listing.getId())
+                .listingId(listing.getListingId())
+                .title(listing.getTitle())
+                .url(listing.getUrl())
+                .originalPrice(listing.getOriginalPrice())
+                .currentPrice(listing.getCurrentPrice())
+                .currentStep(listing.getCurrentStep())
+                .status(listing.getStatus().name())
+                .historyOutcome(effectiveOutcome(listing).name())
+                .offerAssessment(effectiveAssessment(listing).name())
+                .missedOpportunityReason(
+                        listing.getMissedOpportunityReason() == null
+                                ? null
+                                : listing.getMissedOpportunityReason().name()
                 )
-                .listingId(
-                        listing.getListingId()
-                )
-                .title(
-                        listing.getTitle()
-                )
-                .url(
-                        listing.getUrl()
-                )
-                .originalPrice(
-                        listing.getOriginalPrice()
-                )
-                .currentPrice(
-                        listing.getCurrentPrice()
-                )
-                .currentStep(
-                        listing.getCurrentStep()
-                )
-                .status(
-                        listing.getStatus()
-                                .name()
-                )
-                .decisionAt(
-                        listing.getDecisionAt()
-                )
-                .botId(
-                        listing.getBot()
-                                .getId()
-                )
-                .botName(
-                        listing.getBot()
-                                .getName()
-                )
+                .decisionAt(listing.getDecisionAt())
+                .botId(listing.getBot().getId())
+                .botName(listing.getBot().getName())
                 .additionalTargetId(
                         listing.getAdditionalTarget() == null
                                 ? null
                                 : listing.getAdditionalTarget().getId()
                 )
-                .productTargetLabel(
-                        listing.getProductTargetLabel()
-                )
+                .productTargetLabel(listing.getProductTargetLabel())
                 .build();
     }
 }

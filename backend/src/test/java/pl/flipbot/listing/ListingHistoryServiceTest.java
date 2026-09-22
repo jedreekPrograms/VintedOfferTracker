@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.listing.dto.ListingHistoryResponse;
+import pl.flipbot.listing.dto.UpdateHistoryClassificationRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -53,6 +54,47 @@ class ListingHistoryServiceTest {
     }
 
     @Test
+    void legacyStatusesMapToBackwardCompatibleHistoryOutcomes() {
+        Listing purchased = listing(8L, ListingStatus.PURCHASED, "1100.00");
+        Listing skipped = listing(9L, ListingStatus.SKIPPED_BY_USER, "1200.00");
+
+        when(listingRepository.findAll()).thenReturn(List.of(purchased, skipped));
+
+        List<ListingHistoryResponse> history = service.getHistory();
+
+        assertEquals("PURCHASED", history.get(0).getHistoryOutcome());
+        assertEquals("REJECTED", history.get(1).getHistoryOutcome());
+        assertEquals("UNASSESSED", history.get(0).getOfferAssessment());
+    }
+
+    @Test
+    void terminalNegotiationCanBeClassifiedAsMissedLegitOpportunity() {
+        Listing unavailable = listing(9L, ListingStatus.UNAVAILABLE, "1000.00");
+        when(listingRepository.findById(9L)).thenReturn(Optional.of(unavailable));
+
+        ListingHistoryResponse response = service.updateClassification(
+                9L,
+                new UpdateHistoryClassificationRequest(
+                        HistoryOutcome.MISSED_OPPORTUNITY,
+                        OfferAssessment.LEGIT,
+                        MissedOpportunityReason.SOLD_BEFORE_PURCHASE
+                )
+        );
+
+        assertEquals(
+                HistoryOutcome.MISSED_OPPORTUNITY,
+                unavailable.getHistoryOutcome()
+        );
+        assertEquals(OfferAssessment.LEGIT, unavailable.getOfferAssessment());
+        assertEquals(
+                MissedOpportunityReason.SOLD_BEFORE_PURCHASE,
+                unavailable.getMissedOpportunityReason()
+        );
+        assertEquals("MISSED_OPPORTUNITY", response.getHistoryOutcome());
+        verify(listingRepository).save(unavailable);
+    }
+
+    @Test
     void purchasePriceCanBeCorrectedAfterManualNegotiation() {
         Listing purchased = listing(10L, ListingStatus.PURCHASED, "1100.00");
         when(listingRepository.findById(10L)).thenReturn(Optional.of(purchased));
@@ -76,6 +118,15 @@ class ListingHistoryServiceTest {
                 IllegalStateException.class,
                 () -> service.updatePurchasePrice(11L, new BigDecimal("750"))
         );
+
+        skipped.setHistoryOutcome(HistoryOutcome.PURCHASED);
+
+        ListingHistoryResponse reclassified = service.updatePurchasePrice(
+                11L,
+                new BigDecimal("760")
+        );
+
+        assertEquals(new BigDecimal("760.00"), reclassified.getCurrentPrice());
     }
 
     @Test

@@ -82,6 +82,19 @@ public class Listing {
     @Column(name = "history_hidden", nullable = false)
     private boolean historyHidden;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "history_outcome", length = 40)
+    private HistoryOutcome historyOutcome;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "offer_assessment", nullable = false, length = 40)
+    @Builder.Default
+    private OfferAssessment offerAssessment = OfferAssessment.UNASSESSED;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "missed_opportunity_reason", length = 40)
+    private MissedOpportunityReason missedOpportunityReason;
+
     @Column(name = "current_step_started_at")
     private LocalDateTime currentStepStartedAt;
 
