@@ -3,6 +3,9 @@ import {
     useEffect,
     useState,
 } from "react";
+import {
+    Link,
+} from "react-router-dom";
 
 import {
     getDashboardStats,
@@ -39,9 +42,8 @@ const outcomeOptions: Array<{
     value: HistoryOutcome;
     label: string;
 }> = [
-    { value: "PURCHASED", label: "Kupione" },
-    { value: "REJECTED", label: "Odrzucone" },
-    { value: "MISSED_OPPORTUNITY", label: "Utracone okazje" },
+    { value: "PURCHASED", label: "Kupiłem" },
+    { value: "REJECTED", label: "Nie kupiłem" },
     { value: "UNCLASSIFIED", label: "Do oznaczenia" },
 ];
 
@@ -103,14 +105,6 @@ function DashboardPage() {
                     value: stats.negotiatingCount.toString(),
                     description: "Oferty ze statusem NEGOTIATING",
                 },
-                {
-                    label: "Oferty do kupienia",
-                    value: stats.actionRequiredCount.toString(),
-                    description: "Czekają na Twoją decyzję",
-                    variant: stats.actionRequiredCount > 0
-                        ? "warning"
-                        : "default",
-                },
             ];
 
     const periodStats: DashboardStat[] =
@@ -123,21 +117,15 @@ function DashboardPage() {
                     description: "Po zastosowaniu filtrów",
                 },
                 {
-                    label: "Kupione",
+                    label: "Kupiłem",
                     value: stats.purchasedCount.toString(),
                     description: getPeriodDescription(period),
                     variant: "success",
                 },
                 {
-                    label: "Odrzucone",
+                    label: "Nie kupiłem",
                     value: stats.skippedByUserCount.toString(),
-                    description: "Oferty sklasyfikowane jako odrzucone",
-                },
-                {
-                    label: "Utracone okazje",
-                    value: stats.missedOpportunityCount.toString(),
-                    description: "Legit okazje, których nie udało się kupić",
-                    variant: "warning",
+                    description: "Oferty z etapu „do kupienia”, których finalnie nie kupiłeś",
                 },
                 {
                     label: "Legit",
@@ -220,6 +208,32 @@ function DashboardPage() {
                 >
                     {errorMessage}
                 </div>
+            )}
+
+            {stats !== null && (
+                <Link
+                    className={
+                        stats.actionRequiredCount > 0
+                            ? "dashboard-buy-hero dashboard-buy-hero-active"
+                            : "dashboard-buy-hero"
+                    }
+                    to="/action-required"
+                >
+                    <div>
+                        <span className="dashboard-buy-hero-eyebrow">
+                            Wymaga Twojej decyzji
+                        </span>
+                        <strong>{stats.actionRequiredCount}</strong>
+                        <h2>Oferty do kupienia teraz</h2>
+                        <p>
+                            To są wyłącznie oferty, które dotarły do etapu decyzji zakupowej.
+                            Kliknij, żeby przejść do listy.
+                        </p>
+                    </div>
+                    <span className="dashboard-buy-hero-action">
+                        Otwórz oferty →
+                    </span>
+                </Link>
             )}
 
             <div className="dashboard-section-header">
@@ -315,16 +329,18 @@ function DashboardPage() {
 
                             <div className="dashboard-decision-stats">
                                 <div>
-                                    <span>Kupione</span>
+                                    <span>Kupiłem</span>
                                     <strong>{stats.purchasedCount}</strong>
                                 </div>
                                 <div>
-                                    <span>Odrzucone</span>
+                                    <span>Nie kupiłem</span>
                                     <strong>{stats.skippedByUserCount}</strong>
                                 </div>
                                 <div>
-                                    <span>Utracone</span>
-                                    <strong>{stats.missedOpportunityCount}</strong>
+                                    <span>Wszystkie decyzje</span>
+                                    <strong>
+                                        {stats.purchasedCount + stats.skippedByUserCount}
+                                    </strong>
                                 </div>
                             </div>
                         </article>
@@ -334,7 +350,7 @@ function DashboardPage() {
                                 Skuteczność zakupu
                             </h2>
                             <p className="content-card-text">
-                                Jak duża część wpisów Kupione/Odrzucone zakończyła się zakupem.
+                                Jaki procent decyzji z „Ofert do kupienia” zakończył się zakupem.
                             </p>
 
                             <div className="dashboard-effectiveness">
