@@ -27,6 +27,10 @@ public class MissedOpportunityReasonConverter
                     MissedOpportunityReason.NO_FUNDS;
             case "TOO_SLOW" ->
                     MissedOpportunityReason.TOO_SLOW;
+            case "PRICE_TOO_HIGH" ->
+                    MissedOpportunityReason.PRICE_TOO_HIGH;
+            case "CHANGED_MIND" ->
+                    MissedOpportunityReason.CHANGED_MIND;
             case "OTHER" ->
                     MissedOpportunityReason.OTHER;
             default -> null;
