@@ -29,7 +29,8 @@ public class HistoryAnalyticsSchemaInitializer implements ApplicationRunner {
                 ALTER TABLE listing
                     ADD COLUMN IF NOT EXISTS history_outcome VARCHAR(40),
                     ADD COLUMN IF NOT EXISTS offer_assessment VARCHAR(40) NOT NULL DEFAULT 'UNASSESSED',
-                    ADD COLUMN IF NOT EXISTS missed_opportunity_reason VARCHAR(40)
+                    ADD COLUMN IF NOT EXISTS missed_opportunity_reason VARCHAR(40),
+                    ADD COLUMN IF NOT EXISTS buy_candidate_at TIMESTAMP
                 """);
 
         /*
@@ -92,6 +93,8 @@ public class HistoryAnalyticsSchemaInitializer implements ApplicationRunner {
                       'SOLD_BEFORE_PURCHASE',
                       'NO_FUNDS',
                       'TOO_SLOW',
+                      'PRICE_TOO_HIGH',
+                      'CHANGED_MIND',
                       'OTHER'
                   )
                 """);
@@ -104,6 +107,27 @@ public class HistoryAnalyticsSchemaInitializer implements ApplicationRunner {
         jdbcTemplate.execute("""
                 ALTER TABLE listing
                     ALTER COLUMN offer_assessment SET NOT NULL
+                """);
+
+        int collapsedLegacyMissed = jdbcTemplate.update("""
+                UPDATE listing
+                SET history_outcome = 'REJECTED'
+                WHERE history_outcome = 'MISSED_OPPORTUNITY'
+                """);
+
+        int buyCandidateBackfill = jdbcTemplate.update("""
+                UPDATE listing
+                SET buy_candidate_at = COALESCE(
+                        decision_at,
+                        current_step_started_at,
+                        last_fresh_discovery_at
+                    )
+                WHERE buy_candidate_at IS NULL
+                  AND status IN (
+                      'ACTION_REQUIRED',
+                      'PURCHASED',
+                      'SKIPPED_BY_USER'
+                  )
                 """);
 
         int purchasedBackfill = jdbcTemplate.update("""
@@ -217,13 +241,21 @@ public class HistoryAnalyticsSchemaInitializer implements ApplicationRunner {
                     ON listing (history_outcome, offer_assessment)
                 """);
 
+        jdbcTemplate.execute("""
+                CREATE INDEX IF NOT EXISTS idx_listing_buy_candidate_history
+                    ON listing (buy_candidate_at, status)
+                    WHERE buy_candidate_at IS NOT NULL
+                """);
+
         log.info(
-                "[HISTORY ANALYTICS] Verified local schema compatibility. Legacy normalized: purchased={}, rejected={}, unknown outcomes={}, unknown assessments={}, unknown missed reasons={}. Backfilled outcomes: purchased={}, rejected={}; decision timestamps={}; product labels: additional={}, main={}.",
+                "[HISTORY ANALYTICS] Verified local schema compatibility. Legacy normalized: purchased={}, rejected={}, unknown outcomes={}, unknown assessments={}, unknown missed reasons={}, collapsed missed={}. Buy-candidate backfill={}. Backfilled outcomes: purchased={}, rejected={}; decision timestamps={}; product labels: additional={}, main={}.",
                 legacyPurchased,
                 legacyRejected,
                 unknownOutcomes,
                 unknownAssessments,
                 unknownMissedReasons,
+                collapsedLegacyMissed,
+                buyCandidateBackfill,
                 purchasedBackfill,
                 rejectedBackfill,
                 decisionAtBackfill,
