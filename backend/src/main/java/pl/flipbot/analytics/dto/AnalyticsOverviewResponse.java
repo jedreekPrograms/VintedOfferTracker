@@ -36,6 +36,9 @@ public record AnalyticsOverviewResponse(
             BigDecimal marketStandardDeviation,
             BigDecimal marketMinPrice,
             BigDecimal marketMaxPrice,
+            BigDecimal averageListingsPerDay,
+            BigDecimal averageListingsPerWeek,
+            BigDecimal averageListingsPerMonth,
             BigDecimal averagePurchasePrice,
             BigDecimal medianPurchasePrice,
             BigDecimal averageLegitRejectedPrice,
@@ -56,6 +59,9 @@ public record AnalyticsOverviewResponse(
             int marketPriceSampleCount,
             BigDecimal averageMarketPrice,
             BigDecimal medianMarketPrice,
+            BigDecimal averageListingsPerDay,
+            BigDecimal averageListingsPerWeek,
+            BigDecimal averageListingsPerMonth,
             long purchasedCount,
             BigDecimal averagePurchasePrice,
             BigDecimal medianPurchasePrice,
@@ -69,11 +75,13 @@ public record AnalyticsOverviewResponse(
 
     public record TimelinePoint(
             LocalDate date,
+            String label,
             long marketListingCount,
             BigDecimal averageMarketPrice,
             BigDecimal medianMarketPrice,
             long purchaseCount,
-            BigDecimal averagePurchasePrice
+            BigDecimal averagePurchasePrice,
+            BigDecimal medianPurchasePrice
     ) {
     }
 
