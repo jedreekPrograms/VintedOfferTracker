@@ -51,12 +51,13 @@ public class ListingHistoryService {
 
         Listing listing = getVisibleHistoryListing(listingId);
 
-        HistoryOutcome persistedOutcome =
-                request.historyOutcome() == HistoryOutcome.UNCLASSIFIED
-                        ? null
-                        : request.historyOutcome();
-
-        listing.setHistoryOutcome(persistedOutcome);
+        /*
+         * NULL is reserved for untouched legacy rows where effectiveOutcome()
+         * provides the backward-compatible mapping. Once the operator makes an
+         * explicit choice, including "UNCLASSIFIED", persist it verbatim so the
+         * choice is not silently replaced by the old technical status.
+         */
+        listing.setHistoryOutcome(request.historyOutcome());
         listing.setOfferAssessment(request.offerAssessment());
 
         if (request.historyOutcome() == HistoryOutcome.MISSED_OPPORTUNITY) {

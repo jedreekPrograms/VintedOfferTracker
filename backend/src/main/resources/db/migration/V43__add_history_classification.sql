@@ -26,8 +26,11 @@ WHERE decision_at IS NULL
       'EXPIRED'
   );
 
--- Backfill the immutable product label for old rows when the original target
--- still exists. New rows already snapshot this at claim time.
+-- Backfill the immutable product label for old rows only when the current
+-- linked target and the stored listing title independently agree on the target.
+-- A bot may have been repurposed since an old listing was handled, so unresolved
+-- legacy rows deliberately stay unassigned rather than contaminating model stats.
+-- New rows already snapshot this at claim time.
 UPDATE listing l
 SET product_target_label =
         trim(t.brand)
@@ -45,7 +48,18 @@ WHERE l.product_target_label IS NULL
   AND CASE
           WHEN t.target_mode = 'SEARCH_QUERY' THEN t.search_query
           ELSE t.model
-      END IS NOT NULL;
+      END IS NOT NULL
+  AND position(
+          lower(
+              trim(
+                  CASE
+                      WHEN t.target_mode = 'SEARCH_QUERY' THEN t.search_query
+                      ELSE t.model
+                  END
+              )
+          )
+          in lower(l.title)
+      ) > 0;
 
 UPDATE listing l
 SET product_target_label =
@@ -65,7 +79,18 @@ WHERE l.product_target_label IS NULL
   AND CASE
           WHEN c.target_mode = 'SEARCH_QUERY' THEN c.search_query
           ELSE c.model
-      END IS NOT NULL;
+      END IS NOT NULL
+  AND position(
+          lower(
+              trim(
+                  CASE
+                      WHEN c.target_mode = 'SEARCH_QUERY' THEN c.search_query
+                      ELSE c.model
+                  END
+              )
+          )
+          in lower(l.title)
+      ) > 0;
 
 CREATE INDEX idx_listing_history_classification
     ON listing(history_outcome, offer_assessment);

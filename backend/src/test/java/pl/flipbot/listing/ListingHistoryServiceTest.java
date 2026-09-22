@@ -68,6 +68,24 @@ class ListingHistoryServiceTest {
     }
 
     @Test
+    void explicitUnclassifiedCanOverrideLegacyPurchasedMapping() {
+        Listing purchased = listing(7L, ListingStatus.PURCHASED, "1100.00");
+        when(listingRepository.findById(7L)).thenReturn(Optional.of(purchased));
+
+        ListingHistoryResponse response = service.updateClassification(
+                7L,
+                new UpdateHistoryClassificationRequest(
+                        HistoryOutcome.UNCLASSIFIED,
+                        OfferAssessment.UNASSESSED,
+                        null
+                )
+        );
+
+        assertEquals(HistoryOutcome.UNCLASSIFIED, purchased.getHistoryOutcome());
+        assertEquals("UNCLASSIFIED", response.getHistoryOutcome());
+    }
+
+    @Test
     void terminalNegotiationCanBeClassifiedAsMissedLegitOpportunity() {
         Listing unavailable = listing(9L, ListingStatus.UNAVAILABLE, "1000.00");
         when(listingRepository.findById(9L)).thenReturn(Optional.of(unavailable));
