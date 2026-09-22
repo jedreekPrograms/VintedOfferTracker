@@ -34,11 +34,17 @@ export function getFilteredHistory(
 
     return listings
         .filter(listing => {
-            if (
-                filters.outcome !== "ALL"
-                && listing.historyOutcome !== filters.outcome
-            ) {
-                return false;
+            if (filters.outcome !== "ALL") {
+                const matchesOutcome =
+                    listing.historyOutcome === filters.outcome
+                    || (
+                        filters.outcome === "REJECTED"
+                        && listing.historyOutcome === "MISSED_OPPORTUNITY"
+                    );
+
+                if (!matchesOutcome) {
+                    return false;
+                }
             }
 
             if (
