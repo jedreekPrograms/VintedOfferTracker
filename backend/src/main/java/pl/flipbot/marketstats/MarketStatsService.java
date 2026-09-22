@@ -184,6 +184,10 @@ public class MarketStatsService {
         }
 
         List<String> listingIds = normalizeListingIds(request.listingIds());
+        Map<String, BigDecimal> listingPrices = normalizeListingPrices(
+                request.listingPrices(),
+                listingIds
+        );
 
         if (listingIds.isEmpty() && !request.complete()) {
             throw new IllegalArgumentException(
@@ -236,23 +240,28 @@ public class MarketStatsService {
         for (String listingId : listingIds) {
             MarketListingObservation existing = existingById.get(listingId);
 
+            BigDecimal observedPrice = listingPrices.get(listingId);
+
             if (existing != null) {
                 existing.setLastSeenAt(now);
+                applyObservedPrice(existing, observedPrice);
                 changed.add(existing);
                 continue;
             }
 
             boolean baseline = baselineMode;
 
-            changed.add(
+            MarketListingObservation observation =
                     MarketListingObservation.builder()
                             .model(model)
                             .marketplaceListingId(listingId)
                             .firstSeenAt(now)
                             .lastSeenAt(now)
                             .baseline(baseline)
-                            .build()
-            );
+                            .build();
+
+            applyObservedPrice(observation, observedPrice);
+            changed.add(observation);
 
             if (!baseline) {
                 newListings++;
@@ -592,6 +601,70 @@ public class MarketStatsService {
                                 "Dictionary model was not found: " + modelId
                         )
                 );
+    }
+
+    private void applyObservedPrice(
+            MarketListingObservation observation,
+            BigDecimal observedPrice
+    ) {
+        if (observation == null
+                || observedPrice == null
+                || observedPrice.signum() <= 0) {
+            return;
+        }
+
+        BigDecimal normalized = observedPrice.setScale(
+                2,
+                java.math.RoundingMode.HALF_UP
+        );
+
+        if (observation.getFirstSeenPrice() == null) {
+            observation.setFirstSeenPrice(normalized);
+        }
+
+        observation.setLatestPrice(normalized);
+
+        if (observation.getLowestSeenPrice() == null
+                || normalized.compareTo(observation.getLowestSeenPrice()) < 0) {
+            observation.setLowestSeenPrice(normalized);
+        }
+
+        if (observation.getHighestSeenPrice() == null
+                || normalized.compareTo(observation.getHighestSeenPrice()) > 0) {
+            observation.setHighestSeenPrice(normalized);
+        }
+    }
+
+    private Map<String, BigDecimal> normalizeListingPrices(
+            Map<String, BigDecimal> rawPrices,
+            List<String> acceptedListingIds
+    ) {
+        if (rawPrices == null
+                || rawPrices.isEmpty()
+                || acceptedListingIds == null
+                || acceptedListingIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<String> accepted = Set.copyOf(acceptedListingIds);
+        Map<String, BigDecimal> normalized = new LinkedHashMap<>();
+
+        for (Map.Entry<String, BigDecimal> entry : rawPrices.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+
+            String listingId = entry.getKey().trim();
+            BigDecimal price = entry.getValue();
+
+            if (!listingId.isEmpty()
+                    && accepted.contains(listingId)
+                    && price.signum() > 0) {
+                normalized.put(listingId, price);
+            }
+        }
+
+        return Map.copyOf(normalized);
     }
 
     private List<String> normalizeListingIds(

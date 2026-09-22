@@ -183,6 +183,7 @@ public class MarketStatsApiClient extends ApiClient {
     public MarketObservationBatchResponseDto recordObservations(
             Long modelId,
             List<String> listingIds,
+            Map<String, java.math.BigDecimal> listingPrices,
             boolean complete
     ) {
         List<String> acceptedIds = listingIds == null
@@ -215,6 +216,7 @@ public class MarketStatsApiClient extends ApiClient {
                 recorded = postObservations(
                         modelId,
                         acceptedIds,
+                        listingPrices,
                         effectiveComplete
                 );
             } else {
@@ -227,6 +229,7 @@ public class MarketStatsApiClient extends ApiClient {
                 recorded = postObservations(
                         modelId,
                         acceptedIds,
+                        listingPrices,
                         false
                 );
 
@@ -239,6 +242,7 @@ public class MarketStatsApiClient extends ApiClient {
                     recorded = postObservations(
                             modelId,
                             acceptedIds,
+                            listingPrices,
                             true
                     );
                 }
@@ -262,7 +266,7 @@ public class MarketStatsApiClient extends ApiClient {
                     .toList();
 
             if (!observedIds.isEmpty()) {
-                postObservations(modelId, observedIds, false);
+                postObservations(modelId, observedIds, Map.of(), false);
                 flushResolvedPublicationTimes(modelId, observedIds);
 
                 log.info(
@@ -285,6 +289,7 @@ public class MarketStatsApiClient extends ApiClient {
     private MarketObservationBatchResponseDto postObservations(
             Long modelId,
             List<String> listingIds,
+            Map<String, java.math.BigDecimal> listingPrices,
             boolean complete
     ) {
         MarketStatsTargetDto target = loadedTargets.get(modelId);
@@ -297,7 +302,8 @@ public class MarketStatsApiClient extends ApiClient {
                         listingIds,
                         complete,
                         target == null ? null : target.minPrice(),
-                        target == null ? null : target.maxPrice()
+                        target == null ? null : target.maxPrice(),
+                        listingPrices == null ? Map.of() : listingPrices
                 )
         );
 
