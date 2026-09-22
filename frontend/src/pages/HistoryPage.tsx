@@ -118,8 +118,8 @@ function HistoryPage() {
                     <p className="page-eyebrow">Archiwum decyzji</p>
                     <h1 className="page-title">Historia</h1>
                     <p className="page-description">
-                        Zakończone negocjacje z własną klasyfikacją wyniku i jakości oferty.
-                        Stare wpisy Kupione/Odrzucone pozostają zgodne wstecznie.
+                        Tylko oferty, które faktycznie trafiły wcześniej do sekcji „Oferty do kupienia”.
+                        Oznacz, czy kupiłeś, dlaczego nie kupiłeś oraz czy oferta była legit.
                     </p>
                 </div>
 
@@ -143,8 +143,10 @@ function HistoryPage() {
                 value={filter}
                 totalCount={listings.length}
                 purchasedCount={countOutcome("PURCHASED")}
-                rejectedCount={countOutcome("REJECTED")}
-                missedCount={countOutcome("MISSED_OPPORTUNITY")}
+                rejectedCount={
+                    countOutcome("REJECTED")
+                    + countOutcome("MISSED_OPPORTUNITY")
+                }
                 unclassifiedCount={countOutcome("UNCLASSIFIED")}
                 onChange={setFilter}
             />
