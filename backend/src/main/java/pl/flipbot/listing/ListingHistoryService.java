@@ -60,7 +60,8 @@ public class ListingHistoryService {
         listing.setHistoryOutcome(request.historyOutcome());
         listing.setOfferAssessment(request.offerAssessment());
 
-        if (request.historyOutcome() == HistoryOutcome.MISSED_OPPORTUNITY) {
+        if (request.historyOutcome() == HistoryOutcome.REJECTED
+                || request.historyOutcome() == HistoryOutcome.MISSED_OPPORTUNITY) {
             listing.setMissedOpportunityReason(
                     request.missedOpportunityReason()
             );
@@ -156,6 +157,7 @@ public class ListingHistoryService {
                                 : listing.getMissedOpportunityReason().name()
                 )
                 .decisionAt(listing.getDecisionAt())
+                .buyCandidateAt(listing.getBuyCandidateAt())
                 .botId(listing.getBot().getId())
                 .botName(listing.getBot().getName())
                 .additionalTargetId(
