@@ -26,9 +26,8 @@ import {
 
 const outcomeOptions: AppSelectOption[] = [
     { value: "UNCLASSIFIED", label: "Do oznaczenia" },
-    { value: "PURCHASED", label: "Kupiona" },
-    { value: "REJECTED", label: "Odrzucona" },
-    { value: "MISSED_OPPORTUNITY", label: "Utracona okazja" },
+    { value: "PURCHASED", label: "Kupiłem" },
+    { value: "REJECTED", label: "Nie kupiłem" },
 ];
 
 const assessmentOptions: AppSelectOption[] = [
@@ -38,11 +37,13 @@ const assessmentOptions: AppSelectOption[] = [
 ];
 
 const missedReasonOptions: AppSelectOption[] = [
-    { value: "", label: "Bez powodu" },
-    { value: "SOLD_BEFORE_PURCHASE", label: "Sprzedane przed zakupem" },
+    { value: "", label: "Wybierz powód" },
+    { value: "SOLD_BEFORE_PURCHASE", label: "Ktoś kupił przede mną" },
     { value: "TOO_SLOW", label: "Nie zdążyłem zareagować" },
     { value: "NO_FUNDS", label: "Brak środków" },
-    { value: "OTHER", label: "Inne" },
+    { value: "PRICE_TOO_HIGH", label: "Cena / okazja nie była wystarczająco dobra" },
+    { value: "CHANGED_MIND", label: "Zrezygnowałem z zakupu" },
+    { value: "OTHER", label: "Inny powód" },
 ];
 
 interface HistoryCardProps {
@@ -86,7 +87,8 @@ function HistoryCard({
                 listing.id,
                 historyOutcome,
                 offerAssessment,
-                historyOutcome === "MISSED_OPPORTUNITY"
+                historyOutcome === "REJECTED"
+                || historyOutcome === "MISSED_OPPORTUNITY"
                     ? missedOpportunityReason
                     : null,
             );
@@ -205,9 +207,10 @@ function HistoryCard({
                         />
                     </div>
 
-                    {listing.historyOutcome === "MISSED_OPPORTUNITY" && (
+                    {(listing.historyOutcome === "REJECTED"
+                        || listing.historyOutcome === "MISSED_OPPORTUNITY") && (
                         <div>
-                            <label>Powód utraty</label>
+                            <label>Dlaczego nie kupiłem</label>
                             <AppSelect
                                 value={listing.missedOpportunityReason ?? ""}
                                 options={missedReasonOptions}
@@ -359,11 +362,10 @@ function HistoryCard({
 function getOutcomeLabel(outcome: HistoryOutcome): string {
     switch (outcome) {
         case "PURCHASED":
-            return "✓ Kupiona";
+            return "✓ Kupiłem";
         case "REJECTED":
-            return "✕ Odrzucona";
         case "MISSED_OPPORTUNITY":
-            return "◷ Utracona okazja";
+            return "✕ Nie kupiłem";
         case "UNCLASSIFIED":
         default:
             return "• Do oznaczenia";
