@@ -64,6 +64,7 @@ public class ListingService {
     @Transactional
     public ListingResponse markAsPurchased(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
+        markBuyCandidateIfMissing(listing);
         listing.setStatus(ListingStatus.PURCHASED);
         listing.setHistoryOutcome(HistoryOutcome.PURCHASED);
         listing.setAwaitingSellerResponse(false);
@@ -76,6 +77,7 @@ public class ListingService {
     @Transactional
     public ListingResponse skipByUser(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
+        markBuyCandidateIfMissing(listing);
         listing.setStatus(ListingStatus.SKIPPED_BY_USER);
         listing.setHistoryOutcome(HistoryOutcome.REJECTED);
         listing.setAwaitingSellerResponse(false);
@@ -232,6 +234,18 @@ public class ListingService {
         listing.setConversationId(request.getConversationId());
         listing.setConversationUrl(request.getConversationUrl());
         listing.setStatus(request.getStatus());
+
+        if (request.getStatus() == ListingStatus.ACTION_REQUIRED
+                && listing.getBuyCandidateAt() == null) {
+            LocalDateTime now = LocalDateTime.now();
+            listing.setBuyCandidateAt(now);
+            log.info(
+                    "Listing {} for bot {} entered ACTION_REQUIRED for the first time at {}.",
+                    listingId,
+                    botId,
+                    now
+            );
+        }
 
         if (isHistoryTerminalStatus(request.getStatus())
                 && !isHistoryTerminalStatus(previousStatus)
@@ -439,6 +453,12 @@ public class ListingService {
             );
         }
         return existingByMarketplaceId;
+    }
+
+    private void markBuyCandidateIfMissing(Listing listing) {
+        if (listing.getBuyCandidateAt() == null) {
+            listing.setBuyCandidateAt(LocalDateTime.now());
+        }
     }
 
     private boolean isHistoryTerminalStatus(ListingStatus status) {
