@@ -34,6 +34,8 @@ public class ListingHistoryResponse {
 
     private LocalDateTime decisionAt;
 
+    private LocalDateTime buyCandidateAt;
+
     private Long botId;
 
     private String botName;
