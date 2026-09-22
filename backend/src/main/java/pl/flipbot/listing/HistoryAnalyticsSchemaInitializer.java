@@ -32,6 +32,80 @@ public class HistoryAnalyticsSchemaInitializer implements ApplicationRunner {
                     ADD COLUMN IF NOT EXISTS missed_opportunity_reason VARCHAR(40)
                 """);
 
+        /*
+         * Some local databases already contained an earlier experimental
+         * history-classification shape. Normalize those values before any JPA
+         * query can hydrate Listing, otherwise Enum.valueOf would fail and make
+         * Dashboard/History/Analytics all return HTTP 500 at once.
+         */
+        int legacyPurchased = jdbcTemplate.update("""
+                UPDATE listing
+                SET history_outcome = 'PURCHASED'
+                WHERE upper(trim(history_outcome)) IN (
+                    'PURCHASED_BY_ME',
+                    'BOUGHT_BY_ME',
+                    'BOUGHT'
+                )
+                """);
+
+        int legacyRejected = jdbcTemplate.update("""
+                UPDATE listing
+                SET history_outcome = 'REJECTED'
+                WHERE upper(trim(history_outcome)) IN (
+                    'REJECTED_BY_ME',
+                    'SKIPPED_BY_ME'
+                )
+                """);
+
+        int unknownOutcomes = jdbcTemplate.update("""
+                UPDATE listing
+                SET history_outcome = CASE
+                    WHEN status = 'PURCHASED' THEN 'PURCHASED'
+                    WHEN status = 'SKIPPED_BY_USER' THEN 'REJECTED'
+                    ELSE 'UNCLASSIFIED'
+                END
+                WHERE history_outcome IS NOT NULL
+                  AND upper(trim(history_outcome)) NOT IN (
+                      'UNCLASSIFIED',
+                      'PURCHASED',
+                      'REJECTED',
+                      'MISSED_OPPORTUNITY'
+                  )
+                """);
+
+        int unknownAssessments = jdbcTemplate.update("""
+                UPDATE listing
+                SET offer_assessment = 'UNASSESSED'
+                WHERE offer_assessment IS NULL
+                   OR upper(trim(offer_assessment)) NOT IN (
+                       'UNASSESSED',
+                       'LEGIT',
+                       'SCAM'
+                   )
+                """);
+
+        int unknownMissedReasons = jdbcTemplate.update("""
+                UPDATE listing
+                SET missed_opportunity_reason = NULL
+                WHERE missed_opportunity_reason IS NOT NULL
+                  AND upper(trim(missed_opportunity_reason)) NOT IN (
+                      'SOLD_BEFORE_PURCHASE',
+                      'NO_FUNDS',
+                      'TOO_SLOW',
+                      'OTHER'
+                  )
+                """);
+
+        jdbcTemplate.execute("""
+                ALTER TABLE listing
+                    ALTER COLUMN offer_assessment SET DEFAULT 'UNASSESSED'
+                """);
+
+        jdbcTemplate.execute("""
+                ALTER TABLE listing
+                    ALTER COLUMN offer_assessment SET NOT NULL
+                """);
+
         int purchasedBackfill = jdbcTemplate.update("""
                 UPDATE listing
                 SET history_outcome = 'PURCHASED'
@@ -144,7 +218,12 @@ public class HistoryAnalyticsSchemaInitializer implements ApplicationRunner {
                 """);
 
         log.info(
-                "[HISTORY ANALYTICS] Verified local schema compatibility. Backfilled outcomes: purchased={}, rejected={}; decision timestamps={}; product labels: additional={}, main={}.",
+                "[HISTORY ANALYTICS] Verified local schema compatibility. Legacy normalized: purchased={}, rejected={}, unknown outcomes={}, unknown assessments={}, unknown missed reasons={}. Backfilled outcomes: purchased={}, rejected={}; decision timestamps={}; product labels: additional={}, main={}.",
+                legacyPurchased,
+                legacyRejected,
+                unknownOutcomes,
+                unknownAssessments,
+                unknownMissedReasons,
                 purchasedBackfill,
                 rejectedBackfill,
                 decisionAtBackfill,

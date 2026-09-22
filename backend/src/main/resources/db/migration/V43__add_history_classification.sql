@@ -3,6 +3,60 @@ ALTER TABLE listing
     ADD COLUMN offer_assessment VARCHAR(40) NOT NULL DEFAULT 'UNASSESSED',
     ADD COLUMN missed_opportunity_reason VARCHAR(40);
 
+-- Normalize values from earlier experimental history implementations before
+-- JPA tries to hydrate the enum-backed columns.
+UPDATE listing
+SET history_outcome = 'PURCHASED'
+WHERE upper(trim(history_outcome)) IN (
+    'PURCHASED_BY_ME',
+    'BOUGHT_BY_ME',
+    'BOUGHT'
+);
+
+UPDATE listing
+SET history_outcome = 'REJECTED'
+WHERE upper(trim(history_outcome)) IN (
+    'REJECTED_BY_ME',
+    'SKIPPED_BY_ME'
+);
+
+UPDATE listing
+SET history_outcome = CASE
+    WHEN status = 'PURCHASED' THEN 'PURCHASED'
+    WHEN status = 'SKIPPED_BY_USER' THEN 'REJECTED'
+    ELSE 'UNCLASSIFIED'
+END
+WHERE history_outcome IS NOT NULL
+  AND upper(trim(history_outcome)) NOT IN (
+      'UNCLASSIFIED',
+      'PURCHASED',
+      'REJECTED',
+      'MISSED_OPPORTUNITY'
+  );
+
+UPDATE listing
+SET offer_assessment = 'UNASSESSED'
+WHERE offer_assessment IS NULL
+   OR upper(trim(offer_assessment)) NOT IN (
+       'UNASSESSED',
+       'LEGIT',
+       'SCAM'
+   );
+
+UPDATE listing
+SET missed_opportunity_reason = NULL
+WHERE missed_opportunity_reason IS NOT NULL
+  AND upper(trim(missed_opportunity_reason)) NOT IN (
+      'SOLD_BEFORE_PURCHASE',
+      'NO_FUNDS',
+      'TOO_SLOW',
+      'OTHER'
+  );
+
+ALTER TABLE listing
+    ALTER COLUMN offer_assessment SET DEFAULT 'UNASSESSED',
+    ALTER COLUMN offer_assessment SET NOT NULL;
+
 UPDATE listing
 SET history_outcome = 'PURCHASED'
 WHERE status = 'PURCHASED'

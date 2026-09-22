@@ -1,6 +1,7 @@
 package pl.flipbot.listing;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -82,16 +83,16 @@ public class Listing {
     @Column(name = "history_hidden", nullable = false)
     private boolean historyHidden;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = HistoryOutcomeConverter.class)
     @Column(name = "history_outcome", length = 40)
     private HistoryOutcome historyOutcome;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = OfferAssessmentConverter.class)
     @Column(name = "offer_assessment", nullable = false, length = 40)
     @Builder.Default
     private OfferAssessment offerAssessment = OfferAssessment.UNASSESSED;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = MissedOpportunityReasonConverter.class)
     @Column(name = "missed_opportunity_reason", length = 40)
     private MissedOpportunityReason missedOpportunityReason;
 
