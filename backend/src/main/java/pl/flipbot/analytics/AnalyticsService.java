@@ -11,31 +11,45 @@ import pl.flipbot.listing.HistoryOutcome;
 import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingHistoryMetadata;
 import pl.flipbot.listing.ListingRepository;
+import pl.flipbot.listing.MissedOpportunityReason;
 import pl.flipbot.listing.OfferAssessment;
 import pl.flipbot.marketstats.MarketListingObservation;
 import pl.flipbot.marketstats.MarketListingObservationRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class AnalyticsService {
 
+    private static final DateTimeFormatter DAY_LABEL =
+            DateTimeFormatter.ofPattern("dd.MM.yyyy");
+    private static final DateTimeFormatter MONTH_LABEL =
+            DateTimeFormatter.ofPattern("MM.yyyy");
+
     private final ListingRepository listingRepository;
     private final MarketListingObservationRepository observationRepository;
     private final DictionaryModelRepository modelRepository;
 
+    /**
+     * Compatibility overload for older callers.
+     */
     @Transactional(readOnly = true)
     public AnalyticsOverviewResponse getOverview(
             DashboardPeriod period,
@@ -44,15 +58,49 @@ public class AnalyticsService {
             Set<OfferAssessment> assessments,
             AnalyticsSource source
     ) {
+        return getOverview(
+                period,
+                modelId == null ? Set.of() : Set.of(modelId),
+                outcomes,
+                assessments,
+                source,
+                AnalyticsGranularity.DAY,
+                null,
+                null
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public AnalyticsOverviewResponse getOverview(
+            DashboardPeriod period,
+            Set<Long> modelIds,
+            Set<HistoryOutcome> outcomes,
+            Set<OfferAssessment> assessments,
+            AnalyticsSource source,
+            AnalyticsGranularity granularity,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
         DashboardPeriod effectivePeriod = period == null
                 ? DashboardPeriod.ALL
                 : period;
         AnalyticsSource effectiveSource = source == null
                 ? AnalyticsSource.ALL
                 : source;
+        AnalyticsGranularity effectiveGranularity = granularity == null
+                ? AnalyticsGranularity.DAY
+                : granularity;
+        Set<Long> selectedModelIds = modelIds == null
+                ? Set.of()
+                : Set.copyOf(modelIds);
 
-        LocalDateTime from = periodStart(effectivePeriod);
-        LocalDateTime to = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+        TimeRange range = resolveRange(
+                effectivePeriod,
+                fromDate,
+                toDate,
+                now
+        );
 
         List<DictionaryModel> models = modelRepository.findAll()
                 .stream()
@@ -79,15 +127,20 @@ public class AnalyticsService {
                         )
                 );
 
-        if (modelId != null && !modelLabels.containsKey(modelId)) {
+        Set<Long> unknownModelIds = selectedModelIds.stream()
+                .filter(id -> !modelLabels.containsKey(id))
+                .collect(Collectors.toSet());
+
+        if (!unknownModelIds.isEmpty()) {
             throw new java.util.NoSuchElementException(
-                    "Dictionary model was not found: " + modelId
+                    "Dictionary model(s) were not found: " + unknownModelIds
             );
         }
 
-        String selectedModelLabel = modelId == null
-                ? null
-                : modelLabels.get(modelId);
+        Set<String> selectedModelLabels = selectedModelIds.stream()
+                .map(modelLabels::get)
+                .map(ListingHistoryMetadata::normalizeLabel)
+                .collect(Collectors.toSet());
 
         List<Listing> history = effectiveSource == AnalyticsSource.OBSERVER
                 ? List.of()
@@ -97,23 +150,23 @@ public class AnalyticsService {
                         .filter(listing -> !listing.isHistoryHidden())
                         .filter(listing -> within(
                                 ListingHistoryMetadata.effectiveHistoryDate(listing),
-                                from,
-                                to,
-                                effectivePeriod
+                                range
                         ))
                         .filter(listing ->
-                                selectedModelLabel == null
-                                        || sameLabel(
-                                        ListingHistoryMetadata.effectiveModelLabel(listing),
-                                        selectedModelLabel
+                                selectedModelLabels.isEmpty()
+                                        || selectedModelLabels.contains(
+                                        ListingHistoryMetadata.normalizeLabel(
+                                                ListingHistoryMetadata.effectiveModelLabel(listing)
+                                        )
                                 )
                         )
                         .filter(listing ->
                                 outcomes == null
                                         || outcomes.isEmpty()
-                                        || outcomes.contains(
-                                        ListingHistoryMetadata.effectiveOutcome(listing)
-                                )
+                                        || matchesOutcomeFilter(
+                                                listing,
+                                                outcomes
+                                        )
                         )
                         .filter(listing ->
                                 assessments == null
@@ -135,44 +188,44 @@ public class AnalyticsService {
                                 .filter(observation ->
                                         within(
                                                 observation.getPublishedAt(),
-                                                from,
-                                                to,
-                                                effectivePeriod
+                                                range
                                         )
                                 )
                                 .filter(observation ->
-                                        modelId == null
+                                        selectedModelIds.isEmpty()
                                                 || observation.getModel() != null
-                                                && modelId.equals(
+                                                && selectedModelIds.contains(
                                                 observation.getModel().getId()
                                         )
                                 )
                                 .toList();
 
         AnalyticsOverviewResponse.Summary summary =
-                buildSummary(history, market);
+                buildSummary(history, market, range);
+
+        List<DictionaryModel> modelsForBreakdown = selectedModelIds.isEmpty()
+                ? models
+                : models.stream()
+                        .filter(model -> selectedModelIds.contains(model.getId()))
+                        .toList();
 
         List<AnalyticsOverviewResponse.ModelBreakdown> breakdowns =
-                modelId == null
-                        ? models.stream()
+                modelsForBreakdown.stream()
                         .map(model -> buildModelBreakdown(
                                 model,
                                 history,
-                                market
+                                market,
+                                range
                         ))
                         .filter(this::hasData)
-                        .toList()
-                        : models.stream()
-                        .filter(model -> model.getId().equals(modelId))
-                        .map(model -> buildModelBreakdown(
-                                model,
-                                history,
-                                market
-                        ))
                         .toList();
 
         List<AnalyticsOverviewResponse.TimelinePoint> timeline =
-                buildTimeline(history, market);
+                buildTimeline(
+                        history,
+                        market,
+                        effectiveGranularity
+                );
 
         List<BigDecimal> marketPrices =
                 market.stream()
@@ -215,7 +268,8 @@ public class AnalyticsService {
 
     private AnalyticsOverviewResponse.Summary buildSummary(
             List<Listing> history,
-            List<MarketListingObservation> market
+            List<MarketListingObservation> market,
+            TimeRange range
     ) {
         List<BigDecimal> marketPrices = market.stream()
                 .map(this::marketPrice)
@@ -223,19 +277,13 @@ public class AnalyticsService {
                 .toList();
 
         List<BigDecimal> purchasePrices = history.stream()
-                .filter(listing ->
-                        ListingHistoryMetadata.effectiveOutcome(listing)
-                                == HistoryOutcome.PURCHASED
-                )
+                .filter(this::isPurchased)
                 .map(Listing::getCurrentPrice)
                 .filter(this::positive)
                 .toList();
 
         List<BigDecimal> legitRejectedPrices = history.stream()
-                .filter(listing ->
-                        ListingHistoryMetadata.effectiveOutcome(listing)
-                                == HistoryOutcome.REJECTED
-                )
+                .filter(this::isNotPurchased)
                 .filter(listing ->
                         ListingHistoryMetadata.effectiveAssessment(listing)
                                 == OfferAssessment.LEGIT
@@ -245,10 +293,7 @@ public class AnalyticsService {
                 .toList();
 
         List<BigDecimal> missedPrices = history.stream()
-                .filter(listing ->
-                        ListingHistoryMetadata.effectiveOutcome(listing)
-                                == HistoryOutcome.MISSED_OPPORTUNITY
-                )
+                .filter(this::isMissedOpportunity)
                 .map(Listing::getCurrentPrice)
                 .filter(this::positive)
                 .toList();
@@ -261,6 +306,7 @@ public class AnalyticsService {
                 AnalyticsMath.summarize(legitRejectedPrices);
         AnalyticsMath.PriceSummary missedSummary =
                 AnalyticsMath.summarize(missedPrices);
+        MarketRates rates = marketRates(market, range);
 
         PriceAdvantage advantage = priceAdvantage(
                 marketSummary.median(),
@@ -269,9 +315,9 @@ public class AnalyticsService {
 
         return new AnalyticsOverviewResponse.Summary(
                 history.size(),
-                countOutcome(history, HistoryOutcome.PURCHASED),
-                countOutcome(history, HistoryOutcome.REJECTED),
-                countOutcome(history, HistoryOutcome.MISSED_OPPORTUNITY),
+                history.stream().filter(this::isPurchased).count(),
+                history.stream().filter(this::isNotPurchased).count(),
+                history.stream().filter(this::isMissedOpportunity).count(),
                 countAssessment(history, OfferAssessment.LEGIT),
                 countAssessment(history, OfferAssessment.SCAM),
                 countAssessment(history, OfferAssessment.UNASSESSED),
@@ -284,6 +330,9 @@ public class AnalyticsService {
                 marketSummary.standardDeviation(),
                 marketSummary.min(),
                 marketSummary.max(),
+                rates.perDay(),
+                rates.perWeek(),
+                rates.perMonth(),
                 purchaseSummary.average(),
                 purchaseSummary.median(),
                 rejectedSummary.average(),
@@ -298,7 +347,8 @@ public class AnalyticsService {
     private AnalyticsOverviewResponse.ModelBreakdown buildModelBreakdown(
             DictionaryModel model,
             List<Listing> history,
-            List<MarketListingObservation> market
+            List<MarketListingObservation> market,
+            TimeRange range
     ) {
         String modelLabel = label(model);
 
@@ -331,10 +381,7 @@ public class AnalyticsService {
         AnalyticsMath.PriceSummary purchaseSummary =
                 AnalyticsMath.summarize(
                         modelHistory.stream()
-                                .filter(listing ->
-                                        ListingHistoryMetadata.effectiveOutcome(listing)
-                                                == HistoryOutcome.PURCHASED
-                                )
+                                .filter(this::isPurchased)
                                 .map(Listing::getCurrentPrice)
                                 .filter(this::positive)
                                 .toList()
@@ -344,12 +391,10 @@ public class AnalyticsService {
                 marketSummary.median(),
                 purchaseSummary.median()
         );
+        MarketRates rates = marketRates(modelMarket, range);
 
         long legitRejected = modelHistory.stream()
-                .filter(listing ->
-                        ListingHistoryMetadata.effectiveOutcome(listing)
-                                == HistoryOutcome.REJECTED
-                )
+                .filter(this::isNotPurchased)
                 .filter(listing ->
                         ListingHistoryMetadata.effectiveAssessment(listing)
                                 == OfferAssessment.LEGIT
@@ -365,14 +410,14 @@ public class AnalyticsService {
                 marketSummary.count(),
                 marketSummary.average(),
                 marketSummary.median(),
-                countOutcome(modelHistory, HistoryOutcome.PURCHASED),
+                rates.perDay(),
+                rates.perWeek(),
+                rates.perMonth(),
+                modelHistory.stream().filter(this::isPurchased).count(),
                 purchaseSummary.average(),
                 purchaseSummary.median(),
                 legitRejected,
-                countOutcome(
-                        modelHistory,
-                        HistoryOutcome.MISSED_OPPORTUNITY
-                ),
+                modelHistory.stream().filter(this::isMissedOpportunity).count(),
                 countAssessment(modelHistory, OfferAssessment.SCAM),
                 advantage.amount(),
                 advantage.percent()
@@ -391,28 +436,31 @@ public class AnalyticsService {
 
     private List<AnalyticsOverviewResponse.TimelinePoint> buildTimeline(
             List<Listing> history,
-            List<MarketListingObservation> market
+            List<MarketListingObservation> market,
+            AnalyticsGranularity granularity
     ) {
-        Map<LocalDate, List<BigDecimal>> marketByDay = new LinkedHashMap<>();
-        Map<LocalDate, Long> marketCountByDay = new LinkedHashMap<>();
-        Map<LocalDate, List<BigDecimal>> purchaseByDay = new LinkedHashMap<>();
+        Map<LocalDate, List<BigDecimal>> marketPrices = new LinkedHashMap<>();
+        Map<LocalDate, Long> marketCounts = new LinkedHashMap<>();
+        Map<LocalDate, List<BigDecimal>> purchasePrices = new LinkedHashMap<>();
 
         for (MarketListingObservation observation : market) {
-            LocalDate date = observation.getPublishedAt().toLocalDate();
-            marketCountByDay.merge(date, 1L, Long::sum);
+            LocalDate bucket = bucketStart(
+                    observation.getPublishedAt().toLocalDate(),
+                    granularity
+            );
+            marketCounts.merge(bucket, 1L, Long::sum);
 
             BigDecimal price = marketPrice(observation);
             if (positive(price)) {
-                marketByDay.computeIfAbsent(
-                        date,
+                marketPrices.computeIfAbsent(
+                        bucket,
                         ignored -> new ArrayList<>()
                 ).add(price);
             }
         }
 
         for (Listing listing : history) {
-            if (ListingHistoryMetadata.effectiveOutcome(listing)
-                    != HistoryOutcome.PURCHASED) {
+            if (!isPurchased(listing)) {
                 continue;
             }
 
@@ -423,28 +471,32 @@ public class AnalyticsService {
                 continue;
             }
 
-            purchaseByDay.computeIfAbsent(
+            LocalDate bucket = bucketStart(
                     eventAt.toLocalDate(),
+                    granularity
+            );
+            purchasePrices.computeIfAbsent(
+                    bucket,
                     ignored -> new ArrayList<>()
             ).add(listing.getCurrentPrice());
         }
 
-        Set<LocalDate> dates = new java.util.TreeSet<>();
-        dates.addAll(marketCountByDay.keySet());
-        dates.addAll(purchaseByDay.keySet());
+        Set<LocalDate> dates = new TreeSet<>();
+        dates.addAll(marketCounts.keySet());
+        dates.addAll(purchasePrices.keySet());
 
         return dates.stream()
                 .map(date -> {
                     AnalyticsMath.PriceSummary marketSummary =
                             AnalyticsMath.summarize(
-                                    marketByDay.getOrDefault(
+                                    marketPrices.getOrDefault(
                                             date,
                                             List.of()
                                     )
                             );
                     AnalyticsMath.PriceSummary purchaseSummary =
                             AnalyticsMath.summarize(
-                                    purchaseByDay.getOrDefault(
+                                    purchasePrices.getOrDefault(
                                             date,
                                             List.of()
                                     )
@@ -452,26 +504,143 @@ public class AnalyticsService {
 
                     return new AnalyticsOverviewResponse.TimelinePoint(
                             date,
-                            marketCountByDay.getOrDefault(date, 0L),
+                            bucketLabel(date, granularity),
+                            marketCounts.getOrDefault(date, 0L),
                             marketSummary.average(),
                             marketSummary.median(),
                             purchaseSummary.count(),
-                            purchaseSummary.average()
+                            purchaseSummary.average(),
+                            purchaseSummary.median()
                     );
                 })
                 .toList();
     }
 
-    private long countOutcome(
-            List<Listing> history,
-            HistoryOutcome outcome
+    private LocalDate bucketStart(
+            LocalDate date,
+            AnalyticsGranularity granularity
     ) {
-        return history.stream()
-                .filter(listing ->
-                        ListingHistoryMetadata.effectiveOutcome(listing)
-                                == outcome
-                )
-                .count();
+        return switch (granularity) {
+            case DAY -> date;
+            case WEEK -> date.with(
+                    TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)
+            );
+            case MONTH -> date.withDayOfMonth(1);
+            case YEAR -> date.withDayOfYear(1);
+        };
+    }
+
+    private String bucketLabel(
+            LocalDate date,
+            AnalyticsGranularity granularity
+    ) {
+        return switch (granularity) {
+            case DAY -> date.format(DAY_LABEL);
+            case WEEK -> "Tydz. " + date.format(DAY_LABEL);
+            case MONTH -> date.format(MONTH_LABEL);
+            case YEAR -> Integer.toString(date.getYear());
+        };
+    }
+
+    private MarketRates marketRates(
+            List<MarketListingObservation> market,
+            TimeRange requestedRange
+    ) {
+        if (market.isEmpty()) {
+            return MarketRates.empty();
+        }
+
+        LocalDate start;
+        if (requestedRange.from().equals(LocalDateTime.MIN)) {
+            start = market.stream()
+                    .map(MarketListingObservation::getPublishedAt)
+                    .filter(java.util.Objects::nonNull)
+                    .map(LocalDateTime::toLocalDate)
+                    .min(LocalDate::compareTo)
+                    .orElse(requestedRange.to().toLocalDate());
+        } else {
+            start = requestedRange.from().toLocalDate();
+        }
+
+        LocalDate end = requestedRange.to().toLocalDate();
+        if (end.isBefore(start)) {
+            return MarketRates.empty();
+        }
+
+        long days = Math.max(
+                1,
+                ChronoUnit.DAYS.between(start, end) + 1
+        );
+        long weeks = Math.max(1, (days + 6) / 7);
+        long months = Math.max(
+                1,
+                ChronoUnit.MONTHS.between(
+                        YearMonth.from(start),
+                        YearMonth.from(end)
+                ) + 1
+        );
+
+        BigDecimal count = BigDecimal.valueOf(market.size());
+
+        return new MarketRates(
+                divide(count, days),
+                divide(count, weeks),
+                divide(count, months)
+        );
+    }
+
+    private BigDecimal divide(
+            BigDecimal value,
+            long divisor
+    ) {
+        return value.divide(
+                BigDecimal.valueOf(Math.max(divisor, 1)),
+                2,
+                RoundingMode.HALF_UP
+        );
+    }
+
+    private boolean matchesOutcomeFilter(
+            Listing listing,
+            Set<HistoryOutcome> outcomes
+    ) {
+        HistoryOutcome effective =
+                ListingHistoryMetadata.effectiveOutcome(listing);
+
+        if (outcomes.contains(effective)) {
+            return true;
+        }
+
+        return outcomes.contains(HistoryOutcome.REJECTED)
+                && effective == HistoryOutcome.MISSED_OPPORTUNITY;
+    }
+
+    private boolean isPurchased(Listing listing) {
+        return ListingHistoryMetadata.effectiveOutcome(listing)
+                == HistoryOutcome.PURCHASED;
+    }
+
+    private boolean isNotPurchased(Listing listing) {
+        HistoryOutcome outcome =
+                ListingHistoryMetadata.effectiveOutcome(listing);
+
+        return outcome == HistoryOutcome.REJECTED
+                || outcome == HistoryOutcome.MISSED_OPPORTUNITY;
+    }
+
+    private boolean isMissedOpportunity(Listing listing) {
+        if (ListingHistoryMetadata.effectiveOutcome(listing)
+                == HistoryOutcome.MISSED_OPPORTUNITY) {
+            return true;
+        }
+
+        if (!isNotPurchased(listing)) {
+            return false;
+        }
+
+        MissedOpportunityReason reason = listing.getMissedOpportunityReason();
+        return reason == MissedOpportunityReason.SOLD_BEFORE_PURCHASE
+                || reason == MissedOpportunityReason.TOO_SLOW;
     }
 
     private long countAssessment(
@@ -500,19 +669,36 @@ public class AnalyticsService {
 
     private boolean within(
             LocalDateTime value,
-            LocalDateTime from,
-            LocalDateTime to,
-            DashboardPeriod period
+            TimeRange range
     ) {
         if (value == null) {
             return false;
         }
 
-        if (period == DashboardPeriod.ALL) {
-            return !value.isAfter(to);
+        return !value.isBefore(range.from())
+                && !value.isAfter(range.to());
+    }
+
+    private TimeRange resolveRange(
+            DashboardPeriod period,
+            LocalDate fromDate,
+            LocalDate toDate,
+            LocalDateTime now
+    ) {
+        LocalDateTime from = fromDate == null
+                ? periodStart(period)
+                : fromDate.atStartOfDay();
+        LocalDateTime to = toDate == null
+                ? now
+                : toDate.plusDays(1).atStartOfDay().minusNanos(1);
+
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException(
+                    "Analytics 'from' date cannot be after 'to' date."
+            );
         }
 
-        return !value.isBefore(from) && !value.isAfter(to);
+        return new TimeRange(from, to);
     }
 
     private LocalDateTime periodStart(DashboardPeriod period) {
@@ -575,6 +761,22 @@ public class AnalyticsService {
 
     private boolean positive(BigDecimal value) {
         return value != null && value.signum() > 0;
+    }
+
+    private record TimeRange(
+            LocalDateTime from,
+            LocalDateTime to
+    ) {
+    }
+
+    private record MarketRates(
+            BigDecimal perDay,
+            BigDecimal perWeek,
+            BigDecimal perMonth
+    ) {
+        static MarketRates empty() {
+            return new MarketRates(null, null, null);
+        }
     }
 
     private record PriceAdvantage(
