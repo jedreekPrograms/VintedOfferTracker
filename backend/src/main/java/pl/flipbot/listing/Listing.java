@@ -80,6 +80,14 @@ public class Listing {
     @Column(name = "decision_at")
     private LocalDateTime decisionAt;
 
+    /**
+     * First moment this listing entered ACTION_REQUIRED ("Oferty do kupienia").
+     * History/decision analytics are intentionally scoped to rows carrying this
+     * marker, so ordinary expired/rejected negotiations never flood the archive.
+     */
+    @Column(name = "buy_candidate_at")
+    private LocalDateTime buyCandidateAt;
+
     @Column(name = "history_hidden", nullable = false)
     private boolean historyHidden;
 
