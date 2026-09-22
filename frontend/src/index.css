@@ -3104,3 +3104,89 @@ a {
 .bot-quota-remaining strong {
     color: #172033;
 }
+
+/* Dashboard: current buy queue is intentionally the primary operational KPI. */
+.dashboard-buy-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 26px;
+    border: 1px solid #e5e8ed;
+    border-radius: 18px;
+    padding: 26px 30px;
+    color: inherit;
+    background: #ffffff;
+    box-shadow: 0 8px 28px rgba(20, 27, 38, 0.05);
+    text-decoration: none;
+    transition:
+        transform 160ms ease,
+        box-shadow 160ms ease,
+        border-color 160ms ease;
+}
+
+.dashboard-buy-hero:hover {
+    transform: translateY(-1px);
+    border-color: #d7dce4;
+    box-shadow: 0 12px 34px rgba(20, 27, 38, 0.08);
+}
+
+.dashboard-buy-hero-active {
+    border-color: #ead5a7;
+    background: linear-gradient(135deg, #fffdf8, #fff8e9);
+}
+
+.dashboard-buy-hero-eyebrow {
+    display: block;
+    margin-bottom: 6px;
+    color: #94661b;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.dashboard-buy-hero strong {
+    display: block;
+    color: #172033;
+    font-size: clamp(48px, 7vw, 82px);
+    font-weight: 800;
+    line-height: 0.95;
+}
+
+.dashboard-buy-hero h2 {
+    margin: 10px 0 5px;
+    color: #222b3d;
+    font-size: 21px;
+}
+
+.dashboard-buy-hero p {
+    max-width: 680px;
+    margin: 0;
+    color: #758094;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.dashboard-buy-hero-action {
+    flex: 0 0 auto;
+    border-radius: 10px;
+    padding: 11px 14px;
+    color: #7c5718;
+    background: rgba(229, 163, 59, 0.13);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+@media (max-width: 680px) {
+    .dashboard-buy-hero {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 22px;
+    }
+
+    .dashboard-buy-hero-action {
+        width: 100%;
+        text-align: center;
+    }
+}
