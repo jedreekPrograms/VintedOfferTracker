@@ -1,6 +1,7 @@
 package pl.flipbot.listing;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -79,8 +80,29 @@ public class Listing {
     @Column(name = "decision_at")
     private LocalDateTime decisionAt;
 
+    /**
+     * First moment this listing entered ACTION_REQUIRED ("Oferty do kupienia").
+     * History/decision analytics are intentionally scoped to rows carrying this
+     * marker, so ordinary expired/rejected negotiations never flood the archive.
+     */
+    @Column(name = "buy_candidate_at")
+    private LocalDateTime buyCandidateAt;
+
     @Column(name = "history_hidden", nullable = false)
     private boolean historyHidden;
+
+    @Convert(converter = HistoryOutcomeConverter.class)
+    @Column(name = "history_outcome", length = 40)
+    private HistoryOutcome historyOutcome;
+
+    @Convert(converter = OfferAssessmentConverter.class)
+    @Column(name = "offer_assessment", nullable = false, length = 40)
+    @Builder.Default
+    private OfferAssessment offerAssessment = OfferAssessment.UNASSESSED;
+
+    @Convert(converter = MissedOpportunityReasonConverter.class)
+    @Column(name = "missed_opportunity_reason", length = 40)
+    private MissedOpportunityReason missedOpportunityReason;
 
     @Column(name = "current_step_started_at")
     private LocalDateTime currentStepStartedAt;

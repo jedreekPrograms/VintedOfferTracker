@@ -8,6 +8,7 @@ import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -79,6 +80,10 @@ public class NegotiationService {
             case ACTION_REQUIRED -> {
                 listing.setAwaitingSellerResponse(false);
                 listing.setStatus(ListingStatus.ACTION_REQUIRED);
+
+                if (listing.getBuyCandidateAt() == null) {
+                    listing.setBuyCandidateAt(LocalDateTime.now());
+                }
 
                 if (counterOffer != null) {
                     listing.setCurrentPrice(counterOffer);

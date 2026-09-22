@@ -64,7 +64,9 @@ public class ListingService {
     @Transactional
     public ListingResponse markAsPurchased(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
+        markBuyCandidateIfMissing(listing);
         listing.setStatus(ListingStatus.PURCHASED);
+        listing.setHistoryOutcome(HistoryOutcome.PURCHASED);
         listing.setAwaitingSellerResponse(false);
         listing.setDecisionAt(LocalDateTime.now());
 
@@ -75,7 +77,9 @@ public class ListingService {
     @Transactional
     public ListingResponse skipByUser(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
+        markBuyCandidateIfMissing(listing);
         listing.setStatus(ListingStatus.SKIPPED_BY_USER);
+        listing.setHistoryOutcome(HistoryOutcome.REJECTED);
         listing.setAwaitingSellerResponse(false);
         listing.setDecisionAt(LocalDateTime.now());
 
@@ -231,7 +235,21 @@ public class ListingService {
         listing.setConversationUrl(request.getConversationUrl());
         listing.setStatus(request.getStatus());
 
-        if (request.getStatus() == ListingStatus.EXPIRED) {
+        if (request.getStatus() == ListingStatus.ACTION_REQUIRED
+                && listing.getBuyCandidateAt() == null) {
+            LocalDateTime now = LocalDateTime.now();
+            listing.setBuyCandidateAt(now);
+            log.info(
+                    "Listing {} for bot {} entered ACTION_REQUIRED for the first time at {}.",
+                    listingId,
+                    botId,
+                    now
+            );
+        }
+
+        if (isHistoryTerminalStatus(request.getStatus())
+                && !isHistoryTerminalStatus(previousStatus)
+                && listing.getDecisionAt() == null) {
             listing.setDecisionAt(LocalDateTime.now());
         }
 
@@ -435,6 +453,21 @@ public class ListingService {
             );
         }
         return existingByMarketplaceId;
+    }
+
+    private void markBuyCandidateIfMissing(Listing listing) {
+        if (listing.getBuyCandidateAt() == null) {
+            listing.setBuyCandidateAt(LocalDateTime.now());
+        }
+    }
+
+    private boolean isHistoryTerminalStatus(ListingStatus status) {
+        return status == ListingStatus.PURCHASED
+                || status == ListingStatus.SKIPPED_BY_USER
+                || status == ListingStatus.UNAVAILABLE
+                || status == ListingStatus.CONTACT_UNAVAILABLE
+                || status == ListingStatus.REJECTED
+                || status == ListingStatus.EXPIRED;
     }
 
     private String normalizeOptionalText(String value) {

@@ -12,10 +12,13 @@ public class BotContextPopupPolicyTest {
     public void preemptivePopupScriptBlocksWindowOpenAndBlankTargets() {
         String script = BotContext.preemptivePopupSuppressionScript();
 
-        assertTrue(script.contains("window.open = () => null"));
-        assertTrue(script.contains("_blank"));
+        assertTrue(script.contains("Object.defineProperty(window, \"open\""));
+        assertTrue(script.contains("opensNewBrowsingContext"));
         assertTrue(script.contains("document.addEventListener(\"click\""));
         assertTrue(script.contains("document.addEventListener(\"submit\""));
+        assertTrue(script.contains("HTMLFormElement.prototype.submit"));
+        assertTrue(script.contains("HTMLFormElement.prototype.requestSubmit"));
+        assertTrue(script.contains("base[target]"));
     }
 
     @Test

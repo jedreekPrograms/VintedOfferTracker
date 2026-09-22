@@ -7,6 +7,7 @@ import com.microsoft.playwright.options.ServiceWorkerPolicy;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class BrowserManager implements AutoCloseable {
@@ -104,9 +105,7 @@ public class BrowserManager implements AutoCloseable {
         context.addInitScript(VintedInformationalDialogGuard.script());
         context.addInitScript(OneTrustConsentGuard.script());
 
-        if (headless) {
-            installCatalogHeavyResourceGuard(context);
-        }
+        installRequestGuards(context);
 
         if (blockServiceWorkers) {
             log.info(
@@ -122,31 +121,83 @@ public class BrowserManager implements AutoCloseable {
         return context;
     }
 
-    private void installCatalogHeavyResourceGuard(BrowserContext context) {
+    private void installRequestGuards(BrowserContext context) {
+        AtomicInteger blockedExternalDocuments = new AtomicInteger();
+
         context.route(
                 "**/*",
                 route -> {
                     try {
                         var request = route.request();
-                        String topLevelPageUrl = request.frame().page().url();
 
-                        if (CatalogHeavyResourcePolicy.shouldBlock(
-                                topLevelPageUrl,
-                                request.resourceType(),
-                                request.url()
-                        )) {
+                        boolean topLevelDocument =
+                                "document".equals(request.resourceType())
+                                        && request.isNavigationRequest()
+                                        && request.frame().parentFrame() == null;
+
+                        if (topLevelDocument
+                                && ExternalTopLevelNavigationPolicy.shouldBlock(
+                                        request.url()
+                                )) {
+                            int eventNumber =
+                                    blockedExternalDocuments.incrementAndGet();
+
+                            if (eventNumber <= 5
+                                    || eventNumber % 25 == 0) {
+                                log.warn(
+                                        "[BROWSER NAVIGATION] Blocked unexpected external top-level navigation before render. event=#{}, url={}",
+                                        eventNumber,
+                                        request.url()
+                                );
+                            }
+
                             route.abort();
                             return;
                         }
+
+                        if (AdTechRequestPolicy.shouldBlock(
+                                request.url()
+                        )) {
+                            if (topLevelDocument) {
+                                int eventNumber =
+                                        blockedExternalDocuments.incrementAndGet();
+
+                                if (eventNumber <= 5
+                                        || eventNumber % 25 == 0) {
+                                    log.warn(
+                                            "[BROWSER ADS] Blocked ad-tech top-level document before render. event=#{}, url={}",
+                                            eventNumber,
+                                            request.url()
+                                    );
+                                }
+                            }
+
+                            route.abort();
+                            return;
+                        }
+
+                        if (headless) {
+                            String topLevelPageUrl =
+                                    request.frame().page().url();
+
+                            if (CatalogHeavyResourcePolicy.shouldBlock(
+                                    topLevelPageUrl,
+                                    request.resourceType(),
+                                    request.url()
+                            )) {
+                                route.abort();
+                                return;
+                            }
+                        }
                     } catch (RuntimeException exception) {
                         /*
-                         * This optimization is never allowed to make browser
-                         * correctness depend on route-inspection details. If a
-                         * frame/page is changing during navigation, fail open
-                         * and let Chromium load the resource normally.
+                         * Request filtering is an optimization/safety layer, not
+                         * business logic. If a frame/page disappears while the
+                         * request is being classified, fail open rather than
+                         * breaking Vinted navigation, login or CAPTCHA.
                          */
                         log.trace(
-                                "[BROWSER MEMORY] Could not classify a resource request safely; allowing it.",
+                                "[BROWSER REQUEST GUARD] Could not classify a request safely; allowing it.",
                                 exception
                         );
                     }
@@ -155,9 +206,23 @@ public class BrowserManager implements AutoCloseable {
                 }
         );
 
-        log.info(
-                "[BROWSER MEMORY] Headless heavy-resource guard installed. Vinted catalog/item-detail image and media transfers may be skipped; functional traffic and challenge assets remain enabled."
-        );
+        if (AdTechRequestPolicy.enabled()) {
+            log.info(
+                    "[BROWSER ADS] Conservative ad-tech request guard installed for all browser contexts. Observed RTB/ad domains are aborted before their documents/scripts can load; Vinted and challenge traffic remain allowed. Emergency disable: {}=false.",
+                    AdTechRequestPolicy.BLOCK_AD_TECH_ENV
+            );
+        } else {
+            log.warn(
+                    "[BROWSER ADS] Ad-tech request blocking is DISABLED by {}. Popup DOM guard and single-page fail-safe remain active.",
+                    AdTechRequestPolicy.BLOCK_AD_TECH_ENV
+            );
+        }
+
+        if (headless) {
+            log.info(
+                    "[BROWSER MEMORY] Headless heavy-resource guard installed. Vinted catalog/item-detail image and media transfers may be skipped; functional traffic and challenge assets remain enabled."
+            );
+        }
     }
 
     @Override

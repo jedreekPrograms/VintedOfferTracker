@@ -10,6 +10,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class NegotiationDecisionServiceAdaptiveTest {
 
@@ -78,6 +79,36 @@ public class NegotiationDecisionServiceAdaptiveTest {
                 NegotiationDecisionType.MARK_ACTION_REQUIRED,
                 decision.type()
         );
+    }
+
+    @Test
+    public void finalStepCounterOfferAboveAcceptedLimitClosesNegotiation() {
+        BotConfigurationDto configuration = adaptiveConfiguration("1500.00");
+        configuration.setNegotiationSteps(
+                List.of(
+                        step(1, "900.00", "950.00", "first message"),
+                        step(2, "1000.00", "1050.00", "second message"),
+                        step(3, "1100.00", "1150.00", "third message"),
+                        step(4, "1200.00", "1250.00", "fourth message"),
+                        step(5, "1300.00", "1350.00", "fifth message")
+                )
+        );
+
+        ListingResponseDto listing = negotiatingListing("1300.00", 5);
+
+        NegotiationDecision decision = service.decide(
+                listing,
+                NegotiationConversationSnapshot.sellerCounterOffer(
+                        new BigDecimal("1600.00")
+                ),
+                configuration
+        );
+
+        assertEquals(
+                NegotiationDecisionType.MARK_REJECTED,
+                decision.type()
+        );
+        assertTrue(decision.reason().contains("final automatic negotiation step"));
     }
 
     @Test

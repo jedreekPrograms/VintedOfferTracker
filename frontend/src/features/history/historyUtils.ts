@@ -34,9 +34,22 @@ export function getFilteredHistory(
 
     return listings
         .filter(listing => {
+            if (filters.outcome !== "ALL") {
+                const matchesOutcome =
+                    listing.historyOutcome === filters.outcome
+                    || (
+                        filters.outcome === "REJECTED"
+                        && listing.historyOutcome === "MISSED_OPPORTUNITY"
+                    );
+
+                if (!matchesOutcome) {
+                    return false;
+                }
+            }
+
             if (
-                filters.status !== "ALL"
-                && listing.status !== filters.status
+                filters.assessment !== "ALL"
+                && listing.offerAssessment !== filters.assessment
             ) {
                 return false;
             }
@@ -54,7 +67,10 @@ export function getFilteredHistory(
 
             return listing.title.toLowerCase().includes(normalizedSearch)
                 || listing.listingId.toLowerCase().includes(normalizedSearch)
-                || listing.botName.toLowerCase().includes(normalizedSearch);
+                || listing.botName.toLowerCase().includes(normalizedSearch)
+                || (listing.productTargetLabel ?? "")
+                    .toLowerCase()
+                    .includes(normalizedSearch);
         })
         .sort((first, second) =>
             compareListings(first, second, filters.sort),

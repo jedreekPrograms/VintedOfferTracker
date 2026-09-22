@@ -1,10 +1,15 @@
 import type {
-    ListingHistoryStatus,
+    HistoryOutcome,
+    OfferAssessment,
 } from "../../api/historyApi";
 
 export type HistoryFilter =
     | "ALL"
-    | ListingHistoryStatus;
+    | HistoryOutcome;
+
+export type HistoryAssessmentFilter =
+    | "ALL"
+    | OfferAssessment;
 
 export type HistorySort =
     | "NEWEST"
@@ -18,7 +23,8 @@ export interface HistoryBotOption {
 }
 
 export interface HistoryViewFilters {
-    status: HistoryFilter;
+    outcome: HistoryFilter;
+    assessment: HistoryAssessmentFilter;
     botId: string;
     searchQuery: string;
     sort: HistorySort;

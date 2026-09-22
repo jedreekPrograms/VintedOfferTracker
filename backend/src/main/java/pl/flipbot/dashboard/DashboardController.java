@@ -11,6 +11,10 @@ import org.springframework.web.bind.annotation.RestController;
 import pl.flipbot.bot.runtime.BotSessionPreviewService;
 import pl.flipbot.dashboard.dto.DashboardStatsResponse;
 import pl.flipbot.dashboard.dto.RuntimeDashboardResponse;
+import pl.flipbot.listing.HistoryOutcome;
+import pl.flipbot.listing.OfferAssessment;
+
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/dashboard")
@@ -32,12 +36,18 @@ public class DashboardController {
             @RequestParam(
                     defaultValue = "ALL"
             )
-            DashboardPeriod period
+            DashboardPeriod period,
+            @RequestParam(required = false)
+            Set<HistoryOutcome> outcomes,
+            @RequestParam(required = false)
+            Set<OfferAssessment> assessments
     ) {
 
         return ResponseEntity.ok(
                 dashboardStatsService.getStats(
-                        period
+                        period,
+                        outcomes == null ? Set.of() : outcomes,
+                        assessments == null ? Set.of() : assessments
                 )
         );
     }

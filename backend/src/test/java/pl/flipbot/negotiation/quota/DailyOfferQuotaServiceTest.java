@@ -14,6 +14,7 @@ import pl.flipbot.negotiation.quota.dto.OfferQuotaReservationResponse;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +30,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DailyOfferQuotaServiceTest {
+
+    private static final ZoneId QUOTA_ZONE = ZoneId.of("Europe/Warsaw");
 
     private DailyOfferQuotaRepository quotaRepository;
     private DailyOfferQuotaReservationRepository reservationRepository;
@@ -159,7 +162,7 @@ class DailyOfferQuotaServiceTest {
         DailyOfferQuota quota = quota(4);
         DailyOfferQuotaReservation reservation = activeReservation(requestId);
         reservation.setActive(false);
-        reservation.setReleasedAt(LocalDateTime.now());
+        reservation.setReleasedAt(LocalDateTime.now(QUOTA_ZONE));
 
         when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class)))
                 .thenReturn(Optional.of(quota));
@@ -226,7 +229,7 @@ class DailyOfferQuotaServiceTest {
     private DailyOfferQuota quota(int usedCount) {
         return DailyOfferQuota.builder()
                 .bot(bot)
-                .usageDate(LocalDate.now())
+                .usageDate(LocalDate.now(QUOTA_ZONE))
                 .usedCount(usedCount)
                 .build();
     }
@@ -235,9 +238,9 @@ class DailyOfferQuotaServiceTest {
         return DailyOfferQuotaReservation.builder()
                 .requestId(requestId)
                 .botId(3L)
-                .usageDate(LocalDate.now())
+                .usageDate(LocalDate.now(QUOTA_ZONE))
                 .active(true)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(QUOTA_ZONE))
                 .build();
     }
 

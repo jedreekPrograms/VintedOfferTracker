@@ -324,12 +324,6 @@ public class FilterService {
         );
 
 
-        actions.fillInputBySelector(
-                FilterSelectors.MODEL_SEARCH_INPUT,
-                model
-        );
-
-
         log.info(
                 "[FILTER] Searching Vinted model option for '{}'.",
                 model
@@ -885,17 +879,9 @@ public class FilterService {
                 VINTED_MODEL.equals(
                         targetMode
                 )
-                        && !hasUrlParameter(
-                        "brand_collection_ids[]"
-                )
         ) {
-
-            throw new IllegalStateException(
-                    "Final Vinted catalog URL does not contain a model filter. "
-                            + "Configured model: '"
-                            + configuration.getModel()
-                            + "'. URL: "
-                            + page.url()
+            actions.requireVerifiedModelStillPersisted(
+                    configuration.getModel()
             );
         }
 

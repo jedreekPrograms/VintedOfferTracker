@@ -251,6 +251,7 @@ public class MarketStatsCollector {
             MarketObservationBatchResponseDto recorded = apiClient.recordObservations(
                     target.modelId(),
                     scanResult.listingIds(),
+                    scanResult.listingPrices(),
                     scanResult.complete()
             );
 
@@ -483,6 +484,21 @@ public class MarketStatsCollector {
                 .limit(config.maxListingsPerModel())
                 .toList();
 
+        Map<String, java.math.BigDecimal> listingPrices =
+                ids.stream()
+                        .map(matched::get)
+                        .filter(java.util.Objects::nonNull)
+                        .filter(item -> item.getPrice() != null
+                                && item.getPrice().signum() > 0)
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        Listing::getId,
+                                        Listing::getPrice,
+                                        (left, right) -> left,
+                                        LinkedHashMap::new
+                                )
+                        );
+
         boolean hitLimit = ids.size() >= config.maxListingsPerModel();
 
         if (hitLimit
@@ -503,7 +519,11 @@ public class MarketStatsCollector {
             );
         }
 
-        return new ScanResult(ids, complete);
+        return new ScanResult(
+                ids,
+                Map.copyOf(listingPrices),
+                complete
+        );
     }
 
     static LocalDateTime earliestRelevantPublicationAt(LocalDate marketToday) {
@@ -866,6 +886,7 @@ public class MarketStatsCollector {
 
     private record ScanResult(
             List<String> listingIds,
+            Map<String, java.math.BigDecimal> listingPrices,
             boolean complete
     ) {
     }

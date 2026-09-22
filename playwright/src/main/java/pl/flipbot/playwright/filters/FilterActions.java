@@ -33,8 +33,11 @@ public class FilterActions {
     private static final double BRAND_PANEL_SETTLE_MS = 400;
 
     private static final int MODEL_MAX_UI_ATTEMPTS = 3;
+    private static final int MODEL_DISCOVERY_MAX_ATTEMPTS = 3;
+    private static final int MODEL_RETRY_PANEL_MAX_ATTEMPTS = 3;
     private static final double MODEL_OPTION_SETTLE_TIMEOUT_MS = 15_000;
     private static final double MODEL_OPTION_POLL_INTERVAL_MS = 250;
+    private static final double MODEL_DISCOVERY_RETRY_DELAY_MS = 1_000;
     private static final double MODEL_PERSIST_TIMEOUT_MS = 5_000;
     private static final double MODEL_RETRY_DELAY_MS = 1_000;
     private static final double MODEL_PANEL_SETTLE_MS = 350;
@@ -50,6 +53,7 @@ public class FilterActions {
     private String selectedBrandOption;
     private String selectedModelOption;
     private String selectedModelCollectionId;
+    private String verifiedModelCollectionId;
     private int modelSelectionAttempt;
     private String lastKnownSafeVintedUrl;
 
@@ -65,6 +69,7 @@ public class FilterActions {
             activeFilterBaseUrl = page.url();
             selectedModelOption = null;
             selectedModelCollectionId = null;
+            verifiedModelCollectionId = null;
             modelSelectionAttempt = 0;
         }
 
@@ -322,146 +327,150 @@ public class FilterActions {
 
         selectedModelOption = model;
 
-        String selector = "[data-testid^='" + MODEL_TEST_ID_PREFIX + "'][role='button']";
-        Locator allModelOptions = page.locator(selector);
-        long deadline = System.currentTimeMillis() + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
+        String baseUrl = activeFilterBaseUrl;
+        if (!MarketplaceUrls.isCatalogUrl(baseUrl)) {
+            throw new IllegalStateException(
+                    "Cannot retry exact model discovery because the pre-model Vinted catalog URL is missing or unsafe: "
+                            + baseUrl
+            );
+        }
+
         List<String> lastVisiblePartialLabels = List.of();
         int lastVisibleCandidateCount = 0;
         int lastTextMatchedCount = 0;
 
-        while (System.currentTimeMillis() <= deadline) {
-            ensureVintedBeforeFilterAction("waiting for exact model '" + model + "'");
+        for (int discoveryAttempt = 1;
+             discoveryAttempt <= MODEL_DISCOVERY_MAX_ATTEMPTS;
+             discoveryAttempt++) {
 
-            /*
-             * hasText() is deliberately only a search/narrowing mechanism.
-             * Vinted may split a label into highlighted spans. A child span
-             * containing "Galaxy S25" inside a "Galaxy S25 Edge" row is not
-             * proof that the full selectable row is the requested model.
-             */
-            Locator textMatchedOptions = allModelOptions.filter(
-                    new Locator.FilterOptions().setHasText(model)
-            );
-            int textMatchedCount = textMatchedOptions.count();
-            Locator candidates = textMatchedCount > 0
-                    ? textMatchedOptions
-                    : allModelOptions;
-            int candidateCount = candidates.count();
-
-            List<Locator> exactMatches = new ArrayList<>();
-            Set<String> partialLabels = new LinkedHashSet<>();
-            int visibleCandidateCount = 0;
-
-            for (int index = 0; index < candidateCount; index++) {
-                Locator candidate = candidates.nth(index);
-
-                if (!safeIsVisible(candidate)) {
-                    continue;
-                }
-
-                visibleCandidateCount++;
-                List<String> optionTexts = readCompleteModelOptionTexts(candidate);
-
-                boolean exact = optionTexts.stream()
-                        .anyMatch(text -> exactVisibleModelLabelMatches(model, text));
-
-                if (exact) {
-                    exactMatches.add(candidate);
-                    continue;
-                }
-
-                for (String optionText : optionTexts) {
-                    String normalizedVisible = normalizeOptionText(optionText);
-                    if (containsIgnoreCase(
-                            normalizedVisible,
-                            normalizeOptionText(model)
-                    )) {
-                        partialLabels.add(normalizedVisible);
-                    }
-                }
+            if (discoveryAttempt > 1) {
+                prepareModelDiscoveryRetry(
+                        baseUrl,
+                        model,
+                        discoveryAttempt
+                );
             }
 
-            lastVisibleCandidateCount = visibleCandidateCount;
-            lastTextMatchedCount = textMatchedCount;
-            lastVisiblePartialLabels = List.copyOf(partialLabels);
+            log.info(
+                    "[FILTER MODEL] Exact model discovery attempt {}/{} for '{}'.",
+                    discoveryAttempt,
+                    MODEL_DISCOVERY_MAX_ATTEMPTS,
+                    model
+            );
 
-            if (!exactMatches.isEmpty()) {
-                int exactMatchIndex = Math.min(
-                        modelSelectionAttempt,
-                        exactMatches.size() - 1
+            long deadline = System.currentTimeMillis()
+                    + (long) MODEL_OPTION_SETTLE_TIMEOUT_MS;
+            boolean modelSearchApplied = false;
+
+            while (System.currentTimeMillis() <= deadline) {
+                ensureVintedBeforeFilterAction(
+                        "waiting for exact model '" + model + "'"
                 );
-                modelSelectionAttempt++;
-
-                if (exactMatches.size() > 1) {
-                    log.warn(
-                            "[FILTER MODEL] Found {} visible rows that independently prove exact option '{}'. Selection attempt {} will use exact row {}/{}.",
-                            exactMatches.size(),
-                            model,
-                            modelSelectionAttempt,
-                            exactMatchIndex + 1,
-                            exactMatches.size()
-                    );
-                }
-
-                Locator evidenceLocator = exactMatches.get(exactMatchIndex);
-                String evidence = readCompleteModelOptionTexts(evidenceLocator)
-                        .stream()
-                        .filter(text -> exactVisibleModelLabelMatches(model, text))
-                        .map(FilterActions::normalizeOptionText)
-                        .findFirst()
-                        .orElse(model);
-                String evidenceTestId = evidenceLocator.getAttribute("data-testid");
-                String collectionId = modelCollectionIdFromTestId(evidenceTestId);
-
-                if (collectionId == null) {
-                    throw new IllegalStateException(
-                            "Exact model evidence for '"
-                                    + model
-                                    + "' has an unexpected data-testid='"
-                                    + evidenceTestId
-                                    + "'. Refusing to click because the persisted Vinted collection id could not be verified afterwards."
-                    );
-                }
 
                 /*
-                 * The prefix selector also matches Vinted's title child:
-                 *   selectable-item-brand_collection-123--title
+                 * Vinted exposes the model name on a dedicated title element:
                  *
-                 * Clicking that text node is not guaranteed to toggle the
-                 * checkbox. Resolve the canonical selectable row for the
-                 * proven collection id and interact only inside that row.
+                 * selectable-item-brand_collection-10632--title
+                 *   -> "Galaxy S26"
+                 *
+                 * Use that as the source of truth. Do not infer identity from
+                 * the text of the whole row, because "Galaxy S26" is also a
+                 * substring of "Galaxy S26 Ultra" / "Galaxy S26+".
                  */
-                Locator modelRow = canonicalModelRow(collectionId, evidenceLocator);
+                ExactModelTitleMatch exactTitle =
+                        findExactVisibleModelTitle(model);
 
-                selectedModelCollectionId = collectionId;
+                lastTextMatchedCount = exactTitle.textMatchedCount();
+                lastVisibleCandidateCount =
+                        exactTitle.visibleTitleCount();
+                lastVisiblePartialLabels =
+                        exactTitle.visiblePartialLabels();
 
-                log.info(
-                        "[FILTER MODEL] EXACT Vinted model verified. requested='{}', evidenceTestId='{}', canonicalRowTestId='{}', expectedCollectionId='{}', evidence='{}'.",
-                        model,
-                        evidenceTestId,
-                        safeAttribute(modelRow, "data-testid"),
-                        collectionId,
-                        evidence
-                );
+                if (exactTitle.titleLocator() != null) {
+                    Locator titleLocator = exactTitle.titleLocator();
+                    String evidenceTestId =
+                            titleLocator.getAttribute("data-testid");
+                    String collectionId =
+                            modelCollectionIdFromTestId(
+                                    evidenceTestId
+                            );
 
-                selectExactModelRow(
-                        modelRow,
-                        model,
-                        collectionId
-                );
+                    if (collectionId == null) {
+                        throw new IllegalStateException(
+                                "Exact model evidence for '"
+                                        + model
+                                        + "' has an unexpected data-testid='"
+                                        + evidenceTestId
+                                        + "'. Refusing to click because the Vinted collection id could not be derived."
+                        );
+                    }
 
-                assertStillOnVinted("selecting exact model '" + model + "'");
-                return;
+                    Locator modelRow = canonicalModelRow(
+                            collectionId,
+                            titleLocator
+                    );
+
+                    selectedModelCollectionId = collectionId;
+
+                    log.info(
+                            "[FILTER MODEL] EXACT model identity matched. requested='{}', evidenceTestId='{}', collectionId='{}', canonicalRowTestId='{}'.",
+                            model,
+                            evidenceTestId,
+                            collectionId,
+                            safeAttribute(modelRow, "data-testid")
+                    );
+
+                    selectExactModelRow(
+                            modelRow,
+                            model,
+                            collectionId
+                    );
+
+                    assertStillOnVinted(
+                            "selecting exact model '" + model + "'"
+                    );
+                    return;
+                }
+
+                if (tryApplyOptionalModelSearch(model)) {
+                    if (!modelSearchApplied) {
+                        modelSearchApplied = true;
+                        log.info(
+                                "[FILTER MODEL] Optional Vinted model-search input narrowed the native list to '{}'. Exact row identity is still required before any click.",
+                                model
+                        );
+                        page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
+                        continue;
+                    }
+                }
+
+                page.waitForTimeout(MODEL_OPTION_POLL_INTERVAL_MS);
             }
 
-            page.waitForTimeout(MODEL_OPTION_POLL_INTERVAL_MS);
+            if (discoveryAttempt < MODEL_DISCOVERY_MAX_ATTEMPTS) {
+                log.warn(
+                        "[FILTER MODEL] Exact option '{}' did not become provable within {}s on discovery attempt {}/{}. modelSearchApplied={}, hasText candidates={}, visible candidates inspected={}, visible partial/full labels={}. Resetting to the known-good pre-model catalog state and retrying the native Vinted UI.",
+                        model,
+                        Math.round(MODEL_OPTION_SETTLE_TIMEOUT_MS / 1_000),
+                        discoveryAttempt,
+                        MODEL_DISCOVERY_MAX_ATTEMPTS,
+                        modelSearchApplied,
+                        lastTextMatchedCount,
+                        lastVisibleCandidateCount,
+                        lastVisiblePartialLabels
+                );
+                page.waitForTimeout(MODEL_DISCOVERY_RETRY_DELAY_MS);
+            }
         }
 
         throw new IllegalStateException(
                 "Could not prove an exact visible Vinted model option for '"
                         + model
-                        + "' within "
+                        + "' after "
+                        + MODEL_DISCOVERY_MAX_ATTEMPTS
+                        + " native-UI discovery attempts of "
                         + Math.round(MODEL_OPTION_SETTLE_TIMEOUT_MS / 1_000)
-                        + " seconds. hasText candidates="
+                        + " seconds each. hasText candidates="
                         + lastTextMatchedCount
                         + ", visible candidates inspected="
                         + lastVisibleCandidateCount
@@ -469,6 +478,229 @@ public class FilterActions {
                         + lastVisiblePartialLabels
                         + ". Failing closed instead of clicking a similar model."
         );
+    }
+
+    private void prepareModelDiscoveryRetry(
+            String baseUrl,
+            String model,
+            int attempt
+    ) {
+        log.info(
+                "[FILTER MODEL] Preparing exact model discovery retry {}/{} for '{}'. Resetting to pre-model URL: {}",
+                attempt,
+                MODEL_DISCOVERY_MAX_ATTEMPTS,
+                model,
+                baseUrl
+        );
+
+        RuntimeException lastFailure = null;
+
+        for (int panelAttempt = 1;
+             panelAttempt <= MODEL_RETRY_PANEL_MAX_ATTEMPTS;
+             panelAttempt++) {
+            try {
+                /*
+                 * Always start a panel retry from the same proven pre-model
+                 * catalog URL. A failed Vinted drawer render can leave an
+                 * invisible/stale model panel in the DOM; clicking that state
+                 * again is less reliable than rebuilding it from the catalog.
+                 */
+                navigateToSafeVintedUrl(baseUrl);
+
+                if (!isCatalogPage()) {
+                    throw new IllegalStateException(
+                            "Exact model discovery retry did not return to a Vinted catalog page. URL: "
+                                    + page.url()
+                    );
+                }
+
+                Locator modelFilter =
+                        page.getByTestId(FilterSelectors.MODEL_FILTER);
+                waitUntilVisible(modelFilter, FILTER_TIMEOUT_MS);
+                modelFilter.click();
+                assertStillOnVinted(
+                        "reopening model filter for discovery retry"
+                );
+                page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
+
+                log.info(
+                        "[FILTER MODEL] Exact model discovery retry {}/{} reopened the native model drawer for '{}' on panel-open attempt {}/{}. The drawer search input is optional; exact visible row identity will be checked first. Current URL: {}",
+                        attempt,
+                        MODEL_DISCOVERY_MAX_ATTEMPTS,
+                        model,
+                        panelAttempt,
+                        MODEL_RETRY_PANEL_MAX_ATTEMPTS,
+                        page.url()
+                );
+                return;
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+
+                if (panelAttempt >= MODEL_RETRY_PANEL_MAX_ATTEMPTS) {
+                    break;
+                }
+
+                log.warn(
+                        "[FILTER MODEL] Retry {}/{} for '{}' could not render a usable native model drawer on panel-open attempt {}/{}. Rebuilding the catalog/filter state and trying again. reason={}",
+                        attempt,
+                        MODEL_DISCOVERY_MAX_ATTEMPTS,
+                        model,
+                        panelAttempt,
+                        MODEL_RETRY_PANEL_MAX_ATTEMPTS,
+                        exception.getMessage()
+                );
+
+                page.waitForTimeout(MODEL_DISCOVERY_RETRY_DELAY_MS);
+            }
+        }
+
+        throw new IllegalStateException(
+                "Could not reopen the native Vinted model drawer for '"
+                        + model
+                        + "' while preparing exact-model discovery retry "
+                        + attempt
+                        + "/"
+                        + MODEL_DISCOVERY_MAX_ATTEMPTS
+                        + " after "
+                        + MODEL_RETRY_PANEL_MAX_ATTEMPTS
+                        + " panel attempts.",
+                lastFailure
+        );
+    }
+
+    private boolean tryApplyOptionalModelSearch(String model) {
+        Locator inputs = page.locator(FilterSelectors.MODEL_SEARCH_INPUT);
+        int count = safeCount(inputs);
+
+        for (int index = 0; index < count; index++) {
+            Locator input = inputs.nth(index);
+
+            if (!safeIsVisible(input)) {
+                continue;
+            }
+
+            try {
+                String currentValue = input.inputValue();
+
+                if (!model.equals(currentValue)) {
+                    input.fill(model);
+                }
+
+                return true;
+            } catch (RuntimeException exception) {
+                log.debug(
+                        "[FILTER MODEL] Visible model-search input could not be used for '{}'. Exact visible-row discovery will continue without depending on it.",
+                        model,
+                        exception
+                );
+            }
+        }
+
+        return false;
+    }
+
+    private ExactModelTitleMatch findExactVisibleModelTitle(
+            String requestedModel
+    ) {
+        String selector =
+                "[data-testid^='" + MODEL_TEST_ID_PREFIX
+                        + "'][data-testid$='" + MODEL_TITLE_TEST_ID_SUFFIX + "']";
+
+        Locator titles = page.locator(selector);
+        int count = safeCount(titles);
+        int visibleCount = 0;
+        int textMatchedCount = 0;
+        Set<String> partialLabels = new LinkedHashSet<>();
+        String normalizedRequested = normalizeOptionText(requestedModel);
+
+        for (int index = 0; index < count; index++) {
+            Locator title = titles.nth(index);
+
+            if (!safeIsVisible(title)) {
+                continue;
+            }
+
+            visibleCount++;
+
+            String rawText;
+            try {
+                rawText = title.innerText();
+            } catch (RuntimeException exception) {
+                continue;
+            }
+
+            String normalizedVisible = normalizeOptionText(rawText);
+
+            if (normalizedVisible.equalsIgnoreCase(normalizedRequested)) {
+                textMatchedCount++;
+                return new ExactModelTitleMatch(
+                        title,
+                        textMatchedCount,
+                        visibleCount,
+                        List.copyOf(partialLabels)
+                );
+            }
+
+            if (containsIgnoreCase(
+                    normalizedVisible,
+                    normalizedRequested
+            )) {
+                partialLabels.add(normalizedVisible);
+            }
+        }
+
+        Locator canonicalRows = page.locator(
+                "[role='button'][data-testid^='" + MODEL_TEST_ID_PREFIX + "']"
+        );
+        int rowCount = safeCount(canonicalRows);
+
+        for (int index = 0; index < rowCount; index++) {
+            Locator row = canonicalRows.nth(index);
+
+            if (!safeIsVisible(row)) {
+                continue;
+            }
+
+            String rowTestId = safeAttribute(row, "data-testid");
+            if (modelCollectionIdFromTestId(rowTestId) == null) {
+                continue;
+            }
+
+            visibleCount++;
+
+            for (String candidateText : readCompleteModelOptionTexts(row)) {
+                String normalizedCandidate = normalizeOptionText(candidateText);
+
+                if (exactVisibleModelLabelMatches(requestedModel, candidateText)) {
+                    textMatchedCount++;
+                    return new ExactModelTitleMatch(
+                            row,
+                            textMatchedCount,
+                            visibleCount,
+                            List.copyOf(partialLabels)
+                    );
+                }
+
+                if (containsIgnoreCase(normalizedCandidate, normalizedRequested)) {
+                    partialLabels.add(normalizedCandidate);
+                }
+            }
+        }
+
+        return new ExactModelTitleMatch(
+                null,
+                textMatchedCount,
+                visibleCount,
+                List.copyOf(partialLabels)
+        );
+    }
+
+    private record ExactModelTitleMatch(
+            Locator titleLocator,
+            int textMatchedCount,
+            int visibleTitleCount,
+            List<String> visiblePartialLabels
+    ) {
     }
 
     private Locator canonicalModelRow(
@@ -1188,6 +1420,7 @@ public class FilterActions {
                         expectedModelCollectionId,
                         MODEL_PERSIST_TIMEOUT_MS
                 )) {
+                    verifiedModelCollectionId = expectedModelCollectionId;
                     log.info(
                             "[FILTER MODEL] EXACT model persistence verified end-to-end on attempt {}/{}. brand_collection_ids[]={}. Current URL: {}",
                             attempt,
@@ -1258,6 +1491,7 @@ public class FilterActions {
                     expectedModelCollectionId,
                     MODEL_PERSIST_TIMEOUT_MS
             )) {
+                verifiedModelCollectionId = expectedModelCollectionId;
                 log.info(
                         "[FILTER MODEL] EXACT model persistence recovered with the previously proven collection id. brand_collection_ids[]={}. Current URL: {}",
                         expectedModelCollectionId,
@@ -1305,11 +1539,6 @@ public class FilterActions {
         waitUntilVisible(modelFilter, FILTER_TIMEOUT_MS);
         modelFilter.click();
         assertStillOnVinted("reopening model filter for retry");
-        page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
-
-        Locator input = page.locator(FilterSelectors.MODEL_SEARCH_INPUT);
-        waitUntilVisible(input, OPTION_TIMEOUT_MS);
-        input.fill(model);
         page.waitForTimeout(MODEL_PANEL_SETTLE_MS);
 
         clickModel(model);
@@ -1377,6 +1606,34 @@ public class FilterActions {
                 + "brand_collection_ids[]="
                 + expectedModelCollectionId
                 + fragment;
+    }
+
+    public void requireVerifiedModelStillPersisted(String model) {
+        if (verifiedModelCollectionId == null || verifiedModelCollectionId.isBlank()) {
+            throw new IllegalStateException(
+                    "No exact Vinted collection id was verified for model '" + model + "'."
+            );
+        }
+
+        String actualCollectionId = getUrlParameter("brand_collection_ids[]");
+        if (!verifiedModelCollectionId.equals(actualCollectionId)) {
+            throw new IllegalStateException(
+                    "Final Vinted catalog URL no longer contains the exact proven model collection id. Model='"
+                            + model
+                            + "', expected brand_collection_ids[]="
+                            + verifiedModelCollectionId
+                            + ", actual="
+                            + actualCollectionId
+                            + ", URL="
+                            + page.url()
+            );
+        }
+
+        log.info(
+                "[FILTER MODEL] Final exact model guard passed. model='{}', brand_collection_ids[]={}.",
+                model,
+                verifiedModelCollectionId
+        );
     }
 
     public void clickOutsideSafely() {
