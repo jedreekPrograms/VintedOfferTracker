@@ -26,6 +26,29 @@ public class FilterActionsModelOptionTest {
     }
 
     @Test
+    public void exactS26IdentityNeverAcceptsUltraOrPlus() {
+        var pattern = FilterActions.exactModelOptionPattern("Galaxy S26");
+
+        assertTrue(pattern.matcher("Galaxy S26").matches());
+        assertFalse(pattern.matcher("Galaxy S26 Ultra").matches());
+        assertFalse(pattern.matcher("Galaxy S26+").matches());
+        assertFalse(pattern.matcher("Galaxy S26 Plus").matches());
+
+        assertTrue(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S26",
+                        "Galaxy S26\n42 przedmioty"
+                )
+        );
+        assertFalse(
+                FilterActions.exactVisibleModelLabelMatches(
+                        "Galaxy S26",
+                        "Galaxy S26 Ultra\n42 przedmioty"
+                )
+        );
+    }
+
+    @Test
     public void exactModelPatternIsCaseInsensitive() {
         var pattern = FilterActions.exactModelOptionPattern("Galaxy Tab S11 Ultra");
 
@@ -53,6 +76,35 @@ public class FilterActionsModelOptionTest {
                 FilterActions.modelCollectionIdFromTestId(
                         "selectable-item-brand_collection-Galaxy-S25"
                 )
+        );
+    }
+
+    @Test
+    public void exactModelCheckboxSelectorTargetsTheProvenCollectionOnly() {
+        assertEquals(
+                "input[type='checkbox'][name='brand_collection_ids[]'][value='9977']",
+                FilterActions.exactModelCheckboxSelector("9977")
+        );
+    }
+
+    @Test
+    public void exactModelSuffixTestIdTargetsTheClickableSuffixForProvenCollection() {
+        assertEquals(
+                "selectable-item-brand_collection-9977--suffix",
+                FilterActions.exactModelSuffixTestId("9977")
+        );
+    }
+
+    @Test
+    public void titleChildEvidenceAlwaysResolvesBackToCanonicalSelectableRow() {
+        String collectionId = FilterActions.modelCollectionIdFromTestId(
+                "selectable-item-brand_collection-10632--title"
+        );
+
+        assertEquals("10632", collectionId);
+        assertEquals(
+                "selectable-item-brand_collection-10632",
+                FilterActions.canonicalModelRowTestId(collectionId)
         );
     }
 

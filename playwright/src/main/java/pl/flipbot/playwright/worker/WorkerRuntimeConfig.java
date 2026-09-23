@@ -11,6 +11,7 @@ public record WorkerRuntimeConfig(
         long priceProbeIntervalSeconds,
         long failureDelaySeconds,
         long rateLimitDelaySeconds,
+        long browserIdleTimeoutSeconds,
         long shutdownTimeoutSeconds,
         boolean schedulerHeadless
 ) {
@@ -18,12 +19,13 @@ public record WorkerRuntimeConfig(
     private static final int DEFAULT_WORKER_COUNT = 10;
     private static final int MAX_WORKER_COUNT = 100;
 
-    private static final long DEFAULT_SYNC_INTERVAL_SECONDS = 5L;
+    private static final long DEFAULT_SYNC_INTERVAL_SECONDS = 1L;
     private static final long DEFAULT_NEGOTIATION_CHECK_INTERVAL_SECONDS = 120L;
     private static final long DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS = 15L * 60L;
     private static final long DEFAULT_PRICE_PROBE_INTERVAL_SECONDS = 60L;
     private static final long DEFAULT_FAILURE_DELAY_SECONDS = 60L;
     private static final long DEFAULT_RATE_LIMIT_DELAY_SECONDS = 10L * 60L;
+    private static final long DEFAULT_BROWSER_IDLE_TIMEOUT_SECONDS = 180L;
     private static final long DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 30L;
     private static final boolean DEFAULT_SCHEDULER_HEADLESS = true;
 
@@ -71,6 +73,12 @@ public record WorkerRuntimeConfig(
                         DEFAULT_RATE_LIMIT_DELAY_SECONDS,
                         1L,
                         24L * 60L * 60L
+                ),
+                readLong(
+                        "FLIPBOT_BROWSER_IDLE_TIMEOUT_SECONDS",
+                        DEFAULT_BROWSER_IDLE_TIMEOUT_SECONDS,
+                        30L,
+                        60L * 60L
                 ),
                 readLong(
                         "FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS",

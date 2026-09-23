@@ -13,18 +13,19 @@ import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.listing.dto.NegotiationActivityRequest;
 import pl.flipbot.listing.dto.NegotiationActivityResponse;
+import pl.flipbot.listing.dto.UpdateConversationIdentityRequest;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 @Slf4j
@@ -38,6 +39,7 @@ public class ListingService {
     private final BotRepository botRepository;
     private final ListingMapper listingMapper;
     private final ListingClaimService listingClaimService;
+    private final ListingRediscoveryService listingRediscoveryService;
 
     public List<ListingResponse> getDiscoveredListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.DISCOVERED);
@@ -62,7 +64,9 @@ public class ListingService {
     @Transactional
     public ListingResponse markAsPurchased(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
+        markBuyCandidateIfMissing(listing);
         listing.setStatus(ListingStatus.PURCHASED);
+        listing.setHistoryOutcome(HistoryOutcome.PURCHASED);
         listing.setAwaitingSellerResponse(false);
         listing.setDecisionAt(LocalDateTime.now());
 
@@ -73,7 +77,9 @@ public class ListingService {
     @Transactional
     public ListingResponse skipByUser(Long botId, Long listingId) {
         Listing listing = findActionRequiredListing(botId, listingId);
+        markBuyCandidateIfMissing(listing);
         listing.setStatus(ListingStatus.SKIPPED_BY_USER);
+        listing.setHistoryOutcome(HistoryOutcome.REJECTED);
         listing.setAwaitingSellerResponse(false);
         listing.setDecisionAt(LocalDateTime.now());
 
@@ -107,20 +113,50 @@ public class ListingService {
             return List.of();
         }
 
-        Set<String> existingListingIds = findExistingListingIds(
+        Map<String, Listing> existingListings = findExistingListings(
                 botId,
                 uniqueRequests.keySet()
         );
-        List<ListingResponse> claimedListings = new ArrayList<>();
+
+        List<ListingResponse> listingsForProcessing = new ArrayList<>();
+        int newlyClaimedListings = 0;
+        int requalifiedListings = 0;
 
         for (CreateListingRequest listingRequest : uniqueRequests.values()) {
-            if (existingListingIds.contains(listingRequest.getListingId())) {
+            Listing existingListing = existingListings.get(
+                    listingRequest.getListingId()
+            );
+
+            if (existingListing != null) {
+                if (listingRediscoveryService.shouldAttemptRequalification(
+                        existingListing
+                )) {
+                    Optional<Listing> requalified = listingRediscoveryService
+                            .requalifyIfEligible(
+                                    botId,
+                                    listingRequest.getListingId(),
+                                    listingRequest
+                            );
+
+                    if (requalified.isPresent()) {
+                        listingsForProcessing.add(
+                                listingMapper.map(requalified.get())
+                        );
+                        requalifiedListings++;
+                    }
+                }
                 continue;
             }
 
             try {
-                Listing claimedListing = listingClaimService.claimListing(botId, listingRequest);
-                claimedListings.add(listingMapper.map(claimedListing));
+                Listing claimedListing = listingClaimService.claimListing(
+                        botId,
+                        listingRequest
+                );
+                listingsForProcessing.add(
+                        listingMapper.map(claimedListing)
+                );
+                newlyClaimedListings++;
             } catch (DataIntegrityViolationException exception) {
                 if (!isUniqueConstraintViolation(exception)) {
                     log.error(
@@ -141,13 +177,15 @@ public class ListingService {
         }
 
         log.info(
-                "Bot {} discovered {} listings and claimed {} new listings",
+                "Bot {} fresh scan contained {} listing(s): claimed {} brand-new, requalified {} historical once-per-day listing(s), returned {} listing(s) for further processing.",
                 botId,
                 uniqueRequests.size(),
-                claimedListings.size()
+                newlyClaimedListings,
+                requalifiedListings,
+                listingsForProcessing.size()
         );
 
-        return claimedListings;
+        return listingsForProcessing;
     }
 
     @Transactional
@@ -197,7 +235,21 @@ public class ListingService {
         listing.setConversationUrl(request.getConversationUrl());
         listing.setStatus(request.getStatus());
 
-        if (request.getStatus() == ListingStatus.EXPIRED) {
+        if (request.getStatus() == ListingStatus.ACTION_REQUIRED
+                && listing.getBuyCandidateAt() == null) {
+            LocalDateTime now = LocalDateTime.now();
+            listing.setBuyCandidateAt(now);
+            log.info(
+                    "Listing {} for bot {} entered ACTION_REQUIRED for the first time at {}.",
+                    listingId,
+                    botId,
+                    now
+            );
+        }
+
+        if (isHistoryTerminalStatus(request.getStatus())
+                && !isHistoryTerminalStatus(previousStatus)
+                && listing.getDecisionAt() == null) {
             listing.setDecisionAt(LocalDateTime.now());
         }
 
@@ -224,6 +276,45 @@ public class ListingService {
                     now
             );
         }
+
+        return listingMapper.map(listing);
+    }
+
+    @Transactional
+    public ListingResponse updateConversationIdentity(
+            Long botId,
+            Long listingId,
+            UpdateConversationIdentityRequest request
+    ) {
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Listing " + listingId + " was not found for bot " + botId
+                ));
+
+        if (listing.getStatus() != ListingStatus.NEGOTIATING) {
+            throw new IllegalStateException(
+                    "Conversation identity can only be updated for a NEGOTIATING listing. Listing "
+                            + listingId
+                            + " currently has status "
+                            + listing.getStatus()
+            );
+        }
+
+        String previousConversationId = listing.getConversationId();
+        String previousConversationUrl = listing.getConversationUrl();
+
+        listing.setConversationId(request.conversationId());
+        listing.setConversationUrl(request.conversationUrl());
+
+        log.warn(
+                "Listing {} for bot {} canonicalized Vinted conversation identity from id={} url={} to id={} url={}. Business negotiation state and timers were left unchanged.",
+                listingId,
+                botId,
+                previousConversationId,
+                previousConversationUrl,
+                request.conversationId(),
+                request.conversationUrl()
+        );
 
         return listingMapper.map(listing);
     }
@@ -344,7 +435,7 @@ public class ListingService {
         return uniqueRequests;
     }
 
-    private Set<String> findExistingListingIds(
+    private Map<String, Listing> findExistingListings(
             Long botId,
             Set<String> listingIds
     ) {
@@ -353,11 +444,30 @@ public class ListingService {
                         botId,
                         listingIds
                 );
-        Set<String> existingListingIds = new HashSet<>();
+
+        Map<String, Listing> existingByMarketplaceId = new LinkedHashMap<>();
         for (Listing listing : existingListings) {
-            existingListingIds.add(listing.getListingId());
+            existingByMarketplaceId.put(
+                    listing.getListingId(),
+                    listing
+            );
         }
-        return existingListingIds;
+        return existingByMarketplaceId;
+    }
+
+    private void markBuyCandidateIfMissing(Listing listing) {
+        if (listing.getBuyCandidateAt() == null) {
+            listing.setBuyCandidateAt(LocalDateTime.now());
+        }
+    }
+
+    private boolean isHistoryTerminalStatus(ListingStatus status) {
+        return status == ListingStatus.PURCHASED
+                || status == ListingStatus.SKIPPED_BY_USER
+                || status == ListingStatus.UNAVAILABLE
+                || status == ListingStatus.CONTACT_UNAVAILABLE
+                || status == ListingStatus.REJECTED
+                || status == ListingStatus.EXPIRED;
     }
 
     private String normalizeOptionalText(String value) {

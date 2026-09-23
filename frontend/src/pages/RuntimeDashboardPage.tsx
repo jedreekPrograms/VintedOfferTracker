@@ -2,11 +2,13 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 
 import {
     getRuntimeDashboard,
+    setRuntimeSessionPreview,
     type RuntimeDashboardBot,
     type RuntimeDashboardResponse,
     type RuntimeStatus,
@@ -38,28 +40,62 @@ function RuntimeDashboardPage() {
     const [search, setSearch] = useState("");
     const [isLoading, setIsLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [nowMs, setNowMs] = useState(() => Date.now());
+    const [previewUpdatingBotIds, setPreviewUpdatingBotIds] = useState<ReadonlySet<number>>(new Set());
+    const previewRequests = useRef(new Set<number>());
+    const runtimeRequest = useRef(0);
 
     const loadRuntime = useCallback(async (showLoading: boolean) => {
+        const request = ++runtimeRequest.current;
         if (showLoading) {
             setIsLoading(true);
         }
 
         try {
             const response = await getRuntimeDashboard();
-            setData(response);
-            setErrorMessage(null);
+            if (request === runtimeRequest.current) {
+                setData(response);
+                setErrorMessage(null);
+            }
         } catch (error) {
-            setErrorMessage(
-                error instanceof Error
-                    ? error.message
-                    : "Nie udało się pobrać stanu runtime.",
-            );
+            if (request === runtimeRequest.current) {
+                setErrorMessage(
+                    error instanceof Error
+                        ? error.message
+                        : "Nie udało się pobrać stanu runtime.",
+                );
+            }
         } finally {
             if (showLoading) {
                 setIsLoading(false);
             }
         }
     }, []);
+
+    const handleSessionPreview = useCallback(async (
+        botId: number,
+        enabled: boolean,
+    ) => {
+        if (previewRequests.current.has(botId)) {
+            return;
+        }
+        previewRequests.current.add(botId);
+        setPreviewUpdatingBotIds(new Set(previewRequests.current));
+
+        try {
+            await setRuntimeSessionPreview(botId, enabled);
+            await loadRuntime(false);
+        } catch (error) {
+            setErrorMessage(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się zmienić podglądu sesji.",
+            );
+        } finally {
+            previewRequests.current.delete(botId);
+            setPreviewUpdatingBotIds(new Set(previewRequests.current));
+        }
+    }, [loadRuntime]);
 
     useEffect(() => {
         void loadRuntime(true);
@@ -75,6 +111,17 @@ function RuntimeDashboardPage() {
             window.clearInterval(intervalId);
         };
     }, [loadRuntime]);
+
+    useEffect(() => {
+        const intervalId = window.setInterval(
+            () => setNowMs(Date.now()),
+            1_000,
+        );
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, []);
 
     const filteredBots = useMemo(() => {
         if (data === null) {
@@ -215,10 +262,11 @@ function RuntimeDashboardPage() {
                                         <TableHeader>Bot</TableHeader>
                                         <TableHeader>Bot status</TableHeader>
                                         <TableHeader>Runtime</TableHeader>
+                                        <TableHeader>Sesja</TableHeader>
                                         <TableHeader>Slot</TableHeader>
                                         <TableHeader>Ostatni job</TableHeader>
                                         <TableHeader>Następny job</TableHeader>
-                                        <TableHeader>Błędy</TableHeader>
+                                        <TableHeader>Błędy z rzędu</TableHeader>
                                         <TableHeader>Ostatni błąd</TableHeader>
                                     </tr>
                                 </thead>
@@ -228,6 +276,9 @@ function RuntimeDashboardPage() {
                                         <RuntimeRow
                                             key={bot.botId}
                                             bot={bot}
+                                            nowMs={nowMs}
+                                            previewUpdating={previewUpdatingBotIds.has(bot.botId)}
+                                            onSessionPreview={handleSessionPreview}
                                         />
                                     ))}
                                 </tbody>
@@ -280,9 +331,18 @@ function RuntimeStat({
 
 function RuntimeRow({
     bot,
+    nowMs,
+    previewUpdating,
+    onSessionPreview,
 }: {
     bot: RuntimeDashboardBot;
+    nowMs: number;
+    previewUpdating: boolean;
+    onSessionPreview: (botId: number, enabled: boolean) => Promise<void>;
 }) {
+    const sessionBlocked = bot.sessionBlockedSince !== null;
+    const canPreview = bot.botStatus === "RUNNING";
+
     return (
         <tr>
             <TableCell label="Bot">
@@ -295,10 +355,50 @@ function RuntimeRow({
                 {bot.botStatus}
             </TableCell>
             <TableCell label="Runtime">
-                <RuntimeBadge status={bot.runtimeStatus} />
+                <RuntimeStateCell
+                    bot={bot}
+                    nowMs={nowMs}
+                />
+            </TableCell>
+            <TableCell label="Sesja">
+                {canPreview ? (
+                    <>
+                        <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={previewUpdating}
+                            title={bot.sessionPreviewRequested
+                                ? "Wyłącza tryb LIVE i po pełnym zamknięciu widocznego Chromium oddaje bota zwykłym workerom."
+                                : "Otwiera widoczne Chromium w trybie LIVE. Bot dalej wykonuje normalne skany i negocjacje w tym oknie; możesz obserwować działanie i ręcznie przejść CAPTCHA, a potwierdzona zalogowana sesja zostanie bezpiecznie zapisana."}
+                            onClick={() => {
+                                void onSessionPreview(
+                                    bot.botId,
+                                    !bot.sessionPreviewRequested,
+                                );
+                            }}
+                        >
+                            {previewUpdating
+                                ? "Zapisywanie..."
+                                : bot.sessionPreviewRequested
+                                    ? "Ukryj sesję"
+                                    : "Wyświetl sesję"}
+                        </button>
+                        {bot.sessionPreviewRequested && (
+                            <div className="runtime-cell-secondary">
+                                LIVE · bot normalnie pracuje w widocznym Chromium
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    "—"
+                )}
             </TableCell>
             <TableCell label="Slot">
-                {bot.workerSlot === null ? "—" : `#${bot.workerSlot}`}
+                {bot.workerSlot === null
+                    ? "—"
+                    : bot.workerSlot === 0
+                        ? "LIVE"
+                        : `#${bot.workerSlot}`}
             </TableCell>
             <TableCell label="Ostatni job">
                 <div>{formatDateTime(bot.lastRunFinishedAt)}</div>
@@ -307,9 +407,18 @@ function RuntimeRow({
                 </div>
             </TableCell>
             <TableCell label="Następny job">
-                {formatDateTime(bot.nextRunAt)}
+                {sessionBlocked ? (
+                    <>
+                        <div>{formatDateTime(bot.nextRunAt)}</div>
+                        <div className="runtime-cell-secondary">
+                            {formatRetryCountdown(bot.nextRunAt, nowMs)}
+                        </div>
+                    </>
+                ) : (
+                    formatDateTime(bot.nextRunAt)
+                )}
             </TableCell>
-            <TableCell label="Błędy">
+            <TableCell label="Błędy z rzędu">
                 {bot.consecutiveFailures}
             </TableCell>
             <TableCell label="Ostatni błąd">
@@ -324,10 +433,43 @@ function RuntimeRow({
     );
 }
 
-function RuntimeBadge({ status }: { status: RuntimeStatus }) {
+function RuntimeStateCell({
+    bot,
+    nowMs,
+}: {
+    bot: RuntimeDashboardBot;
+    nowMs: number;
+}) {
+    if (bot.sessionBlockedSince !== null) {
+        return (
+            <div>
+                <RuntimeBadge
+                    status={bot.runtimeStatus}
+                    label="SESSION BLOCKED"
+                />
+                <div className="runtime-cell-secondary">
+                    Sesja zablokowana od {formatElapsedDuration(bot.sessionBlockedSince, nowMs)}
+                </div>
+                <div className="runtime-cell-secondary">
+                    Próba {Math.max(bot.sessionBlockCount, 1)} · {formatRetryCountdown(bot.nextRunAt, nowMs)}
+                </div>
+            </div>
+        );
+    }
+
+    return <RuntimeBadge status={bot.runtimeStatus} />;
+}
+
+function RuntimeBadge({
+    status,
+    label,
+}: {
+    status: RuntimeStatus;
+    label?: string;
+}) {
     return (
         <span className={`runtime-badge runtime-badge-${status.toLowerCase()}`}>
-            {status}
+            {label ?? status}
         </span>
     );
 }
@@ -380,6 +522,56 @@ function formatDuration(value: number | null): string {
     }
 
     return `${(value / 1_000).toFixed(1)} s`;
+}
+
+function formatElapsedDuration(value: string, nowMs: number): string {
+    const startedAt = Date.parse(value);
+    if (!Number.isFinite(startedAt)) {
+        return "nieznanego czasu";
+    }
+
+    const totalMinutes = Math.max(0, Math.floor((nowMs - startedAt) / 60_000));
+    if (totalMinutes < 1) {
+        return "mniej niż 1 min";
+    }
+    if (totalMinutes < 60) {
+        return `${totalMinutes} min`;
+    }
+
+    const totalHours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (totalHours < 24) {
+        return `${totalHours} godz.${minutes > 0 ? ` ${minutes} min` : ""}`;
+    }
+
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    return `${days} d${hours > 0 ? ` ${hours} godz.` : ""}${minutes > 0 ? ` ${minutes} min` : ""}`;
+}
+
+function formatRetryCountdown(value: string | null, nowMs: number): string {
+    if (value === null) {
+        return "trwa ponowna próba";
+    }
+
+    const nextRunAt = Date.parse(value);
+    if (!Number.isFinite(nextRunAt) || nextRunAt <= nowMs) {
+        return "trwa ponowna próba";
+    }
+
+    const totalSeconds = Math.max(1, Math.ceil((nextRunAt - nowMs) / 1_000));
+    if (totalSeconds < 60) {
+        return `ponownie za ${totalSeconds} s`;
+    }
+
+    const totalMinutes = Math.ceil(totalSeconds / 60);
+    if (totalMinutes < 60) {
+        return `ponownie za ${totalMinutes} min`;
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `ponownie za ${hours} godz.${minutes > 0 ? ` ${minutes} min` : ""}`;
 }
 
 export default RuntimeDashboardPage;

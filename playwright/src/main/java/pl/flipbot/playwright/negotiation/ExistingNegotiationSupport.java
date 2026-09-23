@@ -10,9 +10,12 @@ import pl.flipbot.playwright.api.listing.dto.NegotiationActivityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
+import pl.flipbot.playwright.target.ListingTargetAssessment;
+import pl.flipbot.playwright.target.ListingTargetMatcher;
 
-import java.text.Normalizer;
-import java.util.Locale;
+
+
+
 
 @Slf4j
 @RequiredArgsConstructor
@@ -25,6 +28,9 @@ public class ExistingNegotiationSupport {
     private final ListingClient listingClient;
     private final ListingStatusUpdater listingStatusUpdater;
     private final NegotiationActivityClient negotiationActivityClient;
+
+    private final ListingTargetMatcher listingTargetMatcher =
+            new ListingTargetMatcher();
 
     public void logConversationActivity(
             ListingResponseDto listing,
@@ -91,11 +97,6 @@ public class ExistingNegotiationSupport {
                     )
             );
         } catch (Exception exception) {
-            /*
-             * A delayed response rule must fail closed if we cannot persist its
-             * first-detection time. The decision layer sees no matching stable
-             * timestamp and keeps waiting instead of guessing.
-             */
             log.warn(
                     "[NEGOTIATION ACTIVITY API] Could not persist activity/response timer for listing {}: {}",
                     listing.listingId(),
@@ -111,54 +112,49 @@ public class ExistingNegotiationSupport {
         if (configuration == null) {
             throw new IllegalArgumentException("Bot configuration cannot be null");
         }
+        if (listing == null) {
+            return false;
+        }
 
         String targetMode = configuration.getTargetMode();
         if (targetMode == null
                 || targetMode.isBlank()
                 || VINTED_MODEL.equalsIgnoreCase(targetMode.trim())) {
             /*
-             * The negotiation was created only after the exact Vinted model
-             * filter had been proven and its brand_collection_ids[] value had
-             * been verified. Seller-written listing titles are not allowed to
-             * reinterpret that Vinted classification later in the lifecycle.
+             * Native Vinted model-filter mode is authoritative by design.
+             * Existing conversations must never be stopped because a seller
+             * title/URL looks generic or contradictory after the negotiation
+             * has already been started from that exact native filter.
              */
             log.debug(
-                    "[TARGET GUARD] Listing {} remains valid because VINTED_MODEL negotiations trust the exact Vinted model filter used when the listing was discovered.",
-                    listing == null ? null : listing.listingId()
+                    "[TARGET GUARD] Skipping post-filter target guard for existing VINTED_MODEL negotiation {}.",
+                    listing.listingId()
             );
             return true;
         }
 
         /*
-         * Preserve the historical behavior for non-VINTED_MODEL modes. In the
-         * current SEARCH_QUERY configuration model is null, so this guard does
-         * not replace the dedicated search-query verification performed before
-         * a new negotiation starts.
+         * SEARCH_QUERY remains guarded. For historical conversations we stop
+         * only on a conclusive mismatch; ambiguous stored text is not enough to
+         * terminate an already-started conversation.
          */
-        String model = normalize(configuration.getModel());
-        if (model.isBlank()) {
-            return true;
-        }
+        ListingTargetAssessment assessment =
+                listingTargetMatcher.assessCatalogListing(
+                        listing,
+                        configuration
+                );
 
-        String brand = normalize(configuration.getBrand());
-        String expected = brand.isBlank()
-                || model.equals(brand)
-                || model.startsWith(brand + " ")
-                ? model
-                : brand + " " + model;
-
-        String actual = normalize(listing.title());
-        boolean matches = expected.equals(actual);
-
-        if (!matches) {
+        if (assessment == ListingTargetAssessment.MISMATCH) {
             log.error(
-                    "[TARGET GUARD] Listing {} target mismatch. Expected='{}', actual='{}'.",
+                    "[TARGET GUARD] Existing SEARCH_QUERY negotiation {} has a conclusive target mismatch. query='{}', title='{}'.",
                     listing.listingId(),
-                    expected,
-                    actual
+                    configuration.getSearchQuery(),
+                    listing.title()
             );
+            return false;
         }
-        return matches;
+
+        return true;
     }
 
     public ListingResponseDto finishWrongTargetNegotiation(
@@ -231,20 +227,4 @@ public class ExistingNegotiationSupport {
                 : normalized.substring(0, max) + "...";
     }
 
-    private String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        String prepared = value.replace("+", " plus ").replace("＋", " plus ");
-        String withoutDiacritics = Normalizer.normalize(
-                        prepared,
-                        Normalizer.Form.NFD
-                )
-                .replaceAll("\\p{M}+", "");
-        return withoutDiacritics
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", " ")
-                .trim()
-                .replaceAll("\\s+", " ");
-    }
 }

@@ -14,8 +14,8 @@ public record ScheduledActionLimitConfig(
     static final String MAX_REAL_NEXT_STEPS_ENV =
             "FLIPBOT_MAX_REAL_NEXT_STEPS_PER_CHECK";
 
-    private static final int DEFAULT_MAX_REAL_OFFERS_PER_CATALOG_SCAN = 3;
-    private static final int DEFAULT_MAX_REAL_NEXT_STEPS_PER_CHECK = 1;
+    private static final int DEFAULT_MAX_REAL_OFFERS_PER_CATALOG_SCAN = 5;
+    private static final int DEFAULT_MAX_REAL_NEXT_STEPS_PER_CHECK = 5;
     private static final int MIN_ACTION_LIMIT = 1;
     private static final int MAX_ACTION_LIMIT = 5;
 

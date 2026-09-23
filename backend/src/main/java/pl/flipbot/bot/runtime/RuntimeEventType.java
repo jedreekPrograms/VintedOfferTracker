@@ -6,5 +6,7 @@ public enum RuntimeEventType {
     RUN_SUCCEEDED,
     RUN_FAILED,
     RATE_LIMITED,
+    SESSION_BLOCKED,
+    SESSION_RECOVERED,
     IDLE
 }

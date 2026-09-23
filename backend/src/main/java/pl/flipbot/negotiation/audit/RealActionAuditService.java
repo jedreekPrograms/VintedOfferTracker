@@ -14,6 +14,7 @@ import pl.flipbot.negotiation.guard.RealActionGuardRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -22,6 +23,8 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class RealActionAuditService {
+
+    private static final ZoneId AUDIT_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final ListingRepository listingRepository;
     private final RealActionGuardRepository realActionGuardRepository;
@@ -63,16 +66,15 @@ public class RealActionAuditService {
             return;
         }
 
-        UpsertRealActionAuditRequest request =
-                new UpsertRealActionAuditRequest(
-                        guard.getRequestId(),
-                        guard.getActionType(),
-                        guard.getStepNumber(),
-                        null,
-                        RealActionAuditOutcome.AMBIGUOUS,
-                        RealActionMessageStatus.UNKNOWN,
-                        reason
-                );
+        UpsertRealActionAuditRequest request = new UpsertRealActionAuditRequest(
+                guard.getRequestId(),
+                guard.getActionType(),
+                guard.getStepNumber(),
+                null,
+                RealActionAuditOutcome.AMBIGUOUS,
+                RealActionMessageStatus.UNKNOWN,
+                reason
+        );
 
         recordWithLockedListing(
                 listing.getBot().getId(),
@@ -98,16 +100,15 @@ public class RealActionAuditService {
         Objects.requireNonNull(listing, "Listing cannot be null");
         Objects.requireNonNull(guard, "Real action guard cannot be null");
 
-        UpsertRealActionAuditRequest request =
-                new UpsertRealActionAuditRequest(
-                        guard.getRequestId(),
-                        guard.getActionType(),
-                        guard.getStepNumber(),
-                        null,
-                        RealActionAuditOutcome.CONFIRMED,
-                        RealActionMessageStatus.UNKNOWN,
-                        null
-                );
+        UpsertRealActionAuditRequest request = new UpsertRealActionAuditRequest(
+                guard.getRequestId(),
+                guard.getActionType(),
+                guard.getStepNumber(),
+                null,
+                RealActionAuditOutcome.CONFIRMED,
+                RealActionMessageStatus.UNKNOWN,
+                null
+        );
 
         recordWithLockedListing(
                 listing.getBot().getId(),
@@ -184,7 +185,7 @@ public class RealActionAuditService {
                 request
         );
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(AUDIT_ZONE);
 
         RealActionAudit audit = RealActionAudit.builder()
                 .requestId(request.requestId())
@@ -292,7 +293,7 @@ public class RealActionAuditService {
             );
         }
 
-        audit.setUpdatedAt(LocalDateTime.now());
+        audit.setUpdatedAt(LocalDateTime.now(AUDIT_ZONE));
     }
 
     private BigDecimal resolveAuditPrice(
@@ -313,9 +314,7 @@ public class RealActionAuditService {
         );
     }
 
-    private BigDecimal resolveConfirmedPrice(
-            Listing listing
-    ) {
+    private BigDecimal resolveConfirmedPrice(Listing listing) {
         return requirePositivePrice(
                 listing.getCurrentPrice(),
                 "Confirmed listing current price"
@@ -331,7 +330,6 @@ public class RealActionAuditService {
                     label + " must be positive"
             );
         }
-
         return value;
     }
 
@@ -394,9 +392,7 @@ public class RealActionAuditService {
         return normalized.isEmpty() ? null : normalized;
     }
 
-    private RealActionAuditResponse map(
-            RealActionAudit audit
-    ) {
+    private RealActionAuditResponse map(RealActionAudit audit) {
         return new RealActionAuditResponse(
                 audit.getId(),
                 audit.getRequestId(),

@@ -172,6 +172,25 @@ public class NegotiationResponsePolicyTest {
     }
 
     @Test
+    public void sellerCounterofferOnLastStepClosesNegotiation() {
+        BotConfigurationDto configuration = configuration();
+
+        NegotiationDecision decision = service.decide(
+                listing(3, "1100", null, null),
+                NegotiationConversationSnapshot.sellerCounterOffer(
+                        new BigDecimal("1600")
+                ),
+                configuration
+        );
+
+        assertEquals(
+                NegotiationDecisionType.MARK_REJECTED,
+                decision.type()
+        );
+        assertEquals(new BigDecimal("1600"), decision.sellerCounterOfferPrice());
+    }
+
+    @Test
     public void delayedRuleFailsClosedUntilStableFingerprintTimestampIsPersisted() {
         BotConfigurationDto configuration = configuration();
 

@@ -1,5 +1,6 @@
 package pl.flipbot.playwright.worker;
 
+import com.microsoft.playwright.Page;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
@@ -9,33 +10,43 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
+import pl.flipbot.playwright.negotiation.MultiProductExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.probe.PriceProbeProcessor;
 import pl.flipbot.playwright.probe.PriceProbeRuntimeConfig;
 import pl.flipbot.playwright.probe.SandboxCloneLoginService;
+import pl.flipbot.playwright.session.JobSessionPersistence;
+import pl.flipbot.playwright.session.VintedSessionPersistenceGuard;
+import pl.flipbot.playwright.target.VintedSessionBlockDetector;
+import pl.flipbot.playwright.target.VintedSessionBlockedException;
+import pl.flipbot.playwright.target.VintedSessionFailureClassifier;
 
 @Slf4j
 public class ScheduledBotRunExecutor {
 
     private static final ScheduledRealActionConfig REAL_ACTION_CONFIG =
             ScheduledRealActionConfig.fromEnvironment();
-
     private static final ScheduledActionLimitConfig ACTION_LIMIT_CONFIG =
             ScheduledActionLimitConfig.fromEnvironment();
-
     private static final PriceProbeRuntimeConfig PRICE_PROBE_CONFIG =
             PriceProbeRuntimeConfig.fromEnvironment();
 
+    private static final long SESSION_BLOCK_CLASSIFICATION_WINDOW_MS = 2_000L;
+    private static final long SESSION_BLOCK_CLASSIFICATION_POLL_MS = 200L;
+
     private final BotDetailsDto bot;
     private final BrowserManager browserManager;
+    private final VintedSessionBlockDetector sessionBlockDetector =
+            new VintedSessionBlockDetector();
+    private final JobSessionPersistence sessionPersistence = new JobSessionPersistence();
+    private final VintedSessionPersistenceGuard sessionPersistenceGuard =
+            new VintedSessionPersistenceGuard();
 
     public ScheduledBotRunExecutor(
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
-        if (bot == null
-                || bot.getId() == null
-                || bot.getId() <= 0) {
+        if (bot == null || bot.getId() == null || bot.getId() <= 0) {
             throw new IllegalArgumentException(
                     "Bot details with a positive ID are required."
             );
@@ -51,18 +62,19 @@ public class ScheduledBotRunExecutor {
 
     public void executeJob(ScheduledJobType jobType) {
         if (jobType == null) {
-            throw new IllegalArgumentException(
-                    "Scheduled job type is required."
-            );
+            throw new IllegalArgumentException("Scheduled job type is required.");
         }
-
         executeInternal(jobType);
     }
 
     private void executeInternal(ScheduledJobType jobType) {
         Long botId = bot.getId();
-        BotContext context = new BotContext(bot, browserManager);
+        BotContext context = jobType == ScheduledJobType.PRICE_PROBE
+                ? BotContext.isolated(bot, browserManager)
+                : new BotContext(bot, browserManager);
         boolean loginReady = false;
+        boolean jobCompleted = false;
+        boolean authenticatedCheckpointReady = false;
 
         try {
             if (jobType == ScheduledJobType.PRICE_PROBE) {
@@ -74,61 +86,46 @@ public class ScheduledBotRunExecutor {
                     return;
                 }
 
-                new SandboxCloneLoginService(
-                        context,
-                        PRICE_PROBE_CONFIG
-                ).login();
+                new SandboxCloneLoginService(context, PRICE_PROBE_CONFIG).login();
                 loginReady = true;
-
-                new PriceProbeProcessor(
-                        context,
-                        PRICE_PROBE_CONFIG
-                ).processOne();
+                new PriceProbeProcessor(context, PRICE_PROBE_CONFIG).processOne();
+                jobCompleted = true;
                 return;
             }
 
             boolean firstOfferRequested =
                     jobType == ScheduledJobType.CATALOG_SCAN
                             && REAL_ACTION_CONFIG.realOffersRequestedFor(botId);
-
             boolean nextStepRequested =
                     jobType == ScheduledJobType.NEGOTIATION_CHECK
                             && REAL_ACTION_CONFIG.realNextStepsRequestedFor(botId);
-
             boolean realOffersEnabled =
                     jobType == ScheduledJobType.CATALOG_SCAN
                             && REAL_ACTION_CONFIG.realOffersEnabledFor(botId);
-
             boolean realNextStepsEnabled =
                     jobType == ScheduledJobType.NEGOTIATION_CHECK
                             && REAL_ACTION_CONFIG.realNextStepsEnabledFor(botId);
+            boolean productionModeEnabled = REAL_ACTION_CONFIG.productionModeEnabled();
 
-            boolean productionModeEnabled =
-                    REAL_ACTION_CONFIG.productionModeEnabled();
-
-            int maxRealOffersPerRun =
-                    ACTION_LIMIT_CONFIG.effectiveMaxRealOffers(
-                            productionModeEnabled
-                    );
-
-            int maxRealNextStepsPerRun =
-                    ACTION_LIMIT_CONFIG.effectiveMaxRealNextSteps(
-                            productionModeEnabled
-                    );
+            int maxRealOffersPerRun = ACTION_LIMIT_CONFIG.effectiveMaxRealOffers(
+                    productionModeEnabled
+            );
+            int maxRealNextStepsPerRun = ACTION_LIMIT_CONFIG.effectiveMaxRealNextSteps(
+                    productionModeEnabled
+            );
 
             LoginService loginService = new LoginService(context);
             ListingClient listingClient = new ListingClient();
             OfferQuotaClient offerQuotaClient = new OfferQuotaClient();
 
             if (firstOfferRequested || nextStepRequested) {
-                RealActionPreflight.Result preflight =
-                        new RealActionPreflight().validate(
-                                bot,
-                                jobType,
-                                listingClient,
-                                firstOfferRequested,
-                                nextStepRequested
-                        );
+                RealActionPreflight.Result preflight = new RealActionPreflight().validate(
+                        bot,
+                        jobType,
+                        listingClient,
+                        firstOfferRequested,
+                        nextStepRequested
+                );
 
                 if (!preflight.ready()) {
                     realOffersEnabled = false;
@@ -154,7 +151,6 @@ public class ScheduledBotRunExecutor {
                     && (firstOfferRequested || nextStepRequested)) {
                 realOffersEnabled = false;
                 realNextStepsEnabled = false;
-
                 log.warn(
                         "[REAL ACTION PREFLIGHT] PREFLIGHT ONLY is active for bot {} / {}. Validation may report READY, but real submit remains disabled.",
                         botId,
@@ -162,14 +158,13 @@ public class ScheduledBotRunExecutor {
                 );
             }
 
-            ListingStatusUpdater listingStatusUpdater =
-                    new ListingStatusUpdater(
-                            context,
-                            listingClient
-                    );
+            ListingStatusUpdater listingStatusUpdater = new ListingStatusUpdater(
+                    context,
+                    listingClient
+            );
 
             ExistingNegotiationProcessor existingNegotiationProcessor =
-                    new ExistingNegotiationProcessor(
+                    new MultiProductExistingNegotiationProcessor(
                             context,
                             listingClient,
                             offerQuotaClient,
@@ -178,24 +173,22 @@ public class ScheduledBotRunExecutor {
                             maxRealNextStepsPerRun
                     );
 
-            CatalogWorkProcessor catalogWorkProcessor =
-                    new CatalogWorkProcessor(
-                            context,
-                            listingClient,
-                            offerQuotaClient,
-                            listingStatusUpdater,
-                            realOffersEnabled,
-                            maxRealOffersPerRun
-                    );
+            CatalogWorkProcessor catalogWorkProcessor = new CatalogWorkProcessor(
+                    context,
+                    listingClient,
+                    offerQuotaClient,
+                    listingStatusUpdater,
+                    realOffersEnabled,
+                    maxRealOffersPerRun
+            );
 
-            BotRunExecutor botRunExecutor =
-                    new BotRunExecutor(
-                            context,
-                            existingNegotiationProcessor,
-                            catalogWorkProcessor,
-                            realOffersEnabled,
-                            REAL_ACTION_CONFIG.firstOfferOneShotTestModeEnabled()
-                    );
+            BotRunExecutor botRunExecutor = new BotRunExecutor(
+                    context,
+                    existingNegotiationProcessor,
+                    catalogWorkProcessor,
+                    realOffersEnabled,
+                    REAL_ACTION_CONFIG.firstOfferOneShotTestModeEnabled()
+            );
 
             logExecutionMode(
                     jobType,
@@ -211,32 +204,73 @@ public class ScheduledBotRunExecutor {
             loginService.login();
             loginReady = true;
 
+            VintedSessionPersistenceGuard.Check checkpointCheck =
+                    sessionPersistenceGuard.check(
+                            context
+                    );
+
+            if (!checkpointCheck.healthy()) {
+                throw new IllegalStateException(
+                        "Refusing to replace the stored session for bot "
+                                + botId
+                                + " because login returned without strong authenticated evidence. reason="
+                                + checkpointCheck.reason()
+                );
+            }
+
+            context.saveSession();
+            authenticatedCheckpointReady = true;
+            log.debug(
+                    "[SESSION] Captured authenticated pre-job checkpoint for bot {}. verifiedBy={}",
+                    botId,
+                    checkpointCheck.reason()
+            );
+
             if (jobType == null) {
                 botRunExecutor.executeOneRun();
             } else {
                 switch (jobType) {
-                    case NEGOTIATION_CHECK ->
-                            botRunExecutor.executeNegotiationCheck();
-                    case CATALOG_SCAN ->
-                            botRunExecutor.executeCatalogScan();
+                    case NEGOTIATION_CHECK -> botRunExecutor.executeNegotiationCheck();
+                    case CATALOG_SCAN -> botRunExecutor.executeCatalogScan();
                     case PRICE_PROBE -> throw new IllegalStateException(
                             "PRICE_PROBE must use the isolated probe execution path."
                     );
                 }
             }
 
-        } finally {
-            if (loginReady) {
-                try {
-                    context.saveSession();
-                } catch (Exception exception) {
-                    log.warn(
-                            "[SCHEDULED JOB] Could not save session for bot {} before closing its context.",
-                            botId,
-                            exception
-                    );
-                }
+            jobCompleted = true;
+        } catch (VintedSessionBlockedException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            classifyLateSessionBlock(
+                    context,
+                    jobType,
+                    botId
+            );
+
+            if (VintedSessionFailureClassifier.shouldUseProtectiveCooldown(exception)) {
+                String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
+
+                log.warn(
+                        "[SESSION BLOCK] Bot {} hit a repeated Vinted authentication stall during {}. Treating it as a protective session cooldown instead of RUN_FAILED so all bot jobs back off together.",
+                        botId,
+                        jobLabel
+                );
+                throw new VintedSessionBlockedException(
+                        "Vinted authentication stalled after repeated submit/verification attempts while running "
+                                + jobLabel
+                                + " for bot "
+                                + botId
+                                + ". Applying protective session cooldown. Original failure: "
+                                + friendlyMessage(exception)
+                );
             }
+
+            throw exception;
+        } finally {
+            sessionPersistence.finish(
+                    context, loginReady, jobCompleted, authenticatedCheckpointReady
+            );
 
             log.info(
                     "[BROWSER LIFECYCLE] Bot {} {} job is finished. Closing only this job's isolated browser context/page.",
@@ -256,6 +290,50 @@ public class ScheduledBotRunExecutor {
         }
     }
 
+    private void classifyLateSessionBlock(
+            BotContext context,
+            ScheduledJobType jobType,
+            Long botId
+    ) {
+        Page page = context.getPage();
+        if (page == null || page.isClosed()) {
+            return;
+        }
+
+        String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
+        long deadline = System.currentTimeMillis() + SESSION_BLOCK_CLASSIFICATION_WINDOW_MS;
+
+        while (true) {
+            sessionBlockDetector.throwIfBlocked(
+                    page,
+                    "classifying failed " + jobLabel + " for bot " + botId
+            );
+
+            if (System.currentTimeMillis() >= deadline
+                    || page.isClosed()) {
+                return;
+            }
+
+            page.waitForTimeout(SESSION_BLOCK_CLASSIFICATION_POLL_MS);
+        }
+    }
+
+    private String friendlyMessage(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown error";
+        }
+
+        String message = throwable.getMessage();
+        if (message == null || message.isBlank()) {
+            return throwable.getClass().getSimpleName();
+        }
+
+        return message.lines()
+                .findFirst()
+                .orElse(message)
+                .trim();
+    }
+
     private void logExecutionMode(
             ScheduledJobType jobType,
             Long botId,
@@ -266,10 +344,7 @@ public class ScheduledBotRunExecutor {
             int maxRealOffersPerRun,
             int maxRealNextStepsPerRun
     ) {
-        String jobLabel =
-                jobType == null
-                        ? "FULL_RUN"
-                        : jobType.name();
+        String jobLabel = jobType == null ? "FULL_RUN" : jobType.name();
 
         if (REAL_ACTION_CONFIG.preflightOnly()
                 && (firstOfferRequested || nextStepRequested)) {
@@ -292,10 +367,9 @@ public class ScheduledBotRunExecutor {
             return;
         }
 
-        String modeLabel =
-                REAL_ACTION_CONFIG.productionModeEnabled()
-                        ? "PRODUCTION REAL ACTION MODE"
-                        : "CONTROLLED REAL ACTION MODE";
+        String modeLabel = REAL_ACTION_CONFIG.productionModeEnabled()
+                ? "PRODUCTION REAL ACTION MODE"
+                : "CONTROLLED REAL ACTION MODE";
 
         log.info(
                 "[SCHEDULED JOB] {} for {} / bot {}. realOffers={}, realNextSteps={}, firstOfferOneShotTestMode={}, maxRealOffersPerRun={}, maxRealNextStepsPerRun={}.",

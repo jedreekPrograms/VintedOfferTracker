@@ -11,8 +11,14 @@ public class RunningBotDto {
 
     private boolean hasActiveNegotiations;
 
+    private boolean sessionPreviewRequested;
+
     public boolean hasActiveNegotiations() {
         return hasActiveNegotiations;
+    }
+
+    public boolean isSessionPreviewRequested() {
+        return sessionPreviewRequested;
     }
 
 }

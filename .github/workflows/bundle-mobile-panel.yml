@@ -1,0 +1,66 @@
+name: Bundle mobile web panel
+
+on:
+  push:
+    branches:
+      - feat/mobile-monitor-stable-100ebca
+    paths:
+      - "frontend/**"
+      - "backend/src/main/java/pl/flipbot/mobile/**"
+      - ".github/workflows/bundle-mobile-panel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bundle-mobile-panel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy frontend into Spring Boot static resources
+        shell: bash
+        run: |
+          rm -rf backend/src/main/resources/static
+          mkdir -p backend/src/main/resources/static
+          cp -R frontend/dist/. backend/src/main/resources/static/
+
+      - name: Commit bundled panel when it changed
+        shell: bash
+        run: |
+          git add -f backend/src/main/resources/static
+          if git diff --cached --quiet; then
+            echo "Bundled panel is already up to date."
+            exit 0
+          fi
+
+          git config user.name "Jędrzej Stefanowski"
+          git config user.email "jedreek323@gmail.com"
+          git commit -m "chore: bundle frontend for mobile access"
+
+          # The branch may receive a mobile/APK commit while this build runs.
+          # Rebase the generated static bundle on the newest branch tip before
+          # pushing instead of failing with a non-fast-forward update.
+          git pull --rebase origin feat/mobile-monitor-stable-100ebca
+          git push origin HEAD:feat/mobile-monitor-stable-100ebca

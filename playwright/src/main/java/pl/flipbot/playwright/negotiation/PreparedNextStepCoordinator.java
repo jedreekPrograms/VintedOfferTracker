@@ -7,6 +7,8 @@ import pl.flipbot.playwright.api.quota.OfferQuotaClient;
 import pl.flipbot.playwright.api.quota.dto.OfferQuotaReservationResponseDto;
 import pl.flipbot.playwright.context.BotContext;
 
+import java.util.UUID;
+
 @Slf4j
 @RequiredArgsConstructor
 public class PreparedNextStepCoordinator {
@@ -38,7 +40,7 @@ public class PreparedNextStepCoordinator {
                 new NextStepActionGuardCoordinator();
         RealActionAuditCoordinator audit =
                 new RealActionAuditCoordinator(context);
-        var requestId = guard.acquire(botId, listing, decision.nextStep());
+        UUID requestId = guard.acquire(botId, listing, decision.nextStep());
 
         if (requestId == null) {
             return false;
@@ -46,7 +48,7 @@ public class PreparedNextStepCoordinator {
 
         OfferQuotaReservationResponseDto quota;
         try {
-            quota = offerQuotaClient.reserveSlot(botId);
+            quota = offerQuotaClient.reserveSlot(botId, requestId);
         } catch (Exception exception) {
             guard.releaseBeforeSubmitOrRetrySafely(
                     botId,
@@ -67,11 +69,12 @@ public class PreparedNextStepCoordinator {
             return false;
         }
 
+        ListingResponseDto canonicalListing;
         try {
-            new PreparedNextStepStateVerifier(context)
+            canonicalListing = new PreparedNextStepStateVerifier(context)
                     .verify(listing, decision.nextStep());
         } catch (Exception exception) {
-            releaseQuota(botId);
+            releaseQuota(botId, requestId);
             guard.releaseBeforeSubmitOrRetrySafely(
                     botId,
                     listing,
@@ -84,12 +87,13 @@ public class PreparedNextStepCoordinator {
         NextStepExecutionResult result;
         try {
             result = new PreparedNextStepSubmitter(context)
-                    .submitPrepared(listing, decision.nextStep());
+                    .submitPrepared(canonicalListing, decision.nextStep());
         } catch (Exception exception) {
             audit.recordAmbiguousBestEffort(
-                    listing,
+                    canonicalListing,
                     ACTION_TYPE,
                     decision.nextStep().getStepNumber(),
+                    decision.nextStep().getOfferPrice(),
                     requestId,
                     exception
             );
@@ -107,9 +111,10 @@ public class PreparedNextStepCoordinator {
             );
 
             audit.recordAmbiguousBestEffort(
-                    listing,
+                    canonicalListing,
                     ACTION_TYPE,
                     decision.nextStep().getStepNumber(),
+                    decision.nextStep().getOfferPrice(),
                     requestId,
                     exception
             );
@@ -117,9 +122,10 @@ public class PreparedNextStepCoordinator {
         }
 
         audit.recordConfirmedRequired(
-                listing,
+                canonicalListing,
                 ACTION_TYPE,
                 decision.nextStep().getStepNumber(),
+                decision.nextStep().getOfferPrice(),
                 requestId
         );
 
@@ -131,13 +137,17 @@ public class PreparedNextStepCoordinator {
         return true;
     }
 
-    private void releaseQuota(Long botId) {
+    private void releaseQuota(
+            Long botId,
+            UUID requestId
+    ) {
         try {
-            offerQuotaClient.releaseSlot(botId);
+            offerQuotaClient.releaseSlot(botId, requestId);
         } catch (Exception exception) {
             log.error(
-                    "Could not release quota slot for bot {}",
+                    "Could not release quota slot for bot {} requestId={}",
                     botId,
+                    requestId,
                     exception
             );
         }

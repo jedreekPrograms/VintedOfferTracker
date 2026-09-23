@@ -3,9 +3,11 @@ package pl.flipbot.playwright.browser;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.options.ServiceWorkerPolicy;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class BrowserManager implements AutoCloseable {
@@ -67,14 +69,160 @@ public class BrowserManager implements AutoCloseable {
             options.setStorageStatePath(storageState);
         }
 
-        BrowserContext context = browser.newContext(options);
+        boolean blockServiceWorkers =
+                BrowserResourceOptimizationConfig.blockServiceWorkers(headless);
+        if (blockServiceWorkers) {
+            options.setServiceWorkers(ServiceWorkerPolicy.BLOCK);
+        }
+
+        BrowserContext context;
+
+        try {
+            context = browser.newContext(options);
+        } catch (RuntimeException exception) {
+            if (storageState == null) {
+                throw exception;
+            }
+
+            /*
+             * A stored bot session is authoritative. Do not expose the raw
+             * Playwright restore exception as a recoverable storage-state
+             * failure to BotContext, because that legacy path falls back to
+             * createContext(null) and can silently turn a logged-in bot into a
+             * fresh browser session. Keep the original error as suppressed
+             * diagnostic information, leave bot-X.json untouched and fail the
+             * job instead.
+             */
+            IllegalStateException guardedFailure = new IllegalStateException(
+                    "Stored bot session could not be restored from "
+                            + storageState
+                            + ". Refusing automatic clean browser context fallback; the saved session was left untouched."
+            );
+            guardedFailure.addSuppressed(exception);
+            throw guardedFailure;
+        }
+
         context.addInitScript(VintedInformationalDialogGuard.script());
+        context.addInitScript(OneTrustConsentGuard.script());
+
+        installRequestGuards(context);
+
+        if (blockServiceWorkers) {
+            log.info(
+                    "[BROWSER MEMORY] Service-worker registration is blocked for this headless browser context. Set {}=false to disable this optimization.",
+                    BrowserResourceOptimizationConfig.BLOCK_SERVICE_WORKERS_ENV
+            );
+        }
 
         log.debug(
-                "[BROWSER UI] Vinted informational-dialog guard installed for new browser context."
+                "[BROWSER UI] Vinted informational-dialog and OneTrust consent guards installed for new browser context."
         );
 
         return context;
+    }
+
+    private void installRequestGuards(BrowserContext context) {
+        AtomicInteger blockedExternalDocuments = new AtomicInteger();
+
+        context.route(
+                "**/*",
+                route -> {
+                    try {
+                        var request = route.request();
+
+                        boolean topLevelDocument =
+                                "document".equals(request.resourceType())
+                                        && request.isNavigationRequest()
+                                        && request.frame().parentFrame() == null;
+
+                        if (topLevelDocument
+                                && ExternalTopLevelNavigationPolicy.shouldBlock(
+                                        request.url()
+                                )) {
+                            int eventNumber =
+                                    blockedExternalDocuments.incrementAndGet();
+
+                            if (eventNumber <= 5
+                                    || eventNumber % 25 == 0) {
+                                log.warn(
+                                        "[BROWSER NAVIGATION] Blocked unexpected external top-level navigation before render. event=#{}, url={}",
+                                        eventNumber,
+                                        request.url()
+                                );
+                            }
+
+                            route.abort();
+                            return;
+                        }
+
+                        if (AdTechRequestPolicy.shouldBlock(
+                                request.url()
+                        )) {
+                            if (topLevelDocument) {
+                                int eventNumber =
+                                        blockedExternalDocuments.incrementAndGet();
+
+                                if (eventNumber <= 5
+                                        || eventNumber % 25 == 0) {
+                                    log.warn(
+                                            "[BROWSER ADS] Blocked ad-tech top-level document before render. event=#{}, url={}",
+                                            eventNumber,
+                                            request.url()
+                                    );
+                                }
+                            }
+
+                            route.abort();
+                            return;
+                        }
+
+                        if (headless) {
+                            String topLevelPageUrl =
+                                    request.frame().page().url();
+
+                            if (CatalogHeavyResourcePolicy.shouldBlock(
+                                    topLevelPageUrl,
+                                    request.resourceType(),
+                                    request.url()
+                            )) {
+                                route.abort();
+                                return;
+                            }
+                        }
+                    } catch (RuntimeException exception) {
+                        /*
+                         * Request filtering is an optimization/safety layer, not
+                         * business logic. If a frame/page disappears while the
+                         * request is being classified, fail open rather than
+                         * breaking Vinted navigation, login or CAPTCHA.
+                         */
+                        log.trace(
+                                "[BROWSER REQUEST GUARD] Could not classify a request safely; allowing it.",
+                                exception
+                        );
+                    }
+
+                    route.resume();
+                }
+        );
+
+        if (AdTechRequestPolicy.enabled()) {
+            log.info(
+                    "[BROWSER ADS] Conservative ad-tech request guard installed for all browser contexts. Observed RTB/ad domains are aborted before their documents/scripts can load; Vinted and challenge traffic remain allowed. Emergency disable: {}=false.",
+                    AdTechRequestPolicy.BLOCK_AD_TECH_ENV
+            );
+        } else {
+            log.warn(
+                    "[BROWSER ADS] Ad-tech request blocking is DISABLED by {}. Popup DOM guard and single-page fail-safe remain active.",
+                    AdTechRequestPolicy.BLOCK_AD_TECH_ENV
+            );
+        }
+
+        if (headless) {
+            log.info(
+                    "[BROWSER MEMORY] Headless heavy-resource guard installed. Vinted catalog/item-detail image and media transfers may be skipped; functional traffic and challenge assets remain enabled."
+            );
+        }
     }
 
     @Override

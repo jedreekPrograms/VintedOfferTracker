@@ -1,0 +1,103 @@
+.app-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(3px);
+    display: grid;
+    place-items: center;
+}
+
+.app-dialog {
+    width: min(100%, 480px);
+    box-sizing: border-box;
+    padding: 22px;
+    border: 1px solid var(--border-color, #dce3ea);
+    border-radius: 18px;
+    background: var(--card-background, #ffffff);
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+}
+
+.app-dialog-heading {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+.app-dialog-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: rgba(37, 99, 235, 0.1);
+    display: grid;
+    place-items: center;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.app-dialog-icon-danger {
+    background: rgba(220, 38, 38, 0.1);
+}
+
+.app-dialog h2 {
+    margin: 1px 0 6px;
+    font-size: 19px;
+    line-height: 1.25;
+}
+
+.app-dialog-description {
+    color: var(--muted-text-color, #64748b);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.app-dialog-field {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.app-dialog-field label {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.app-dialog-field-error {
+    color: #b91c1c;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.app-dialog-actions {
+    margin-top: 22px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.app-dialog-confirm {
+    min-width: 118px;
+}
+
+@media (max-width: 560px) {
+    .app-dialog-backdrop {
+        padding: 12px;
+        align-items: end;
+    }
+
+    .app-dialog {
+        padding: 18px;
+        border-radius: 18px 18px 12px 12px;
+    }
+
+    .app-dialog-actions {
+        flex-direction: column-reverse;
+    }
+
+    .app-dialog-actions button {
+        width: 100%;
+    }
+}

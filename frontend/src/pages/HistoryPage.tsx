@@ -9,10 +9,12 @@ import {
     getListingHistory,
     type ListingHistoryResponse,
 } from "../api/historyApi";
+import HistoryAssessmentFilters from "../features/history/HistoryAssessmentFilters";
 import HistoryCard from "../features/history/HistoryCard";
 import HistoryStatusFilters from "../features/history/HistoryStatusFilters";
 import HistoryToolbar from "../features/history/HistoryToolbar";
 import type {
+    HistoryAssessmentFilter,
     HistoryFilter,
     HistorySort,
 } from "../features/history/historyTypes";
@@ -22,12 +24,15 @@ import {
 } from "../features/history/historyUtils";
 
 const DEFAULT_FILTER: HistoryFilter = "ALL";
+const DEFAULT_ASSESSMENT: HistoryAssessmentFilter = "ALL";
 const DEFAULT_BOT_ID = "ALL";
 const DEFAULT_SORT: HistorySort = "NEWEST";
 
 function HistoryPage() {
     const [listings, setListings] = useState<ListingHistoryResponse[]>([]);
     const [filter, setFilter] = useState<HistoryFilter>(DEFAULT_FILTER);
+    const [assessment, setAssessment] =
+        useState<HistoryAssessmentFilter>(DEFAULT_ASSESSMENT);
     const [selectedBotId, setSelectedBotId] = useState(DEFAULT_BOT_ID);
     const [searchQuery, setSearchQuery] = useState("");
     const [sort, setSort] = useState<HistorySort>(DEFAULT_SORT);
@@ -55,35 +60,38 @@ function HistoryPage() {
         void loadHistory();
     }, [loadHistory]);
 
-    const purchasedCount = useMemo(
-        () => listings.filter(listing => listing.status === "PURCHASED").length,
-        [listings],
-    );
-    const skippedCount = useMemo(
-        () => listings.filter(listing => listing.status === "SKIPPED_BY_USER").length,
-        [listings],
-    );
+    const countOutcome = (outcome: ListingHistoryResponse["historyOutcome"]) =>
+        listings.filter(listing => listing.historyOutcome === outcome).length;
+
+    const countAssessment = (
+        value: ListingHistoryResponse["offerAssessment"],
+    ) => listings.filter(listing => listing.offerAssessment === value).length;
+
     const bots = useMemo(
         () => getHistoryBots(listings),
         [listings],
     );
+
     const filteredListings = useMemo(
         () => getFilteredHistory(listings, {
-            status: filter,
+            outcome: filter,
+            assessment,
             botId: selectedBotId,
             searchQuery,
             sort,
         }),
-        [listings, filter, selectedBotId, searchQuery, sort],
+        [listings, filter, assessment, selectedBotId, searchQuery, sort],
     );
 
     const filtersActive = filter !== DEFAULT_FILTER
+        || assessment !== DEFAULT_ASSESSMENT
         || selectedBotId !== DEFAULT_BOT_ID
         || searchQuery.trim().length > 0
         || sort !== DEFAULT_SORT;
 
     function clearFilters() {
         setFilter(DEFAULT_FILTER);
+        setAssessment(DEFAULT_ASSESSMENT);
         setSelectedBotId(DEFAULT_BOT_ID);
         setSearchQuery("");
         setSort(DEFAULT_SORT);
@@ -110,7 +118,8 @@ function HistoryPage() {
                     <p className="page-eyebrow">Archiwum decyzji</p>
                     <h1 className="page-title">Historia</h1>
                     <p className="page-description">
-                        Kupione i ręcznie odrzucone oferty po zakończeniu negocjacji.
+                        Tylko oferty, które faktycznie trafiły wcześniej do sekcji „Oferty do kupienia”.
+                        Oznacz, czy kupiłeś, dlaczego nie kupiłeś oraz czy oferta była legit.
                     </p>
                 </div>
 
@@ -133,9 +142,21 @@ function HistoryPage() {
             <HistoryStatusFilters
                 value={filter}
                 totalCount={listings.length}
-                purchasedCount={purchasedCount}
-                skippedCount={skippedCount}
+                purchasedCount={countOutcome("PURCHASED")}
+                rejectedCount={
+                    countOutcome("REJECTED")
+                    + countOutcome("MISSED_OPPORTUNITY")
+                }
+                unclassifiedCount={countOutcome("UNCLASSIFIED")}
                 onChange={setFilter}
+            />
+
+            <HistoryAssessmentFilters
+                value={assessment}
+                legitCount={countAssessment("LEGIT")}
+                scamCount={countAssessment("SCAM")}
+                unassessedCount={countAssessment("UNASSESSED")}
+                onChange={setAssessment}
             />
 
             <HistoryToolbar

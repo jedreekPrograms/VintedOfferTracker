@@ -26,9 +26,21 @@ public class ListingHistoryResponse {
 
     private String status;
 
+    private String historyOutcome;
+
+    private String offerAssessment;
+
+    private String missedOpportunityReason;
+
     private LocalDateTime decisionAt;
+
+    private LocalDateTime buyCandidateAt;
 
     private Long botId;
 
     private String botName;
+
+    private Long additionalTargetId;
+
+    private String productTargetLabel;
 }

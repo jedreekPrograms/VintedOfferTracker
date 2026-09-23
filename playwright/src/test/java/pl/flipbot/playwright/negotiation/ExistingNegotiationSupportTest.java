@@ -1,8 +1,13 @@
 package pl.flipbot.playwright.negotiation;
 
 import org.junit.Test;
+import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
+import pl.flipbot.playwright.model.BotConfigurationDto;
+
+import java.math.BigDecimal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class ExistingNegotiationSupportTest {
@@ -31,6 +36,100 @@ public class ExistingNegotiationSupportTest {
         assertEquals(
                 "RuntimeException",
                 support.friendlyError(new RuntimeException())
+        );
+    }
+
+    @Test
+    public void existingVintedModelNegotiationTrustsNativeFilterDespiteStoredTitle() {
+        ExistingNegotiationSupport support =
+                new ExistingNegotiationSupport(null, null, null, null);
+
+        assertTrue(
+                support.matchesConfiguredTarget(
+                        listing(
+                                "Samsung Galaxy Tab S9 FE+",
+                                "https://www.vinted.pl/items/9725937346-samsung-galaxy-tab-s9-fe"
+                        ),
+                        samsungS25()
+                )
+        );
+    }
+
+    @Test
+    public void existingVintedModelNegotiationDoesNotRecheckStoredUrl() {
+        ExistingNegotiationSupport support =
+                new ExistingNegotiationSupport(null, null, null, null);
+
+        assertTrue(
+                support.matchesConfiguredTarget(
+                        listing(
+                                "Samsung telefon 256 GB",
+                                "https://www.vinted.pl/items/123-samsung-galaxy-z-fold5"
+                        ),
+                        samsungS25()
+                )
+        );
+    }
+
+    @Test
+    public void existingS25NegotiationKeepsGenericHistoricalTitleWhenNoConflictExists() {
+        ExistingNegotiationSupport support =
+                new ExistingNegotiationSupport(null, null, null, null);
+
+        assertTrue(
+                support.matchesConfiguredTarget(
+                        listing(
+                                "Telefon Samsung 128 GB",
+                                "https://www.vinted.pl/items/123-telefon-samsung"
+                        ),
+                        samsungS25()
+                )
+        );
+    }
+
+    @Test
+    public void existingSearchQueryNegotiationStillRejectsConclusiveWrongVariant() {
+        ExistingNegotiationSupport support =
+                new ExistingNegotiationSupport(null, null, null, null);
+
+        BotConfigurationDto configuration = new BotConfigurationDto();
+        configuration.setTargetMode("SEARCH_QUERY");
+        configuration.setBrand("Samsung");
+        configuration.setSearchQuery("Galaxy S25");
+
+        assertFalse(
+                support.matchesConfiguredTarget(
+                        listing(
+                                "Samsung Galaxy S25 Ultra 256 GB",
+                                "https://www.vinted.pl/items/123-samsung-galaxy-s25-ultra"
+                        ),
+                        configuration
+                )
+        );
+    }
+
+    private BotConfigurationDto samsungS25() {
+        BotConfigurationDto configuration = new BotConfigurationDto();
+        configuration.setTargetMode("VINTED_MODEL");
+        configuration.setBrand("Samsung");
+        configuration.setModel("Galaxy S25");
+        return configuration;
+    }
+
+    private ListingResponseDto listing(String title, String url) {
+        return new ListingResponseDto(
+                1L,
+                "123",
+                title,
+                url,
+                new BigDecimal("1500.00"),
+                new BigDecimal("900.00"),
+                1,
+                true,
+                "conversation-1",
+                "https://www.vinted.pl/inbox/conversation-1",
+                "NEGOTIATING",
+                null
         );
     }
 }

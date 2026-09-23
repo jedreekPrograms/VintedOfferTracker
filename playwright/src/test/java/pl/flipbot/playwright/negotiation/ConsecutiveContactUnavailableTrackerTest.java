@@ -56,4 +56,19 @@ public class ConsecutiveContactUnavailableTrackerTest {
         assertFalse(tracker.shouldClose(otherListing));
         assertFalse(tracker.shouldClose(otherBot));
     }
+
+    @Test
+    public void clearsOnlyRequestedBotCounters() {
+        tracker.recordSuspected(4L, "A");
+        tracker.recordSuspected(4L, "B");
+        tracker.recordSuspected(3L, "A");
+
+        assertTrue(ConsecutiveContactUnavailableTracker.hasStateForTests(4L));
+        assertTrue(ConsecutiveContactUnavailableTracker.hasStateForTests(3L));
+
+        ConsecutiveContactUnavailableTracker.clearProcessState(4L);
+
+        assertFalse(ConsecutiveContactUnavailableTracker.hasStateForTests(4L));
+        assertTrue(ConsecutiveContactUnavailableTracker.hasStateForTests(3L));
+    }
 }

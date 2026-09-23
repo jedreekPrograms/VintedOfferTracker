@@ -32,7 +32,32 @@ public class MarketplaceUrlsTest {
         assertTrue(MarketplaceUrls.isCatalogUrl("https://www.vinted.pl/catalog/phones?page=1"));
 
         assertFalse(MarketplaceUrls.isCatalogUrl("https://www.vinted.pl/inbox"));
+        assertFalse(MarketplaceUrls.isCatalogUrl("https://www.vinted.pl/session-refresh?ref_url=%2Fcatalog"));
         assertFalse(MarketplaceUrls.isCatalogUrl("https://www.sos-accessoire.com/catalog"));
         assertFalse(MarketplaceUrls.isCatalogUrl("https://www.vinted.pl.evil.example/catalog"));
+    }
+
+    @Test
+    public void recognizesOnlyTrustedVintedSessionRefreshUrls() {
+        assertTrue(MarketplaceUrls.isSessionRefreshUrl(
+                "https://www.vinted.pl/session-refresh?ref_url=%2Fcatalog"
+        ));
+        assertTrue(MarketplaceUrls.isSessionRefreshUrl(
+                "https://vinted.pl/session-refresh?ref_url=%2Finbox%2F24576946040"
+        ));
+        assertTrue(MarketplaceUrls.isSessionRefreshUrl(
+                "https://www.vinted.pl/session-refresh/"
+        ));
+
+        assertFalse(MarketplaceUrls.isSessionRefreshUrl(
+                "https://www.vinted.pl/catalog?ref_url=%2Fsession-refresh"
+        ));
+        assertFalse(MarketplaceUrls.isSessionRefreshUrl(
+                "https://www.vinted.pl.evil.example/session-refresh?ref_url=%2Fcatalog"
+        ));
+        assertFalse(MarketplaceUrls.isSessionRefreshUrl(
+                "http://www.vinted.pl/session-refresh?ref_url=%2Fcatalog"
+        ));
+        assertFalse(MarketplaceUrls.isSessionRefreshUrl(null));
     }
 }

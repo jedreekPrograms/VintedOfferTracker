@@ -1,43 +1,43 @@
 # FlipBot demo media
 
-This directory is reserved for public README/demo assets.
+This directory is reserved for lightweight public assets used by the root project README.
 
-Recommended final files:
+## Full demo
+
+The polished FlipBot walkthrough is published on YouTube:
+
+**https://www.youtube.com/watch?v=xaNDLMsuKKk**
+
+The full recording is approximately **2:34, 2560×1440 / 60 FPS** and demonstrates the real application rather than a mock-up. The video intentionally stays outside Git history so the repository remains lightweight.
+
+The root README uses YouTube's own thumbnail endpoint as the clickable preview:
+
+```md
+[![Watch the full FlipBot demo](https://img.youtube.com/vi/xaNDLMsuKKk/maxresdefault.jpg)](https://www.youtube.com/watch?v=xaNDLMsuKKk)
+```
+
+## Demo storyboard
+
+| Approx. time | Scene |
+| --- | --- |
+| 0:05 | dashboard / operational metrics |
+| 0:25 | bot creation and configuration |
+| 0:50 | history / persisted results |
+| 1:15 | transition to the live automation engine |
+| 1:40 | ten headless browser slots / parallel runtime |
+| 2:05 | Runtime dashboard and worker state |
+| 2:28 | dashboard state changing alongside logs |
+
+## Future screenshots
+
+A few static screenshots can still help readers who do not play the video. Good candidates are:
 
 ```text
 docs/media/
 ├── dashboard.png
 ├── bot-configuration.png
-├── live-discovery.png
 ├── negotiation-state.png
-├── market-statistics.png
-└── demo-thumbnail.png
+└── runtime.png
 ```
 
-## Screenshots
-
-Keep screenshots focused and readable:
-
-1. `dashboard.png` — running bots and high-level state.
-2. `bot-configuration.png` — target mode, category/model, prices and negotiation steps.
-3. `live-discovery.png` — useful scan/filter state; avoid a giant wall of logs.
-4. `negotiation-state.png` — persisted conversation/step/waiting state.
-5. `market-statistics.png` — model activity / observations.
-
-Recommended width: **1400–1800 px**. Crop browser/IDE chrome when it does not add useful context. Blur or replace private e-mail addresses, passwords, cookies, session values and other account-specific data before committing screenshots.
-
-## Video
-
-The repository should not store a large raw recording unless there is a specific reason to do so. A better setup is:
-
-- upload a polished **60–120 s** demo to YouTube (unlisted is fine), Loom or Vimeo,
-- export one strong frame as `demo-thumbnail.png`,
-- link that thumbnail from the root `README.md`.
-
-Suggested Markdown after the video is ready:
-
-```md
-[![Watch the FlipBot demo](docs/media/demo-thumbnail.png)](YOUR_VIDEO_URL)
-```
-
-Use the video to prove end-to-end behavior; use the screenshots so the project is understandable without pressing Play.
+Keep screenshots focused and readable. Crop irrelevant browser/IDE chrome and remove or replace private e-mail addresses, passwords, cookies, session values and other account-specific data before committing them.

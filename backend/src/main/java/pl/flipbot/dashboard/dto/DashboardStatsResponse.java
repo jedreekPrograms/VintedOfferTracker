@@ -20,7 +20,21 @@ public record DashboardStatsResponse(
 
         BigDecimal averagePurchasePrice,
 
-        BigDecimal averageDiscountPercentage
+        BigDecimal averageDiscountPercentage,
+
+        long selectedHistoryCount,
+
+        long missedOpportunityCount,
+
+        long legitCount,
+
+        long scamCount,
+
+        long unassessedCount,
+
+        BigDecimal averageSelectedPrice,
+
+        BigDecimal medianSelectedPrice
 
 ) {
 }

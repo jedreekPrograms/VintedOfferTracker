@@ -1,396 +1,354 @@
-# FlipBot — Vinted Offer Tracker & Negotiation Automation
+# FlipBot — Marketplace Monitoring & Negotiation Automation
 
 <p align="center">
-  <strong>A full-stack marketplace automation system for high-signal offer discovery, persistent negotiation workflows, runtime observability and market planning.</strong>
+  <strong>A stateful full-stack automation system for discovering marketplace listings, validating targets, coordinating parallel browser workers and executing guarded multi-step negotiations.</strong>
 </p>
 
 <p align="center">
-  <a href="../../actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/jedreekPrograms/VintedOfferTracker/ci.yml?branch=main&label=CI"></a>
+  <a href="../../actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/jedreekPrograms/VintedOfferTracker/ci.yml?branch=fix%2Fsession-refresh-stable&label=CI"></a>
   <img alt="Java" src="https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white">
   <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?logo=springboot&logoColor=white">
-  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white">
   <img alt="Playwright" src="https://img.shields.io/badge/Playwright-1.54-2EAD33?logo=playwright&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
   <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white">
 </p>
 
-<p align="center">
-  <a href="#demo">Demo</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#core-capabilities">Capabilities</a> ·
-  <a href="#running-locally">Run locally</a> ·
-  <a href="#tests--ci">Tests & CI</a>
-</p>
-
-> **Status:** active development. FlipBot is an independent engineering project and is not affiliated with, endorsed by, or sponsored by Vinted. Marketplace automation may be subject to platform rules and account restrictions; anyone running it is responsible for the applicable terms and local law.
+> **Project status:** active development. FlipBot is an independent engineering project and is not affiliated with, endorsed by or sponsored by Vinted. Browser automation may be subject to marketplace rules and account restrictions; use responsibly.
 
 ---
 
 ## Demo
 
 <p align="center">
-  <a href="https://youtu.be/xaNDLMsuKKk">
-    <img src="https://img.youtube.com/vi/xaNDLMsuKKk/maxresdefault.jpg" alt="FlipBot demo — click to watch on YouTube" width="900">
+  <a href="https://www.youtube.com/watch?v=xaNDLMsuKKk">
+    <img src="https://img.youtube.com/vi/xaNDLMsuKKk/maxresdefault.jpg" alt="Watch the FlipBot full demo on YouTube" width="900">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://youtu.be/xaNDLMsuKKk"><strong>▶ Watch the full FlipBot demo on YouTube</strong></a>
+  <strong>▶ <a href="https://www.youtube.com/watch?v=xaNDLMsuKKk">Watch the full 2:34 FlipBot demo on YouTube</a></strong>
 </p>
 
-The video is the fastest way to see the project as a product rather than as a collection of source files. It shows the web control plane and the live browser-worker runtime working together: bot configuration and management, operational state, catalog discovery, negotiation-oriented flows and the terminal-side automation process.
+The demo shows the **real application**, not a mock-up or isolated browser script. It walks through the dashboard, bot configuration, persisted history, the parallel Playwright runtime and live runtime telemetry.
 
-The rest of this README explains the engineering behind that behavior.
+| Approx. time | What is shown |
+| --- | --- |
+| **0:05** | dashboard with running bots, negotiation counts, purchases and business metrics |
+| **0:25** | bot configuration: Vinted account, target filters, model, price range and negotiation rules |
+| **0:50** | persisted listing / purchase history |
+| **1:15** | transition from the dashboard to the live automation engine |
+| **1:40** | **10 headless Playwright browser slots** and parallel-worker architecture |
+| **2:05** | runtime observability: working, queued, cooldown and error states |
+| **2:28** | UI state changing alongside the worker logs |
+
+The full-resolution recording stays on YouTube rather than in Git history, keeping the repository lightweight while still providing an immediate visual proof that the system works end to end.
+
+### What the demo proves
+
+FlipBot is more than a scraper or a Selenium-style script. The browser engine, backend state, scheduler, persistent safety guards and dashboard operate as one coordinated system.
 
 ---
 
 ## What is FlipBot?
 
-FlipBot is a Java/React monorepo built around a simple idea: marketplace automation should be **stateful, observable and deliberately guarded**, not a one-off scraper that forgets everything after a browser closes.
+FlipBot is a monorepo for **stateful marketplace automation**. It continuously discovers listings, verifies that they really match a configured target, tracks market activity, plans negotiation capacity and can execute multi-step price negotiations through isolated Playwright workers.
 
-The backend is the source of truth for bots, listings, negotiations, quotas, runtime telemetry and market statistics. A separate Java Playwright runtime continuously schedules browser jobs, discovers matching listings, verifies targets, prepares or executes negotiation steps and persists every meaningful state transition back through the API. The React application is the operational control plane for configuring and supervising the system.
+The main design goal is not just automation speed. It is **correctness under unstable browser UI, retries, parallel workers and persistent business state**.
 
-In practice, FlipBot combines four different engineering problems in one project:
+The system is split into four cooperating layers:
 
-- **browser automation** against a dynamic client-rendered marketplace,
-- **stateful workflow orchestration** for multi-step negotiations,
-- **backend consistency and safety** around actions that should never be duplicated accidentally,
-- **operational UI and telemetry** for understanding what every worker and bot is doing.
+- **Spring Boot backend** — source of truth for bots, listings, negotiation state, quotas, runtime telemetry, marketplace ownership and action audit.
+- **Java Playwright runtime** — scheduled browser workers for catalog discovery, price probes and negotiation checks.
+- **React dashboard** — operational UI for bot configuration, runtime monitoring, history, action-required items, dictionaries and pricing.
+- **PostgreSQL** — durable state for listings, negotiations, runtime, market statistics and safety guards.
 
 ---
 
 ## Core capabilities
 
-| Area | What FlipBot implements |
-| --- | --- |
-| **Targeting** | Explicit `VINTED_MODEL` and `SEARCH_QUERY` modes with strict model / variant verification |
-| **Discovery** | Newest-first catalog scans, price guards, persisted listings and backlog processing |
-| **Negotiations** | Persistent multi-step negotiation ladders, messages, counteroffer thresholds and delayed reactions |
-| **Adaptive pricing** | Optional adjustment to Vinted's minimum accepted offer while preserving the configured ladder proportions |
-| **Safety** | Dry-run-first operation, real-action preflight, persistent action guards, idempotency, quota reservation and per-run caps |
-| **Scheduling** | Multi-worker scheduler with per-bot serialization, retry delays and rate-limit cooldowns |
-| **Runtime telemetry** | Bot status, worker slot, last/next run, duration, consecutive failures and last error |
-| **Market intelligence** | Baseline counts, 24-hour / 7-day activity and model-level planning metrics |
-| **Persistence** | PostgreSQL-backed bots, configurations, listings, negotiation state, quotas, audit state and telemetry |
-| **Security** | AES-256-GCM encryption for persisted marketplace credentials using an external key |
+### Marketplace discovery
+
+Each bot can scan Vinted using a configured target, price range and category path. Discovery is persisted in the backend instead of living only in browser memory.
+
+The backend deliberately keeps historical records: a listing does not become “new again” simply because a worker restarts.
+
+### Two target modes
+
+FlipBot explicitly separates two target-identification strategies.
+
+#### `VINTED_MODEL`
+
+Used when Vinted exposes a native model filter.
+
+- category and brand are selected first,
+- the model must be proven as an **exact visible Vinted option**,
+- similar variants such as `Ultra`, `FE`, `Edge` or `+` are not accepted as substitutes,
+- the selected model collection is verified after navigation,
+- fresh-scan provenance is used as strong evidence only when the listing actually came from the current exact filtered result set.
+
+#### `SEARCH_QUERY`
+
+Used when a native Vinted model filter is not suitable.
+
+- the requested model is entered into marketplace search,
+- category / brand / price constraints are still applied,
+- title, URL and — when required — the live item page are used for semantic verification,
+- common wrong generations, variants and accessories are rejected.
+
+### Live target verification before real actions
+
+A stored listing title is not enough to justify a real offer. Before a first offer, the Playwright layer can re-check live Vinted evidence such as structured **brand/model fields** and the item heading.
+
+Conclusive mismatches fail closed and become `SKIPPED_TARGET_MISMATCH` rather than risking a negotiation for the wrong product.
 
 ---
 
-## Architecture
+## Negotiation engine
+
+Listings move through a persistent lifecycle instead of being disposable scraper output.
+
+```mermaid
+flowchart TD
+    D[DISCOVERED] -->|valid candidate + capacity| N[NEGOTIATING]
+    D -->|wrong target| TM[SKIPPED_TARGET_MISMATCH]
+    D -->|other bot owns marketplace listing| AN[SKIPPED_ALREADY_NEGOTIATED]
+    D -->|cannot negotiate| CN[SKIPPED_CANNOT_NEGOTIATE]
+    D -->|sold / unavailable| U[UNAVAILABLE]
+
+    N -->|seller interaction / configured rule| N
+    N -->|manual decision required| A[ACTION_REQUIRED]
+    N -->|purchase confirmed| P[PURCHASED]
+    N -->|item disappears| U
+    N -->|conversation unavailable| CU[CONTACT_UNAVAILABLE]
+    N -->|terminal rejection / expiry| X[REJECTED / EXPIRED / FINISHED]
+```
+
+The backend remembers, among other things:
+
+- marketplace listing ID,
+- internal backend listing ID,
+- Vinted conversation ID and URL,
+- current negotiation step,
+- original and current price,
+- current step start time,
+- seller/read activity timestamps,
+- formal seller responses and counteroffers,
+- whether a seller response is still awaited,
+- confirmed real actions and marketplace ownership.
+
+A browser job can therefore finish, the process can restart, and a later scheduled job can continue the same negotiation from PostgreSQL.
+
+### Configurable reactions
+
+Negotiation steps support different reactions to seller behavior. Examples include:
+
+- send the next configured step immediately,
+- wait before the next step,
+- react differently to a seller's own counter-price,
+- apply percentage thresholds against the original listing price,
+- stop when there is no following negotiation step.
+
+Timing decisions are persisted rather than tied to one browser process.
+
+---
+
+## Cross-bot negotiation ownership
+
+Multiple bots may discover the same marketplace listing. FlipBot prevents them from independently starting or continuing duplicate real negotiations.
+
+The backend keeps a durable ownership record keyed by:
+
+```text
+(marketplace, marketplace_listing_id)
+```
+
+The important behavior is:
+
+1. a `FIRST_OFFER` attempts a **pre-submit marketplace claim**,
+2. a competing bot is blocked while that reservation exists,
+3. a successfully confirmed first offer makes the claim durable,
+4. an unconfirmed pre-submit failure releases only its own reservation,
+5. later `NEXT_STEP` actions must still belong to the same marketplace owner,
+6. a duplicate backend listing owned by another confirmed conversation becomes `SKIPPED_ALREADY_NEGOTIATED`.
+
+This is separate from the per-listing action guard and protects the real marketplace conversation globally across bots.
+
+---
+
+## Real-action safety
+
+Real marketplace clicks are treated as transactional operations, not casual UI events.
+
+For a first offer the high-level order is:
+
+1. validate backend state,
+2. verify the live target,
+3. verify listing availability and supported actions,
+4. prepare the offer form,
+5. acquire marketplace ownership,
+6. acquire the persistent real-action guard,
+7. reserve daily action quota immediately before submission,
+8. perform the real click,
+9. verify the resulting conversation / marketplace state,
+10. persist confirmed audit information.
+
+### Persistent guard + audit
+
+The backend records both the in-flight guard and the outcome of real actions. This provides idempotency and a recovery path for cases such as:
+
+- worker crash after a click,
+- browser failure before confirmation,
+- a stale guard where backend listing state already proves delivery,
+- replayed request IDs,
+- an unresolved previous real action.
+
+Ambiguous states fail closed instead of blindly clicking again.
+
+### Daily quota and capacity planning
+
+Each bot has a daily real-action budget. New-conversation capacity is calculated separately from the raw “used today” counter: active negotiations reserve the future steps they may still need, preventing the bot from overcommitting the remaining daily budget.
+
+This means a bot can report spare quota while correctly limiting how many **new** negotiations it can start.
+
+---
+
+## Fresh-scan requalification
+
+Marketplace state changes over time. A listing that was unavailable yesterday may become visible again; a price can change; a previously unsuitable listing may re-enter the current search result set.
+
+FlipBot therefore supports **controlled requalification** instead of permanently ignoring every known listing ID.
+
+A historical listing can be reconsidered when it is actually seen again in a fresh filtered scan, but only under safe conditions:
+
+- no confirmed `FIRST_OFFER` exists for that backend listing,
+- no conversation / real negotiation has already been established,
+- only selected transient/technical terminal states are eligible,
+- hard historical outcomes such as purchase, manual skip or confirmed cross-bot ownership stay terminal,
+- the same listing is requalified at most once per Warsaw calendar day.
+
+This avoids both failure modes: permanently losing valid old candidates **and** repeatedly recycling hundreds of historical records every scan.
+
+---
+
+## Scheduler and parallel workers
+
+FlipBot does not run all bots serially in one browser.
+
+The Playwright scheduler uses a configurable worker-slot pool. The current defaults are:
+
+| Runtime setting | Default |
+| --- | ---: |
+| Worker slots | **10** |
+| Backend sync | **5 s** |
+| Negotiation check | **120 s** |
+| Catalog scan | **15 min** |
+| Price probe | **60 s** |
+| Generic failure retry | **60 s** |
+| Rate-limit retry | **10 min** |
+| Scheduler browser mode | **headless** |
+
+Different bots can work simultaneously. Jobs belonging to the **same bot** are serialized so two worker slots cannot mutate one negotiation state concurrently.
 
 ```mermaid
 flowchart LR
-    USER[Operator] --> UI[React + TypeScript Dashboard]
-    UI -->|REST / API| API[Spring Boot 4.1 Backend]
-    API --> DB[(PostgreSQL 17)]
+    UI[React Dashboard] --> API[Spring Boot API]
+    API --> DB[(PostgreSQL)]
 
-    subgraph PW[Java Playwright Runtime]
-        SCHED[Scheduler]
-        W1[Worker Slot 1]
-        W2[Worker Slot 2]
-        WN[Worker Slot N]
-        OBS[Market Stats Observer]
+    PW[Playwright Scheduler] --> API
+    PW --> S1[Worker Slot 1]
+    PW --> S2[Worker Slot 2]
+    PW --> SN[Worker Slot 10]
 
-        SCHED --> W1
-        SCHED --> W2
-        SCHED --> WN
-    end
+    S1 --> V[Vinted]
+    S2 --> V
+    SN --> V
 
-    PW -->|load bot state / persist results| API
-    W1 --> V[Vinted Web UI]
-    W2 --> V
-    WN --> V
+    OBS[Market Stats Observer] --> API
     OBS --> V
-
-    API -->|runtime + dashboard data| UI
 ```
 
-### Responsibility split
-
-**React frontend**
-
-- bot creation, editing and operational controls,
-- dashboard / history / action-required views,
-- runtime monitoring,
-- dictionaries and model configuration,
-- market-statistics / planning views.
-
-**Spring Boot backend**
-
-- persistent source of truth,
-- validation and bot configuration rules,
-- listing lifecycle and negotiation state,
-- daily negotiation capacity,
-- persistent real-action guards and audit state,
-- runtime telemetry APIs,
-- market-statistics aggregation.
-
-**Playwright runtime**
-
-- browser contexts and page lifecycle,
-- Vinted filtering / search targeting,
-- catalog scanning and listing verification,
-- first-offer preparation and execution,
-- negotiation follow-ups,
-- seller-response observation,
-- market-stat collection,
-- worker scheduling and retry behavior.
-
-**PostgreSQL**
-
-- durable state independent of browser lifetime,
-- schema managed by the migration set in `backend/src/main/resources/db/migration/`.
+Each scheduled job gets an isolated browser context. Browser process reuse does not imply shared page state between bot jobs.
 
 ---
 
-## End-to-end flow
+## Session-block protection
 
-A normal bot lifecycle is intentionally split into small, recoverable stages instead of one long browser script.
+Vinted can temporarily block a session or IP after detecting unusual activity. Retrying every minute in that state would only make the situation worse.
 
-1. **Configure a bot** in the React UI: category path, brand, target mode, price range, negotiation budget and negotiation steps.
-2. **Start the bot**. The scheduler discovers RUNNING bots and assigns due jobs to available worker slots.
-3. **Create an isolated browser job**. Every scheduled run receives its own `BrowserContext` and page lifetime.
-4. **Build the target** using either an exact native Vinted model or a search query.
-5. **Scan newest-first listings**, enforce price / target guards and persist eligible discoveries.
-6. **Persist discovery per bot** using `(bot_id, listing_id)` identity, keeping retries idempotent inside one bot while allowing different bot/account configurations to observe the same marketplace item.
-7. **Prepare a negotiation action** and re-check the live item immediately before submission.
-8. **Acquire persistent guard + reserve quota** only when the action is ready to be submitted.
-9. **Submit and confirm** the marketplace-side result, then persist conversation identifiers, step state and audit data.
-10. **Continue later**. Subsequent scheduled jobs can resume the same negotiation without relying on the old browser process or in-memory state.
+FlipBot detects the explicit hard-block page and also recognizes a narrow repeated authentication-stall signature where login submits never produce an observable transition.
 
-This design means a worker can crash, restart or release its browser context while the business workflow remains recoverable from PostgreSQL.
-
----
-
-## Targeting modes
-
-FlipBot deliberately separates two different ways of defining what a bot is allowed to act on.
-
-### `VINTED_MODEL`
-
-Used when Vinted exposes the requested product as a native model filter.
-
-The runtime:
-
-- selects category and brand first,
-- requires the model row to be proven as an **exact visible Vinted option**,
-- rejects look-alike variants such as `Edge`, `Ultra`, `FE` or `+` when they are not the configured target,
-- verifies the resulting `brand_collection_ids[]` value,
-- treats Vinted's native classification as authoritative after the exact filter has been established.
-
-If the exact model cannot be proven, the flow fails closed instead of silently broadening the target.
-
-### `SEARCH_QUERY`
-
-Used for products that do not have a suitable native Vinted model filter.
-
-The runtime:
-
-- submits the configured search query,
-- keeps category / brand / price constraints in place,
-- semantically verifies results against title, URL and — when needed — the live item page,
-- rejects wrong generations, adjacent variants and common accessories.
-
-The distinction between `VINTED_MODEL` and `SEARCH_QUERY` is preserved through discovery, statistics and negotiation verification.
-
----
-
-## Stateful negotiation engine
-
-Listings are persistent workflow entities, not disposable scraper rows.
-
-A simplified lifecycle looks like this:
+A positively classified session block becomes a **bot-wide cooldown**, not a generic job failure:
 
 ```text
-DISCOVERED
-   │
-   ├─ price / target mismatch ─────────► SKIPPED_...
-   ├─ unavailable / no contact action ─► UNAVAILABLE / CONTACT_UNAVAILABLE
-   │
-   ▼
-NEGOTIATING
-   │
-   ├─ seller activity / formal response
-   ├─ configured wait policy
-   ├─ next negotiation step
-   ├─ manual decision required ────────► ACTION_REQUIRED
-   ├─ rejected / timed out ────────────► REJECTED / EXPIRED
-   ├─ operator marks purchase ─────────► PURCHASED
-   └─ workflow complete ───────────────► FINISHED
+attempt 1  → 15 min
+attempt 2  → 30 min
+attempt 3  → 1 h
+attempt 4  → 2 h
+attempt 5  → 4 h
+attempt 6  → 8 h
+...
+maximum    → 7 days
 ```
 
-### What is persisted
+The first `sessionBlockedSince` timestamp remains persistent across retries. The Runtime dashboard can therefore display both total blocked duration and the current retry attempt/countdown.
 
-For each listing / negotiation the backend can retain, among other things:
-
-- marketplace listing ID,
-- original and current price,
-- current negotiation step,
-- conversation ID and URL,
-- whether the bot is awaiting the seller,
-- current-step start time,
-- seller-activity timestamps,
-- formal-response fingerprint and first-detection time,
-- final / skipped / action-required status.
-
-That persistence is what lets a later worker job resume the negotiation correctly.
-
-### Adaptive negotiation ladder
-
-A bot configuration can define multiple ordered negotiation steps. A step can contain:
-
-- offer price,
-- maximum accepted seller counteroffer,
-- optional message,
-- reaction to a formal rejection,
-- optional rejection wait time,
-- default reaction to an unacceptable counteroffer,
-- counteroffer rules based on discount relative to the **original listing price**.
-
-FlipBot also supports an adaptive mode where the first configured offer can be raised to Vinted's minimum accepted amount. The remaining configured ladder is then scaled while preserving its relative structure, and a global automatic-offer cap prevents the adaptive flow from exceeding the operator's limit.
-
----
-
-## Real-action safety model
-
-Sending a real marketplace offer is treated as a state-changing operation, not as an ordinary click.
-
-### Preparation before submission
-
-For a first offer, the intended order is:
-
-1. verify target identity,
-2. verify live listing state,
-3. prepare the offer form,
-4. verify final price and enabled submit action,
-5. acquire the persistent real-action guard,
-6. reserve daily quota,
-7. submit the real action,
-8. confirm the resulting marketplace state,
-9. persist conversation and audit information.
-
-This keeps quota / idempotency decisions as close as possible to the real submission point.
-
-### Dry-run first
-
-Scheduled real actions are disabled unless the Playwright JVM is started with the explicit action flags and confirmation settings. The project also supports a **preflight-only** mode in which the runtime can navigate to and validate the final action state without clicking submit.
-
-Production mode does **not** remove the backend safety layers. Persistent guards, quota, preflight validation, bot-level budgets and per-run caps remain active.
-
-Other protections include:
-
-- persistent first-offer and next-step guards,
-- request-level replay / idempotency handling,
-- daily offer budgets and backend capacity checks,
-- explicit bot scoping for controlled runs,
-- separate confirmation for continuous production actions,
-- per-run real-action throughput caps,
-- target, price and availability verification immediately before acting,
-- rate-limit detection and cooldown,
-- fail-closed handling after ambiguous post-quota failures,
-- same-bot serialization across worker slots.
-
-The full staged procedure is documented in [`playwright/REAL_ACTION_TESTING.md`](playwright/REAL_ACTION_TESTING.md).
-
----
-
-## Parallel scheduler and browser isolation
-
-FlipBot does **not** execute all bots serially in one shared browser.
-
-The scheduler owns a configurable pool of worker slots. Different bots may run simultaneously, but the same bot is not scheduled into two worker slots at once.
-
-Default production scheduler values are:
-
-| Setting | Default |
-| --- | ---: |
-| Worker slots | `10` |
-| Backend sync | `5 s` |
-| Negotiation check | `120 s` |
-| Catalog scan | `900 s` |
-| Generic failure retry | `60 s` |
-| Rate-limit retry | `600 s` |
-| Shutdown timeout | `30 s` |
-| Scheduler browser mode | headless |
-
-`FLIPBOT_WORKER_COUNT` is a **concurrency cap**, not a bot-count limit. More RUNNING bots can be queued than there are browser worker slots.
-
-### Job-level isolation
-
-Each scheduled bot job receives an isolated `BrowserContext`. The worker JVM / Playwright runtime may stay alive between jobs, while cookies, storage and page lifetime remain isolated at the job level.
-
-Automation flows also follow a single-main-page policy. Unexpected extra tabs or windows are closed so advertising / redirect popups cannot take over the automation flow.
+All scheduled job types for that bot back off together.
 
 ---
 
 ## Runtime observability
 
-The backend stores operational state for every bot, and the frontend exposes a dedicated **Runtime** view.
+The backend stores runtime state so the dashboard does not have to infer worker health from browser logs.
 
-Tracked runtime data includes:
+The Runtime view can surface states such as:
 
-- `IDLE`, `QUEUED`, `WORKING`, `COOLDOWN` and other runtime statuses,
-- last run start,
-- last run finish,
+- `WORKING`,
+- `QUEUED`,
+- `COOLDOWN`,
+- session blocked,
+- consecutive generic failures,
+- active worker slot,
+- last job type and duration,
 - next scheduled run,
-- last run duration,
-- consecutive failure count,
-- most recent error,
-- active / last worker slot,
-- telemetry update time.
+- latest error context.
 
-That makes the scheduler observable from the UI instead of requiring the operator to infer system state from terminal logs alone.
+A successful run clears the generic consecutive-failure streak. A classified session block is tracked separately because it is an external cooldown condition rather than an application failure.
 
 ---
 
-## Market statistics and planning
+## Market statistics and pricing
 
-A separate read-oriented collector measures marketplace activity per configured model.
+A separate observer records marketplace activity per dictionary model. The dashboard can combine this with bot configuration to support planning views such as:
 
-It persists / exposes metrics such as:
+- new listings over recent periods,
+- observed offer volume,
+- negotiation usage,
+- existing bot count,
+- estimated/recommended bot capacity,
+- configured acquisition and resale prices.
 
-- baseline offer count,
-- offers observed in the last 24 hours,
-- offers observed in the last 7 days,
-- existing configured bot count,
-- a derived recommended bot count,
-- readiness / collection state.
-
-The collector is separate from ordinary bot worker jobs and can continue gathering planning data independently of negotiation throughput.
-
-For `VINTED_MODEL` targets it stays strict: if the exact native model filter cannot be proven, the observer fails closed rather than silently switching to broad text search.
+Observer scans are read-oriented and independent from the normal negotiation worker queue.
 
 ---
 
 ## Browser resilience
 
-Vinted is a dynamic client-rendered application, so the Playwright layer contains explicit recovery logic rather than assuming every click immediately produces the expected page state.
+Vinted is a dynamic client-rendered application. The Playwright layer therefore contains explicit recovery and verification behavior rather than assuming every click immediately produces the expected URL.
 
 Examples include:
 
-- category-selection retry and reset,
-- brand persistence verification,
-- exact-model row verification,
-- exact model collection-ID persistence retry,
-- safe navigation back to a known Vinted URL,
-- popup / tab isolation,
-- human-verification waiting hooks,
-- unavailable-item detection,
-- bounded detail-page inspection,
-- graceful retry after transient failures,
-- backlog processing for older persisted `DISCOVERED` items that fall off the newest catalog page.
+- exact category/brand/model selection verification,
+- retries when a filter selection fails to persist,
+- safe navigation back to a known Vinted page,
+- popup/tab isolation,
+- cookie-consent handling,
+- human-verification hooks,
+- live availability checks,
+- hard-session-block detection,
+- late block classification after an authentication/navigation failure,
+- bounded retry scheduling for transient failures.
 
-The goal is not to hide failures. Unsafe fallbacks are rejected and important failures remain visible through structured logs and runtime telemetry.
-
----
-
-## Persistence and credential security
-
-FlipBot keeps business state in PostgreSQL rather than in browser memory.
-
-The backend also encrypts persisted marketplace passwords with **AES-256-GCM**. The encryption key is not stored in the repository: startup requires `FLIPBOT_ENCRYPTION_KEY`, containing a Base64-encoded 32-byte key.
-
-This separates the encrypted database value from the key needed to decrypt it and avoids committing a static credential-encryption key to source control.
+The design rule is simple: **when a real action cannot be proven safe, fail closed.**
 
 ---
 
@@ -398,9 +356,9 @@ This separates the encrypted database value from the key needed to decrypt it an
 
 | Layer | Technology |
 | --- | --- |
-| Backend | Java 21, Spring Boot 4.1, Spring MVC, Spring Data JPA, Validation, Security, Actuator |
-| Database | PostgreSQL 17, Flyway migrations |
-| Automation | Java 21, Microsoft Playwright 1.54, Jackson, SLF4J / Logback |
+| Backend | Java 21, Spring Boot 4.1, Spring MVC, Spring Data JPA, Validation, Security, WebSocket |
+| Database | PostgreSQL 17, Flyway migration files |
+| Automation | Java 21, Microsoft Playwright 1.54 |
 | Frontend | React 19, TypeScript 6, Vite 8, React Router 7 |
 | Tooling | Maven, npm, Docker Compose, GitHub Actions |
 
@@ -410,26 +368,35 @@ This separates the encrypted database value from the key needed to decrypt it an
 
 ```text
 VintedOfferTracker/
-├── backend/        # Spring Boot API, persistence, business rules, migrations
-├── frontend/       # React + TypeScript operational dashboard
-├── playwright/     # browser workers, targeting, scanner, negotiations, observer
-├── docker/         # local PostgreSQL compose setup
-├── docs/           # project media / documentation assets
-└── .github/        # CI workflow
+├── backend/
+│   ├── bot/                 # bot configuration + runtime state
+│   ├── listing/             # discovery + listing lifecycle/history
+│   ├── negotiation/         # planner, guards, audit, quotas, reactions
+│   ├── marketstats/         # observer/planning APIs
+│   └── db/migration/        # schema evolution
+│
+├── playwright/
+│   ├── worker/              # scheduler + worker slots
+│   ├── target/              # target verification / session classification
+│   ├── scanner/             # marketplace discovery
+│   └── negotiation/         # real browser negotiation flow
+│
+├── frontend/                # React dashboard
+├── docker/                  # local PostgreSQL
+├── docs/media/              # README/demo assets
+└── .github/workflows/       # CI
 ```
 
 ---
 
-## Running locally
+## Local development
 
 ### Requirements
 
 - Java 21
-- Node.js + npm
+- Node.js 22+ / npm
 - Docker + Docker Compose
-- Maven (the backend includes a Maven wrapper)
-- Chromium / Playwright browser runtime as required by your environment
-- a Base64-encoded 32-byte `FLIPBOT_ENCRYPTION_KEY`
+- Chromium installed by Playwright when browser execution is needed
 
 ### 1. Start PostgreSQL
 
@@ -438,46 +405,36 @@ cd docker
 docker compose up -d
 ```
 
-The compose file starts PostgreSQL 17 on `localhost:5433`, with:
+The Compose file exposes PostgreSQL on `localhost:5433`.
 
-```text
-database: flipbot
-user:     postgres
-password: postgres
-```
+### 2. Configure the backend encryption key
 
-### 2. Configure the backend for a clean local database
+Bot account credentials are encrypted by the backend. `FLIPBOT_ENCRYPTION_KEY` must contain a Base64-encoded **32-byte** key.
 
-The checked-in `application.yml` currently points to the local restoration database `flipbot_pr74`, uses port `8081` and has Flyway disabled. For a clean database created by the Docker compose file, override those values before starting the backend.
-
-Linux / macOS:
+Cross-platform example for generating one:
 
 ```bash
-export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5433/flipbot"
-export SPRING_DATASOURCE_USERNAME="postgres"
-export SPRING_DATASOURCE_PASSWORD="postgres"
-export SPRING_FLYWAY_ENABLED="true"
-export FLIPBOT_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())"
 ```
 
-PowerShell:
+Then export/set that value as `FLIPBOT_ENCRYPTION_KEY` before starting the backend.
 
-```powershell
-$env:SPRING_DATASOURCE_URL = "jdbc:postgresql://localhost:5433/flipbot"
-$env:SPRING_DATASOURCE_USERNAME = "postgres"
-$env:SPRING_DATASOURCE_PASSWORD = "postgres"
-$env:SPRING_FLYWAY_ENABLED = "true"
+### 3. Database profile caveat
 
-$keyBytes = New-Object byte[] 32
-[Security.Cryptography.RandomNumberGenerator]::Fill($keyBytes)
-$env:FLIPBOT_ENCRYPTION_KEY = [Convert]::ToBase64String($keyBytes)
-```
+The checked-in application profile currently represents the stabilized development database used by this branch:
 
-Keep the same encryption key for an existing database. Changing it makes previously encrypted credentials impossible to decrypt with the new key.
+- backend port: `8081`,
+- datasource: `localhost:5433/flipbot_pr74`,
+- Hibernate DDL: `none`,
+- Flyway: disabled.
 
-### 3. Start the backend
+This is intentional. Historical migrations were created on top of an already-existing schema and are **not yet a clean bootstrap chain from an empty database**. CI also disables Flyway and uses an isolated `create-drop` schema for tests.
 
-Linux / macOS:
+For another local database, override the datasource explicitly instead of assuming the current migration folder can safely bootstrap a blank DB.
+
+### 4. Start the backend
+
+Linux/macOS:
 
 ```bash
 cd backend
@@ -491,139 +448,132 @@ cd backend
 .\mvnw.cmd spring-boot:run
 ```
 
-The backend runs on:
-
-```text
-http://localhost:8081
-```
-
-### 4. Start the frontend
+### 5. Start the frontend
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Vite's development proxy forwards `/api` requests to `http://localhost:8081`.
+### 6. Start the scheduled Playwright runtime
 
-### 5. Verify the Playwright module
-
-```bash
-cd playwright
-mvn test
-```
-
-For interactive local development, run:
+For full multi-bot scheduling and Runtime-dashboard telemetry, run:
 
 ```text
 pl.flipbot.playwright.FlipBotPlaywrightApplication
 ```
 
-from your IDE after the backend is available.
+from the IDE or your preferred Java/Maven execution setup.
 
-Keep real-action flags disabled for ordinary development. Use the staged procedure in [`playwright/REAL_ACTION_TESTING.md`](playwright/REAL_ACTION_TESTING.md) before deliberately enabling any marketplace-side submit action.
-
----
-
-## Useful Playwright runtime configuration
-
-The most important scheduler variables are:
-
-```text
-FLIPBOT_WORKER_COUNT=10
-FLIPBOT_SYNC_INTERVAL_SECONDS=5
-FLIPBOT_NEGOTIATION_CHECK_INTERVAL_SECONDS=120
-FLIPBOT_CATALOG_SCAN_INTERVAL_SECONDS=900
-FLIPBOT_FAILURE_RETRY_SECONDS=60
-FLIPBOT_RATE_LIMIT_RETRY_SECONDS=600
-FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS=30
-FLIPBOT_SCHEDULER_HEADLESS=true
-```
-
-Real-action controls are intentionally separate from normal scheduling. In a normal dry-run / observer setup keep the action flags disabled:
-
-```text
-FLIPBOT_REAL_OFFERS_ENABLED=false
-FLIPBOT_REAL_NEXT_STEPS_ENABLED=false
-```
-
-See [`playwright/REAL_ACTION_TESTING.md`](playwright/REAL_ACTION_TESTING.md) for preflight mode, explicit bot allowlists, production confirmation, throughput caps and emergency disarm behavior.
+The older single-run test entry point is not equivalent to the worker manager and should not be used to demonstrate concurrent runtime behavior.
 
 ---
 
-## Tests & CI
+## Runtime configuration
 
-GitHub Actions validates the major modules on pull requests.
+The scheduler can be tuned through environment variables:
 
-**Backend**
+```text
+FLIPBOT_WORKER_COUNT
+FLIPBOT_SYNC_INTERVAL_SECONDS
+FLIPBOT_NEGOTIATION_CHECK_INTERVAL_SECONDS
+FLIPBOT_CATALOG_SCAN_INTERVAL_SECONDS
+FLIPBOT_PRICE_PROBE_INTERVAL_SECONDS
+FLIPBOT_FAILURE_RETRY_SECONDS
+FLIPBOT_RATE_LIMIT_RETRY_SECONDS
+FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS
+FLIPBOT_SCHEDULER_HEADLESS
+```
+
+Defaults are intentionally conservative and validated against allowed ranges at startup.
+
+---
+
+## Tests and CI
+
+GitHub Actions validates all three application layers on pull requests:
+
+- **Frontend** — `npm ci`, ESLint and production build,
+- **Backend** — Maven tests against PostgreSQL,
+- **Playwright** — Java unit tests for worker, targeting, negotiation and classification logic.
+
+Useful local checks:
 
 ```bash
+# backend
 cd backend
 ./mvnw test
-```
 
-The backend tests require `FLIPBOT_ENCRYPTION_KEY`; CI injects a deterministic disposable key for the test process.
-
-**Playwright**
-
-```bash
+# playwright
 cd playwright
 mvn test
-```
 
-The Playwright test suite covers targeting, filtering, negotiation decisions, worker logic and real-action safety behavior.
-
-**Frontend**
-
-```bash
+# frontend
 cd frontend
-npm install
+npm ci
 npm run lint
 npm run build
 ```
 
 ---
 
-## Design principles
-
-### Fail closed on target identity
-
-Negotiating the wrong model is worse than skipping an uncertain listing. Exact-target verification therefore rejects ambiguous matches instead of broadening them automatically.
+## Engineering principles
 
 ### Persist business state outside the browser
 
-Browser contexts are disposable. Listings, negotiation progress, deadlines, audit information and operator decisions belong in PostgreSQL.
+Browser contexts are disposable. Listings, negotiation progress, action ownership and runtime state live in PostgreSQL/backend APIs.
 
-### Prepare before reserving scarce actions
+### Fail closed on identity and real actions
 
-Quota and persistent guards are acquired as late as safely possible — immediately before a real submit — after the live item and final action have been verified.
+A missed opportunity is preferable to negotiating the wrong model or duplicating an uncertain marketplace action.
 
-### Serialize one bot, parallelize different bots
+### Separate capacity from quota
 
-Different bots may use different worker slots concurrently, while the same bot remains serialized to avoid two jobs mutating one negotiation state at the same time.
+“25 actions remaining” is not the same as “5 new conversations available”. Existing negotiations reserve the future steps they may still consume.
 
-### Distinguish UI failure from business state
+### Coordinate globally, execute locally
 
-A missing element during one page load is not automatically treated as a permanent marketplace outcome. Transient failures are retried; terminal statuses are reserved for states that have actually been established.
+Worker slots operate independently, while marketplace ownership and real-action guards are persisted centrally.
 
-### Keep history instead of deleting it
+### Keep history
 
-Sold, unavailable, rejected, skipped and completed listings remain represented by explicit statuses. This preserves auditability and prevents old marketplace items from repeatedly reappearing as unknown work.
+Terminal listings are not casually deleted. Historical state is useful for auditability, duplicate prevention, statistics and controlled fresh-scan requalification.
+
+### Treat external blocking as a first-class runtime state
+
+Session/IP blocking is not the same as a generic application exception and receives its own persistent cooldown policy.
+
+---
+
+## Why this project is interesting
+
+FlipBot combines several concerns that are easy in isolation but difficult together:
+
+- a real browser UI that changes asynchronously,
+- parallel Java workers,
+- persistent backend state,
+- distributed/idempotent real-action safety,
+- cross-bot conflict prevention,
+- business capacity planning,
+- configurable negotiation timing,
+- live operational observability,
+- recovery after browser/process restarts.
+
+The result is closer to a small **automation platform** than to a scraper script.
 
 ---
 
 ## Roadmap
 
-- richer structured tracing and operational metrics,
-- stronger regression coverage for marketplace UI changes,
-- additional runtime / market visualizations,
-- deployment-oriented environment profiles and packaging,
-- screenshot gallery accompanying the YouTube demo,
-- continued hardening of recovery paths around dynamic marketplace UI behavior.
+- establish a clean Flyway baseline for one-command empty-database bootstrap,
+- richer runtime/event tracing and historical performance charts,
+- broader automated regression coverage for marketplace UI changes,
+- deployment profiles and production packaging,
+- add a compact static screenshot gallery alongside the published YouTube demo.
 
 ---
 
 ## Disclaimer
 
-FlipBot is an independent software-engineering project. It is not an official Vinted client and is not affiliated with Vinted. Marketplace UI, selectors, policies and account behavior may change without notice. Anyone choosing to run marketplace automation is responsible for the platform terms applicable to their account and for local law.
+This repository is an independent software-engineering project. It is not an official Vinted client and is not affiliated with Vinted. Marketplace UI, selectors and behavior can change without notice. Anyone running browser automation is responsible for applicable platform terms, account safety and local law.

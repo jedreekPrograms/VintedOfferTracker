@@ -148,6 +148,8 @@ public class NegotiationDecisionService {
                             "The seller counteroffer " + sellerPrice
                                     + " is above the accepted limit " + acceptedLimit
                     )
+                            + ". The final automatic negotiation step has been exhausted, "
+                            + "so the negotiation is closed instead of being kept for manual review."
             );
         }
 

@@ -42,6 +42,10 @@ const navigationItems: NavigationItem[] = [
         path: "/pricing",
     },
     {
+        label: "Statystyki",
+        path: "/statistics",
+    },
+    {
         label: "Słowniki",
         path: "/dictionaries",
         end: true,

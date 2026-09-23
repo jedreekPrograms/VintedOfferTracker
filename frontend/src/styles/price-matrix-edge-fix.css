@@ -1,0 +1,8 @@
+/*
+ * Keep the original pricing-table appearance, but do not reserve an empty
+ * scrollbar gutter on the right edge. The reserved gutter made row separators
+ * stop before the outer border in the "Posiadane boty" column.
+ */
+.price-brand-content {
+    scrollbar-gutter: auto !important;
+}

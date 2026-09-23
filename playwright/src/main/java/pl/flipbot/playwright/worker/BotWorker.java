@@ -9,6 +9,7 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.login.LoginService;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.negotiation.ExistingNegotiationProcessor;
+import pl.flipbot.playwright.negotiation.MultiProductExistingNegotiationProcessor;
 import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 import pl.flipbot.playwright.target.VintedRateLimitException;
 
@@ -16,7 +17,7 @@ import pl.flipbot.playwright.target.VintedRateLimitException;
 public class BotWorker implements Runnable {
 
     private static final boolean REAL_OFFERS_ENABLED =
-            false;
+            true;
 
     private static final Long REAL_OFFER_TEST_BOT_ID =
             4L;
@@ -25,13 +26,13 @@ public class BotWorker implements Runnable {
             true;
 
     private static final boolean REAL_NEXT_STEPS_ENABLED =
-            false;
+            true;
 
     private static final int MAX_REAL_OFFERS_PER_RUN =
-            1;
+            5;
 
     private static final int MAX_REAL_NEXT_STEPS_PER_RUN =
-            1;
+            5;
 
     private static final long NORMAL_CYCLE_DELAY_MS =
             30_000L;
@@ -90,7 +91,7 @@ public class BotWorker implements Runnable {
 
 
         ExistingNegotiationProcessor existingNegotiationProcessor =
-                new ExistingNegotiationProcessor(
+                new MultiProductExistingNegotiationProcessor(
                         context,
                         listingClient,
                         offerQuotaClient,

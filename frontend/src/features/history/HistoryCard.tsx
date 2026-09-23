@@ -1,12 +1,19 @@
-import {
-    useState,
-} from "react";
+import { useState } from "react";
 
 import {
     removeHistoryEntry,
+    updateHistoryClassification,
     updateHistoryPurchasePrice,
+    type HistoryOutcome,
     type ListingHistoryResponse,
+    type MissedOpportunityReason,
+    type OfferAssessment,
 } from "../../api/historyApi";
+import AppDialog from "../../components/AppDialog";
+import AppSelect, {
+    type AppSelectOption,
+} from "../../components/AppSelect";
+import { formatProductProvenance } from "../listings/productProvenance";
 import "./HistoryCard.css";
 import {
     calculateDiscountPercentage,
@@ -16,6 +23,28 @@ import {
     formatHistoryPrice,
     getAbsoluteVintedUrl,
 } from "./historyUtils";
+
+const outcomeOptions: AppSelectOption[] = [
+    { value: "UNCLASSIFIED", label: "Do oznaczenia" },
+    { value: "PURCHASED", label: "Kupiłem" },
+    { value: "REJECTED", label: "Nie kupiłem" },
+];
+
+const assessmentOptions: AppSelectOption[] = [
+    { value: "UNASSESSED", label: "Nieoceniona" },
+    { value: "LEGIT", label: "Legit" },
+    { value: "SCAM", label: "Oszustwo / podejrzana" },
+];
+
+const missedReasonOptions: AppSelectOption[] = [
+    { value: "", label: "Wybierz powód" },
+    { value: "SOLD_BEFORE_PURCHASE", label: "Ktoś kupił przede mną" },
+    { value: "TOO_SLOW", label: "Nie zdążyłem zareagować" },
+    { value: "NO_FUNDS", label: "Brak środków" },
+    { value: "PRICE_TOO_HIGH", label: "Cena / okazja nie była wystarczająco dobra" },
+    { value: "CHANGED_MIND", label: "Zrezygnowałem z zakupu" },
+    { value: "OTHER", label: "Inny powód" },
+];
 
 interface HistoryCardProps {
     listing: ListingHistoryResponse;
@@ -29,27 +58,54 @@ function HistoryCard({
     onRemoved,
 }: HistoryCardProps) {
     const [editingPurchasePrice, setEditingPurchasePrice] = useState(false);
-    const [purchasePriceDraft, setPurchasePriceDraft] = useState(
-        String(listing.currentPrice),
-    );
+    const [purchasePriceDraft, setPurchasePriceDraft] = useState(String(listing.currentPrice));
     const [isSaving, setIsSaving] = useState(false);
+    const [isClassifying, setIsClassifying] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
+    const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
 
-    const savings = calculateSavings(
-        listing.originalPrice,
-        listing.currentPrice,
-    );
-    const discount = calculateDiscountPercentage(
-        listing.originalPrice,
-        listing.currentPrice,
-    );
-    const purchased = listing.status === "PURCHASED";
+    const savings = calculateSavings(listing.originalPrice, listing.currentPrice);
+    const discount = calculateDiscountPercentage(listing.originalPrice, listing.currentPrice);
+    const purchased = listing.historyOutcome === "PURCHASED";
+    const productProvenance = formatProductProvenance(listing);
+
+    async function saveClassification(
+        historyOutcome: HistoryOutcome,
+        offerAssessment: OfferAssessment,
+        missedOpportunityReason: MissedOpportunityReason | null,
+    ) {
+        if (isClassifying) {
+            return;
+        }
+
+        setIsClassifying(true);
+        setActionError(null);
+
+        try {
+            const updated = await updateHistoryClassification(
+                listing.id,
+                historyOutcome,
+                offerAssessment,
+                historyOutcome === "REJECTED"
+                || historyOutcome === "MISSED_OPPORTUNITY"
+                    ? missedOpportunityReason
+                    : null,
+            );
+            onUpdated(updated);
+        } catch (error) {
+            setActionError(
+                error instanceof Error
+                    ? error.message
+                    : "Nie udało się zapisać klasyfikacji.",
+            );
+        } finally {
+            setIsClassifying(false);
+        }
+    }
 
     async function savePurchasePrice() {
-        const normalizedDraft = purchasePriceDraft.replace(",", ".").trim();
-        const purchasePrice = Number(normalizedDraft);
-
+        const purchasePrice = Number(purchasePriceDraft.replace(",", ".").trim());
         if (!Number.isFinite(purchasePrice) || purchasePrice <= 0) {
             setActionError("Podaj prawidłową cenę zakupu większą od 0 zł.");
             return;
@@ -57,13 +113,8 @@ function HistoryCard({
 
         setIsSaving(true);
         setActionError(null);
-
         try {
-            const updatedListing = await updateHistoryPurchasePrice(
-                listing.id,
-                purchasePrice,
-            );
-
+            const updatedListing = await updateHistoryPurchasePrice(listing.id, purchasePrice);
             onUpdated(updatedListing);
             setPurchasePriceDraft(String(updatedListing.currentPrice));
             setEditingPurchasePrice(false);
@@ -79,20 +130,15 @@ function HistoryCard({
     }
 
     async function removeFromHistory() {
-        const confirmed = window.confirm(
-            `Usunąć „${listing.title}” z historii? `
-            + "Oferta pozostanie zapisana technicznie, żeby bot nie potraktował jej ponownie jako nowej.",
-        );
-
-        if (!confirmed) {
+        if (isRemoving) {
             return;
         }
 
         setIsRemoving(true);
         setActionError(null);
-
         try {
             await removeHistoryEntry(listing.id);
+            setShowRemoveConfirmation(false);
             onRemoved(listing.id);
         } catch (error) {
             setActionError(
@@ -100,6 +146,7 @@ function HistoryCard({
                     ? error.message
                     : "Nie udało się usunąć wpisu z historii.",
             );
+        } finally {
             setIsRemoving(false);
         }
     }
@@ -115,19 +162,73 @@ function HistoryCard({
             <div className="history-card-main">
                 <div className="history-card-header">
                     <div>
-                        <span
-                            className={purchased
-                                ? "history-status history-status-purchased"
-                                : "history-status history-status-skipped"}
-                        >
-                            {purchased ? "✓ Kupione" : "✕ Odrzucone"}
+                        <span className={getOutcomeBadgeClass(listing.historyOutcome)}>
+                            {getOutcomeLabel(listing.historyOutcome)}
+                        </span>
+                        <span className={getAssessmentBadgeClass(listing.offerAssessment)}>
+                            {getAssessmentLabel(listing.offerAssessment)}
                         </span>
                         <h2>{listing.title}</h2>
                     </div>
-
                     <div className="history-decision-date">
                         <span>Data decyzji</span>
                         <strong>{formatDecisionDate(listing.decisionAt)}</strong>
+                    </div>
+                </div>
+
+                <div className="history-classification-panel">
+                    <div>
+                        <label>Wynik</label>
+                        <AppSelect
+                            value={listing.historyOutcome}
+                            options={outcomeOptions}
+                            disabled={isClassifying}
+                            ariaLabel="Wynik oferty"
+                            onChange={value => void saveClassification(
+                                value as HistoryOutcome,
+                                listing.offerAssessment,
+                                listing.missedOpportunityReason,
+                            )}
+                        />
+                    </div>
+
+                    <div>
+                        <label>Ocena</label>
+                        <AppSelect
+                            value={listing.offerAssessment}
+                            options={assessmentOptions}
+                            disabled={isClassifying}
+                            ariaLabel="Ocena oferty"
+                            onChange={value => void saveClassification(
+                                listing.historyOutcome,
+                                value as OfferAssessment,
+                                listing.missedOpportunityReason,
+                            )}
+                        />
+                    </div>
+
+                    {(listing.historyOutcome === "REJECTED"
+                        || listing.historyOutcome === "MISSED_OPPORTUNITY") && (
+                        <div>
+                            <label>Dlaczego nie kupiłem</label>
+                            <AppSelect
+                                value={listing.missedOpportunityReason ?? ""}
+                                options={missedReasonOptions}
+                                disabled={isClassifying}
+                                ariaLabel="Powód utraty okazji"
+                                onChange={value => void saveClassification(
+                                    listing.historyOutcome,
+                                    listing.offerAssessment,
+                                    value.length === 0
+                                        ? null
+                                        : value as MissedOpportunityReason,
+                                )}
+                            />
+                        </div>
+                    )}
+
+                    <div className="history-classification-state">
+                        {isClassifying ? "Zapisywanie..." : "Zmiany zapisują się automatycznie"}
                     </div>
                 </div>
 
@@ -138,16 +239,13 @@ function HistoryCard({
                             {formatHistoryPrice(listing.originalPrice)}
                         </strong>
                     </div>
-
                     <div className="history-price-arrow">→</div>
-
                     <div>
                         <span>{purchased ? "Cena zakupu" : "Cena po negocjacji"}</span>
-
                         {purchased && editingPurchasePrice ? (
                             <form
                                 className="history-price-editor"
-                                onSubmit={event => {
+                                onSubmit={(event) => {
                                     event.preventDefault();
                                     void savePurchasePrice();
                                 }}
@@ -162,11 +260,10 @@ function HistoryCard({
                                         inputMode="decimal"
                                         value={purchasePriceDraft}
                                         disabled={isSaving}
-                                        onChange={event => setPurchasePriceDraft(event.target.value)}
+                                        onChange={(event) => setPurchasePriceDraft(event.target.value)}
                                     />
                                     <span>zł</span>
                                 </div>
-
                                 <div className="history-price-editor-actions">
                                     <button
                                         className="primary-button history-compact-button"
@@ -191,7 +288,6 @@ function HistoryCard({
                             </strong>
                         )}
                     </div>
-
                     <div className="history-saving">
                         <span>Wynegocjowano</span>
                         <strong>{formatHistoryPrice(savings)}</strong>
@@ -200,23 +296,11 @@ function HistoryCard({
                 </div>
 
                 <div className="history-details">
-                    <HistoryDetail
-                        label="Bot"
-                        value={listing.botName}
-                        secondary={`#${listing.botId}`}
-                    />
-                    <HistoryDetail
-                        label="Listing ID"
-                        value={listing.listingId}
-                    />
-                    <HistoryDetail
-                        label="Krok negocjacji"
-                        value={String(listing.currentStep)}
-                    />
-                    <HistoryDetail
-                        label="Status"
-                        value={listing.status}
-                    />
+                    <HistoryDetail label="Bot" value={listing.botName} secondary={`#${listing.botId}`} />
+                    <HistoryDetail label="Produkt" value={productProvenance} />
+                    <HistoryDetail label="Listing ID" value={listing.listingId} />
+                    <HistoryDetail label="Krok negocjacji" value={String(listing.currentStep)} />
+                    <HistoryDetail label="Status techniczny" value={listing.status} />
                 </div>
 
                 {actionError !== null && (
@@ -235,7 +319,6 @@ function HistoryCard({
                 >
                     Otwórz ofertę
                 </a>
-
                 {purchased && !editingPurchasePrice && (
                     <button
                         className="secondary-button"
@@ -250,31 +333,74 @@ function HistoryCard({
                         Zmień cenę
                     </button>
                 )}
-
                 <button
                     className="history-remove-button"
                     type="button"
-                    disabled={isRemoving || isSaving}
-                    onClick={() => void removeFromHistory()}
+                    disabled={isRemoving || isSaving || isClassifying}
+                    onClick={() => setShowRemoveConfirmation(true)}
                 >
                     {isRemoving ? "Usuwanie..." : "Usuń z historii"}
                 </button>
             </div>
+
+            <AppDialog
+                open={showRemoveConfirmation}
+                title="Usunąć wpis z historii?"
+                description={
+                    <>Oferta <strong>„{listing.title}”</strong> zniknie z historii widocznej w aplikacji. Techniczny zapis pozostanie w bazie, żeby bot nie potraktował jej ponownie jako nowej.</>
+                }
+                confirmLabel="Usuń z historii"
+                danger
+                busy={isRemoving}
+                onCancel={() => setShowRemoveConfirmation(false)}
+                onConfirm={() => void removeFromHistory()}
+            />
         </article>
     );
 }
 
-interface HistoryDetailProps {
-    label: string;
-    value: string;
-    secondary?: string;
+function getOutcomeLabel(outcome: HistoryOutcome): string {
+    switch (outcome) {
+        case "PURCHASED":
+            return "✓ Kupiłem";
+        case "REJECTED":
+        case "MISSED_OPPORTUNITY":
+            return "✕ Nie kupiłem";
+        case "UNCLASSIFIED":
+        default:
+            return "• Do oznaczenia";
+    }
+}
+
+function getAssessmentLabel(assessment: OfferAssessment): string {
+    switch (assessment) {
+        case "LEGIT":
+            return "Legit";
+        case "SCAM":
+            return "Oszustwo";
+        case "UNASSESSED":
+        default:
+            return "Nieoceniona";
+    }
+}
+
+function getOutcomeBadgeClass(outcome: HistoryOutcome): string {
+    return `history-status history-status-${outcome.toLowerCase().replaceAll("_", "-")}`;
+}
+
+function getAssessmentBadgeClass(assessment: OfferAssessment): string {
+    return `history-assessment-badge history-assessment-${assessment.toLowerCase()}`;
 }
 
 function HistoryDetail({
     label,
     value,
     secondary,
-}: HistoryDetailProps) {
+}: {
+    label: string;
+    value: string;
+    secondary?: string;
+}) {
     return (
         <div>
             <span>{label}</span>

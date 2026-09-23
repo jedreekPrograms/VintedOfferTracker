@@ -170,32 +170,85 @@ public class AdaptiveNegotiationPricingService {
         BigDecimal rawNextOffer = actualCurrentOffer
                 .multiply(configuredRatio, CALCULATION_CONTEXT);
 
-        BigDecimal effectiveNextOffer = roundUp(
+        if (configuredNextStep.getOfferPrice()
+                .compareTo(configuredCurrentStep.getOfferPrice()) <= 0) {
+            throw new IllegalStateException(
+                    "Configured negotiation ladder must be strictly increasing. Current step "
+                            + configuredCurrentStep.getStepNumber()
+                            + " price="
+                            + configuredCurrentStep.getOfferPrice()
+                            + ", next step "
+                            + configuredNextStep.getStepNumber()
+                            + " price="
+                            + configuredNextStep.getOfferPrice()
+            );
+        }
+
+        BigDecimal calculatedNextOffer = roundUp(
                 rawNextOffer,
                 NEXT_STEP_INCREMENT
         ).setScale(2, RoundingMode.UNNECESSARY);
 
-        if (effectiveNextOffer.compareTo(actualCurrentOffer) <= 0) {
+        BigDecimal cap = configuration.getMaxAutomaticOffer()
+                .setScale(2, RoundingMode.UNNECESSARY);
+
+        if (actualCurrentOffer.compareTo(cap) > 0) {
             log.warn(
-                    "[ADAPTIVE PRICE] Cannot create an increasing next step for listing {}. Current actual={}, configured current={}, configured next={}, calculated next={}.",
+                    "[ADAPTIVE PRICE] Listing {} already has an actual offer {} above the current global cap {}. "
+                            + "Refusing to lower or repeat the price automatically.",
                     listing.listingId(),
                     actualCurrentOffer,
-                    configuredCurrentStep.getOfferPrice(),
-                    configuredNextStep.getOfferPrice(),
+                    cap
+            );
+            return Optional.empty();
+        }
+
+        BigDecimal effectiveNextOffer = calculatedNextOffer.min(cap);
+
+        if (effectiveNextOffer.compareTo(actualCurrentOffer) < 0) {
+            log.warn(
+                    "[ADAPTIVE PRICE] Refusing a decreasing next step for listing {}. Current actual={}, calculated next={}, cap={}, effective next={}.",
+                    listing.listingId(),
+                    actualCurrentOffer,
+                    calculatedNextOffer,
+                    cap,
                     effectiveNextOffer
             );
             return Optional.empty();
         }
 
-        if (exceedsGlobalCap(effectiveNextOffer, configuration)) {
-            log.info(
-                    "[ADAPTIVE PRICE] Next step {} for listing {} would be {}, above global negotiation cap {}. No higher automatic offer will be sent.",
-                    configuredNextStep.getStepNumber(),
+        boolean plateauAtCap =
+                effectiveNextOffer.compareTo(actualCurrentOffer) == 0
+                        && actualCurrentOffer.compareTo(cap) == 0;
+
+        if (effectiveNextOffer.compareTo(actualCurrentOffer) == 0
+                && !plateauAtCap) {
+            log.warn(
+                    "[ADAPTIVE PRICE] Cannot create a valid next step for listing {} because the effective price {} equals the current price {} before the global cap was reached.",
                     listing.listingId(),
                     effectiveNextOffer,
-                    configuration.getMaxAutomaticOffer()
+                    actualCurrentOffer
             );
             return Optional.empty();
+        }
+
+        if (calculatedNextOffer.compareTo(cap) > 0) {
+            log.info(
+                    "[ADAPTIVE PRICE] Step {} for listing {} would normally be {}, above global cap {}. "
+                            + "Using the cap price {} and continuing the configured negotiation ladder/message.",
+                    configuredNextStep.getStepNumber(),
+                    listing.listingId(),
+                    calculatedNextOffer,
+                    cap,
+                    effectiveNextOffer
+            );
+        } else if (plateauAtCap) {
+            log.info(
+                    "[ADAPTIVE PRICE] Listing {} is already at global cap {}. Continuing with step {} at the same price so its configured message and response policy still run.",
+                    listing.listingId(),
+                    cap,
+                    configuredNextStep.getStepNumber()
+            );
         }
 
         NegotiationStepDto effectiveStep = copyStep(configuredNextStep);

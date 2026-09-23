@@ -14,19 +14,27 @@ import pl.flipbot.marketstats.dto.MarketObservationBatchRequest;
 import pl.flipbot.marketstats.dto.MarketObservationBatchResponse;
 import pl.flipbot.marketstats.dto.MarketStatsTargetResponse;
 import pl.flipbot.marketstats.dto.ModelPlanningResponse;
+import pl.flipbot.negotiation.audit.RealActionAudit;
+import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
+import pl.flipbot.negotiation.audit.RealActionAuditRepository;
+import pl.flipbot.negotiation.guard.RealActionType;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -34,18 +42,22 @@ public class MarketStatsService {
 
     private static final int TRACKING_WINDOW_DAYS = 7;
     private static final int NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
-    private static final int OBSERVATION_RETENTION_DAYS = 30;
+    private static final int OBSERVATION_RETENTION_DAYS = 400;
     private static final String CATEGORY_PATH_SEPARATOR_REGEX = "\\s*>\\s*";
+    private static final ZoneId NEGOTIATION_USAGE_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
+    private final RealActionAuditRepository realActionAuditRepository;
 
     @Transactional(readOnly = true)
     public List<ModelPlanningResponse> getPlanning() {
         LocalDateTime now = LocalDateTime.now();
+        LocalDate today = LocalDate.now(NEGOTIATION_USAGE_ZONE);
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        NegotiationUsageByBot negotiationUsage = loadNegotiationUsage(today);
 
         return modelRepository.findAll()
                 .stream()
@@ -62,7 +74,8 @@ public class MarketStatsService {
                 .map(model -> toPlanningResponse(
                         model,
                         configurations,
-                        now
+                        now,
+                        negotiationUsage
                 ))
                 .toList();
     }
@@ -173,6 +186,10 @@ public class MarketStatsService {
         }
 
         List<String> listingIds = normalizeListingIds(request.listingIds());
+        Map<String, BigDecimal> listingPrices = normalizeListingPrices(
+                request.listingPrices(),
+                listingIds
+        );
 
         if (listingIds.isEmpty() && !request.complete()) {
             throw new IllegalArgumentException(
@@ -225,23 +242,28 @@ public class MarketStatsService {
         for (String listingId : listingIds) {
             MarketListingObservation existing = existingById.get(listingId);
 
+            BigDecimal observedPrice = listingPrices.get(listingId);
+
             if (existing != null) {
                 existing.setLastSeenAt(now);
+                applyObservedPrice(existing, observedPrice);
                 changed.add(existing);
                 continue;
             }
 
             boolean baseline = baselineMode;
 
-            changed.add(
+            MarketListingObservation observation =
                     MarketListingObservation.builder()
                             .model(model)
                             .marketplaceListingId(listingId)
                             .firstSeenAt(now)
                             .lastSeenAt(now)
                             .baseline(baseline)
-                            .build()
-            );
+                            .build();
+
+            applyObservedPrice(observation, observedPrice);
+            changed.add(observation);
 
             if (!baseline) {
                 newListings++;
@@ -290,19 +312,30 @@ public class MarketStatsService {
     private ModelPlanningResponse toPlanningResponse(
             DictionaryModel model,
             List<BotConfiguration> configurations,
-            LocalDateTime now
+            LocalDateTime now,
+            NegotiationUsageByBot negotiationUsage
     ) {
         MarketModelScanState state = scanStateRepository
                 .findById(model.getId())
                 .orElse(null);
 
-        int existingBots = safeInt(
-                configurations.stream()
-                        .filter(configuration -> matchesModel(
-                                model,
-                                configuration
-                        ))
-                        .count()
+        List<Long> matchingBotIds = configurations.stream()
+                .filter(configuration -> matchesModel(model, configuration))
+                .map(BotConfiguration::getBot)
+                .filter(Objects::nonNull)
+                .map(bot -> bot.getId())
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        int existingBots = matchingBotIds.size();
+        int negotiationsStartedToday = sumNegotiationUsage(
+                matchingBotIds,
+                negotiationUsage.todayByBot()
+        );
+        int negotiationsStartedLast7Days = sumNegotiationUsage(
+                matchingBotIds,
+                negotiationUsage.last7DaysByBot()
         );
 
         if (state == null || state.getBaselineCompleteAt() == null) {
@@ -311,6 +344,8 @@ public class MarketStatsService {
                     null,
                     null,
                     null,
+                    negotiationsStartedToday,
+                    negotiationsStartedLast7Days,
                     null,
                     existingBots,
                     false,
@@ -362,6 +397,8 @@ public class MarketStatsService {
                 state.getBaselineOfferCount(),
                 offersLast24Hours,
                 offersLast7Days,
+                negotiationsStartedToday,
+                negotiationsStartedLast7Days,
                 recommendedBots,
                 existingBots,
                 statsReady,
@@ -369,6 +406,63 @@ public class MarketStatsService {
                 state.getLastScanAt(),
                 Boolean.TRUE.equals(state.getLastScanComplete())
         );
+    }
+
+    private NegotiationUsageByBot loadNegotiationUsage(
+            LocalDate today
+    ) {
+        LocalDate firstTrackedDay = today.minusDays(TRACKING_WINDOW_DAYS - 1L);
+        LocalDateTime firstTrackedAt = firstTrackedDay.atStartOfDay();
+        Map<Long, Integer> todayByBot = new HashMap<>();
+        Map<Long, Integer> last7DaysByBot = new HashMap<>();
+
+        for (RealActionAudit audit : realActionAuditRepository
+                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                        RealActionType.FIRST_OFFER,
+                        RealActionAuditOutcome.CONFIRMED,
+                        firstTrackedAt
+                )) {
+            if (audit.getBotId() == null || audit.getCreatedAt() == null) {
+                continue;
+            }
+
+            LocalDate usageDay = audit.getCreatedAt().toLocalDate();
+            if (usageDay.isBefore(firstTrackedDay) || usageDay.isAfter(today)) {
+                continue;
+            }
+
+            Long botId = audit.getBotId();
+            last7DaysByBot.merge(botId, 1, this::safeAdd);
+
+            if (today.equals(usageDay)) {
+                todayByBot.merge(botId, 1, this::safeAdd);
+            }
+        }
+
+        return new NegotiationUsageByBot(
+                Map.copyOf(todayByBot),
+                Map.copyOf(last7DaysByBot)
+        );
+    }
+
+    private int sumNegotiationUsage(
+            List<Long> botIds,
+            Map<Long, Integer> usageByBot
+    ) {
+        long sum = 0L;
+
+        for (Long botId : botIds) {
+            sum += Math.max(usageByBot.getOrDefault(botId, 0), 0);
+        }
+
+        return safeInt(sum);
+    }
+
+    private int safeAdd(
+            int left,
+            int right
+    ) {
+        return safeInt((long) left + right);
     }
 
     private int calculateRecommendedBots(
@@ -511,6 +605,70 @@ public class MarketStatsService {
                 );
     }
 
+    private void applyObservedPrice(
+            MarketListingObservation observation,
+            BigDecimal observedPrice
+    ) {
+        if (observation == null
+                || observedPrice == null
+                || observedPrice.signum() <= 0) {
+            return;
+        }
+
+        BigDecimal normalized = observedPrice.setScale(
+                2,
+                java.math.RoundingMode.HALF_UP
+        );
+
+        if (observation.getFirstSeenPrice() == null) {
+            observation.setFirstSeenPrice(normalized);
+        }
+
+        observation.setLatestPrice(normalized);
+
+        if (observation.getLowestSeenPrice() == null
+                || normalized.compareTo(observation.getLowestSeenPrice()) < 0) {
+            observation.setLowestSeenPrice(normalized);
+        }
+
+        if (observation.getHighestSeenPrice() == null
+                || normalized.compareTo(observation.getHighestSeenPrice()) > 0) {
+            observation.setHighestSeenPrice(normalized);
+        }
+    }
+
+    private Map<String, BigDecimal> normalizeListingPrices(
+            Map<String, BigDecimal> rawPrices,
+            List<String> acceptedListingIds
+    ) {
+        if (rawPrices == null
+                || rawPrices.isEmpty()
+                || acceptedListingIds == null
+                || acceptedListingIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<String> accepted = Set.copyOf(acceptedListingIds);
+        Map<String, BigDecimal> normalized = new LinkedHashMap<>();
+
+        for (Map.Entry<String, BigDecimal> entry : rawPrices.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+
+            String listingId = entry.getKey().trim();
+            BigDecimal price = entry.getValue();
+
+            if (!listingId.isEmpty()
+                    && accepted.contains(listingId)
+                    && price.signum() > 0) {
+                normalized.put(listingId, price);
+            }
+        }
+
+        return Map.copyOf(normalized);
+    }
+
     private List<String> normalizeListingIds(
             List<String> rawListingIds
     ) {
@@ -588,6 +746,12 @@ public class MarketStatsService {
         return value > Integer.MAX_VALUE
                 ? Integer.MAX_VALUE
                 : (int) value;
+    }
+
+    private record NegotiationUsageByBot(
+            Map<Long, Integer> todayByBot,
+            Map<Long, Integer> last7DaysByBot
+    ) {
     }
 
     private record CategoryResolution(

@@ -9,22 +9,23 @@ import static org.junit.Assert.assertNull;
 
 public class ConversationActivityDetectorTest {
 
-    private final ConversationActivityDetector detector =
-            new ConversationActivityDetector(null);
-
     @Test
-    public void parsesSingleDigitDayFromCurrentVintedFormat() {
+    public void parsesSingleDigitDayAndPaddedMonth() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 1, 12, 27, 39),
-                detector.parseVintedTimestamp("1.09.2026, 12:27:39")
+                ConversationActivityDetector.parseVintedTimestamp(
+                        "1.09.2026, 12:27:39"
+                )
         );
     }
 
     @Test
-    public void parsesZeroPaddedDayAndMonth() {
+    public void parsesPaddedDayAndMonth() {
         assertEquals(
-                LocalDateTime.of(2026, 9, 1, 12, 27, 39),
-                detector.parseVintedTimestamp("01.09.2026, 12:27:39")
+                LocalDateTime.of(2026, 8, 10, 20, 22, 50),
+                ConversationActivityDetector.parseVintedTimestamp(
+                        "10.08.2026, 20:22:50"
+                )
         );
     }
 
@@ -32,14 +33,18 @@ public class ConversationActivityDetectorTest {
     public void parsesSingleDigitDayAndMonth() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 1, 8, 5, 19),
-                detector.parseVintedTimestamp("1.9.2026, 08:05:19")
+                ConversationActivityDetector.parseVintedTimestamp(
+                        "1.9.2026, 08:05:19"
+                )
         );
     }
 
     @Test
-    public void invalidTimestampFailsClosedToNull() {
+    public void invalidTimestampFailsClosed() {
         assertNull(
-                detector.parseVintedTimestamp("dzisiaj rano")
+                ConversationActivityDetector.parseVintedTimestamp(
+                        "dzisiaj, 12:27"
+                )
         );
     }
 }

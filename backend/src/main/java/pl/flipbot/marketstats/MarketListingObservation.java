@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import pl.flipbot.dictionary.DictionaryModel;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -37,6 +38,21 @@ public class MarketListingObservation {
 
     @Column(name = "last_seen_at", nullable = false)
     private LocalDateTime lastSeenAt;
+
+    @Column(name = "published_at")
+    private LocalDateTime publishedAt;
+
+    @Column(name = "first_seen_price", precision = 38, scale = 2)
+    private BigDecimal firstSeenPrice;
+
+    @Column(name = "latest_price", precision = 38, scale = 2)
+    private BigDecimal latestPrice;
+
+    @Column(name = "lowest_seen_price", precision = 38, scale = 2)
+    private BigDecimal lowestSeenPrice;
+
+    @Column(name = "highest_seen_price", precision = 38, scale = 2)
+    private BigDecimal highestSeenPrice;
 
     @Column(nullable = false)
     private Boolean baseline;

@@ -7,6 +7,8 @@ public record ModelPlanningResponse(
         Integer baselineOffers,
         Integer offersLast24Hours,
         Integer offersLast7Days,
+        Integer negotiationsStartedToday,
+        Integer negotiationsStartedLast7Days,
         Integer recommendedBots,
         Integer existingBots,
         boolean statsReady,

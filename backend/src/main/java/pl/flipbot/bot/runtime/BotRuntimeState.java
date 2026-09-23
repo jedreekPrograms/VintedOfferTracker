@@ -49,6 +49,12 @@ public class BotRuntimeState {
     @Column(name = "worker_slot")
     private Integer workerSlot;
 
+    @Column(name = "session_blocked_since")
+    private Instant sessionBlockedSince;
+
+    @Column(name = "session_block_count", nullable = false)
+    private int sessionBlockCount;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 }

@@ -39,16 +39,47 @@ public class BotContext implements AutoCloseable {
      */
     private static final String PREEMPTIVE_POPUP_SUPPRESSION_SCRIPT = """
             (() => {
-                const isBlankTarget = (target) =>
-                    String(target ?? "").trim().toLowerCase() === "_blank";
+                const normalizedTarget = (target) =>
+                    String(target ?? "").trim().toLowerCase();
+
+                const opensNewBrowsingContext = (target) => {
+                    const normalized = normalizedTarget(target);
+
+                    if (!normalized || normalized === "_self") {
+                        return false;
+                    }
+
+                    return normalized !== "_top"
+                        && normalized !== "_parent";
+                };
+
+                const effectiveTarget = (element) => {
+                    const ownTarget = normalizedTarget(element?.target);
+                    if (ownTarget) {
+                        return ownTarget;
+                    }
+
+                    const base = document.querySelector("base[target]");
+                    return normalizedTarget(base?.getAttribute("target"));
+                };
+
+                const blockedWindowOpen = () => null;
 
                 try {
-                    window.open = () => null;
+                    Object.defineProperty(window, "open", {
+                        value: blockedWindowOpen,
+                        writable: false,
+                        configurable: false
+                    });
                 } catch (_) {
-                    // BrowserContext.onPage remains the fail-safe.
+                    try {
+                        window.open = blockedWindowOpen;
+                    } catch (_) {
+                        // BrowserContext.onPage remains the fail-safe.
+                    }
                 }
 
-                const blockBlankTargetClick = (event) => {
+                const blockNewContextClick = (event) => {
                     const path = typeof event.composedPath === "function"
                         ? event.composedPath()
                         : [];
@@ -57,7 +88,10 @@ public class BotContext implements AutoCloseable {
                         const isLink = node instanceof HTMLAnchorElement
                             || node instanceof HTMLAreaElement;
 
-                        if (isLink && isBlankTarget(node.target)) {
+                        if (isLink
+                                && opensNewBrowsingContext(
+                                    effectiveTarget(node)
+                                )) {
                             event.preventDefault();
                             event.stopImmediatePropagation();
                             return;
@@ -65,18 +99,63 @@ public class BotContext implements AutoCloseable {
                     }
                 };
 
-                document.addEventListener("click", blockBlankTargetClick, true);
-                document.addEventListener("auxclick", blockBlankTargetClick, true);
+                document.addEventListener("click", blockNewContextClick, true);
+                document.addEventListener("auxclick", blockNewContextClick, true);
 
                 document.addEventListener("submit", (event) => {
                     const form = event.target;
 
                     if (form instanceof HTMLFormElement
-                            && isBlankTarget(form.target)) {
+                            && opensNewBrowsingContext(
+                                effectiveTarget(form)
+                            )) {
                         event.preventDefault();
                         event.stopImmediatePropagation();
                     }
                 }, true);
+
+                /*
+                 * form.submit() bypasses the submit event entirely. RTB/ad
+                 * scripts can use it to create a popup even when the capture
+                 * listener above is present, so guard the imperative APIs too.
+                 */
+                try {
+                    const nativeFormSubmit =
+                        HTMLFormElement.prototype.submit;
+
+                    HTMLFormElement.prototype.submit =
+                        function(...args) {
+                            if (opensNewBrowsingContext(
+                                    effectiveTarget(this)
+                            )) {
+                                return;
+                            }
+
+                            return nativeFormSubmit.apply(this, args);
+                        };
+                } catch (_) {
+                    // Capture listener + onPage remain fail-safes.
+                }
+
+                try {
+                    const nativeRequestSubmit =
+                        HTMLFormElement.prototype.requestSubmit;
+
+                    if (typeof nativeRequestSubmit === "function") {
+                        HTMLFormElement.prototype.requestSubmit =
+                            function(...args) {
+                                if (opensNewBrowsingContext(
+                                        effectiveTarget(this)
+                                )) {
+                                    return;
+                                }
+
+                                return nativeRequestSubmit.apply(this, args);
+                            };
+                    }
+                } catch (_) {
+                    // Capture listener + onPage remain fail-safes.
+                }
             })();
             """;
 
@@ -348,18 +427,63 @@ public class BotContext implements AutoCloseable {
 
     private final SessionManager sessionManager;
 
+    private final boolean sessionRestoreEnabled;
+
+    private final boolean sessionPersistenceEnabled;
+
+    private final boolean storedSessionRestored;
+
     private final AtomicInteger extraPageEvents = new AtomicInteger();
 
     public BotContext(
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
+        this(bot, browserManager, true, true);
+    }
+
+    public static BotContext isolated(
+            BotDetailsDto bot,
+            BrowserManager browserManager
+    ) {
+        return new BotContext(bot, browserManager, false, false);
+    }
+
+    public static BotContext readOnlySessionClone(
+            BotDetailsDto bot,
+            BrowserManager browserManager
+    ) {
+        return new BotContext(bot, browserManager, true, false);
+    }
+
+    private BotContext(
+            BotDetailsDto bot,
+            BrowserManager browserManager,
+            boolean sessionRestoreEnabled,
+            boolean sessionPersistenceEnabled
+    ) {
         this.bot = bot;
         this.sessionManager = new SessionManager();
+        this.sessionRestoreEnabled = sessionRestoreEnabled;
+        this.sessionPersistenceEnabled = sessionPersistenceEnabled;
 
         Path sessionFile = null;
 
-        if (shouldRestoreStoredSession(bot)
+        if (!sessionRestoreEnabled && !sessionPersistenceEnabled) {
+            log.info(
+                    "[SESSION] Bot {} is using an isolated browser context. Stored production session state will not be restored or persisted by this job.",
+                    bot.getId()
+            );
+        } else if (sessionRestoreEnabled
+                && !sessionPersistenceEnabled) {
+            log.info(
+                    "[SESSION] Bot {} is using a read-only clone of its stored production session. The session may be restored, but this job cannot persist any browser state back to bot-{}.json.",
+                    bot.getId(),
+                    bot.getId()
+            );
+        }
+
+        if (shouldRestoreStoredSession(bot, sessionRestoreEnabled)
                 && sessionManager.sessionExists(bot.getId())) {
             sessionFile = sessionManager.sessionFile(bot.getId());
         } else if (isAnonymousMarketObserver(bot)) {
@@ -371,27 +495,16 @@ public class BotContext implements AutoCloseable {
             );
         }
 
-        BrowserContext createdContext;
+        this.storedSessionRestored = sessionFile != null;
 
-        try {
-            createdContext = browserManager.createContext(sessionFile);
-        } catch (RuntimeException exception) {
-            if (sessionFile == null || !isStoredSessionRestoreFailure(exception)) {
-                throw exception;
-            }
-
-            log.warn(
-                    "[SESSION] Stored session for bot {} could not be restored. "
-                            + "Discarding it and creating a clean browser context. reason={}",
-                    bot.getId(),
-                    safeMessage(exception)
-            );
-
-            sessionManager.invalidateSession(bot.getId());
-            createdContext = browserManager.createContext(null);
-        }
-
-        this.browserContext = createdContext;
+        /*
+         * A stored production session is authoritative. BrowserManager already
+         * fails closed when Playwright cannot restore storageState; do not add
+         * a second fallback here that could silently turn a logged-in bot into
+         * a clean context. The saved file remains untouched for diagnosis and
+         * the scheduled job can retry normally.
+         */
+        this.browserContext = browserManager.createContext(sessionFile);
 
         installPreemptivePopupSuppression();
         installAnonymousObserverUiStabilityIfNeeded();
@@ -405,7 +518,14 @@ public class BotContext implements AutoCloseable {
     static boolean shouldRestoreStoredSession(
             BotDetailsDto bot
     ) {
-        return !isAnonymousMarketObserver(bot);
+        return shouldRestoreStoredSession(bot, true);
+    }
+
+    static boolean shouldRestoreStoredSession(
+            BotDetailsDto bot,
+            boolean sessionPersistenceEnabled
+    ) {
+        return sessionPersistenceEnabled && !isAnonymousMarketObserver(bot);
     }
 
     private static boolean isAnonymousMarketObserver(
@@ -431,7 +551,7 @@ public class BotContext implements AutoCloseable {
 
         log.info(
                 "[BROWSER] Preemptive popup suppression enabled for bot {}. "
-                        + "window.open, target=_blank links and target=_blank forms are blocked before ad/RTB scripts can create a visible tab.",
+                        + "window.open, links/forms targeting a new browsing context, and imperative form submissions are blocked before ad/RTB scripts can create a visible tab.",
                 bot.getId()
         );
     }
@@ -458,44 +578,6 @@ public class BotContext implements AutoCloseable {
 
     static String anonymousObserverUiStabilityScript() {
         return ANONYMOUS_OBSERVER_UI_STABILITY_SCRIPT;
-    }
-
-    private boolean isStoredSessionRestoreFailure(
-            Throwable throwable
-    ) {
-        Throwable current = throwable;
-
-        while (current != null) {
-            String message = current.getMessage();
-
-            if (message != null) {
-                String normalized = message.toLowerCase();
-
-                if (normalized.contains("unable to restore indexeddb")
-                        || normalized.contains("storagescript.restore")
-                        || normalized.contains("setstoragestate")) {
-                    return true;
-                }
-            }
-
-            current = current.getCause();
-        }
-
-        return false;
-    }
-
-    private String safeMessage(
-            Throwable throwable
-    ) {
-        if (throwable == null
-                || throwable.getMessage() == null
-                || throwable.getMessage().isBlank()) {
-            return throwable == null
-                    ? "unknown error"
-                    : throwable.getClass().getSimpleName();
-        }
-
-        return throwable.getMessage();
     }
 
     private Page resolveMainPage() {
@@ -547,32 +629,61 @@ public class BotContext implements AutoCloseable {
     }
 
     private void registerSinglePageGuard() {
+        /*
+         * Register both popup-specific and context-wide hooks. Chromium can
+         * surface ad-tech windows through slightly different opener paths; the
+         * page-level popup hook gives us the earliest owner-specific callback,
+         * while BrowserContext.onPage remains the catch-all.
+         */
+        page.onPopup(
+                popup -> handleUnexpectedPageEvent(
+                        popup,
+                        "main-page popup"
+                )
+        );
+
         browserContext.onPage(
-                newPage -> {
-                    if (newPage == page) {
-                        return;
-                    }
-
-                    int eventNumber = extraPageEvents.incrementAndGet();
-
-                    /*
-                     * Close immediately, including about:blank. Do not wait for
-                     * the popup to navigate. The preemptive DOM guard should
-                     * prevent normal window.open/target=_blank popups; this
-                     * handler catches anything that still reaches Chromium.
-                     */
-                    closeUnexpectedPage(
-                            newPage,
-                            "single-page policy, extra-page event #" + eventNumber,
-                            shouldLogExtraPageEvent(eventNumber)
-                    );
-                }
+                newPage -> handleUnexpectedPageEvent(
+                        newPage,
+                        "browser-context page"
+                )
         );
 
         log.info(
                 "[BROWSER] Single-page fail-safe enabled for bot {}. Any additional browser tab/window that still reaches Chromium will be closed immediately.",
                 bot.getId()
         );
+    }
+
+    private void handleUnexpectedPageEvent(
+            Page unexpectedPage,
+            String source
+    ) {
+        try {
+            if (unexpectedPage == null
+                    || unexpectedPage == page
+                    || unexpectedPage.isClosed()) {
+                return;
+            }
+
+            int eventNumber = extraPageEvents.incrementAndGet();
+
+            closeUnexpectedPage(
+                    unexpectedPage,
+                    "single-page policy, "
+                            + source
+                            + ", extra-page event #"
+                            + eventNumber,
+                    shouldLogExtraPageEvent(eventNumber)
+            );
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[BROWSER] Failed while handling unexpected page event for bot {}. source={}",
+                    bot.getId(),
+                    source,
+                    exception
+            );
+        }
     }
 
     private boolean shouldLogExtraPageEvent(int eventNumber) {
@@ -637,6 +748,15 @@ public class BotContext implements AutoCloseable {
     }
 
     public void saveSession() {
+        if (!sessionPersistenceEnabled) {
+            log.debug(
+                    "[SESSION] Skipping session save for non-persistent bot {} context. restoreEnabled={}.",
+                    bot.getId(),
+                    sessionRestoreEnabled
+            );
+            return;
+        }
+
         if (isAnonymousMarketObserver(bot)) {
             log.info(
                     "[SESSION] Skipping session save for anonymous market observer {}.",

@@ -9,6 +9,7 @@ import pl.flipbot.bot.BotStatus;
 import pl.flipbot.bot.runtime.BotRuntimeState;
 import pl.flipbot.bot.runtime.BotRuntimeStateRepository;
 import pl.flipbot.bot.runtime.BotRuntimeStatus;
+import pl.flipbot.bot.runtime.BotSessionPreviewService;
 import pl.flipbot.dashboard.dto.RuntimeDashboardBotResponse;
 import pl.flipbot.dashboard.dto.RuntimeDashboardResponse;
 
@@ -24,6 +25,7 @@ public class RuntimeDashboardService {
 
     private final BotRepository botRepository;
     private final BotRuntimeStateRepository runtimeStateRepository;
+    private final BotSessionPreviewService sessionPreviewService;
 
     @Transactional(readOnly = true)
     public RuntimeDashboardResponse getRuntimeDashboard() {
@@ -97,6 +99,9 @@ public class RuntimeDashboardService {
                 runtime == null ? 0 : runtime.getConsecutiveFailures(),
                 runtime == null ? null : runtime.getLastError(),
                 runtime == null ? null : runtime.getWorkerSlot(),
+                runtime == null ? null : runtime.getSessionBlockedSince(),
+                runtime == null ? 0 : runtime.getSessionBlockCount(),
+                sessionPreviewService.isPreviewRequested(bot.getId()),
                 runtime == null ? null : runtime.getUpdatedAt()
         );
     }

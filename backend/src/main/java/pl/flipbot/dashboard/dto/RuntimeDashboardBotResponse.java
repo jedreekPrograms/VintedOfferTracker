@@ -14,6 +14,9 @@ public record RuntimeDashboardBotResponse(
         int consecutiveFailures,
         String lastError,
         Integer workerSlot,
+        Instant sessionBlockedSince,
+        int sessionBlockCount,
+        boolean sessionPreviewRequested,
         Instant updatedAt
 ) {
 }

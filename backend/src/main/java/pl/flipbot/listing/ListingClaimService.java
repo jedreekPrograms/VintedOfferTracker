@@ -6,11 +6,18 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.listing.dto.CreateListingRequest;
+
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Service
 @RequiredArgsConstructor
 public class ListingClaimService {
+
+    private static final ZoneId DISCOVERY_ZONE =
+            ZoneId.of("Europe/Warsaw");
 
     private final ListingRepository listingRepository;
 
@@ -21,6 +28,17 @@ public class ListingClaimService {
     )
     public Listing claimListing(
             Long botId,
+            CreateListingRequest request
+    ) {
+        return claimListing(botId, null, request);
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW
+    )
+    public Listing claimListing(
+            Long botId,
+            BotAdditionalTarget additionalTarget,
             CreateListingRequest request
     ) {
 
@@ -35,6 +53,11 @@ public class ListingClaimService {
                 .currentStep(0)
                 .awaitingSellerResponse(false)
                 .status(ListingStatus.DISCOVERED)
+                .lastFreshDiscoveryAt(LocalDateTime.now(DISCOVERY_ZONE))
+                .productTargetLabel(
+                        ListingProductProvenance.label(bot, additionalTarget)
+                )
+                .additionalTarget(additionalTarget)
                 .bot(bot)
                 .build();
 

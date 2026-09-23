@@ -28,5 +28,9 @@ public class BotRuntimeStateResponse {
 
     private Integer workerSlot;
 
+    private Instant sessionBlockedSince;
+
+    private int sessionBlockCount;
+
     private Instant updatedAt;
 }

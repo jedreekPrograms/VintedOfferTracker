@@ -13,11 +13,12 @@ import java.util.List;
 public class MarketStatsController {
 
     private final MarketStatsService marketStatsService;
+    private final MarketStatsCalendarPlanningService calendarPlanningService;
     private final MarketStatsScanTriggerService scanTriggerService;
 
     @GetMapping("/planning")
-    public List<ModelPlanningResponse> getPlanning() {
-        return marketStatsService.getPlanning();
+    public List<CalendarModelPlanningResponse> getPlanning() {
+        return calendarPlanningService.getPlanning();
     }
 
     @GetMapping("/targets")

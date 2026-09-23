@@ -8,8 +8,8 @@
 }
 
 .price-matrix-summary {
-    min-width: 112px;
-    padding: 14px 18px;
+    min-width: 96px;
+    padding: 12px 15px;
     border: 1px solid var(--border-color, #dce3ea);
     border-radius: 14px;
     background: var(--card-background, #ffffff);
@@ -32,7 +32,7 @@
 
 .price-matrix-card {
     min-width: 0;
-    padding: 18px;
+    padding: 14px;
     overflow: hidden;
 }
 
@@ -134,17 +134,18 @@
 .price-sheet-row {
     display: grid;
     grid-template-columns:
-        minmax(205px, 1.5fr)
-        minmax(135px, 0.9fr)
-        minmax(125px, 0.85fr)
-        minmax(115px, 0.75fr)
-        minmax(115px, 0.75fr)
-        minmax(120px, 0.78fr)
-        minmax(125px, 0.8fr)
-        minmax(125px, 0.8fr)
-        minmax(125px, 0.8fr);
-    min-width: 1300px;
-    min-height: 58px;
+        minmax(168px, 1.35fr)
+        minmax(96px, 0.82fr)
+        minmax(84px, 0.70fr)
+        minmax(88px, 0.70fr)
+        minmax(88px, 0.70fr)
+        minmax(90px, 0.72fr)
+        minmax(94px, 0.74fr)
+        minmax(102px, 0.82fr)
+        minmax(90px, 0.72fr)
+        minmax(90px, 0.72fr);
+    min-width: 1080px;
+    min-height: 56px;
     border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
@@ -154,7 +155,7 @@
 
 .price-sheet-row > div {
     min-width: 0;
-    padding: 10px 12px;
+    padding: 8px 9px;
     border-right: 1px solid var(--border-color, #e5e7eb);
     display: flex;
     align-items: center;
@@ -165,13 +166,14 @@
 }
 
 .price-sheet-header {
-    min-height: 42px;
+    min-height: 40px;
     background: rgba(15, 23, 42, 0.025);
     color: var(--muted-text-color, #64748b);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
+    line-height: 1.2;
     text-transform: uppercase;
-    letter-spacing: 0.055em;
+    letter-spacing: 0.04em;
 }
 
 .price-model-cell {
@@ -191,7 +193,7 @@
 
 .price-model-cell span {
     color: var(--muted-text-color, #64748b);
-    font-size: 11px;
+    font-size: 10px;
 }
 
 .price-input-cell {
@@ -212,16 +214,17 @@
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
-    padding: 8px 30px 8px 9px;
+    padding: 7px 25px 7px 7px;
     color: inherit;
     font: inherit;
+    font-size: 12px;
     font-weight: 600;
     transition: border-color 120ms ease, background 120ms ease;
 }
 
 .price-matrix-input::placeholder {
     color: var(--muted-text-color, #94a3b8);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     opacity: 1;
 }
@@ -245,39 +248,39 @@
 .price-currency {
     position: absolute;
     top: 50%;
-    right: 8px;
+    right: 6px;
     transform: translateY(-50%);
     color: var(--muted-text-color, #64748b);
-    font-size: 11px;
+    font-size: 10px;
 }
 
 .price-save-state {
-    min-height: 12px;
+    min-height: 11px;
     color: var(--muted-text-color, #64748b);
-    font-size: 10px;
+    font-size: 9px;
 }
 
 .price-metric-cell {
     flex-direction: column;
     align-items: flex-start !important;
     justify-content: center;
-    gap: 3px;
+    gap: 2px;
 }
 
 .price-metric-cell strong {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
 }
 
 .price-metric-cell span {
     color: var(--muted-text-color, #64748b);
-    font-size: 10px;
+    font-size: 9px;
     line-height: 1.25;
 }
 
 .price-metric-cell .price-metric-note {
     color: var(--muted-text-color, #64748b);
-    font-size: 9px;
+    font-size: 8px;
 }
 
 .price-sheet-empty {
@@ -286,7 +289,7 @@
     font-size: 13px;
 }
 
-@media (max-width: 1320px) {
+@media (max-width: 1180px) {
     .price-matrix-card {
         padding: 12px;
     }
@@ -364,6 +367,7 @@
     .price-matrix-input {
         border-color: var(--border-color, #e2e8f0);
         background: rgba(15, 23, 42, 0.018);
+        font-size: 14px;
     }
 }
 
