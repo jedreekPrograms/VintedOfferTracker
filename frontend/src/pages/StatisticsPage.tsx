@@ -806,3 +806,188 @@ function VolumeChart({
 
     const maxCount = Math.max(
         ...points.map(point => point.marketListingCount),
+        1,
+    );
+
+    return (
+        <div className="analytics-volume">
+            <div className="analytics-volume-bars">
+                {points.map(point => (
+                    <div
+                        className="analytics-volume-column"
+                        key={point.date}
+                        title={`${point.label}: ${point.marketListingCount} ofert`}
+                    >
+                        <span>{point.marketListingCount}</span>
+                        <div
+                            className="analytics-volume-bar"
+                            style={{
+                                height: `${Math.max(
+                                    6,
+                                    (point.marketListingCount / maxCount) * 180,
+                                )}px`,
+                            }}
+                        />
+                        <small>{point.label}</small>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function HistogramChart({
+    buckets,
+}: {
+    buckets: AnalyticsHistogramBucket[];
+}) {
+    if (buckets.length === 0) {
+        return <EmptyChart text="Observer nie ma jeszcze próbek cen dla tych filtrów." />;
+    }
+
+    const maxCount = Math.max(...buckets.map(bucket => bucket.count), 1);
+
+    return (
+        <div className="analytics-histogram">
+            <div className="analytics-bars">
+                {buckets.map((bucket, index) => (
+                    <div
+                        className="analytics-bar-column"
+                        key={`${bucket.from}-${bucket.to}-${index}`}
+                        title={`${formatPrice(bucket.from)}–${formatPrice(bucket.to)}: ${bucket.count}`}
+                    >
+                        <span>{bucket.count}</span>
+                        <div
+                            className="analytics-bar"
+                            style={{
+                                height: `${Math.max(
+                                    8,
+                                    (bucket.count / maxCount) * 170,
+                                )}px`,
+                            }}
+                        />
+                        <small>{formatCompactPrice(bucket.from)}</small>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ModelTable({
+    rows,
+}: {
+    rows: AnalyticsModelBreakdown[];
+}) {
+    if (rows.length === 0) {
+        return <EmptyChart text="Brak danych modelowych dla tych filtrów." />;
+    }
+
+    return (
+        <div className="analytics-table-wrap">
+            <table className="analytics-table">
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>Oferty</th>
+                        <th>Śr. rynek</th>
+                        <th>Mediana rynku</th>
+                        <th>/ dzień</th>
+                        <th>/ tydzień</th>
+                        <th>/ miesiąc</th>
+                        <th>Kupione</th>
+                        <th>Śr. zakup</th>
+                        <th>Mediana zakupu</th>
+                        <th>Nie kupiłem legit</th>
+                        <th>Oszustwa</th>
+                        <th>Zakup vs rynek</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.map(row => (
+                        <tr key={row.modelId}>
+                            <td>
+                                <strong>{row.model}</strong>
+                                <span>{row.brand}</span>
+                            </td>
+                            <td>{row.marketListingCount}</td>
+                            <td>{formatNullablePrice(row.averageMarketPrice)}</td>
+                            <td>{formatNullablePrice(row.medianMarketPrice)}</td>
+                            <td>{formatNullableRate(row.averageListingsPerDay)}</td>
+                            <td>{formatNullableRate(row.averageListingsPerWeek)}</td>
+                            <td>{formatNullableRate(row.averageListingsPerMonth)}</td>
+                            <td>{row.purchasedCount}</td>
+                            <td>{formatNullablePrice(row.averagePurchasePrice)}</td>
+                            <td>{formatNullablePrice(row.medianPurchasePrice)}</td>
+                            <td>{row.legitRejectedCount}</td>
+                            <td>{row.scamCount}</td>
+                            <td>
+                                {formatNullableSignedPrice(
+                                    row.purchaseBelowMarketMedianAmount,
+                                )}
+                                <span>
+                                    {formatNullablePercent(
+                                        row.purchaseBelowMarketMedianPercent,
+                                    )}
+                                </span>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+function EmptyChart({ text }: { text: string }) {
+    return <div className="analytics-empty-chart">{text}</div>;
+}
+
+function formatNullablePrice(value: number | null): string {
+    return value === null ? "—" : formatPrice(value);
+}
+
+function formatNullableSignedPrice(value: number | null): string {
+    if (value === null) {
+        return "—";
+    }
+
+    return `${value > 0 ? "+" : ""}${formatPrice(value)}`;
+}
+
+function formatNullablePercent(value: number | null): string {
+    if (value === null) {
+        return "Brak porównania";
+    }
+
+    return `${value > 0 ? "+" : ""}${formatNumber(value, 1)}%`;
+}
+
+function formatNullableRate(value: number | null): string {
+    return value === null
+        ? "—"
+        : formatNumber(value, value < 10 ? 2 : 1);
+}
+
+function formatPrice(value: number): string {
+    return new Intl.NumberFormat("pl-PL", {
+        style: "currency",
+        currency: "PLN",
+        maximumFractionDigits: 2,
+    }).format(value);
+}
+
+function formatCompactPrice(value: number): string {
+    return new Intl.NumberFormat("pl-PL", {
+        maximumFractionDigits: 0,
+    }).format(value);
+}
+
+function formatNumber(value: number, digits: number): string {
+    return new Intl.NumberFormat("pl-PL", {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+    }).format(value);
+}
+
+export default StatisticsPage;
