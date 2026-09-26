@@ -24,6 +24,9 @@ public class NegotiationConversationProcessor {
     private static final double POLL_INTERVAL_MS =
             500;
 
+    private static final double LOADED_EMPTY_STATE_SETTLE_MS =
+            8_000;
+
     private static final String OWN_OFFER_STATUS_TEST_ID =
             "offer-status-title";
 
@@ -140,6 +143,8 @@ public class NegotiationConversationProcessor {
                 System.currentTimeMillis()
                         + (long) CONVERSATION_STATE_TIMEOUT_MS;
 
+        Long loadedWithoutEventSince = null;
+
         while (System.currentTimeMillis() < deadline) {
 
             humanVerificationHandler.waitUntilVerified(
@@ -167,6 +172,25 @@ public class NegotiationConversationProcessor {
 
                 return snapshot;
 
+            }
+
+            if (isConversationContentVisible(page)) {
+                if (loadedWithoutEventSince == null) {
+                    loadedWithoutEventSince = System.currentTimeMillis();
+                } else if (System.currentTimeMillis()
+                        - loadedWithoutEventSince
+                        >= (long) LOADED_EMPTY_STATE_SETTLE_MS) {
+                    log.warn(
+                            "[CONVERSATION] Conversation content is loaded, but no stable negotiation event appeared within {} seconds. Returning fail-safe UNKNOWN early so availability/contact guards can run without blocking the worker for the full {} seconds. Conversation: {}, marketplace listing: {}",
+                            Math.round(LOADED_EMPTY_STATE_SETTLE_MS / 1_000),
+                            Math.round(CONVERSATION_STATE_TIMEOUT_MS / 1_000),
+                            listing.conversationId(),
+                            listing.listingId()
+                    );
+                    return NegotiationConversationSnapshot.unknown();
+                }
+            } else {
+                loadedWithoutEventSince = null;
             }
 
             page.waitForTimeout(
@@ -286,51 +310,53 @@ public class NegotiationConversationProcessor {
                                     rawText
                             );
 
-                    BigDecimal validationCeiling = listing.originalPrice();
+                    /*
+                     * originalPrice is a historical snapshot. Read Vinted's
+                     * CURRENT item price from the read-only offer modal for
+                     * every strongly-scoped seller counteroffer when possible.
+                     * This avoids accepting a bogus price merely because an
+                     * old stored price was higher, and also allows a legitimate
+                     * counteroffer after the seller raised the item price.
+                     */
+                    BigDecimal liveItemPrice =
+                            offerModalPriceInspector()
+                                    .readCurrentItemPrice()
+                                    .orElse(null);
+
+                    BigDecimal validationCeiling =
+                            liveItemPrice != null
+                                    ? liveItemPrice
+                                    : listing.originalPrice();
 
                     if (!isPlausibleSellerCounterOffer(
                             validationCeiling,
                             counterOfferPrice
                     )) {
-                        /*
-                         * originalPrice is a historical snapshot. The seller
-                         * may have edited the listing price since negotiation
-                         * started. Opening "Zaproponuj cenę" is read-only until
-                         * submit; Vinted exposes the CURRENT item price in that
-                         * modal ("Cena przedmiotu: ...", also as the input
-                         * placeholder). Use it only as a validation ceiling.
-                         */
-                        BigDecimal liveItemPrice =
-                                offerModalPriceInspector()
-                                        .readCurrentItemPrice()
-                                        .orElse(null);
+                        log.error(
+                                "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}, current item price from offer modal={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
+                                listing.listingId(),
+                                rawText,
+                                counterOfferPrice,
+                                listing.originalPrice(),
+                                liveItemPrice
+                        );
 
-                        if (isPlausibleSellerCounterOffer(
+                        return NegotiationConversationSnapshot.unknown(
+                                rawText
+                        );
+                    }
+
+                    if (liveItemPrice != null
+                            && listing.originalPrice() != null
+                            && liveItemPrice.compareTo(
+                            listing.originalPrice()
+                    ) != 0) {
+                        log.info(
+                                "[CONVERSATION] Vinted current item price {} differs from captured original price {} for listing {}. Seller counteroffer validation uses the current modal price; backend negotiation prices are otherwise unchanged.",
                                 liveItemPrice,
-                                counterOfferPrice
-                        )) {
-                            validationCeiling = liveItemPrice;
-                            log.warn(
-                                    "[CONVERSATION] Seller counteroffer {} for listing {} is above the captured original price {}, but is valid against Vinted's current item price {} read from the offer modal. Treating the stored original price as stale.",
-                                    counterOfferPrice,
-                                    listing.listingId(),
-                                    listing.originalPrice(),
-                                    liveItemPrice
-                            );
-                        } else {
-                            log.error(
-                                    "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}, current item price from offer modal={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
-                                    listing.listingId(),
-                                    rawText,
-                                    counterOfferPrice,
-                                    listing.originalPrice(),
-                                    liveItemPrice
-                            );
-
-                            return NegotiationConversationSnapshot.unknown(
-                                    rawText
-                            );
-                        }
+                                listing.originalPrice(),
+                                listing.listingId()
+                        );
                     }
 
                     log.info(
@@ -467,6 +493,18 @@ public class NegotiationConversationProcessor {
         }
 
         return counterOfferPrice.compareTo(originalPrice) <= 0;
+    }
+
+    private boolean isConversationContentVisible(
+            Page page
+    ) {
+        try {
+            return page.getByTestId("conversation-content")
+                    .first()
+                    .isVisible();
+        } catch (PlaywrightException exception) {
+            return false;
+        }
     }
 
     private boolean isSellerCounterOfferCard(
