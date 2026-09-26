@@ -24,6 +24,9 @@ public class NegotiationConversationProcessor {
     private static final double POLL_INTERVAL_MS =
             500;
 
+    private static final double LOADED_EMPTY_STATE_SETTLE_MS =
+            8_000;
+
     private static final String OWN_OFFER_STATUS_TEST_ID =
             "offer-status-title";
 
@@ -34,6 +37,10 @@ public class NegotiationConversationProcessor {
 
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
+
+    private ConversationOfferModalPriceInspector offerModalPriceInspector() {
+        return new ConversationOfferModalPriceInspector(context);
+    }
 
     /*
      * Tymczasowo zostawiamy starą metodę, żeby obecny BotWorker
@@ -136,6 +143,8 @@ public class NegotiationConversationProcessor {
                 System.currentTimeMillis()
                         + (long) CONVERSATION_STATE_TIMEOUT_MS;
 
+        Long loadedWithoutEventSince = null;
+
         while (System.currentTimeMillis() < deadline) {
 
             humanVerificationHandler.waitUntilVerified(
@@ -163,6 +172,25 @@ public class NegotiationConversationProcessor {
 
                 return snapshot;
 
+            }
+
+            if (isConversationContentVisible(page)) {
+                if (loadedWithoutEventSince == null) {
+                    loadedWithoutEventSince = System.currentTimeMillis();
+                } else if (System.currentTimeMillis()
+                        - loadedWithoutEventSince
+                        >= (long) LOADED_EMPTY_STATE_SETTLE_MS) {
+                    log.warn(
+                            "[CONVERSATION] Conversation content is loaded, but no stable negotiation event appeared within {} seconds. Returning fail-safe UNKNOWN early so availability/contact guards can run without blocking the worker for the full {} seconds. Conversation: {}, marketplace listing: {}",
+                            Math.round(LOADED_EMPTY_STATE_SETTLE_MS / 1_000),
+                            Math.round(CONVERSATION_STATE_TIMEOUT_MS / 1_000),
+                            listing.conversationId(),
+                            listing.listingId()
+                    );
+                    return NegotiationConversationSnapshot.unknown();
+                }
+            } else {
+                loadedWithoutEventSince = null;
             }
 
             page.waitForTimeout(
@@ -257,21 +285,60 @@ public class NegotiationConversationProcessor {
                         testId
                 )) {
 
+                    /*
+                     * Vinted reuses offer-current-price-label in more than one
+                     * price-bearing UI fragment. Treat it as a real seller
+                     * counteroffer only when the price belongs to the same
+                     * message card as Vinted's seller-offer buy action.
+                     *
+                     * Without this scope check a decorative/current-price
+                     * label can appear after our own offer status in DOM order
+                     * and incorrectly win the "latest event" scan.
+                     */
+                    if (!isSellerCounterOfferCard(event)) {
+                        log.debug(
+                                "[CONVERSATION] Ignoring unscoped '{}' price label for listing {} because no seller-offer buy action exists in the same conversation card. Raw text={}",
+                                SELLER_COUNTER_OFFER_PRICE_TEST_ID,
+                                listing.listingId(),
+                                rawText
+                        );
+                        continue;
+                    }
+
                     BigDecimal counterOfferPrice =
-                            parsePrice(
+                            VintedPriceParser.parse(
                                     rawText
                             );
 
+                    /*
+                     * originalPrice is a historical snapshot. Read Vinted's
+                     * CURRENT item price from the read-only offer modal for
+                     * every strongly-scoped seller counteroffer when possible.
+                     * This avoids accepting a bogus price merely because an
+                     * old stored price was higher, and also allows a legitimate
+                     * counteroffer after the seller raised the item price.
+                     */
+                    BigDecimal liveItemPrice =
+                            offerModalPriceInspector()
+                                    .readCurrentItemPrice()
+                                    .orElse(null);
+
+                    BigDecimal validationCeiling =
+                            liveItemPrice != null
+                                    ? liveItemPrice
+                                    : listing.originalPrice();
+
                     if (!isPlausibleSellerCounterOffer(
-                            listing.originalPrice(),
+                            validationCeiling,
                             counterOfferPrice
                     )) {
                         log.error(
-                                "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
+                                "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}, current item price from offer modal={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
                                 listing.listingId(),
                                 rawText,
                                 counterOfferPrice,
-                                listing.originalPrice()
+                                listing.originalPrice(),
+                                liveItemPrice
                         );
 
                         return NegotiationConversationSnapshot.unknown(
@@ -279,12 +346,26 @@ public class NegotiationConversationProcessor {
                         );
                     }
 
+                    if (liveItemPrice != null
+                            && listing.originalPrice() != null
+                            && liveItemPrice.compareTo(
+                            listing.originalPrice()
+                    ) != 0) {
+                        log.info(
+                                "[CONVERSATION] Vinted current item price {} differs from captured original price {} for listing {}. Seller counteroffer validation uses the current modal price; backend negotiation prices are otherwise unchanged.",
+                                liveItemPrice,
+                                listing.originalPrice(),
+                                listing.listingId()
+                        );
+                    }
+
                     log.info(
                             "[CONVERSATION] Latest negotiation event is "
                                     + "a seller counteroffer. Raw price: {}, "
-                                    + "parsed price: {}",
+                                    + "parsed price: {}, validation ceiling: {}",
                             rawText,
-                            counterOfferPrice
+                            counterOfferPrice,
+                            validationCeiling
                     );
 
                     return NegotiationConversationSnapshot
@@ -414,114 +495,53 @@ public class NegotiationConversationProcessor {
         return counterOfferPrice.compareTo(originalPrice) <= 0;
     }
 
-    private BigDecimal parsePrice(
-            String rawPrice
+    private boolean isConversationContentVisible(
+            Page page
     ) {
-
-        if (rawPrice == null
-                || rawPrice.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Counteroffer price text cannot be blank"
-            );
-
+        try {
+            return page.getByTestId("conversation-content")
+                    .first()
+                    .isVisible();
+        } catch (PlaywrightException exception) {
+            return false;
         }
+    }
 
-        String normalized =
-                rawPrice
-                        .replace(
-                                "\u00A0",
-                                ""
-                        )
-                        .replace(
-                                "\u202F",
-                                ""
-                        )
-                        .replace(
-                                " ",
-                                ""
-                        )
-                        .replaceAll(
-                                "[^0-9,.-]",
-                                ""
+    private boolean isSellerCounterOfferCard(
+            Locator priceLabel
+    ) {
+        try {
+            Object result = priceLabel.evaluate(
+                    """
+                    node => {
+                        const root = node.closest(
+                            '[data-testid="conversation-content"]'
                         );
 
-        if (normalized.isBlank()) {
+                        let current = node.parentElement;
 
-            throw new IllegalArgumentException(
-                    "Counteroffer price contains no numeric value: "
-                            + rawPrice
+                        while (current && current !== root) {
+                            if (current.querySelector(
+                                '[data-testid="offer-message-buy-button"]'
+                            )) {
+                                return true;
+                            }
+                            current = current.parentElement;
+                        }
+
+                        return false;
+                    }
+                    """
             );
 
-        }
-
-        if (normalized.contains(
-                ","
-        ) && normalized.contains(
-                "."
-        )) {
-
-            int lastComma =
-                    normalized.lastIndexOf(
-                            ','
-                    );
-
-            int lastDot =
-                    normalized.lastIndexOf(
-                            '.'
-                    );
-
-            if (lastComma > lastDot) {
-
-                normalized =
-                        normalized
-                                .replace(
-                                        ".",
-                                        ""
-                                )
-                                .replace(
-                                        ',',
-                                        '.'
-                                );
-
-            } else {
-
-                normalized =
-                        normalized.replace(
-                                ",",
-                                ""
-                        );
-
-            }
-
-        } else if (normalized.contains(
-                ","
-        )) {
-
-            normalized =
-                    normalized.replace(
-                            ',',
-                            '.'
-                    );
-
-        }
-
-        BigDecimal price =
-                new BigDecimal(
-                        normalized
-                );
-
-        if (price.signum() <= 0) {
-
-            throw new IllegalArgumentException(
-                    "Counteroffer price must be greater than zero: "
-                            + rawPrice
+            return Boolean.TRUE.equals(result);
+        } catch (PlaywrightException exception) {
+            log.debug(
+                    "[CONVERSATION] Could not scope seller-price label to its offer card: {}",
+                    exception.getMessage()
             );
-
+            return false;
         }
-
-        return price;
-
     }
 
     private void logSnapshot(
