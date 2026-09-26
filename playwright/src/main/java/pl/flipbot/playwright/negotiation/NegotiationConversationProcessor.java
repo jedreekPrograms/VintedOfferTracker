@@ -35,6 +35,10 @@ public class NegotiationConversationProcessor {
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
 
+    private ConversationOfferModalPriceInspector offerModalPriceInspector() {
+        return new ConversationOfferModalPriceInspector(context);
+    }
+
     /*
      * Tymczasowo zostawiamy starą metodę, żeby obecny BotWorker
      * nadal się kompilował.
@@ -257,34 +261,85 @@ public class NegotiationConversationProcessor {
                         testId
                 )) {
 
+                    /*
+                     * Vinted reuses offer-current-price-label in more than one
+                     * price-bearing UI fragment. Treat it as a real seller
+                     * counteroffer only when the price belongs to the same
+                     * message card as Vinted's seller-offer buy action.
+                     *
+                     * Without this scope check a decorative/current-price
+                     * label can appear after our own offer status in DOM order
+                     * and incorrectly win the "latest event" scan.
+                     */
+                    if (!isSellerCounterOfferCard(event)) {
+                        log.debug(
+                                "[CONVERSATION] Ignoring unscoped '{}' price label for listing {} because no seller-offer buy action exists in the same conversation card. Raw text={}",
+                                SELLER_COUNTER_OFFER_PRICE_TEST_ID,
+                                listing.listingId(),
+                                rawText
+                        );
+                        continue;
+                    }
+
                     BigDecimal counterOfferPrice =
-                            parsePrice(
+                            VintedPriceParser.parse(
                                     rawText
                             );
 
+                    BigDecimal validationCeiling = listing.originalPrice();
+
                     if (!isPlausibleSellerCounterOffer(
-                            listing.originalPrice(),
+                            validationCeiling,
                             counterOfferPrice
                     )) {
-                        log.error(
-                                "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
-                                listing.listingId(),
-                                rawText,
-                                counterOfferPrice,
-                                listing.originalPrice()
-                        );
+                        /*
+                         * originalPrice is a historical snapshot. The seller
+                         * may have edited the listing price since negotiation
+                         * started. Opening "Zaproponuj cenę" is read-only until
+                         * submit; Vinted exposes the CURRENT item price in that
+                         * modal ("Cena przedmiotu: ...", also as the input
+                         * placeholder). Use it only as a validation ceiling.
+                         */
+                        BigDecimal liveItemPrice =
+                                offerModalPriceInspector()
+                                        .readCurrentItemPrice()
+                                        .orElse(null);
 
-                        return NegotiationConversationSnapshot.unknown(
-                                rawText
-                        );
+                        if (isPlausibleSellerCounterOffer(
+                                liveItemPrice,
+                                counterOfferPrice
+                        )) {
+                            validationCeiling = liveItemPrice;
+                            log.warn(
+                                    "[CONVERSATION] Seller counteroffer {} for listing {} is above the captured original price {}, but is valid against Vinted's current item price {} read from the offer modal. Treating the stored original price as stale.",
+                                    counterOfferPrice,
+                                    listing.listingId(),
+                                    listing.originalPrice(),
+                                    liveItemPrice
+                            );
+                        } else {
+                            log.error(
+                                    "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}, current item price from offer modal={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
+                                    listing.listingId(),
+                                    rawText,
+                                    counterOfferPrice,
+                                    listing.originalPrice(),
+                                    liveItemPrice
+                            );
+
+                            return NegotiationConversationSnapshot.unknown(
+                                    rawText
+                            );
+                        }
                     }
 
                     log.info(
                             "[CONVERSATION] Latest negotiation event is "
                                     + "a seller counteroffer. Raw price: {}, "
-                                    + "parsed price: {}",
+                                    + "parsed price: {}, validation ceiling: {}",
                             rawText,
-                            counterOfferPrice
+                            counterOfferPrice,
+                            validationCeiling
                     );
 
                     return NegotiationConversationSnapshot
@@ -414,114 +469,41 @@ public class NegotiationConversationProcessor {
         return counterOfferPrice.compareTo(originalPrice) <= 0;
     }
 
-    private BigDecimal parsePrice(
-            String rawPrice
+    private boolean isSellerCounterOfferCard(
+            Locator priceLabel
     ) {
-
-        if (rawPrice == null
-                || rawPrice.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Counteroffer price text cannot be blank"
-            );
-
-        }
-
-        String normalized =
-                rawPrice
-                        .replace(
-                                "\u00A0",
-                                ""
-                        )
-                        .replace(
-                                "\u202F",
-                                ""
-                        )
-                        .replace(
-                                " ",
-                                ""
-                        )
-                        .replaceAll(
-                                "[^0-9,.-]",
-                                ""
+        try {
+            Object result = priceLabel.evaluate(
+                    """
+                    node => {
+                        const root = node.closest(
+                            '[data-testid="conversation-content"]'
                         );
 
-        if (normalized.isBlank()) {
+                        let current = node.parentElement;
 
-            throw new IllegalArgumentException(
-                    "Counteroffer price contains no numeric value: "
-                            + rawPrice
+                        while (current && current !== root) {
+                            if (current.querySelector(
+                                '[data-testid="offer-message-buy-button"]'
+                            )) {
+                                return true;
+                            }
+                            current = current.parentElement;
+                        }
+
+                        return false;
+                    }
+                    """
             );
 
-        }
-
-        if (normalized.contains(
-                ","
-        ) && normalized.contains(
-                "."
-        )) {
-
-            int lastComma =
-                    normalized.lastIndexOf(
-                            ','
-                    );
-
-            int lastDot =
-                    normalized.lastIndexOf(
-                            '.'
-                    );
-
-            if (lastComma > lastDot) {
-
-                normalized =
-                        normalized
-                                .replace(
-                                        ".",
-                                        ""
-                                )
-                                .replace(
-                                        ',',
-                                        '.'
-                                );
-
-            } else {
-
-                normalized =
-                        normalized.replace(
-                                ",",
-                                ""
-                        );
-
-            }
-
-        } else if (normalized.contains(
-                ","
-        )) {
-
-            normalized =
-                    normalized.replace(
-                            ',',
-                            '.'
-                    );
-
-        }
-
-        BigDecimal price =
-                new BigDecimal(
-                        normalized
-                );
-
-        if (price.signum() <= 0) {
-
-            throw new IllegalArgumentException(
-                    "Counteroffer price must be greater than zero: "
-                            + rawPrice
+            return Boolean.TRUE.equals(result);
+        } catch (PlaywrightException exception) {
+            log.debug(
+                    "[CONVERSATION] Could not scope seller-price label to its offer card: {}",
+                    exception.getMessage()
             );
-
+            return false;
         }
-
-        return price;
-
     }
 
     private void logSnapshot(
