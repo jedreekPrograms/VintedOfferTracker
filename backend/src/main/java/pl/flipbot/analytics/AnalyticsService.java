@@ -15,6 +15,8 @@ import pl.flipbot.listing.MissedOpportunityReason;
 import pl.flipbot.listing.OfferAssessment;
 import pl.flipbot.marketstats.MarketListingObservation;
 import pl.flipbot.marketstats.MarketListingObservationRepository;
+import pl.flipbot.marketstats.MarketModelScanState;
+import pl.flipbot.marketstats.MarketModelScanStateRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -45,6 +47,7 @@ public class AnalyticsService {
 
     private final ListingRepository listingRepository;
     private final MarketListingObservationRepository observationRepository;
+    private final MarketModelScanStateRepository scanStateRepository;
     private final DictionaryModelRepository modelRepository;
     private final HistoryModelResolver historyModelResolver;
 
@@ -128,6 +131,18 @@ public class AnalyticsService {
                         )
                 );
 
+        Map<Long, MarketModelScanState> marketScanStates =
+                scanStateRepository.findAll()
+                        .stream()
+                        .collect(
+                                Collectors.toMap(
+                                        MarketModelScanState::getModelId,
+                                        state -> state,
+                                        (left, right) -> left,
+                                        LinkedHashMap::new
+                                )
+                        );
+
         Set<Long> unknownModelIds = selectedModelIds.stream()
                 .filter(id -> !modelLabels.containsKey(id))
                 .collect(Collectors.toSet());
@@ -180,6 +195,21 @@ public class AnalyticsService {
                                 .filter(observation ->
                                         observation.getPublishedAt() != null
                                 )
+                                /*
+                                 * Do not treat baseline survivors as historical
+                                 * market coverage. An item published before the
+                                 * model baseline may only be present because it
+                                 * happened to remain unsold until tracking
+                                 * started; already-sold peers from that period
+                                 * are unknowable. Reliable market analytics
+                                 * therefore start at baselineCompleteAt.
+                                 */
+                                .filter(observation ->
+                                        withinReliableMarketCoverage(
+                                                observation,
+                                                marketScanStates
+                                        )
+                                )
                                 .filter(observation ->
                                         within(
                                                 observation.getPublishedAt(),
@@ -196,7 +226,12 @@ public class AnalyticsService {
                                 .toList();
 
         AnalyticsOverviewResponse.Summary summary =
-                buildSummary(history, market, range);
+                buildSummary(
+                        history,
+                        market,
+                        range,
+                        marketScanStates
+                );
 
         List<DictionaryModel> modelsForBreakdown = selectedModelIds.isEmpty()
                 ? models
@@ -211,7 +246,8 @@ public class AnalyticsService {
                                 models,
                                 history,
                                 market,
-                                range
+                                range,
+                                marketScanStates
                         ))
                         .filter(this::hasData)
                         .toList();
@@ -265,7 +301,8 @@ public class AnalyticsService {
     private AnalyticsOverviewResponse.Summary buildSummary(
             List<Listing> history,
             List<MarketListingObservation> market,
-            TimeRange range
+            TimeRange range,
+            Map<Long, MarketModelScanState> marketScanStates
     ) {
         List<BigDecimal> marketPrices = market.stream()
                 .map(this::marketPrice)
@@ -302,7 +339,11 @@ public class AnalyticsService {
                 AnalyticsMath.summarize(legitRejectedPrices);
         AnalyticsMath.PriceSummary missedSummary =
                 AnalyticsMath.summarize(missedPrices);
-        MarketRates rates = marketRates(market, range);
+        MarketRates rates = marketRates(
+                market,
+                range,
+                marketScanStates
+        );
 
         PriceAdvantage advantage = priceAdvantage(
                 marketSummary.median(),
@@ -345,7 +386,8 @@ public class AnalyticsService {
             List<DictionaryModel> allModels,
             List<Listing> history,
             List<MarketListingObservation> market,
-            TimeRange range
+            TimeRange range,
+            Map<Long, MarketModelScanState> marketScanStates
     ) {
         String modelLabel = label(model);
 
@@ -388,7 +430,11 @@ public class AnalyticsService {
                 marketSummary.median(),
                 purchaseSummary.median()
         );
-        MarketRates rates = marketRates(modelMarket, range);
+        MarketRates rates = marketRates(
+                modelMarket,
+                range,
+                marketScanStates
+        );
 
         long legitRejected = modelHistory.stream()
                 .filter(this::isNotPurchased)
@@ -541,48 +587,114 @@ public class AnalyticsService {
 
     private MarketRates marketRates(
             List<MarketListingObservation> market,
-            TimeRange requestedRange
+            TimeRange requestedRange,
+            Map<Long, MarketModelScanState> marketScanStates
     ) {
         if (market.isEmpty()) {
             return MarketRates.empty();
         }
 
-        LocalDate start;
-        if (requestedRange.from().equals(LocalDateTime.MIN)) {
-            start = market.stream()
-                    .map(MarketListingObservation::getPublishedAt)
-                    .filter(java.util.Objects::nonNull)
-                    .map(LocalDateTime::toLocalDate)
-                    .min(LocalDate::compareTo)
-                    .orElse(requestedRange.to().toLocalDate());
-        } else {
-            start = requestedRange.from().toLocalDate();
+        Map<Long, List<MarketListingObservation>> byModel =
+                market.stream()
+                        .filter(observation ->
+                                observation.getModel() != null
+                                        && observation.getModel().getId() != null
+                        )
+                        .collect(
+                                Collectors.groupingBy(
+                                        observation ->
+                                                observation.getModel().getId(),
+                                        LinkedHashMap::new,
+                                        Collectors.toList()
+                                )
+                        );
+
+        BigDecimal perDay = BigDecimal.ZERO;
+        BigDecimal perWeek = BigDecimal.ZERO;
+        BigDecimal perMonth = BigDecimal.ZERO;
+
+        for (Map.Entry<Long, List<MarketListingObservation>> entry
+                : byModel.entrySet()) {
+            MarketModelScanState state =
+                    marketScanStates.get(entry.getKey());
+
+            if (state == null
+                    || state.getBaselineCompleteAt() == null) {
+                continue;
+            }
+
+            LocalDateTime effectiveFrom = requestedRange.from().equals(
+                    LocalDateTime.MIN
+            )
+                    ? state.getBaselineCompleteAt()
+                    : requestedRange.from().isAfter(
+                            state.getBaselineCompleteAt()
+                    )
+                    ? requestedRange.from()
+                    : state.getBaselineCompleteAt();
+
+            LocalDate start = effectiveFrom.toLocalDate();
+            LocalDate end = requestedRange.to().toLocalDate();
+
+            if (end.isBefore(start)) {
+                continue;
+            }
+
+            long days = Math.max(
+                    1,
+                    ChronoUnit.DAYS.between(start, end) + 1
+            );
+            long weeks = Math.max(1, (days + 6) / 7);
+            long months = Math.max(
+                    1,
+                    ChronoUnit.MONTHS.between(
+                            YearMonth.from(start),
+                            YearMonth.from(end)
+                    ) + 1
+            );
+
+            BigDecimal count = BigDecimal.valueOf(
+                    entry.getValue().size()
+            );
+
+            /*
+             * Aggregate rates as a sum of per-model rates. This prevents a
+             * model whose tracking began mid-period from artificially lowering
+             * the combined "offers/day" by dividing its observations by days
+             * during which that model was not yet being tracked at all.
+             */
+            perDay = perDay.add(divide(count, days));
+            perWeek = perWeek.add(divide(count, weeks));
+            perMonth = perMonth.add(divide(count, months));
         }
-
-        LocalDate end = requestedRange.to().toLocalDate();
-        if (end.isBefore(start)) {
-            return MarketRates.empty();
-        }
-
-        long days = Math.max(
-                1,
-                ChronoUnit.DAYS.between(start, end) + 1
-        );
-        long weeks = Math.max(1, (days + 6) / 7);
-        long months = Math.max(
-                1,
-                ChronoUnit.MONTHS.between(
-                        YearMonth.from(start),
-                        YearMonth.from(end)
-                ) + 1
-        );
-
-        BigDecimal count = BigDecimal.valueOf(market.size());
 
         return new MarketRates(
-                divide(count, days),
-                divide(count, weeks),
-                divide(count, months)
+                perDay.setScale(2, RoundingMode.HALF_UP),
+                perWeek.setScale(2, RoundingMode.HALF_UP),
+                perMonth.setScale(2, RoundingMode.HALF_UP)
+        );
+    }
+
+    private boolean withinReliableMarketCoverage(
+            MarketListingObservation observation,
+            Map<Long, MarketModelScanState> marketScanStates
+    ) {
+        if (observation == null
+                || observation.getPublishedAt() == null
+                || observation.getModel() == null
+                || observation.getModel().getId() == null) {
+            return false;
+        }
+
+        MarketModelScanState state =
+                marketScanStates.get(observation.getModel().getId());
+
+        if (state == null || state.getBaselineCompleteAt() == null) {
+            return false;
+        }
+
+        return !observation.getPublishedAt().isBefore(
+                state.getBaselineCompleteAt()
         );
     }
 
