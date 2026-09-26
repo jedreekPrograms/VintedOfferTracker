@@ -369,7 +369,9 @@ public class MarketStatsCollector {
     ) {
         ListingScanner scanner = new ListingScanner(context);
         ListingTargetMatcher matcher = new ListingTargetMatcher();
-        MarketListingPublishedAtResolver publishedAtResolver =
+        MarketCatalogPublishedAtResolver catalogPublishedAtResolver =
+                new MarketCatalogPublishedAtResolver(context);
+        MarketListingPublishedAtResolver detailPublishedAtResolver =
                 new MarketListingPublishedAtResolver(context);
         LinkedHashMap<String, Listing> matched = new LinkedHashMap<>();
 
@@ -418,7 +420,14 @@ public class MarketStatsCollector {
                 }
             }
 
-            publishedAtResolver.captureIfNeeded(newlyAccepted);
+            /*
+             * First read immutable created_at_ts values already hydrated in
+             * the filtered catalog document. This performs zero extra Vinted
+             * requests. Only timestamps which are still unresolved afterwards
+             * use the paced item-detail fallback.
+             */
+            catalogPublishedAtResolver.captureIfAvailable(newlyAccepted);
+            detailPublishedAtResolver.captureIfNeeded(newlyAccepted);
 
             log.info(
                     "[MARKET STATS] Catalog page {} inspected. loaded={}, acceptedNew={}, acceptedTotal={}.",

@@ -566,10 +566,27 @@ function CalendarMetricCell({
         );
     }
 
+    const displayedValue = complete
+        ? String(value)
+        : value > 0
+            ? `≥ ${value}`
+            : "—";
+
+    const coverageText = complete
+        ? completeText
+        : value > 0
+            ? `${partialText} · minimum wykryte`
+            : `${partialText} · brak pełnego pokrycia`;
+
     return (
         <div className="price-metric-cell" data-label={label}>
-            <strong>{value}</strong>
-            <span>{complete ? completeText : partialText}</span>
+            <strong>{displayedValue}</strong>
+            <span>{coverageText}</span>
+            {!complete && value === 0 && (
+                <span className="price-metric-note">
+                    Wykryto 0, ale Observer nie ma podstaw, by uznać 0 za pełny wynik.
+                </span>
+            )}
             {showBaseline && planning.baselineOffers !== null && (
                 <span className="price-metric-note">
                     punkt startowy: {planning.baselineOffers} ofert

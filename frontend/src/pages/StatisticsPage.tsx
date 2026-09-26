@@ -151,6 +151,9 @@ function StatisticsPage() {
                     <p className="page-description">
                         Rynek pochodzi z Observera. Nasze wyniki obejmują wyłącznie
                         oferty, które wcześniej trafiły do „Ofert do kupienia”.
+                        Dane rynku są liczone od momentu wiarygodnego uruchomienia
+                        trackingu danego modelu — nie udajemy, że znamy sprzedane
+                        oferty z okresu sprzed startu Observera.
                     </p>
                 </div>
 
@@ -263,6 +266,11 @@ function StatisticsPage() {
                             <div>
                                 <span>Rynek / Observer</span>
                                 <h2>Co dzieje się z wybranymi modelami</h2>
+                                <p className="content-card-text">
+                                    Oferta pozostaje w statystykach po sprzedaży lub usunięciu,
+                                    jeżeli Observer zdążył ją wcześniej zarejestrować.
+                                    Średnie tempo nie jest rozcieńczane dniami sprzed startu trackingu.
+                                </p>
                             </div>
                         </div>
 

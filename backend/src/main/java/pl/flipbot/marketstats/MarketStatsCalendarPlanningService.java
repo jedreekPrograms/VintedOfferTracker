@@ -20,6 +20,7 @@ import java.util.List;
 public class MarketStatsCalendarPlanningService {
 
     private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
+    private static final long CURRENT_WINDOW_FRESHNESS_MINUTES = 120L;
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
@@ -110,25 +111,43 @@ public class MarketStatsCalendarPlanningService {
                 && !lastSuccessfulScanAt.isBefore(windows.todayStart());
         boolean successfulScanThisWeek = lastSuccessfulScanAt != null
                 && !lastSuccessfulScanAt.isBefore(windows.currentWeekStart());
+        boolean currentScanFresh = lastSuccessfulScanAt != null
+                && !lastSuccessfulScanAt.isBefore(
+                        now.minusMinutes(CURRENT_WINDOW_FRESHNESS_MINUTES)
+                );
 
         /*
-         * `last_scan_complete` predates publication-time backfill and therefore
-         * cannot prove that calendar windows are reconstructable. The separate
-         * publication-window marker is set only after a forced filtered-catalog
-         * traversal completes with every required Vinted publication timestamp.
+         * A traversal of today's currently-active catalog cannot reconstruct
+         * offers which were published and sold before tracking started.
+         * Therefore a calendar window is exact only when the model baseline
+         * was already complete at the START of that window.
          *
-         * For today/current-week figures we also require the latest complete
-         * scan to be from today, so a process restart or overnight gap cannot
-         * present yesterday's snapshot as current. The previous full week only
-         * needs one successful scan in the current week, because that scan
-         * overlaps the already-established publication history.
+         * Current-day/current-week values also need a recent successful scan;
+         * otherwise a stale value (especially 0) must not be presented as an
+         * exact live count.
          */
         boolean todayWindowComplete = publicationCoverageEstablished
                 && latestScanComplete
-                && successfulScanToday;
-        boolean currentWeekWindowComplete = todayWindowComplete;
+                && successfulScanToday
+                && currentScanFresh
+                && MarketStatsPlanningCalculator.coversWindowFrom(
+                        baselineCompleteAt,
+                        windows.todayStart()
+                );
+        boolean currentWeekWindowComplete = publicationCoverageEstablished
+                && latestScanComplete
+                && successfulScanToday
+                && currentScanFresh
+                && MarketStatsPlanningCalculator.coversWindowFrom(
+                        baselineCompleteAt,
+                        windows.currentWeekStart()
+                );
         boolean previousFullWeekAvailable = publicationCoverageEstablished
-                && successfulScanThisWeek;
+                && successfulScanThisWeek
+                && MarketStatsPlanningCalculator.coversWindowFrom(
+                        baselineCompleteAt,
+                        windows.previousWeekStart()
+                );
 
         Integer offersPreviousFullWeek = null;
         int recommendationWeeklyOffers;

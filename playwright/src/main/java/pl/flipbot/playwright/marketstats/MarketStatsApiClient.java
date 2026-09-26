@@ -225,13 +225,22 @@ public class MarketStatsApiClient extends ApiClient {
                  * New rows must exist before the publication-time update can
                  * target them. Only after fresh publication timestamps have been
                  * stored do we mark a fully resolved pass complete.
+                 *
+                 * Preserve the first response's newListings counter. The
+                 * second "complete=true" POST sees those same IDs as already
+                 * existing and naturally reports zero new rows; returning that
+                 * second zero used to make the collector log newObserved=0
+                 * even when this pass had just discovered new listings.
                  */
-                recorded = postObservations(
-                        modelId,
-                        acceptedIds,
-                        listingPrices,
-                        false
-                );
+                MarketObservationBatchResponseDto discoveryRecorded =
+                        postObservations(
+                                modelId,
+                                acceptedIds,
+                                listingPrices,
+                                false
+                        );
+
+                recorded = discoveryRecorded;
 
                 flushResolvedPublicationTimes(
                         modelId,
@@ -239,11 +248,17 @@ public class MarketStatsApiClient extends ApiClient {
                 );
 
                 if (effectiveComplete) {
-                    recorded = postObservations(
-                            modelId,
-                            acceptedIds,
-                            listingPrices,
-                            true
+                    MarketObservationBatchResponseDto completionRecorded =
+                            postObservations(
+                                    modelId,
+                                    acceptedIds,
+                                    listingPrices,
+                                    true
+                            );
+
+                    recorded = preserveDiscoveryCount(
+                            discoveryRecorded,
+                            completionRecorded
                     );
                 }
             }
@@ -256,6 +271,27 @@ public class MarketStatsApiClient extends ApiClient {
         } finally {
             MarketStatsObservationContext.clear(modelId);
         }
+    }
+
+    static MarketObservationBatchResponseDto preserveDiscoveryCount(
+            MarketObservationBatchResponseDto discovery,
+            MarketObservationBatchResponseDto completion
+    ) {
+        if (discovery == null) {
+            return completion;
+        }
+        if (completion == null) {
+            return discovery;
+        }
+
+        return new MarketObservationBatchResponseDto(
+                completion.modelId(),
+                discovery.baselineCreated() || completion.baselineCreated(),
+                completion.observedListings(),
+                Math.max(discovery.newListings(), completion.newListings()),
+                completion.scannedAt(),
+                completion.complete()
+        );
     }
 
     public void clearObservationContext(Long modelId) {
