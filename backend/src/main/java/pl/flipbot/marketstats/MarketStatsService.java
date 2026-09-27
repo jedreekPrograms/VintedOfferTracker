@@ -87,14 +87,9 @@ public class MarketStatsService {
         return modelRepository.findAll()
                 .stream()
                 .sorted(
-                        Comparator.comparing(
-                                        (DictionaryModel model) -> model.getBrand().getName(),
-                                        String.CASE_INSENSITIVE_ORDER
-                                )
-                                .thenComparing(
-                                        DictionaryModel::getName,
-                                        String.CASE_INSENSITIVE_ORDER
-                                )
+                        MarketStatsTargetOrdering.comparator(
+                                configurations
+                        )
                 )
                 .map(model -> {
                     CategoryResolution category = resolveCategory(
