@@ -111,7 +111,7 @@ public class MarketStatsCollector {
 
                         failedTargets++;
                         log.error(
-                                "[MARKET STATS] Model scan failed. modelId={}, brand='{}', model='{}'. Continuing with the next model; the whole collection will be retried after backoff.",
+                                "[MARKET STATS] Model scan failed. modelId={}, brand='{}', model='{}'. Continuing with the next model. This single target will be retried on the next full observer pass; it will not block later models in the queue.",
                                 target == null ? null : target.modelId(),
                                 target == null ? null : target.brandName(),
                                 target == null ? null : target.modelName(),
@@ -148,13 +148,16 @@ public class MarketStatsCollector {
         );
 
         if (failedTargets > 0) {
-            throw new IllegalStateException(
-                    "Market statistics collection was incomplete: "
-                            + failedTargets + " of " + targets.size() + " model scans failed."
+            log.warn(
+                    "[MARKET STATS] Browser batch finished with {} failed target(s) out of {}. Later targets are allowed to continue; failed targets will be retried on the next full observer pass.",
+                    failedTargets,
+                    targets.size()
+            );
+        } else {
+            log.info(
+                    "[MARKET STATS] Daily collection finished successfully for all targets."
             );
         }
-
-        log.info("[MARKET STATS] Daily collection finished successfully for all targets.");
     }
 
     private boolean prepareObserverCatalogSession(BotContext context, BotDetailsDto observerBot) {
