@@ -25,6 +25,11 @@ public class WorkerManager implements AutoCloseable {
     private final WorkerRuntimeConfig config =
             WorkerRuntimeConfig.fromEnvironment();
 
+    private final WorkerMemoryPressureController memoryPressureController =
+            WorkerMemoryPressureController.fromEnvironment(
+                    config.workerCount()
+            );
+
     private final BotApiClient botApiClient =
             new BotApiClient();
 
@@ -175,10 +180,15 @@ public class WorkerManager implements AutoCloseable {
                     scheduler
             );
 
-            int requiredSlots = Math.min(
+            int requestedSlots = Math.min(
                     config.workerCount(),
                     runningBots.size()
             );
+
+            int requiredSlots =
+                    memoryPressureController.targetSlots(
+                            requestedSlots
+                    );
 
             ensureWorkerSlots(requiredSlots);
 
@@ -190,16 +200,18 @@ public class WorkerManager implements AutoCloseable {
 
             log.info(
                     "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
-                            + "queued={}, working={}, targetSlots={}, activeSlots={}, retiringSlots={}, startedSlots={}, maxSlots={}.",
+                            + "queued={}, working={}, requestedSlots={}, targetSlots={}, activeSlots={}, retiringSlots={}, startedSlots={}, maxSlots={}, memory={}.",
                     scheduler.enabledBotCount(),
                     activeNegotiationBots,
                     scheduler.queuedCount(),
                     scheduler.workingCount(),
+                    requestedSlots,
                     requiredSlots,
                     currentAvailableSlotCount(),
                     currentRetiringSlotCount(),
                     currentStartedSlotCount(),
-                    config.workerCount()
+                    config.workerCount(),
+                    memoryPressureController.lastSummary()
             );
         } catch (Exception exception) {
             log.error(

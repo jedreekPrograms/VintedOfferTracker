@@ -4,6 +4,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.target.VintedHumanVerificationRequiredException;
 import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 
 import java.util.List;
@@ -112,7 +113,14 @@ public class HumanVerificationHandler {
             }
         }
 
-        throw new IllegalStateException(
+        /*
+         * A visible CAPTCHA that survives the complete manual-verification
+         * window is not a useful one-minute job retry. Surface it through the
+         * scheduler's persisted per-bot protective cooldown so CATALOG_SCAN
+         * and NEGOTIATION_CHECK do not repeatedly launch fresh Chromium
+         * processes while the account still needs human action.
+         */
+        throw new VintedHumanVerificationRequiredException(
                 "Human verification was not completed within "
                         + Math.round(VERIFICATION_TIMEOUT_MS / 1_000)
                         + " seconds. Last evidence: "

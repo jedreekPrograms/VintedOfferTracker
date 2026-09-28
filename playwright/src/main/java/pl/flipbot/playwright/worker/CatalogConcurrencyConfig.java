@@ -11,8 +11,8 @@ record CatalogConcurrencyConfig(
     static final String MAX_CONCURRENT_CATALOG_SCANS_ENV =
             "FLIPBOT_MAX_CONCURRENT_CATALOG_SCANS";
 
-    static final int DEFAULT_MAX_CONCURRENT_CATALOG_SCANS = 3;
-    static final long DEFAULT_RETRY_DELAY_MILLIS = 1_000L;
+    static final int DEFAULT_MAX_CONCURRENT_CATALOG_SCANS = 2;
+    static final long DEFAULT_RETRY_DELAY_MILLIS = 5_000L;
 
     CatalogConcurrencyConfig {
         if (maxConcurrentCatalogScans < 1) {
