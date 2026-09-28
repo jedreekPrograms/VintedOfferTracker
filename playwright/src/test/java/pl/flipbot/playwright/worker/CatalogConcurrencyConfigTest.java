@@ -7,12 +7,12 @@ import static org.junit.Assert.assertEquals;
 public class CatalogConcurrencyConfigTest {
 
     @Test
-    public void defaultsToThreeConcurrentCatalogScans() {
+    public void defaultsToTwoConcurrentCatalogScans() {
         CatalogConcurrencyConfig config =
                 CatalogConcurrencyConfig.fromRaw(null);
 
-        assertEquals(3, config.maxConcurrentCatalogScans());
-        assertEquals(1_000L, config.retryDelayMillis());
+        assertEquals(2, config.maxConcurrentCatalogScans());
+        assertEquals(5_000L, config.retryDelayMillis());
     }
 
     @Test
@@ -26,17 +26,17 @@ public class CatalogConcurrencyConfigTest {
     @Test
     public void invalidCatalogConcurrencyFallsBackToDefault() {
         assertEquals(
-                3,
+                2,
                 CatalogConcurrencyConfig.fromRaw("0")
                         .maxConcurrentCatalogScans()
         );
         assertEquals(
-                3,
+                2,
                 CatalogConcurrencyConfig.fromRaw("101")
                         .maxConcurrentCatalogScans()
         );
         assertEquals(
-                3,
+                2,
                 CatalogConcurrencyConfig.fromRaw("abc")
                         .maxConcurrentCatalogScans()
         );
