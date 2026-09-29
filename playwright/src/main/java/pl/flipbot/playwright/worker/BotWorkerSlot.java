@@ -189,6 +189,7 @@ public class BotWorkerSlot implements Runnable {
 
                 boolean delayAllJobs = false;
                 boolean reportQueuedAfterRun = true;
+                boolean jobCompletedSuccessfully = false;
                 long startedAtNanos = System.nanoTime();
 
                 boolean previewRequested =
@@ -237,6 +238,7 @@ public class BotWorkerSlot implements Runnable {
                             new ScheduledBotRunExecutor(bot, browserManager);
 
                     runExecutor.executeJob(jobType);
+                    jobCompletedSuccessfully = true;
 
                     long durationMs = elapsedMillis(startedAtNanos);
                     telemetryReporter.runSucceeded(botId, durationMs);
@@ -380,7 +382,10 @@ public class BotWorkerSlot implements Runnable {
                                         + jobType;
 
                         boolean readyWorkAvailable =
-                                scheduler.hasReadyWork();
+                                jobCompletedSuccessfully
+                                        && browserManager != null
+                                        && browserManager.isReusable()
+                                        && scheduler.hasReadyWork();
 
                         browserManager = WorkerBrowserRetentionPolicy.afterJob(
                                 browserManager,
