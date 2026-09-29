@@ -19,6 +19,7 @@ public class BrowserManager implements AutoCloseable {
     private final boolean headless;
 
     private boolean closed = false;
+    private boolean reusable = true;
 
     public BrowserManager() {
         this(false);
@@ -56,6 +57,30 @@ public class BrowserManager implements AutoCloseable {
 
         this.playwright = createdPlaywright;
         this.browser = createdBrowser;
+    }
+
+    public boolean isHeadless() {
+        return headless;
+    }
+
+    public boolean isReusable() {
+        assertOwnerThread("inspect browser runtime reuse state");
+        return reusable && !closed;
+    }
+
+    public void markNotReusable(String reason) {
+        assertOwnerThread("mark browser runtime as non-reusable");
+
+        if (!reusable) {
+            return;
+        }
+
+        reusable = false;
+
+        log.warn(
+                "[BROWSER LIFECYCLE] Browser runtime will be closed after the current job instead of being reused. reason={}",
+                reason
+        );
     }
 
     public BrowserContext createContext(Path storageState) {

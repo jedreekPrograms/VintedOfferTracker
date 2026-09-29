@@ -139,6 +139,15 @@ public class BotWorkerSlot implements Runnable {
                 ScheduledBotTask task = scheduler.pollNext(pollTimeoutMillis);
 
                 if (task == null) {
+                    if (browserManager != null
+                            && keepBrowserBetweenJobs
+                            && !scheduler.hasReadyWork()) {
+                        browserManager = closeBrowserRuntime(
+                                browserManager,
+                                "ready queue drained after warm browser reuse"
+                        );
+                        browserIdleSinceNanos = 0L;
+                    }
                     continue;
                 }
 
@@ -180,6 +189,7 @@ public class BotWorkerSlot implements Runnable {
 
                 boolean delayAllJobs = false;
                 boolean reportQueuedAfterRun = true;
+                boolean jobCompletedSuccessfully = false;
                 long startedAtNanos = System.nanoTime();
 
                 boolean previewRequested =
@@ -202,6 +212,16 @@ public class BotWorkerSlot implements Runnable {
                             previewRequested
                     );
 
+                    if (browserManager != null
+                            && browserManager.isHeadless() != jobHeadless) {
+                        browserManager = closeBrowserRuntime(
+                                browserManager,
+                                "browser launch mode changed before bot "
+                                        + botId
+                        );
+                        browserIdleSinceNanos = 0L;
+                    }
+
                     if (browserManager == null) {
                         log.info(
                                 "[SLOT {}] Launching Playwright browser runtime for claimed job. headless={}, reuseBetweenJobs={}, sessionPreview={}",
@@ -218,6 +238,7 @@ public class BotWorkerSlot implements Runnable {
                             new ScheduledBotRunExecutor(bot, browserManager);
 
                     runExecutor.executeJob(jobType);
+                    jobCompletedSuccessfully = true;
 
                     long durationMs = elapsedMillis(startedAtNanos);
                     telemetryReporter.runSucceeded(botId, durationMs);
@@ -360,14 +381,28 @@ public class BotWorkerSlot implements Runnable {
                                         + " / "
                                         + jobType;
 
+                        boolean readyWorkAvailable =
+                                jobCompletedSuccessfully
+                                        && browserManager != null
+                                        && browserManager.isReusable()
+                                        && scheduler.hasReadyWork();
+
                         browserManager = WorkerBrowserRetentionPolicy.afterJob(
                                 browserManager,
                                 jobHeadless,
+                                readyWorkAvailable,
                                 runtime -> closeBrowserRuntime(
                                         runtime,
                                         closeReason
                                 )
                         );
+
+                        if (browserManager != null) {
+                            log.debug(
+                                    "[BROWSER LIFECYCLE] Slot {} kept headless Chromium warm because another scheduler job is ready now.",
+                                    slotNumber
+                            );
+                        }
 
                         browserIdleSinceNanos =
                                 browserManager != null && keepBrowserBetweenJobs

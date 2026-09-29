@@ -281,8 +281,13 @@ public class ScheduledBotRunExecutor {
             try {
                 context.close();
             } catch (Exception exception) {
+                browserManager.markNotReusable(
+                        "isolated BrowserContext cleanup failed for bot "
+                                + botId
+                );
+
                 log.warn(
-                        "[SCHEDULED JOB] Could not close browser context cleanly for bot {}.",
+                        "[SCHEDULED JOB] Could not close browser context cleanly for bot {}. The outer browser runtime is quarantined and will be closed before another job can use it.",
                         botId,
                         exception
                 );

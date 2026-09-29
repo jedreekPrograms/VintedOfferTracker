@@ -57,6 +57,15 @@ public class CatalogWorkProcessor {
     }
 
     public boolean process() {
+        return process(true);
+    }
+
+    /**
+     * @param detectNewRealNegotiation whether this run needs the expensive
+     *        before/after backend negotiation-count comparison used only by
+     *        one-shot real-offer safety mode.
+     */
+    public boolean process(boolean detectNewRealNegotiation) {
         Long botId = context.getBot().getId();
         BotConfigurationDto main = context.getBot().getConfiguration();
         if (main == null) {
@@ -68,7 +77,7 @@ public class CatalogWorkProcessor {
                         MAX_DETAIL_PAGE_REQUESTS_PER_CATALOG_RUN
                 );
 
-        int before = realOffersEnabled
+        int before = realOffersEnabled && detectNewRealNegotiation
                 ? listingClient.getNegotiatingListings(botId).size()
                 : 0;
 
@@ -111,7 +120,7 @@ public class CatalogWorkProcessor {
             );
         }
 
-        if (!realOffersEnabled) {
+        if (!realOffersEnabled || !detectNewRealNegotiation) {
             return false;
         }
 
