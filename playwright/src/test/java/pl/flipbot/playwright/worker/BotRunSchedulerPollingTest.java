@@ -34,6 +34,35 @@ public class BotRunSchedulerPollingTest {
     }
 
     @Test
+    public void readyWorkHintTracksOnlyAlreadyDueTasks() throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+
+        try {
+            scheduler.reconcileRunningBots(Map.of(1L, true));
+
+            assertTrue(scheduler.hasReadyWork());
+
+            ScheduledBotTask first = scheduler.pollNext(100L);
+            assertNotNull(first);
+            assertFalse(scheduler.hasReadyWork());
+
+            scheduler.completeRun(
+                    first.botId(),
+                    first.jobType(),
+                    500L,
+                    true,
+                    false
+            );
+
+            assertFalse(scheduler.hasReadyWork());
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
     public void pollTimesOutWhileAllFutureJobsAreStillDelayed() throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
         BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
