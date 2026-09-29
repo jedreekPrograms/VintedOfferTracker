@@ -143,7 +143,9 @@ public class BotRunExecutor {
 
         try {
             newRealNegotiationStarted =
-                    catalogWorkProcessor.process();
+                    catalogWorkProcessor.process(
+                            isRealOfferOneShotArmed()
+                    );
 
         } catch (RuntimeException exception) {
             if (isRealOfferOneShotArmed()) {
