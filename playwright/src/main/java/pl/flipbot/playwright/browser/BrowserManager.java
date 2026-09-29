@@ -58,6 +58,10 @@ public class BrowserManager implements AutoCloseable {
         this.browser = createdBrowser;
     }
 
+    public boolean isHeadless() {
+        return headless;
+    }
+
     public BrowserContext createContext(Path storageState) {
         assertOwnerThread("create browser context");
         assertOpen();
