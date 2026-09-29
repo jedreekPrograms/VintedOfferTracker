@@ -71,6 +71,7 @@ public class NegotiationPlanner {
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
 
+    @Autowired
     public NegotiationPlanner(
             ListingRepository listingRepository,
             JdbcTemplate jdbcTemplate
