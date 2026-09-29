@@ -15,6 +15,10 @@ import pl.flipbot.marketplace.Marketplace;
 import pl.flipbot.negotiation.quota.DailyOfferQuotaService;
 import pl.flipbot.negotiation.quota.dto.DailyOfferQuotaResponse;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +34,11 @@ import static org.mockito.Mockito.when;
 class NegotiationCapacityServiceTest {
 
     private static final long BOT_ID = 3L;
+    private static final ZoneId WARSAW = ZoneId.of("Europe/Warsaw");
+    private static final Clock FIFTEEN_OCLOCK = Clock.fixed(
+            Instant.parse("2026-09-29T13:00:00Z"),
+            WARSAW
+    );
 
     private BotRepository botRepository;
     private BotAdditionalTargetRepository additionalTargetRepository;
@@ -50,7 +59,8 @@ class NegotiationCapacityServiceTest {
         NegotiationPlanner negotiationPlanner =
                 new NegotiationPlanner(
                         listingRepository,
-                        jdbcTemplate
+                        jdbcTemplate,
+                        FIFTEEN_OCLOCK
                 );
 
         service = new NegotiationCapacityService(
@@ -63,15 +73,7 @@ class NegotiationCapacityServiceTest {
         BotConfiguration configuration = BotConfiguration.builder()
                 .marketplace(Marketplace.VINTED)
                 .dailyNegotiationBudget(25)
-                .negotiationSteps(new ArrayList<>(
-                        List.of(
-                                NegotiationStep.builder().stepNumber(1).build(),
-                                NegotiationStep.builder().stepNumber(2).build(),
-                                NegotiationStep.builder().stepNumber(3).build(),
-                                NegotiationStep.builder().stepNumber(4).build(),
-                                NegotiationStep.builder().stepNumber(5).build()
-                        )
-                ))
+                .negotiationSteps(new ArrayList<>(userFiveStepLadder()))
                 .build();
 
         bot = Bot.builder()
@@ -85,17 +87,22 @@ class NegotiationCapacityServiceTest {
     }
 
     @Test
-    void freshDayAllowsFiveFullFiveStepNegotiations() {
+    void freshDayUsesRollingRiskProfileInsteadOfReservingAllFiveStepsToday() {
         quota(25, 0);
 
+        /*
+         * At 15:00 this exact ladder produces a rounded rolling profile close
+         * to D0=2.50, D1=2.00, D2=0.50. With a 22-slot planning budget
+         * (25 hard limit minus 3 safety slots), eight conversations fit.
+         */
         assertEquals(
-                5,
+                8,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
 
     @Test
-    void fiveStartedConversationsReserveTheirRemainingTwentySteps() {
+    void startedConversationsDynamicallyReserveOnlyTheirRemainingRollingLoad() {
         quota(25, 5);
         activeListings(
                 List.of(
@@ -108,14 +115,19 @@ class NegotiationCapacityServiceTest {
                 List.of()
         );
 
+        /*
+         * The old planner returned zero because it reserved 4 future steps for
+         * every row. The rolling planner keeps room for three more starts while
+         * still accounting for today's and tomorrow's projected load.
+         */
         assertEquals(
-                0,
+                3,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
 
     @Test
-    void finishingFiveConversationsAfterThreeStepsFreesTenSlotsSameDay() {
+    void completingActiveConversationsImmediatelyReleasesTheirVirtualFutureLoad() {
         quota(25, 15);
         activeListings(List.of(), List.of());
 
@@ -126,25 +138,7 @@ class NegotiationCapacityServiceTest {
     }
 
     @Test
-    void midnightReservesOnlyFutureStepsOfStillActiveConversations() {
-        quota(25, 0);
-        activeListings(
-                List.of(
-                        active(ListingStatus.NEGOTIATING, 3),
-                        active(ListingStatus.NEGOTIATING, 3),
-                        active(ListingStatus.NEGOTIATING, 3)
-                ),
-                List.of()
-        );
-
-        assertEquals(
-                3,
-                service.calculateCapacity(BOT_ID).allowedNewNegotiations()
-        );
-    }
-
-    @Test
-    void negotiatingAndActionRequiredBothReserveFutureSteps() {
+    void negotiatingAndActionRequiredRowsBothRemainInRollingReservationModel() {
         quota(25, 0);
         activeListings(
                 List.of(active(ListingStatus.NEGOTIATING, 2)),
@@ -152,7 +146,7 @@ class NegotiationCapacityServiceTest {
         );
 
         assertEquals(
-                4,
+                8,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
@@ -181,13 +175,13 @@ class NegotiationCapacityServiceTest {
         )).thenReturn(true);
 
         assertEquals(
-                5,
+                8,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
 
     @Test
-    void missingCurrentStepFailsSafeByReservingWholeConversation() {
+    void missingCurrentStepFailsClosedWithoutBreakingHardQuotaAccounting() {
         quota(25, 0);
         activeListings(
                 List.of(active(ListingStatus.NEGOTIATING, null)),
@@ -195,13 +189,13 @@ class NegotiationCapacityServiceTest {
         );
 
         assertEquals(
-                4,
+                6,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
 
     @Test
-    void usedActionsAndFutureReservationsAreBothSubtracted() {
+    void usedActionsAndRollingFutureReservationsAreBothCounted() {
         quota(25, 7);
         activeListings(
                 List.of(active(ListingStatus.NEGOTIATING, 3)),
@@ -209,13 +203,13 @@ class NegotiationCapacityServiceTest {
         );
 
         assertEquals(
-                3,
+                5,
                 service.calculateCapacity(BOT_ID).allowedNewNegotiations()
         );
     }
 
     @Test
-    void exhaustedQuotaBlocksNewNegotiations() {
+    void exhaustedHardQuotaAlwaysBlocksNewNegotiations() {
         quota(25, 25);
 
         assertEquals(
@@ -237,7 +231,7 @@ class NegotiationCapacityServiceTest {
     }
 
     @Test
-    void additionalProductUsesOwnLadderAndSharedFutureReservations() {
+    void additionalProductUsesOwnLadderAndSharedRollingReservations() {
         quota(25, 0);
 
         BotAdditionalTarget additionalTarget = BotAdditionalTarget.builder()
@@ -263,10 +257,8 @@ class NegotiationCapacityServiceTest {
                 .build();
         activeListings(List.of(activeAdditional), List.of());
 
-        /* One future step is reserved by the active two-step conversation.
-           24 shared actions remain, so twelve new two-step conversations fit. */
         assertEquals(
-                12,
+                10,
                 service.calculateCapacity(BOT_ID, 44L).allowedNewNegotiations()
         );
     }
@@ -324,7 +316,97 @@ class NegotiationCapacityServiceTest {
         return Listing.builder()
                 .status(status)
                 .currentStep(currentStep)
+                .currentStepStartedAt(java.time.LocalDateTime.of(
+                        2026, 9, 29, 15, 0
+                ))
                 .bot(bot)
+                .build();
+    }
+
+    private List<NegotiationStep> userFiveStepLadder() {
+        return List.of(
+                step(
+                        1,
+                        6,
+                        6,
+                        rule(5, 5),
+                        rule(10, 4),
+                        immediateRule(15)
+                ),
+                step(
+                        2,
+                        6,
+                        6,
+                        rule(10, 4),
+                        rule(15, 2),
+                        immediateRule(20)
+                ),
+                step(
+                        3,
+                        8,
+                        8,
+                        rule(10, 4),
+                        rule(15, 2),
+                        immediateRule(20)
+                ),
+                step(
+                        4,
+                        16,
+                        16,
+                        rule(10, 12),
+                        rule(15, 8),
+                        immediateRule(25)
+                ),
+                step(
+                        5,
+                        24,
+                        24,
+                        rule(10, 15),
+                        rule(15, 10),
+                        immediateRule(25)
+                )
+        );
+    }
+
+    private NegotiationStep step(
+            int number,
+            int rejectionWait,
+            int defaultCounterWait,
+            SellerCounterOfferRule... rules
+    ) {
+        return NegotiationStep.builder()
+                .stepNumber(number)
+                .offerPrice(BigDecimal.valueOf(800L + number * 50L))
+                .maxAcceptedCounterOffer(
+                        BigDecimal.valueOf(850L + number * 50L)
+                )
+                .rejectionAction(
+                        NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
+                )
+                .rejectionWaitHours(rejectionWait)
+                .counterOfferDefaultAction(
+                        NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
+                )
+                .counterOfferDefaultWaitHours(defaultCounterWait)
+                .counterOfferRules(new ArrayList<>(List.of(rules)))
+                .build();
+    }
+
+    private SellerCounterOfferRule rule(
+            int minimumDiscount,
+            int waitHours
+    ) {
+        return SellerCounterOfferRule.builder()
+                .minimumDiscountPercent(BigDecimal.valueOf(minimumDiscount))
+                .action(NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP)
+                .waitHours(waitHours)
+                .build();
+    }
+
+    private SellerCounterOfferRule immediateRule(int minimumDiscount) {
+        return SellerCounterOfferRule.builder()
+                .minimumDiscountPercent(BigDecimal.valueOf(minimumDiscount))
+                .action(NegotiationReactionAction.NEXT_STEP_NOW)
                 .build();
     }
 }
