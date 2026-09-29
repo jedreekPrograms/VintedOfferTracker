@@ -163,6 +163,18 @@ public class BotRunScheduler {
     }
 
     /**
+     * Returns true only when the scheduler currently has work whose delay has
+     * already elapsed. Worker slots use this as a browser warm-reuse hint; it
+     * never claims or mutates the task.
+     */
+    boolean hasReadyWork() {
+        ScheduledBotTask task = queue.peek();
+
+        return task != null
+                && task.getDelay(TimeUnit.NANOSECONDS) <= 0L;
+    }
+
+    /**
      * Claims due work for a bot whose session is exclusively owned by the
      * visible live-preview worker. Generic worker slots cannot claim paused
      * bots, but the dedicated preview owner must keep the bot operating on its
