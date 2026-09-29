@@ -139,6 +139,15 @@ public class BotWorkerSlot implements Runnable {
                 ScheduledBotTask task = scheduler.pollNext(pollTimeoutMillis);
 
                 if (task == null) {
+                    if (browserManager != null
+                            && keepBrowserBetweenJobs
+                            && !scheduler.hasReadyWork()) {
+                        browserManager = closeBrowserRuntime(
+                                browserManager,
+                                "ready queue drained after warm browser reuse"
+                        );
+                        browserIdleSinceNanos = 0L;
+                    }
                     continue;
                 }
 
@@ -201,6 +210,16 @@ public class BotWorkerSlot implements Runnable {
                             jobHeadless,
                             previewRequested
                     );
+
+                    if (browserManager != null
+                            && browserManager.isHeadless() != jobHeadless) {
+                        browserManager = closeBrowserRuntime(
+                                browserManager,
+                                "browser launch mode changed before bot "
+                                        + botId
+                        );
+                        browserIdleSinceNanos = 0L;
+                    }
 
                     if (browserManager == null) {
                         log.info(
@@ -360,14 +379,25 @@ public class BotWorkerSlot implements Runnable {
                                         + " / "
                                         + jobType;
 
+                        boolean readyWorkAvailable =
+                                scheduler.hasReadyWork();
+
                         browserManager = WorkerBrowserRetentionPolicy.afterJob(
                                 browserManager,
                                 jobHeadless,
+                                readyWorkAvailable,
                                 runtime -> closeBrowserRuntime(
                                         runtime,
                                         closeReason
                                 )
                         );
+
+                        if (browserManager != null) {
+                            log.debug(
+                                    "[BROWSER LIFECYCLE] Slot {} kept headless Chromium warm because another scheduler job is ready now.",
+                                    slotNumber
+                            );
+                        }
 
                         browserIdleSinceNanos =
                                 browserManager != null && keepBrowserBetweenJobs
