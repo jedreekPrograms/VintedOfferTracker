@@ -198,21 +198,23 @@ public class WorkerManager implements AutoCloseable {
                             .filter(Boolean::booleanValue)
                             .count();
 
-            log.info(
-                    "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
-                            + "queued={}, working={}, requestedSlots={}, targetSlots={}, activeSlots={}, retiringSlots={}, startedSlots={}, maxSlots={}, memory={}.",
-                    scheduler.enabledBotCount(),
-                    activeNegotiationBots,
-                    scheduler.queuedCount(),
-                    scheduler.workingCount(),
-                    requestedSlots,
-                    requiredSlots,
-                    currentAvailableSlotCount(),
-                    currentRetiringSlotCount(),
-                    currentStartedSlotCount(),
-                    config.workerCount(),
-                    memoryPressureController.lastSummary()
-            );
+            if (log.isDebugEnabled()) {
+                log.debug(
+                        "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
+                                + "queued={}, working={}, requestedSlots={}, targetSlots={}, activeSlots={}, retiringSlots={}, startedSlots={}, maxSlots={}, memory={}.",
+                        scheduler.enabledBotCount(),
+                        activeNegotiationBots,
+                        scheduler.queuedCount(),
+                        scheduler.workingCount(),
+                        requestedSlots,
+                        requiredSlots,
+                        currentAvailableSlotCount(),
+                        currentRetiringSlotCount(),
+                        currentStartedSlotCount(),
+                        config.workerCount(),
+                        memoryPressureController.lastSummary()
+                );
+            }
         } catch (Exception exception) {
             log.error(
                     "Failed to synchronize RUNNING bots with scheduler.",
