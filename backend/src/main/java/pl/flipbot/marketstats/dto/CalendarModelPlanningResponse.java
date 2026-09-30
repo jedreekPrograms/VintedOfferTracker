@@ -10,6 +10,8 @@ public record CalendarModelPlanningResponse(
         Integer offersPreviousFullWeek,
         Integer recommendedBots,
         Integer recommendationWeeklyOffers,
+        int dailyConversationCapacityPerBot,
+        int weeklyConversationCapacityPerBot,
         boolean recommendationEstimated,
         Integer existingBots,
         boolean todayWindowComplete,
