@@ -136,6 +136,27 @@ function StatisticsPage() {
     const models = overview?.models ?? [];
     const summary = overview?.summary ?? null;
 
+    const observerRangeDetail = useMemo(() => {
+        const selected = modelIds.length === 0
+            ? []
+            : models.filter(model => modelIds.includes(model.modelId));
+
+        if (selected.length === 1) {
+            const model = selected[0];
+            return `Zakres próbki Observera dla ${model.brand} ${model.model}: ${formatObserverRange(model.marketMinPrice, model.marketMaxPrice)}.`;
+        }
+
+        if (selected.length > 1 && selected.length <= 3) {
+            return selected
+                .map(model =>
+                    `${model.brand} ${model.model}: ${formatObserverRange(model.marketMinPrice, model.marketMaxPrice)}`,
+                )
+                .join(" · ");
+        }
+
+        return "Observer używa osobnego zakresu cen ustawionego w Cenniku modeli; statystyki rynku dotyczą tej próbki, a nie ofert poza skonfigurowanym zakresem.";
+    }, [modelIds, models]);
+
     function choosePreset(nextPeriod: DashboardPeriod) {
         setFrom("");
         setTo("");
@@ -270,6 +291,9 @@ function StatisticsPage() {
                                     Oferta pozostaje w statystykach po sprzedaży lub usunięciu,
                                     jeżeli Observer zdążył ją wcześniej zarejestrować.
                                     Średnie tempo nie jest rozcieńczane dniami sprzed startu trackingu.
+                                </p>
+                                <p className="content-card-text">
+                                    {observerRangeDetail}
                                 </p>
                             </div>
                         </div>
@@ -941,6 +965,22 @@ function ModelTable({
 
 function EmptyChart({ text }: { text: string }) {
     return <div className="analytics-empty-chart">{text}</div>;
+}
+
+function formatObserverRange(
+    min: number | null,
+    max: number | null,
+): string {
+    if (min === null && max === null) {
+        return "bez ograniczenia ceny";
+    }
+    if (min === null) {
+        return `do ${formatPrice(max as number)}`;
+    }
+    if (max === null) {
+        return `od ${formatPrice(min)}`;
+    }
+    return `${formatPrice(min)}–${formatPrice(max)}`;
 }
 
 function formatNullablePrice(value: number | null): string {
