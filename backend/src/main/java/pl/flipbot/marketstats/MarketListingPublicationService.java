@@ -22,6 +22,7 @@ public class MarketListingPublicationService {
     private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final MarketListingObservationRepository observationRepository;
+    private final MarketModelScanStateRepository scanStateRepository;
 
     @Transactional(readOnly = true)
     public List<String> getMissingPublicationListingIds(Long modelId) {
@@ -29,7 +30,10 @@ public class MarketListingPublicationService {
             return List.of();
         }
 
-        return observationRepository.findListingIdsMissingPublishedAt(modelId);
+        return observationRepository.findListingIdsMissingPublishedAt(
+                modelId,
+                trackingGeneration(modelId)
+        );
     }
 
     @Transactional(readOnly = true)
@@ -40,8 +44,13 @@ public class MarketListingPublicationService {
 
         Map<String, String> result = new LinkedHashMap<>();
 
+        int generation = trackingGeneration(modelId);
+
         for (MarketListingObservation observation
-                : observationRepository.findAllByModel_IdAndPublishedAtIsNotNull(modelId)) {
+                : observationRepository.findAllByModel_IdAndTrackingGenerationAndPublishedAtIsNotNull(
+                        modelId,
+                        generation
+                )) {
             if (observation == null
                     || observation.getMarketplaceListingId() == null
                     || observation.getMarketplaceListingId().isBlank()
@@ -74,6 +83,7 @@ public class MarketListingPublicationService {
             return 0;
         }
 
+        int generation = trackingGeneration(modelId);
         LocalDateTime latestAccepted = LocalDateTime.now(MARKET_STATS_ZONE)
                 .plusMinutes(5L);
         int updated = 0;
@@ -118,6 +128,7 @@ public class MarketListingPublicationService {
 
             updated += observationRepository.updatePublishedAt(
                     modelId,
+                    generation,
                     listingId,
                     publishedAt
             );
@@ -132,6 +143,13 @@ public class MarketListingPublicationService {
         );
 
         return updated;
+    }
+
+    private int trackingGeneration(Long modelId) {
+        return scanStateRepository.findById(modelId)
+                .map(MarketModelScanState::getTrackingGeneration)
+                .filter(value -> value != null && value > 0)
+                .orElse(1);
     }
 
     private String normalizeListingId(String value) {

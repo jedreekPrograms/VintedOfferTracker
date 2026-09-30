@@ -3,6 +3,8 @@ package pl.flipbot.marketstats;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
+import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
@@ -48,6 +50,7 @@ public class MarketStatsService {
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
+    private final BotAdditionalTargetRepository additionalTargetRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
     private final RealActionAuditRepository realActionAuditRepository;
@@ -57,6 +60,11 @@ public class MarketStatsService {
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = LocalDate.now(NEGOTIATION_USAGE_ZONE);
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        List<BotAdditionalTarget> additionalTargets =
+                additionalTargetRepository.findAll()
+                        .stream()
+                        .filter(target -> Boolean.TRUE.equals(target.getActive()))
+                        .toList();
         NegotiationUsageByBot negotiationUsage = loadNegotiationUsage(today);
 
         return modelRepository.findAll()
@@ -83,6 +91,11 @@ public class MarketStatsService {
     @Transactional(readOnly = true)
     public List<MarketStatsTargetResponse> getTargets() {
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        List<BotAdditionalTarget> additionalTargets =
+                additionalTargetRepository.findAll()
+                        .stream()
+                        .filter(target -> Boolean.TRUE.equals(target.getActive()))
+                        .toList();
 
         return modelRepository.findAll()
                 .stream()
@@ -94,7 +107,8 @@ public class MarketStatsService {
                 .map(model -> {
                     CategoryResolution category = resolveCategory(
                             model,
-                            configurations
+                            configurations,
+                            additionalTargets
                     );
 
                     return new MarketStatsTargetResponse(
@@ -120,15 +134,19 @@ public class MarketStatsService {
         LocalDateTime cutoff = LocalDateTime.now()
                 .minusDays(OBSERVATION_RETENTION_DAYS);
 
+        MarketModelScanState state = scanStateRepository
+                .findById(modelId)
+                .orElse(null);
+        int generation = trackingGeneration(state);
+
         List<String> listingIds = observationRepository.findKnownListingIds(
                 modelId,
+                generation,
                 cutoff
         );
 
-        boolean baselineComplete = scanStateRepository
-                .findById(modelId)
-                .map(MarketModelScanState::getBaselineCompleteAt)
-                .isPresent();
+        boolean baselineComplete = state != null
+                && state.getBaselineCompleteAt() != null;
 
         return new KnownMarketListingIdsResponse(
                 modelId,
@@ -147,11 +165,22 @@ public class MarketStatsService {
                 .findByModelIdForUpdate(modelId)
                 .orElse(null);
 
-        observationRepository.deleteByModel_Id(modelId);
-
-        if (state != null) {
-            scanStateRepository.delete(state);
+        if (state == null) {
+            return;
         }
+
+        LocalDateTime now = LocalDateTime.now();
+        int nextGeneration = trackingGeneration(state) + 1;
+
+        state.setTrackingGeneration(nextGeneration);
+        state.setInitializedAt(now);
+        state.setBaselineCompleteAt(null);
+        state.setBaselineOfferCount(null);
+        state.setPublicationWindowCompleteAt(null);
+        state.setLastScanAt(now);
+        state.setLastSuccessfulScanAt(null);
+        state.setLastScanComplete(false);
+        scanStateRepository.save(state);
     }
 
     @Transactional
@@ -204,6 +233,7 @@ public class MarketStatsService {
             state = MarketModelScanState.builder()
                     .model(model)
                     .initializedAt(now)
+                    .trackingGeneration(1)
                     .baselineCompleteAt(null)
                     .baselineOfferCount(null)
                     .lastScanAt(now)
@@ -215,14 +245,16 @@ public class MarketStatsService {
         }
 
         boolean baselineMode = state.getBaselineCompleteAt() == null;
+        int generation = trackingGeneration(state);
 
         Map<String, MarketListingObservation> existingById =
                 new HashMap<>();
 
         if (!listingIds.isEmpty()) {
             observationRepository
-                    .findAllByModel_IdAndMarketplaceListingIdIn(
+                    .findAllByModel_IdAndTrackingGenerationAndMarketplaceListingIdIn(
                             modelId,
+                            generation,
                             listingIds
                     )
                     .forEach(observation -> existingById.put(
@@ -251,6 +283,7 @@ public class MarketStatsService {
             MarketListingObservation observation =
                     MarketListingObservation.builder()
                             .model(model)
+                            .trackingGeneration(generation)
                             .marketplaceListingId(listingId)
                             .firstSeenAt(now)
                             .lastSeenAt(now)
@@ -280,8 +313,9 @@ public class MarketStatsService {
                 state.setBaselineCompleteAt(now);
                 state.setBaselineOfferCount(
                         safeInt(
-                                observationRepository.countByModel_IdAndBaselineTrue(
-                                        modelId
+                                observationRepository.countByModel_IdAndTrackingGenerationAndBaselineTrue(
+                                        modelId,
+                                        generation
                                 )
                         )
                 );
@@ -367,8 +401,9 @@ public class MarketStatsService {
 
         int offersLast24Hours = safeInt(
                 observationRepository
-                        .countByModel_IdAndBaselineFalseAndFirstSeenAtAfter(
+                        .countByModel_IdAndTrackingGenerationAndBaselineFalseAndFirstSeenAtAfter(
                                 model.getId(),
+                                trackingGeneration(state),
                                 now.minusHours(24L)
                         )
         );
@@ -378,8 +413,9 @@ public class MarketStatsService {
 
         if (statsReady) {
             long offers = observationRepository
-                    .countByModel_IdAndBaselineFalseAndFirstSeenAtAfter(
+                    .countByModel_IdAndTrackingGenerationAndBaselineFalseAndFirstSeenAtAfter(
                             model.getId(),
+                            trackingGeneration(state),
                             now.minusDays(TRACKING_WINDOW_DAYS)
                     );
 
@@ -477,7 +513,8 @@ public class MarketStatsService {
 
     private CategoryResolution resolveCategory(
             DictionaryModel model,
-            List<BotConfiguration> configurations
+            List<BotConfiguration> configurations,
+            List<BotAdditionalTarget> additionalTargets
     ) {
         DictionaryCategory dictionaryCategory = model.getCategory();
 
@@ -490,13 +527,23 @@ public class MarketStatsService {
             );
         }
 
-        List<List<String>> paths = configurations.stream()
+        List<List<String>> paths = new ArrayList<>();
+
+        configurations.stream()
                 .filter(configuration -> matchesModel(model, configuration))
                 .map(BotConfiguration::getCategoryPath)
                 .filter(Objects::nonNull)
                 .filter(path -> !path.isEmpty())
-                .map(path -> List.copyOf(path))
-                .toList();
+                .map(List::copyOf)
+                .forEach(paths::add);
+
+        additionalTargets.stream()
+                .filter(target -> matchesModel(model, target))
+                .map(BotAdditionalTarget::getCategoryPath)
+                .filter(Objects::nonNull)
+                .filter(path -> !path.isEmpty())
+                .map(List::copyOf)
+                .forEach(paths::add);
 
         if (paths.isEmpty()) {
             return new CategoryResolution(
@@ -575,6 +622,45 @@ public class MarketStatsService {
         };
     }
 
+    private boolean matchesModel(
+            DictionaryModel model,
+            BotAdditionalTarget target
+    ) {
+        if (target == null
+                || !Boolean.TRUE.equals(target.getActive())
+                || target.getConfiguration() == null
+                || target.getConfiguration().getBot() == null
+                || Boolean.TRUE.equals(
+                        target.getConfiguration().getBot().getMarketStatsObserver()
+                )
+                || !sameText(
+                        model.getBrand().getName(),
+                        target.getBrand()
+                )) {
+            return false;
+        }
+
+        TargetMode modelMode = resolveTargetMode(model);
+        TargetMode targetMode = target.getTargetMode() == null
+                ? TargetMode.VINTED_MODEL
+                : target.getTargetMode();
+
+        if (modelMode != targetMode) {
+            return false;
+        }
+
+        return switch (modelMode) {
+            case VINTED_MODEL -> sameText(
+                    model.getName(),
+                    target.getModel()
+            );
+            case SEARCH_QUERY -> sameText(
+                    model.getName(),
+                    target.getSearchQuery()
+            );
+        };
+    }
+
     private TargetMode resolveTargetMode(
             DictionaryModel model
     ) {
@@ -598,6 +684,15 @@ public class MarketStatsService {
                                 "Dictionary model was not found: " + modelId
                         )
                 );
+    }
+
+    private int trackingGeneration(MarketModelScanState state) {
+        if (state == null
+                || state.getTrackingGeneration() == null
+                || state.getTrackingGeneration() < 1) {
+            return 1;
+        }
+        return state.getTrackingGeneration();
     }
 
     private void applyObservedPrice(

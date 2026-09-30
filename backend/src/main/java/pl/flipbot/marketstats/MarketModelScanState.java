@@ -27,6 +27,10 @@ public class MarketModelScanState {
     @Column(name = "initialized_at", nullable = false)
     private LocalDateTime initializedAt;
 
+    @Column(name = "tracking_generation", nullable = false)
+    @Builder.Default
+    private Integer trackingGeneration = 1;
+
     @Column(name = "baseline_complete_at")
     private LocalDateTime baselineCompleteAt;
 

@@ -63,11 +63,23 @@ class MarketStatsPlanningCalculatorTest {
     }
 
     @Test
-    void recommendationUsesThirtyFiveNewConversationsPerBotPerWeek() {
+    void recommendationSupportsAdaptiveWeeklyCapacity() {
         assertEquals(0, MarketStatsPlanningCalculator.recommendedBots(0));
         assertEquals(1, MarketStatsPlanningCalculator.recommendedBots(35));
         assertEquals(2, MarketStatsPlanningCalculator.recommendedBots(36));
-        assertEquals(3, MarketStatsPlanningCalculator.recommendedBots(71));
+
+        assertEquals(
+                1,
+                MarketStatsPlanningCalculator.recommendedBots(56, 56)
+        );
+        assertEquals(
+                2,
+                MarketStatsPlanningCalculator.recommendedBots(57, 56)
+        );
+        assertEquals(
+                3,
+                MarketStatsPlanningCalculator.recommendedBots(113, 56)
+        );
     }
 
     @Test

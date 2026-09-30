@@ -25,7 +25,27 @@ public class MarketStatsPublicationSchemaInitializer implements ApplicationRunne
 
         jdbcTemplate.execute("""
                 ALTER TABLE market_model_scan_state
-                    ADD COLUMN IF NOT EXISTS publication_window_complete_at TIMESTAMP
+                    ADD COLUMN IF NOT EXISTS publication_window_complete_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS tracking_generation INTEGER NOT NULL DEFAULT 1
+                """);
+
+        jdbcTemplate.execute("""
+                ALTER TABLE market_listing_observation
+                    ADD COLUMN IF NOT EXISTS tracking_generation INTEGER NOT NULL DEFAULT 1
+                """);
+
+        jdbcTemplate.execute("""
+                ALTER TABLE market_listing_observation
+                    DROP CONSTRAINT IF EXISTS uk_market_listing_observation_model_listing
+                """);
+
+        jdbcTemplate.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uk_market_listing_observation_model_generation_listing
+                    ON market_listing_observation (
+                        model_id,
+                        tracking_generation,
+                        marketplace_listing_id
+                    )
                 """);
 
         /*
@@ -58,19 +78,25 @@ public class MarketStatsPublicationSchemaInitializer implements ApplicationRunne
                 """);
 
         jdbcTemplate.execute("""
-                CREATE INDEX IF NOT EXISTS idx_market_listing_observation_model_published_at
-                    ON market_listing_observation (model_id, published_at)
+                DROP INDEX IF EXISTS idx_market_listing_observation_model_published_at
+                """);
+        jdbcTemplate.execute("""
+                CREATE INDEX idx_market_listing_observation_model_published_at
+                    ON market_listing_observation (model_id, tracking_generation, published_at)
                     WHERE published_at IS NOT NULL
                 """);
 
         jdbcTemplate.execute("""
-                CREATE INDEX IF NOT EXISTS idx_market_listing_observation_model_published_price
-                    ON market_listing_observation (model_id, published_at)
+                DROP INDEX IF EXISTS idx_market_listing_observation_model_published_price
+                """);
+        jdbcTemplate.execute("""
+                CREATE INDEX idx_market_listing_observation_model_published_price
+                    ON market_listing_observation (model_id, tracking_generation, published_at)
                     WHERE latest_price IS NOT NULL OR first_seen_price IS NOT NULL
                 """);
 
         log.info(
-                "[MARKET STATS] Verified publication-time and observer-price schema compatibility plus publication-window coverage state; cleared {} synthetic first-seen timestamps for Vinted backfill.",
+                "[MARKET STATS] Verified versioned publication-time and observer-price schema compatibility plus publication-window coverage state; cleared {} synthetic first-seen timestamps for Vinted backfill.",
                 clearedSynthetic
         );
     }
