@@ -3,6 +3,8 @@ package pl.flipbot.marketstats;
 import org.junit.jupiter.api.Test;
 import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
+import pl.flipbot.dictionary.DictionaryBrand;
+import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.negotiation.audit.RealActionAuditRepository;
 
@@ -46,6 +48,14 @@ class MarketStatsServiceTest {
                 .lastScanComplete(true)
                 .build();
 
+        DictionaryModel model = DictionaryModel.builder()
+                .id(30L)
+                .name("Galaxy S24")
+                .brand(DictionaryBrand.builder().id(1L).name("Samsung").build())
+                .build();
+
+        when(modelRepository.findById(30L))
+                .thenReturn(Optional.of(model));
         when(scanStateRepository.findByModelIdForUpdate(30L))
                 .thenReturn(Optional.of(state));
 
