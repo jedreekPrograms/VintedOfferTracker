@@ -23,7 +23,6 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
@@ -652,28 +651,25 @@ public class AnalyticsService {
                     1,
                     ChronoUnit.DAYS.between(start, end) + 1
             );
-            long weeks = Math.max(1, (days + 6) / 7);
-            long months = Math.max(
-                    1,
-                    ChronoUnit.MONTHS.between(
-                            YearMonth.from(start),
-                            YearMonth.from(end)
-                    ) + 1
-            );
-
             BigDecimal count = BigDecimal.valueOf(
                     entry.getValue().size()
             );
+            BigDecimal dailyRate = divide(count, days);
 
             /*
-             * Aggregate rates as a sum of per-model rates. This prevents a
-             * model whose tracking began mid-period from artificially lowering
-             * the combined "offers/day" by dividing its observations by days
-             * during which that model was not yet being tracked at all.
+             * Aggregate rates as a sum of per-model daily rates. This prevents
+             * a model whose tracking began mid-period from being diluted by
+             * days when it was not tracked. Week/month are normalized rates,
+             * not "number of calendar buckets touched", so a 10-day range does
+             * not artificially halve the weekly pace.
              */
-            perDay = perDay.add(divide(count, days));
-            perWeek = perWeek.add(divide(count, weeks));
-            perMonth = perMonth.add(divide(count, months));
+            perDay = perDay.add(dailyRate);
+            perWeek = perWeek.add(
+                    dailyRate.multiply(BigDecimal.valueOf(7L))
+            );
+            perMonth = perMonth.add(
+                    dailyRate.multiply(new BigDecimal("30.44"))
+            );
         }
 
         return new MarketRates(
