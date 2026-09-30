@@ -60,6 +60,11 @@ public class MarketStatsService {
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = LocalDate.now(NEGOTIATION_USAGE_ZONE);
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        List<BotAdditionalTarget> additionalTargets =
+                additionalTargetRepository.findAll()
+                        .stream()
+                        .filter(target -> Boolean.TRUE.equals(target.getActive()))
+                        .toList();
         NegotiationUsageByBot negotiationUsage = loadNegotiationUsage(today);
 
         return modelRepository.findAll()
@@ -102,7 +107,8 @@ public class MarketStatsService {
                 .map(model -> {
                     CategoryResolution category = resolveCategory(
                             model,
-                            configurations
+                            configurations,
+                            additionalTargets
                     );
 
                     return new MarketStatsTargetResponse(
