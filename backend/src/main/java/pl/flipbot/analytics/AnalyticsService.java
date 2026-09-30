@@ -290,7 +290,9 @@ public class AnalyticsService {
                                         model.getId(),
                                         model.getBrand().getName(),
                                         model.getName(),
-                                        label(model)
+                                        label(model),
+                                        model.getMarketMinPrice(),
+                                        model.getMarketMaxPrice()
                                 )
                         )
                         .toList();
