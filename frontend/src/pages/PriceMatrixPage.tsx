@@ -286,7 +286,9 @@ function PriceMatrixPage() {
                         poniedziałku 00:00, a „Ostatni pełny tydzień” obejmuje poprzedni
                         poniedziałek–niedzielę. „Potrzebne boty” bazuje na pełnym poprzednim
                         tygodniu; dopóki go nie ma, używana jest estymacja ze średniej dziennej
-                        z całego dostępnego okresu po baseline.
+                        z całego dostępnego okresu po baseline. Wydajność jednego bota nie jest
+                        już stałą 5 rozmów dziennie — aplikacja wylicza ją z potwierdzonych
+                        FIRST_OFFER z ostatnich 28 dni i uwzględnia także aktywne dodatkowe produkty.
                     </p>
                 </div>
 
@@ -665,7 +667,13 @@ function RecommendedBotsMetricCell({
                     średnia z {Math.max(planning.trackedDays, 1)} dni × 7
                 </span>
             )}
-            <span className="price-metric-note">1 bot = 35 nowych rozmów/tydz.</span>
+            <span className="price-metric-note">
+                realna przepustowość: {planning.dailyConversationCapacityPerBot}/dzień
+                {" · "}{planning.weeklyConversationCapacityPerBot}/tydz.
+            </span>
+            <span className="price-metric-note">
+                liczone z potwierdzonych FIRST_OFFER z ostatnich 28 dni; minimum awaryjne 5/dzień
+            </span>
         </div>
     );
 }
