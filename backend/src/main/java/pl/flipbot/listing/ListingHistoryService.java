@@ -52,16 +52,20 @@ public class ListingHistoryService {
         Listing listing = getVisibleHistoryListing(listingId);
 
         /*
-         * NULL is reserved for untouched legacy rows where effectiveOutcome()
-         * provides the backward-compatible mapping. Once the operator makes an
-         * explicit choice, including "UNCLASSIFIED", persist it verbatim so the
-         * choice is not silently replaced by the old technical status.
+         * The UI represents a missed opportunity as "Nie kupiłem" plus a
+         * detailed reason. Keep MISSED_OPPORTUNITY accepted for compatibility
+         * with older clients, but persist one canonical outcome immediately so
+         * a restart never changes the visible classification.
          */
-        listing.setHistoryOutcome(request.historyOutcome());
+        HistoryOutcome canonicalOutcome =
+                request.historyOutcome() == HistoryOutcome.MISSED_OPPORTUNITY
+                        ? HistoryOutcome.REJECTED
+                        : request.historyOutcome();
+
+        listing.setHistoryOutcome(canonicalOutcome);
         listing.setOfferAssessment(request.offerAssessment());
 
-        if (request.historyOutcome() == HistoryOutcome.REJECTED
-                || request.historyOutcome() == HistoryOutcome.MISSED_OPPORTUNITY) {
+        if (canonicalOutcome == HistoryOutcome.REJECTED) {
             listing.setMissedOpportunityReason(
                     request.missedOpportunityReason()
             );
