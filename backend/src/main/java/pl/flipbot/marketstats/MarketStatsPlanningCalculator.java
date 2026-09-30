@@ -9,7 +9,7 @@ import java.time.temporal.TemporalAdjusters;
 final class MarketStatsPlanningCalculator {
 
     static final int DAYS_PER_WEEK = 7;
-    static final int NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
+    static final int FALLBACK_NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
 
     private MarketStatsPlanningCalculator() {
     }
@@ -69,15 +69,25 @@ final class MarketStatsPlanningCalculator {
     }
 
     static int recommendedBots(int weeklyOffers) {
+        return recommendedBots(
+                weeklyOffers,
+                DAYS_PER_WEEK
+                        * FALLBACK_NEW_CONVERSATIONS_PER_BOT_PER_DAY
+        );
+    }
+
+    static int recommendedBots(
+            int weeklyOffers,
+            int weeklyCapacityPerBot
+    ) {
         if (weeklyOffers <= 0) {
             return 0;
         }
 
-        int weeklyCapacityPerBot =
-                DAYS_PER_WEEK * NEW_CONVERSATIONS_PER_BOT_PER_DAY;
+        int safeCapacity = Math.max(weeklyCapacityPerBot, 1);
 
-        return (weeklyOffers + weeklyCapacityPerBot - 1)
-                / weeklyCapacityPerBot;
+        return (weeklyOffers + safeCapacity - 1)
+                / safeCapacity;
     }
 
     private static int safeInt(long value) {
