@@ -3,6 +3,8 @@ package pl.flipbot.marketstats;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
+import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
@@ -48,6 +50,7 @@ public class MarketStatsService {
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
+    private final BotAdditionalTargetRepository additionalTargetRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
     private final RealActionAuditRepository realActionAuditRepository;
@@ -83,6 +86,11 @@ public class MarketStatsService {
     @Transactional(readOnly = true)
     public List<MarketStatsTargetResponse> getTargets() {
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        List<BotAdditionalTarget> additionalTargets =
+                additionalTargetRepository.findAll()
+                        .stream()
+                        .filter(target -> Boolean.TRUE.equals(target.getActive()))
+                        .toList();
 
         return modelRepository.findAll()
                 .stream()
@@ -499,7 +507,8 @@ public class MarketStatsService {
 
     private CategoryResolution resolveCategory(
             DictionaryModel model,
-            List<BotConfiguration> configurations
+            List<BotConfiguration> configurations,
+            List<BotAdditionalTarget> additionalTargets
     ) {
         DictionaryCategory dictionaryCategory = model.getCategory();
 
@@ -512,13 +521,23 @@ public class MarketStatsService {
             );
         }
 
-        List<List<String>> paths = configurations.stream()
+        List<List<String>> paths = new ArrayList<>();
+
+        configurations.stream()
                 .filter(configuration -> matchesModel(model, configuration))
                 .map(BotConfiguration::getCategoryPath)
                 .filter(Objects::nonNull)
                 .filter(path -> !path.isEmpty())
-                .map(path -> List.copyOf(path))
-                .toList();
+                .map(List::copyOf)
+                .forEach(paths::add);
+
+        additionalTargets.stream()
+                .filter(target -> matchesModel(model, target))
+                .map(BotAdditionalTarget::getCategoryPath)
+                .filter(Objects::nonNull)
+                .filter(path -> !path.isEmpty())
+                .map(List::copyOf)
+                .forEach(paths::add);
 
         if (paths.isEmpty()) {
             return new CategoryResolution(
@@ -593,6 +612,45 @@ public class MarketStatsService {
             case SEARCH_QUERY -> sameText(
                     model.getName(),
                     configuration.getSearchQuery()
+            );
+        };
+    }
+
+    private boolean matchesModel(
+            DictionaryModel model,
+            BotAdditionalTarget target
+    ) {
+        if (target == null
+                || !Boolean.TRUE.equals(target.getActive())
+                || target.getConfiguration() == null
+                || target.getConfiguration().getBot() == null
+                || Boolean.TRUE.equals(
+                        target.getConfiguration().getBot().getMarketStatsObserver()
+                )
+                || !sameText(
+                        model.getBrand().getName(),
+                        target.getBrand()
+                )) {
+            return false;
+        }
+
+        TargetMode modelMode = resolveTargetMode(model);
+        TargetMode targetMode = target.getTargetMode() == null
+                ? TargetMode.VINTED_MODEL
+                : target.getTargetMode();
+
+        if (modelMode != targetMode) {
+            return false;
+        }
+
+        return switch (modelMode) {
+            case VINTED_MODEL -> sameText(
+                    model.getName(),
+                    target.getModel()
+            );
+            case SEARCH_QUERY -> sameText(
+                    model.getName(),
+                    target.getSearchQuery()
             );
         };
     }
