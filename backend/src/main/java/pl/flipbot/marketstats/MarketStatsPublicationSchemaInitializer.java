@@ -78,13 +78,19 @@ public class MarketStatsPublicationSchemaInitializer implements ApplicationRunne
                 """);
 
         jdbcTemplate.execute("""
-                CREATE INDEX IF NOT EXISTS idx_market_listing_observation_model_published_at
+                DROP INDEX IF EXISTS idx_market_listing_observation_model_published_at
+                """);
+        jdbcTemplate.execute("""
+                CREATE INDEX idx_market_listing_observation_model_published_at
                     ON market_listing_observation (model_id, tracking_generation, published_at)
                     WHERE published_at IS NOT NULL
                 """);
 
         jdbcTemplate.execute("""
-                CREATE INDEX IF NOT EXISTS idx_market_listing_observation_model_published_price
+                DROP INDEX IF EXISTS idx_market_listing_observation_model_published_price
+                """);
+        jdbcTemplate.execute("""
+                CREATE INDEX idx_market_listing_observation_model_published_price
                     ON market_listing_observation (model_id, tracking_generation, published_at)
                     WHERE latest_price IS NOT NULL OR first_seen_price IS NOT NULL
                 """);
