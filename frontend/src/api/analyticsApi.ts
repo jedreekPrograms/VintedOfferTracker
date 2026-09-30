@@ -25,6 +25,8 @@ export interface AnalyticsModelOption {
     brand: string;
     model: string;
     label: string;
+    marketMinPrice: number | null;
+    marketMaxPrice: number | null;
 }
 
 export interface AnalyticsSummary {
