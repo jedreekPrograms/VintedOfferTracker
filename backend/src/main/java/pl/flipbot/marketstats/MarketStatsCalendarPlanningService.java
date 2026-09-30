@@ -3,17 +3,29 @@ package pl.flipbot.marketstats;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
+import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
+import pl.flipbot.negotiation.audit.RealActionAudit;
+import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
+import pl.flipbot.negotiation.audit.RealActionAuditRepository;
+import pl.flipbot.negotiation.guard.RealActionType;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -21,16 +33,28 @@ public class MarketStatsCalendarPlanningService {
 
     private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
     private static final long CURRENT_WINDOW_FRESHNESS_MINUTES = 120L;
+    private static final int CAPACITY_LOOKBACK_DAYS = 28;
+    private static final int FALLBACK_DAILY_CONVERSATION_CAPACITY = 5;
+    private static final int HARD_DAILY_OFFER_LIMIT = 25;
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
+    private final BotAdditionalTargetRepository additionalTargetRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
+    private final RealActionAuditRepository realActionAuditRepository;
 
     @Transactional(readOnly = true)
     public List<CalendarModelPlanningResponse> getPlanning() {
         LocalDateTime now = LocalDateTime.now(MARKET_STATS_ZONE);
         List<BotConfiguration> configurations = configurationRepository.findAll();
+        List<BotAdditionalTarget> additionalTargets =
+                additionalTargetRepository.findAll()
+                        .stream()
+                        .filter(target -> Boolean.TRUE.equals(target.getActive()))
+                        .toList();
+        ConversationCapacityProfile capacityProfile =
+                loadConversationCapacity(now.toLocalDate());
 
         return modelRepository.findAll()
                 .stream()
@@ -47,6 +71,8 @@ public class MarketStatsCalendarPlanningService {
                 .map(model -> toPlanningResponse(
                         model,
                         configurations,
+                        additionalTargets,
+                        capacityProfile,
                         now
                 ))
                 .toList();
@@ -55,17 +81,25 @@ public class MarketStatsCalendarPlanningService {
     private CalendarModelPlanningResponse toPlanningResponse(
             DictionaryModel model,
             List<BotConfiguration> configurations,
+            List<BotAdditionalTarget> additionalTargets,
+            ConversationCapacityProfile capacityProfile,
             LocalDateTime now
     ) {
         MarketModelScanState state = scanStateRepository
                 .findById(model.getId())
                 .orElse(null);
 
-        int existingBots = safeInt(
-                configurations.stream()
-                        .filter(configuration -> matchesModel(model, configuration))
-                        .count()
+        List<Long> matchingBotIds = matchingBotIds(
+                model,
+                configurations,
+                additionalTargets
         );
+        int existingBots = matchingBotIds.size();
+        int dailyConversationCapacityPerBot =
+                capacityProfile.dailyCapacityFor(matchingBotIds);
+        int weeklyConversationCapacityPerBot =
+                dailyConversationCapacityPerBot
+                        * MarketStatsPlanningCalculator.DAYS_PER_WEEK;
 
         if (state == null || state.getBaselineCompleteAt() == null) {
             return new CalendarModelPlanningResponse(
@@ -76,6 +110,8 @@ public class MarketStatsCalendarPlanningService {
                     null,
                     null,
                     null,
+                    dailyConversationCapacityPerBot,
+                    weeklyConversationCapacityPerBot,
                     true,
                     existingBots,
                     false,
@@ -186,7 +222,8 @@ public class MarketStatsCalendarPlanningService {
         }
 
         int recommendedBots = MarketStatsPlanningCalculator.recommendedBots(
-                recommendationWeeklyOffers
+                recommendationWeeklyOffers,
+                weeklyConversationCapacityPerBot
         );
 
         return new CalendarModelPlanningResponse(
@@ -197,6 +234,8 @@ public class MarketStatsCalendarPlanningService {
                 offersPreviousFullWeek,
                 recommendedBots,
                 recommendationWeeklyOffers,
+                dailyConversationCapacityPerBot,
+                weeklyConversationCapacityPerBot,
                 recommendationEstimated,
                 existingBots,
                 todayWindowComplete,
@@ -239,6 +278,117 @@ public class MarketStatsCalendarPlanningService {
         return state.getTrackingGeneration();
     }
 
+    private List<Long> matchingBotIds(
+            DictionaryModel model,
+            List<BotConfiguration> configurations,
+            List<BotAdditionalTarget> additionalTargets
+    ) {
+        Set<Long> ids = new LinkedHashSet<>();
+
+        for (BotConfiguration configuration : configurations) {
+            if (matchesModel(model, configuration)
+                    && configuration.getBot() != null
+                    && configuration.getBot().getId() != null) {
+                ids.add(configuration.getBot().getId());
+            }
+        }
+
+        for (BotAdditionalTarget target : additionalTargets) {
+            if (matchesModel(model, target)
+                    && target.getConfiguration() != null
+                    && target.getConfiguration().getBot() != null
+                    && target.getConfiguration().getBot().getId() != null) {
+                ids.add(target.getConfiguration().getBot().getId());
+            }
+        }
+
+        return List.copyOf(ids);
+    }
+
+    private ConversationCapacityProfile loadConversationCapacity(
+            LocalDate today
+    ) {
+        LocalDateTime from = today
+                .minusDays(CAPACITY_LOOKBACK_DAYS - 1L)
+                .atStartOfDay();
+
+        Map<Long, Map<LocalDate, Integer>> byBotDay = new HashMap<>();
+
+        for (RealActionAudit audit : realActionAuditRepository
+                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                        RealActionType.FIRST_OFFER,
+                        RealActionAuditOutcome.CONFIRMED,
+                        from
+                )) {
+            if (audit.getBotId() == null || audit.getCreatedAt() == null) {
+                continue;
+            }
+
+            byBotDay.computeIfAbsent(
+                            audit.getBotId(),
+                            ignored -> new HashMap<>()
+                    )
+                    .merge(
+                            audit.getCreatedAt().toLocalDate(),
+                            1,
+                            Integer::sum
+                    );
+        }
+
+        Map<Long, List<Integer>> dailyCountsByBot = new HashMap<>();
+        List<Integer> allDailyCounts = new ArrayList<>();
+
+        for (Map.Entry<Long, Map<LocalDate, Integer>> entry
+                : byBotDay.entrySet()) {
+            List<Integer> counts = entry.getValue()
+                    .values()
+                    .stream()
+                    .filter(value -> value != null && value > 0)
+                    .toList();
+
+            if (!counts.isEmpty()) {
+                dailyCountsByBot.put(entry.getKey(), counts);
+                allDailyCounts.addAll(counts);
+            }
+        }
+
+        return new ConversationCapacityProfile(
+                Map.copyOf(dailyCountsByBot),
+                estimateDailyCapacity(allDailyCounts)
+        );
+    }
+
+    private int estimateDailyCapacity(List<Integer> positiveDailyCounts) {
+        if (positiveDailyCounts == null || positiveDailyCounts.isEmpty()) {
+            return FALLBACK_DAILY_CONVERSATION_CAPACITY;
+        }
+
+        List<Integer> sorted = positiveDailyCounts.stream()
+                .filter(value -> value != null && value > 0)
+                .sorted()
+                .toList();
+
+        if (sorted.isEmpty()) {
+            return FALLBACK_DAILY_CONVERSATION_CAPACITY;
+        }
+
+        int nearestRankIndex = Math.max(
+                0,
+                (int) Math.ceil(sorted.size() * 0.90d) - 1
+        );
+        int demonstrated = sorted.get(
+                Math.min(nearestRankIndex, sorted.size() - 1)
+        );
+
+        return Math.min(
+                HARD_DAILY_OFFER_LIMIT,
+                Math.max(
+                        FALLBACK_DAILY_CONVERSATION_CAPACITY,
+                        demonstrated
+                )
+        );
+    }
+
     private boolean matchesModel(
             DictionaryModel model,
             BotConfiguration configuration
@@ -274,6 +424,45 @@ public class MarketStatsCalendarPlanningService {
         };
     }
 
+    private boolean matchesModel(
+            DictionaryModel model,
+            BotAdditionalTarget target
+    ) {
+        if (target == null
+                || !Boolean.TRUE.equals(target.getActive())
+                || target.getConfiguration() == null
+                || target.getConfiguration().getBot() == null
+                || Boolean.TRUE.equals(
+                        target.getConfiguration().getBot().getMarketStatsObserver()
+                )
+                || !sameText(
+                        model.getBrand().getName(),
+                        target.getBrand()
+                )) {
+            return false;
+        }
+
+        TargetMode modelMode = resolveTargetMode(model);
+        TargetMode targetMode = target.getTargetMode() == null
+                ? TargetMode.VINTED_MODEL
+                : target.getTargetMode();
+
+        if (modelMode != targetMode) {
+            return false;
+        }
+
+        return switch (modelMode) {
+            case VINTED_MODEL -> sameText(
+                    model.getName(),
+                    target.getModel()
+            );
+            case SEARCH_QUERY -> sameText(
+                    model.getName(),
+                    target.getSearchQuery()
+            );
+        };
+    }
+
     private TargetMode resolveTargetMode(DictionaryModel model) {
         return model.getTargetMode() == null
                 ? TargetMode.VINTED_MODEL
@@ -288,6 +477,49 @@ public class MarketStatsCalendarPlanningService {
 
     private String normalizeText(String value) {
         return value.trim().replaceAll("\\s+", " ");
+    }
+
+    private record ConversationCapacityProfile(
+            Map<Long, List<Integer>> dailyCountsByBot,
+            int globalDailyCapacity
+    ) {
+        int dailyCapacityFor(List<Long> botIds) {
+            List<Integer> counts = new ArrayList<>();
+
+            if (botIds != null) {
+                for (Long botId : botIds) {
+                    counts.addAll(
+                            dailyCountsByBot.getOrDefault(
+                                    botId,
+                                    List.of()
+                            )
+                    );
+                }
+            }
+
+            if (counts.isEmpty()) {
+                return globalDailyCapacity;
+            }
+
+            List<Integer> sorted = counts.stream()
+                    .sorted()
+                    .toList();
+            int index = Math.max(
+                    0,
+                    (int) Math.ceil(sorted.size() * 0.90d) - 1
+            );
+            int demonstrated = sorted.get(
+                    Math.min(index, sorted.size() - 1)
+            );
+
+            return Math.min(
+                    HARD_DAILY_OFFER_LIMIT,
+                    Math.max(
+                            FALLBACK_DAILY_CONVERSATION_CAPACITY,
+                            demonstrated
+                    )
+            );
+        }
     }
 
     private int safeInt(long value) {
