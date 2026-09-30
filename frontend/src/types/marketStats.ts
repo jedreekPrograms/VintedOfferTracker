@@ -6,6 +6,8 @@ export interface ModelPlanning {
     offersPreviousFullWeek: number | null;
     recommendedBots: number | null;
     recommendationWeeklyOffers: number | null;
+    dailyConversationCapacityPerBot: number;
+    weeklyConversationCapacityPerBot: number;
     recommendationEstimated: boolean;
     existingBots: number;
     todayWindowComplete: boolean;
