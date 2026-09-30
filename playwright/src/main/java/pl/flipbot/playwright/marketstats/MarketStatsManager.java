@@ -13,6 +13,7 @@ public class MarketStatsManager implements AutoCloseable {
     private static final long INITIAL_DELAY_SECONDS = 30L;
     private static final long OBSERVER_POLL_SECONDS = 60L;
     private static final long FAILURE_RETRY_MINUTES = 30L;
+    private static final long MEMORY_RETRY_MINUTES = 10L;
 
     private final MarketStatsRuntimeConfig config =
             MarketStatsRuntimeConfig.fromEnvironment();
@@ -34,6 +35,9 @@ public class MarketStatsManager implements AutoCloseable {
 
     private final AtomicBoolean stopping =
             new AtomicBoolean(false);
+
+    private final MarketStatsMemoryGuard memoryGuard =
+            MarketStatsMemoryGuard.systemDefault();
 
     private volatile long nextAttemptAtMillis = 0L;
     private volatile int nextTargetStartIndex = 0;
@@ -91,6 +95,23 @@ public class MarketStatsManager implements AutoCloseable {
             int batchNumber = 0;
 
             while (!stopping.get()) {
+                if (memoryGuard.shouldDeferNewBatch()) {
+                    nextTargetStartIndex = batchStartIndex;
+                    nextAttemptAtMillis =
+                            System.currentTimeMillis()
+                                    + TimeUnit.MINUTES.toMillis(
+                                    MEMORY_RETRY_MINUTES
+                            );
+
+                    log.warn(
+                            "[MARKET STATS] Deferring the next observer browser batch for {} minutes because normal bot work has priority under memory pressure. Resume target index={}. memory={}.",
+                            MEMORY_RETRY_MINUTES,
+                            nextTargetStartIndex,
+                            memoryGuard.lastSummary()
+                    );
+                    return;
+                }
+
                 int remainingTargets = totalTargets < 0
                         ? config.browserRecycleTargetCount()
                         : Math.min(
