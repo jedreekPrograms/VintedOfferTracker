@@ -91,13 +91,16 @@ public class MarketStatsCalendarPlanningService {
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
 
+        int generation = trackingGeneration(state);
         int offersToday = countPublishedListings(
                 model.getId(),
+                generation,
                 windows.todayStart(),
                 windows.now()
         );
         int offersCurrentWeek = countPublishedListings(
                 model.getId(),
+                generation,
                 windows.currentWeekStart(),
                 windows.now()
         );
@@ -161,6 +164,7 @@ public class MarketStatsCalendarPlanningService {
         if (previousFullWeekAvailable) {
             offersPreviousFullWeek = countPublishedListings(
                     model.getId(),
+                    generation,
                     windows.previousWeekStart(),
                     windows.currentWeekStart()
             );
@@ -169,6 +173,7 @@ public class MarketStatsCalendarPlanningService {
         } else {
             int observedSinceBaseline = countPublishedListings(
                     model.getId(),
+                    generation,
                     baselineCompleteAt,
                     windows.now()
             );
@@ -205,6 +210,7 @@ public class MarketStatsCalendarPlanningService {
 
     private int countPublishedListings(
             Long modelId,
+            Integer trackingGeneration,
             LocalDateTime fromInclusive,
             LocalDateTime toExclusive
     ) {
@@ -217,10 +223,20 @@ public class MarketStatsCalendarPlanningService {
         return safeInt(
                 observationRepository.countPublishedListingsBetween(
                         modelId,
+                        trackingGeneration,
                         fromInclusive,
                         toExclusive
                 )
         );
+    }
+
+    private int trackingGeneration(MarketModelScanState state) {
+        if (state == null
+                || state.getTrackingGeneration() == null
+                || state.getTrackingGeneration() < 1) {
+            return 1;
+        }
+        return state.getTrackingGeneration();
     }
 
     private boolean matchesModel(
