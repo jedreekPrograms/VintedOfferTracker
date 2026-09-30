@@ -100,7 +100,7 @@ class ListingHistoryServiceTest {
         );
 
         assertEquals(
-                HistoryOutcome.MISSED_OPPORTUNITY,
+                HistoryOutcome.REJECTED,
                 unavailable.getHistoryOutcome()
         );
         assertEquals(OfferAssessment.LEGIT, unavailable.getOfferAssessment());
@@ -108,7 +108,7 @@ class ListingHistoryServiceTest {
                 MissedOpportunityReason.SOLD_BEFORE_PURCHASE,
                 unavailable.getMissedOpportunityReason()
         );
-        assertEquals("MISSED_OPPORTUNITY", response.getHistoryOutcome());
+        assertEquals("REJECTED", response.getHistoryOutcome());
         verify(listingRepository).save(unavailable);
     }
 
