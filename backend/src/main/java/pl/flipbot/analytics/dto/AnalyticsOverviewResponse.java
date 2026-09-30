@@ -15,7 +15,9 @@ public record AnalyticsOverviewResponse(
             Long modelId,
             String brand,
             String model,
-            String label
+            String label,
+            BigDecimal marketMinPrice,
+            BigDecimal marketMaxPrice
     ) {
     }
 
