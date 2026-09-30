@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
         name = "market_listing_observation",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_market_listing_observation_model_listing",
-                columnNames = {"model_id", "marketplace_listing_id"}
+                columnNames = {"model_id", "tracking_generation", "marketplace_listing_id"}
         )
 )
 @Getter
@@ -29,6 +29,10 @@ public class MarketListingObservation {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "model_id", nullable = false)
     private DictionaryModel model;
+
+    @Column(name = "tracking_generation", nullable = false)
+    @Builder.Default
+    private Integer trackingGeneration = 1;
 
     @Column(name = "marketplace_listing_id", nullable = false, length = 255)
     private String marketplaceListingId;
