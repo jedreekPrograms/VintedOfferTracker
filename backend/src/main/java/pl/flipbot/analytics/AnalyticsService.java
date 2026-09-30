@@ -205,6 +205,12 @@ public class AnalyticsService {
                                  * therefore start at baselineCompleteAt.
                                  */
                                 .filter(observation ->
+                                        isCurrentTrackingGeneration(
+                                                observation,
+                                                marketScanStates
+                                        )
+                                )
+                                .filter(observation ->
                                         withinReliableMarketCoverage(
                                                 observation,
                                                 marketScanStates
@@ -673,6 +679,37 @@ public class AnalyticsService {
                 perWeek.setScale(2, RoundingMode.HALF_UP),
                 perMonth.setScale(2, RoundingMode.HALF_UP)
         );
+    }
+
+    private boolean isCurrentTrackingGeneration(
+            MarketListingObservation observation,
+            Map<Long, MarketModelScanState> marketScanStates
+    ) {
+        if (observation == null
+                || observation.getModel() == null
+                || observation.getModel().getId() == null) {
+            return false;
+        }
+
+        MarketModelScanState state =
+                marketScanStates.get(observation.getModel().getId());
+
+        if (state == null) {
+            return false;
+        }
+
+        int activeGeneration = state.getTrackingGeneration() == null
+                || state.getTrackingGeneration() < 1
+                ? 1
+                : state.getTrackingGeneration();
+
+        int observationGeneration =
+                observation.getTrackingGeneration() == null
+                        || observation.getTrackingGeneration() < 1
+                        ? 1
+                        : observation.getTrackingGeneration();
+
+        return activeGeneration == observationGeneration;
     }
 
     private boolean withinReliableMarketCoverage(
