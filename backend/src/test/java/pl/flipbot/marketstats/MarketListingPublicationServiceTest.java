@@ -19,11 +19,23 @@ class MarketListingPublicationServiceTest {
     @Mock
     private MarketListingObservationRepository observationRepository;
 
+    @Mock
+    private MarketModelScanStateRepository scanStateRepository;
+
     private MarketListingPublicationService service;
 
     @BeforeEach
     void setUp() {
-        service = new MarketListingPublicationService(observationRepository);
+        service = new MarketListingPublicationService(
+                observationRepository,
+                scanStateRepository
+        );
+        when(scanStateRepository.findById(68L))
+                .thenReturn(java.util.Optional.of(
+                        MarketModelScanState.builder()
+                                .trackingGeneration(3)
+                                .build()
+                ));
     }
 
     @Test
@@ -33,7 +45,10 @@ class MarketListingPublicationServiceTest {
         LocalDateTime secondPublishedAt =
                 LocalDateTime.of(2026, 7, 2, 13, 30);
 
-        when(observationRepository.findAllByModel_IdAndPublishedAtIsNotNull(68L))
+        when(observationRepository.findAllByModel_IdAndTrackingGenerationAndPublishedAtIsNotNull(
+                68L,
+                3
+        ))
                 .thenReturn(
                         List.of(
                                 MarketListingObservation.builder()
