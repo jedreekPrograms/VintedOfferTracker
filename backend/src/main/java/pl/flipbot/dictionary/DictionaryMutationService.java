@@ -182,6 +182,7 @@ public class DictionaryMutationService {
                     newTargetMode,
                     newName
             ));
+            marketStatsService.resetModelTracking(modelId);
         }
 
         return dictionaryModelService.map(model);
@@ -288,6 +289,12 @@ public class DictionaryMutationService {
 
         List<String> oldPath = splitPath(category.getPath());
         List<String> newPath = normalizeCategoryPath(request.getCategoryPath());
+        List<Long> observerModelIds = modelRepository.findAll()
+                .stream()
+                .filter(model -> model.getCategory() != null)
+                .filter(model -> categoryId.equals(model.getCategory().getId()))
+                .map(DictionaryModel::getId)
+                .toList();
         String newStoredPath = String.join(PATH_SEPARATOR, newPath);
 
         boolean duplicate = categoryRepository.findAll().stream()
@@ -317,6 +324,8 @@ public class DictionaryMutationService {
                         new ArrayList<>(newPath)
                 )
         );
+
+        observerModelIds.forEach(marketStatsService::resetModelTracking);
 
         return new DictionaryCategoryResponse(
                 category.getId(),
