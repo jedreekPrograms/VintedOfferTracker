@@ -11,6 +11,7 @@ public record MarketObservationBatchRequest(
         boolean complete,
         BigDecimal minPrice,
         BigDecimal maxPrice,
+        Integer trackingGeneration,
         Map<String, BigDecimal> listingPrices
 ) {
 }
