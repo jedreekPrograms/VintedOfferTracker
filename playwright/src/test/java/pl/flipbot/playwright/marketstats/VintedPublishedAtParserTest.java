@@ -24,6 +24,17 @@ public class VintedPublishedAtParserTest {
     }
 
     @Test
+    public void parsesConfirmedSingularVintedMinuteAge() {
+        assertEquals(
+                LocalDateTime.of(2026, 9, 11, 19, 39),
+                VintedPublishedAtParser.parse(
+                        "REL|minuty",
+                        OBSERVED_AT
+                ).orElseThrow()
+        );
+    }
+
+    @Test
     public void parsesPolishHourAge() {
         assertEquals(
                 LocalDateTime.of(2026, 9, 11, 11, 40),
