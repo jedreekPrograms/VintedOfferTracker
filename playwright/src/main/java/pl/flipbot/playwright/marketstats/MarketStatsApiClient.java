@@ -434,6 +434,7 @@ public class MarketStatsApiClient extends ApiClient {
                         + modelId
                         + "/publication-times",
                 new MarketListingPublicationBatchRequestDto(
+                        trackingGeneration(modelId),
                         Map.copyOf(payload)
                 )
         );
@@ -459,7 +460,8 @@ public class MarketStatsApiClient extends ApiClient {
         HttpResponse<String> response = post(
                 "/api/market-stats/models/"
                         + modelId
-                        + "/publication-window-complete"
+                        + "/publication-window-complete?trackingGeneration="
+                        + trackingGeneration(modelId)
         );
 
         requireSuccess(
@@ -471,6 +473,16 @@ public class MarketStatsApiClient extends ApiClient {
                 "[MARKET STATS] Model {} established a complete Vinted publication-time window. Future scans may safely reuse persisted timestamps and the known-listing boundary.",
                 modelId
         );
+    }
+
+    private int trackingGeneration(Long modelId) {
+        MarketStatsTargetDto target = loadedTargets.get(modelId);
+
+        return target == null
+                || target.trackingGeneration() == null
+                || target.trackingGeneration() < 1
+                ? 1
+                : target.trackingGeneration();
     }
 
     private void requireSuccess(
