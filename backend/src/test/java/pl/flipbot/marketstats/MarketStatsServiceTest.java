@@ -6,7 +6,6 @@ import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.dictionary.DictionaryBrand;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
-import pl.flipbot.negotiation.audit.RealActionAuditRepository;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -34,9 +33,6 @@ class MarketStatsServiceTest {
                 mock(MarketModelScanStateRepository.class);
         MarketListingObservationRepository observationRepository =
                 mock(MarketListingObservationRepository.class);
-        RealActionAuditRepository realActionAuditRepository =
-                mock(RealActionAuditRepository.class);
-
         MarketModelScanState state = MarketModelScanState.builder()
                 .trackingGeneration(3)
                 .initializedAt(LocalDateTime.now().minusDays(10))
@@ -64,8 +60,7 @@ class MarketStatsServiceTest {
                 configurationRepository,
                 additionalTargetRepository,
                 scanStateRepository,
-                observationRepository,
-                realActionAuditRepository
+                observationRepository
         );
 
         service.resetModelTracking(30L);
