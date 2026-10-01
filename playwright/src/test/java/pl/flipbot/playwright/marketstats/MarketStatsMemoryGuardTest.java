@@ -34,11 +34,23 @@ public class MarketStatsMemoryGuardTest {
     }
 
     @Test
-    public void lowFreeMemoryDefersEvenBeforeRatioThreshold() {
+    public void sixteenGigabyteHostIsNotDeferredAtSeventyFivePercentUsage() {
         MarketStatsMemoryGuard guard = MarketStatsMemoryGuard.forTest(
                 () -> new MarketStatsMemoryGuard.MemorySnapshot(
-                        20L * GIB,
+                        16L * GIB,
                         4L * GIB
+                )
+        );
+
+        assertFalse(guard.shouldDeferNewBatch());
+    }
+
+    @Test
+    public void criticallyLowAbsoluteFreeMemoryStillDefers() {
+        MarketStatsMemoryGuard guard = MarketStatsMemoryGuard.forTest(
+                () -> new MarketStatsMemoryGuard.MemorySnapshot(
+                        10L * GIB,
+                        (19L * GIB) / 10L
                 )
         );
 
