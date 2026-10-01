@@ -339,6 +339,7 @@ public class MarketStatsApiClient extends ApiClient {
                         complete,
                         target == null ? null : target.minPrice(),
                         target == null ? null : target.maxPrice(),
+                        target == null ? 1 : target.trackingGeneration(),
                         listingPrices == null ? Map.of() : listingPrices
                 )
         );
