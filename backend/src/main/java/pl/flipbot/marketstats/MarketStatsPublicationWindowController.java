@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalDateTime;
 
@@ -17,8 +18,12 @@ public class MarketStatsPublicationWindowController {
 
     @PostMapping("/publication-window-complete")
     public LocalDateTime markPublicationWindowComplete(
-            @PathVariable Long modelId
+            @PathVariable Long modelId,
+            @RequestParam Integer trackingGeneration
     ) {
-        return publicationWindowService.markPublicationWindowComplete(modelId);
+        return publicationWindowService.markPublicationWindowComplete(
+                modelId,
+                trackingGeneration
+        );
     }
 }
