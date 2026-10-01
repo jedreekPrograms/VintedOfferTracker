@@ -467,6 +467,16 @@ public class NegotiationConversationProcessor {
 
         }
 
+        if (normalizedStatus.contains(
+                "anulowan"
+        )) {
+
+            return NegotiationConversationSnapshot.cancelled(
+                    rawStatus
+            );
+
+        }
+
         log.warn(
                 "[CONVERSATION] Unsupported own-offer status: {}. Returning UNKNOWN without polling the same stable label for 20 seconds; availability checks will still run and no follow-up offer will be sent from UNKNOWN state.",
                 rawStatus
