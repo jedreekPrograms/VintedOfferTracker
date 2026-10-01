@@ -643,12 +643,6 @@ public class MarketStatsService {
                 : (int) value;
     }
 
-    private record NegotiationUsageByBot(
-            Map<Long, Integer> todayByBot,
-            Map<Long, Integer> last7DaysByBot
-    ) {
-    }
-
     private record CategoryResolution(
             List<String> path,
             boolean resolved
