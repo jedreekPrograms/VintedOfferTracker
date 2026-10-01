@@ -51,6 +51,8 @@ public class MarketStatsCollector {
     private static final double CATALOG_PAGE_NAVIGATION_TIMEOUT_MS = 30_000;
     private static final int MAX_NO_GROWTH_PAGES = 2;
     private static final int HISTORICAL_PUBLICATION_BOUNDARY_SIZE = 20;
+    private static final int ABSOLUTE_MAX_LISTINGS_PER_MODEL = 5_000;
+    private static final int DYNAMIC_LIMIT_MULTIPLIER = 4;
     private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
 
     private static final Set<String> ACCESSORY_WORDS = Set.of(
@@ -385,8 +387,11 @@ public class MarketStatsCollector {
         int noGrowthPages = 0;
         boolean complete = false;
         boolean historicalPublicationBoundaryReached = false;
+        boolean extendedPastConfiguredLimit = false;
+        int configuredLimit = config.maxListingsPerModel();
+        int dynamicHardLimit = dynamicMaxListingsPerModel(configuredLimit);
 
-        while (matched.size() < config.maxListingsPerModel()) {
+        while (matched.size() < dynamicHardLimit) {
             if (pageNumber > 1) {
                 if (!navigateToCatalogPage(context, filteredCatalogUrl, pageNumber)) {
                     complete = false;
@@ -484,8 +489,15 @@ public class MarketStatsCollector {
                 break;
             }
 
-            if (matched.size() >= config.maxListingsPerModel()) {
-                break;
+            if (!extendedPastConfiguredLimit
+                    && matched.size() >= configuredLimit
+                    && dynamicHardLimit > configuredLimit) {
+                extendedPastConfiguredLimit = true;
+                log.info(
+                        "[MARKET STATS] Configured soft limit {} was reached before proving the historical/known boundary. Continuing this unusually large model up to a dynamic safety ceiling of {} listings instead of marking it incomplete immediately.",
+                        configuredLimit,
+                        dynamicHardLimit
+                );
             }
 
             pageNumber++;
@@ -493,7 +505,7 @@ public class MarketStatsCollector {
 
         List<String> ids = matched.keySet()
                 .stream()
-                .limit(config.maxListingsPerModel())
+                .limit(dynamicHardLimit)
                 .toList();
 
         Map<String, java.math.BigDecimal> listingPrices =
@@ -511,16 +523,17 @@ public class MarketStatsCollector {
                                 )
                         );
 
-        boolean hitLimit = ids.size() >= config.maxListingsPerModel();
+        boolean hitDynamicHardLimit = ids.size() >= dynamicHardLimit;
 
-        if (hitLimit
+        if (hitDynamicHardLimit
                 && !historicalPublicationBoundaryReached
                 && !containsKnownBoundary(ids, knownListingIds)) {
             complete = false;
 
             log.warn(
-                    "[MARKET STATS] Catalog scan reached configured limit {} before proving the end/known/statistics-window boundary. The scan stays incomplete rather than pretending the partial catalog is a full model window.",
-                    config.maxListingsPerModel()
+                    "[MARKET STATS] Catalog scan reached dynamic safety ceiling {} (configured soft limit was {}) before proving the end/known/statistics-window boundary. The scan stays incomplete rather than pretending the partial catalog is a full model window.",
+                    dynamicHardLimit,
+                    configuredLimit
             );
         }
 
@@ -535,6 +548,21 @@ public class MarketStatsCollector {
                 ids,
                 Map.copyOf(listingPrices),
                 complete
+        );
+    }
+
+    static int dynamicMaxListingsPerModel(int configuredLimit) {
+        if (configuredLimit <= 0) {
+            throw new IllegalArgumentException(
+                    "Configured market-statistics listing limit must be positive."
+            );
+        }
+
+        long expanded = (long) configuredLimit * DYNAMIC_LIMIT_MULTIPLIER;
+
+        return (int) Math.min(
+                ABSOLUTE_MAX_LISTINGS_PER_MODEL,
+                Math.max(configuredLimit, expanded)
         );
     }
 
