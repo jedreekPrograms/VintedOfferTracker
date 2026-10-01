@@ -17,7 +17,10 @@ public class MarketStatsPublicationWindowService {
     private final MarketModelScanStateRepository scanStateRepository;
 
     @Transactional
-    public LocalDateTime markPublicationWindowComplete(Long modelId) {
+    public LocalDateTime markPublicationWindowComplete(
+            Long modelId,
+            Integer trackingGeneration
+    ) {
         if (modelId == null || modelId <= 0) {
             throw new IllegalArgumentException("Market model id must be positive.");
         }
@@ -29,6 +32,25 @@ public class MarketStatsPublicationWindowService {
                                 "Market scan state was not found for model " + modelId
                         )
                 );
+
+        int currentGeneration = state.getTrackingGeneration() == null
+                || state.getTrackingGeneration() < 1
+                ? 1
+                : state.getTrackingGeneration();
+        int requestedGeneration = trackingGeneration == null
+                ? 1
+                : trackingGeneration;
+
+        if (requestedGeneration != currentGeneration) {
+            throw new IllegalStateException(
+                    "Stale publication-window completion rejected for model "
+                            + modelId
+                            + ": request generation="
+                            + requestedGeneration
+                            + ", current generation="
+                            + currentGeneration
+            );
+        }
 
         if (state.getBaselineCompleteAt() == null
                 || !Boolean.TRUE.equals(state.getLastScanComplete())) {
