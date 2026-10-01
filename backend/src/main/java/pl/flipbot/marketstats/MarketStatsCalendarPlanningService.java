@@ -414,37 +414,6 @@ public class MarketStatsCalendarPlanningService {
         return new ConversationCapacityProfile(Map.copyOf(compact));
     }
 
-    private int demonstratedDailyCapacity(List<Integer> positiveDailyCounts) {
-        if (positiveDailyCounts == null || positiveDailyCounts.isEmpty()) {
-            return FALLBACK_DAILY_CONVERSATION_CAPACITY;
-        }
-
-        List<Integer> sorted = positiveDailyCounts.stream()
-                .filter(value -> value != null && value > 0)
-                .sorted()
-                .toList();
-
-        if (sorted.isEmpty()) {
-            return FALLBACK_DAILY_CONVERSATION_CAPACITY;
-        }
-
-        int nearestRankIndex = Math.max(
-                0,
-                (int) Math.ceil(sorted.size() * 0.75d) - 1
-        );
-        int demonstrated = sorted.get(
-                Math.min(nearestRankIndex, sorted.size() - 1)
-        );
-
-        return Math.min(
-                HARD_DAILY_OFFER_LIMIT,
-                Math.max(
-                        FALLBACK_DAILY_CONVERSATION_CAPACITY,
-                        demonstrated
-                )
-        );
-    }
-
     private boolean matchesModel(
             DictionaryModel model,
             BotConfiguration configuration
