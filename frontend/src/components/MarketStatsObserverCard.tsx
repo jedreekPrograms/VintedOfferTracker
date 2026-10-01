@@ -1,6 +1,54 @@
+import {
+    useEffect,
+    useState,
+} from "react";
+
+import {
+    getMarketStatsHealth,
+    type MarketStatsHealth,
+    type MarketStatsHealthStatus,
+} from "../api/marketStatsApi";
 import "../styles/market-stats-observer.css";
 
+const HEALTH_REFRESH_MS = 60_000;
+
 function MarketStatsObserverCard() {
+    const [health, setHealth] = useState<MarketStatsHealth | null>(null);
+    const [healthError, setHealthError] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadHealth() {
+            try {
+                const next = await getMarketStatsHealth();
+                if (!cancelled) {
+                    setHealth(next);
+                    setHealthError(false);
+                }
+            } catch {
+                if (!cancelled) {
+                    setHealthError(true);
+                }
+            }
+        }
+
+        void loadHealth();
+        const intervalId = window.setInterval(
+            () => void loadHealth(),
+            HEALTH_REFRESH_MS,
+        );
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, []);
+
+    const status = healthError
+        ? observerStatusCopy("STALE")
+        : observerStatusCopy(health?.status ?? "WAITING");
+
     return (
         <article className="content-card market-observer-card">
             <div className="market-observer-header">
@@ -25,12 +73,18 @@ function MarketStatsObserverCard() {
                 </div>
 
                 <div className="market-observer-runtime">
-                    <span className="market-observer-status-dot" />
+                    <span
+                        className={`market-observer-status-dot market-observer-status-${status.tone}`}
+                        aria-hidden="true"
+                    />
                     <div>
-                        <strong>Automatyczny collector</strong>
-                        <span>
-                            Uruchamia się razem z Playwrightem i skanuje wyłącznie publiczny katalog.
-                        </span>
+                        <strong>{status.title}</strong>
+                        <span>{status.description}</span>
+                        {health !== null && (
+                            <span className="market-observer-health-detail">
+                                {formatHealthDetail(health)}
+                            </span>
+                        )}
                     </div>
                 </div>
 
@@ -40,6 +94,87 @@ function MarketStatsObserverCard() {
             </div>
         </article>
     );
+}
+
+function observerStatusCopy(status: MarketStatsHealthStatus): {
+    tone: "ok" | "warning" | "muted" | "danger";
+    title: string;
+    description: string;
+} {
+    switch (status) {
+        case "OK":
+            return {
+                tone: "ok",
+                title: "Observer działa prawidłowo",
+                description: "Ostatnie skany są kompletne i świeże.",
+            };
+        case "PARTIAL":
+            return {
+                tone: "warning",
+                title: "Ostatni skan był niepełny",
+                description: "Dane są zachowane, ale Observer spróbuje uzupełnić brakujące pokrycie.",
+            };
+        case "WARMING_UP":
+            return {
+                tone: "warning",
+                title: "Observer buduje baseline",
+                description: "Część modeli nie ma jeszcze pełnego punktu startowego.",
+            };
+        case "STALE":
+            return {
+                tone: "danger",
+                title: "Observer jest opóźniony",
+                description: "Brakuje świeżego udanego skanu. Sprawdź Playwright lub obciążenie hosta.",
+            };
+        case "IDLE":
+            return {
+                tone: "muted",
+                title: "Brak modeli do obserwacji",
+                description: "Observer zacznie pracę po dodaniu modelu do słownika.",
+            };
+        case "WAITING":
+        default:
+            return {
+                tone: "muted",
+                title: "Observer czeka na pierwszy skan",
+                description: "Collector jest skonfigurowany, ale backend nie ma jeszcze danych o wykonanym skanie.",
+            };
+    }
+}
+
+function formatHealthDetail(health: MarketStatsHealth): string {
+    const parts = [
+        `${health.baselineReadyModels}/${health.totalModels} modeli z baseline`,
+    ];
+
+    if (health.incompleteModels > 0) {
+        parts.push(`${health.incompleteModels} niepełnych`);
+    }
+
+    if (health.lastSuccessfulScanAt !== null) {
+        parts.push(
+            `ostatni udany: ${formatDateTime(health.lastSuccessfulScanAt)}`,
+        );
+    } else if (health.lastScanAt !== null) {
+        parts.push(
+            `ostatnia próba: ${formatDateTime(health.lastScanAt)}`,
+        );
+    }
+
+    return parts.join(" · ");
+}
+
+function formatDateTime(value: string): string {
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+        return value;
+    }
+
+    return new Intl.DateTimeFormat("pl-PL", {
+        dateStyle: "short",
+        timeStyle: "short",
+    }).format(parsed);
 }
 
 export default MarketStatsObserverCard;
