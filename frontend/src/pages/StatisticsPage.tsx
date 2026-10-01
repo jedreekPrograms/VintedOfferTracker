@@ -137,6 +137,24 @@ function StatisticsPage() {
     const models = overview?.models ?? [];
     const summary = overview?.summary ?? null;
 
+    const visiblePriceSeriesOptions = useMemo(
+        () => priceSeriesOptions.filter(option =>
+            source === "OBSERVER"
+                ? option.value.startsWith("MARKET")
+                : source === "HISTORY"
+                    ? option.value.startsWith("PURCHASE")
+                    : true,
+        ),
+        [source],
+    );
+
+    const visiblePriceSeries = useMemo(() => {
+        const allowed = new Set(
+            visiblePriceSeriesOptions.map(option => option.value),
+        );
+        return priceSeries.filter(series => allowed.has(series));
+    }, [priceSeries, visiblePriceSeriesOptions]);
+
     const observerRangeDetail = useMemo(() => {
         const selected = modelIds.length === 0
             ? []
@@ -262,6 +280,7 @@ function StatisticsPage() {
                     onChange={setModelIds}
                 />
 
+                {source !== "OBSERVER" && (
                 <FilterPills
                     title="Wynik naszych ofert"
                     allLabel="Wszystkie wyniki"
@@ -270,7 +289,9 @@ function StatisticsPage() {
                     disabled={isLoading}
                     onChange={setOutcomes}
                 />
+                )}
 
+                {source !== "OBSERVER" && (
                 <FilterPills
                     title="Ocena naszych ofert"
                     allLabel="Wszystkie oceny"
@@ -279,6 +300,7 @@ function StatisticsPage() {
                     disabled={isLoading}
                     onChange={setAssessments}
                 />
+                )}
             </article>
 
             {isLoading && overview === null ? (
@@ -393,7 +415,9 @@ function StatisticsPage() {
                     </section>
                     )}
 
-                    <div className="analytics-grid analytics-grid-two">
+                    <div className={source === "HISTORY"
+                        ? "analytics-grid"
+                        : "analytics-grid analytics-grid-two"}>
                         <article className="content-card analytics-chart-card">
                             <div className="analytics-card-heading analytics-card-heading-stacked">
                                 <div>
@@ -407,18 +431,20 @@ function StatisticsPage() {
                                 <FilterPills
                                     title="Serie wykresu"
                                     allLabel="Wszystkie"
-                                    options={priceSeriesOptions}
-                                    selected={priceSeries}
+                                    options={visiblePriceSeriesOptions}
+                                    selected={visiblePriceSeries}
                                     disabled={false}
                                     onChange={setPriceSeries}
                                 />
                             </div>
                             <PriceTimelineChart
                                 points={overview.timeline}
-                                selectedSeries={priceSeries}
+                                selectedSeries={visiblePriceSeries}
+                                source={source}
                             />
                         </article>
 
+                        {source !== "HISTORY" && (
                         <article className="content-card analytics-chart-card">
                             <div className="analytics-card-heading">
                                 <div>
@@ -432,8 +458,10 @@ function StatisticsPage() {
                             </div>
                             <VolumeChart points={overview.timeline} />
                         </article>
+                        )}
                     </div>
 
+                    {source !== "HISTORY" && (
                     <div className="analytics-grid analytics-grid-two">
                         <article className="content-card analytics-chart-card">
                             <div className="analytics-card-heading">
@@ -466,6 +494,7 @@ function StatisticsPage() {
                             </div>
                         </article>
                     </div>
+                    )}
 
                     <article className="content-card analytics-table-card">
                         <div className="analytics-card-heading">
@@ -686,9 +715,11 @@ function Metric({
 function PriceTimelineChart({
     points,
     selectedSeries,
+    source,
 }: {
     points: AnalyticsTimelinePoint[];
     selectedSeries: PriceSeries[];
+    source: AnalyticsSource;
 }) {
     const series = [
         {
@@ -719,10 +750,18 @@ function PriceTimelineChart({
             dotClass: "analytics-dot-purchase-median",
             value: (point: AnalyticsTimelinePoint) => point.medianPurchasePrice,
         },
-    ].filter(item =>
-        selectedSeries.length === 0
-        || selectedSeries.includes(item.id),
-    );
+    ].filter(item => {
+        const sourceAllowed = source === "OBSERVER"
+            ? item.id.startsWith("MARKET")
+            : source === "HISTORY"
+                ? item.id.startsWith("PURCHASE")
+                : true;
+
+        return sourceAllowed && (
+            selectedSeries.length === 0
+            || selectedSeries.includes(item.id)
+        );
+    });
 
     const usableValues = points.flatMap(point =>
         series.map(item => item.value(point)),
