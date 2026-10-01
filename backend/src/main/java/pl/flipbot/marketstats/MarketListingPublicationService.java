@@ -84,6 +84,21 @@ public class MarketListingPublicationService {
         }
 
         int generation = trackingGeneration(modelId);
+        int requestedGeneration = request.trackingGeneration() == null
+                ? 1
+                : request.trackingGeneration();
+
+        if (requestedGeneration != generation) {
+            throw new IllegalStateException(
+                    "Stale publication-time batch rejected for model "
+                            + modelId
+                            + ": request generation="
+                            + requestedGeneration
+                            + ", current generation="
+                            + generation
+            );
+        }
+
         LocalDateTime latestAccepted = LocalDateTime.now(MARKET_STATS_ZONE)
                 .plusMinutes(5L);
         int updated = 0;
