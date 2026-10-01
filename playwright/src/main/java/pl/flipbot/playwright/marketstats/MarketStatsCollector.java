@@ -425,6 +425,10 @@ public class MarketStatsCollector {
 
                 if (previous == null) {
                     newlyAccepted.add(listing);
+
+                    if (matched.size() >= dynamicHardLimit) {
+                        break;
+                    }
                 }
             }
 
