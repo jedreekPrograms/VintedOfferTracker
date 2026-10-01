@@ -13,6 +13,7 @@ public record MarketStatsTargetResponse(
         List<String> categoryPath,
         boolean categoryResolved,
         BigDecimal minPrice,
-        BigDecimal maxPrice
+        BigDecimal maxPrice,
+        Integer trackingGeneration
 ) {
 }
