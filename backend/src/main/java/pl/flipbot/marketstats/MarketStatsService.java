@@ -119,7 +119,8 @@ public class MarketStatsService {
                             category.path(),
                             category.resolved(),
                             model.getMarketMinPrice(),
-                            model.getMarketMaxPrice()
+                            model.getMarketMaxPrice(),
+                            currentTrackingGeneration(model.getId())
                     );
                 })
                 .toList();
@@ -226,6 +227,22 @@ public class MarketStatsService {
         MarketModelScanState state = scanStateRepository
                 .findByModelIdForUpdate(modelId)
                 .orElse(null);
+
+        int currentGeneration = trackingGeneration(state);
+        int requestedGeneration = request.trackingGeneration() == null
+                ? 1
+                : request.trackingGeneration();
+
+        if (requestedGeneration != currentGeneration) {
+            throw new IllegalStateException(
+                    "Stale market observer batch rejected for model "
+                            + modelId
+                            + ": request generation="
+                            + requestedGeneration
+                            + ", current generation="
+                            + currentGeneration
+            );
+        }
 
         boolean createdState = state == null;
 
@@ -684,6 +701,12 @@ public class MarketStatsService {
                                 "Dictionary model was not found: " + modelId
                         )
                 );
+    }
+
+    private int currentTrackingGeneration(Long modelId) {
+        return scanStateRepository.findById(modelId)
+                .map(this::trackingGeneration)
+                .orElse(1);
     }
 
     private int trackingGeneration(MarketModelScanState state) {
