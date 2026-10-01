@@ -31,13 +31,14 @@ class MarketStatsPublicationWindowServiceTest {
     void marksPublicationWindowAfterCompleteBaselineScan() {
         MarketModelScanState state = MarketModelScanState.builder()
                 .baselineCompleteAt(LocalDateTime.of(2026, 9, 12, 20, 0))
+                .trackingGeneration(3)
                 .lastScanComplete(true)
                 .build();
 
         when(scanStateRepository.findByModelIdForUpdate(68L))
                 .thenReturn(Optional.of(state));
 
-        LocalDateTime completedAt = service.markPublicationWindowComplete(68L);
+        LocalDateTime completedAt = service.markPublicationWindowComplete(68L, 3);
 
         assertNotNull(completedAt);
         assertNotNull(state.getPublicationWindowCompleteAt());
@@ -48,6 +49,7 @@ class MarketStatsPublicationWindowServiceTest {
     void refusesToMarkCoverageAfterIncompleteScan() {
         MarketModelScanState state = MarketModelScanState.builder()
                 .baselineCompleteAt(LocalDateTime.of(2026, 9, 12, 20, 0))
+                .trackingGeneration(3)
                 .lastScanComplete(false)
                 .build();
 
@@ -56,7 +58,7 @@ class MarketStatsPublicationWindowServiceTest {
 
         assertThrows(
                 IllegalStateException.class,
-                () -> service.markPublicationWindowComplete(68L)
+                () -> service.markPublicationWindowComplete(68L, 3)
         );
     }
 }
