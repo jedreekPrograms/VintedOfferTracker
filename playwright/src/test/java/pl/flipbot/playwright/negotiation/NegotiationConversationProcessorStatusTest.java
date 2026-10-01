@@ -59,6 +59,19 @@ public class NegotiationConversationProcessorStatusTest {
     }
 
     @Test
+    public void recognizesCancelledOfferAsTerminalCancelledState() {
+        assertStatus(
+                "Anulowane",
+                NegotiationConversationResult.CANCELLED
+        );
+
+        assertStatus(
+                "Oferta anulowana",
+                NegotiationConversationResult.CANCELLED
+        );
+    }
+
+    @Test
     public void rejectsCounterofferAboveCapturedOriginalPrice() {
         assertFalse(
                 NegotiationConversationProcessor.isPlausibleSellerCounterOffer(
