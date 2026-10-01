@@ -7,6 +7,7 @@ import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.marketstats.dto.MarketStatsHealthResponse;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 
@@ -15,6 +16,7 @@ import java.util.List;
 public class MarketStatsHealthService {
 
     private static final long STALE_AFTER_MINUTES = 45L;
+    private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DictionaryModelRepository modelRepository;
     private final MarketModelScanStateRepository scanStateRepository;
@@ -95,7 +97,7 @@ public class MarketStatsHealthService {
 
         if (lastSuccessfulScanAt == null
                 || lastSuccessfulScanAt.isBefore(
-                        LocalDateTime.now().minusMinutes(
+                        LocalDateTime.now(MARKET_STATS_ZONE).minusMinutes(
                                 STALE_AFTER_MINUTES
                         )
                 )) {
