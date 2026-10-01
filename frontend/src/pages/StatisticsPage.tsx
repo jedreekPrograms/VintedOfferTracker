@@ -110,6 +110,7 @@ function StatisticsPage() {
                 }),
             );
         } catch (error) {
+            setOverview(null);
             setErrorMessage(
                 error instanceof Error
                     ? error.message
@@ -239,11 +240,17 @@ function StatisticsPage() {
                     </div>
                 </div>
 
+                {(from.length > 0 || to.length > 0) && (
+                    <div className="analytics-custom-range-note">
+                        Zakres ręczny ma pierwszeństwo przed szybkim okresem.
+                    </div>
+                )}
+
                 <FilterPills
                     title="Szybki okres"
                     allMode={false}
                     options={periodOptions}
-                    selected={[period]}
+                    selected={from.length > 0 || to.length > 0 ? [] : [period]}
                     disabled={isLoading}
                     onSingleChange={choosePreset}
                 />
@@ -282,6 +289,7 @@ function StatisticsPage() {
                 </article>
             ) : summary !== null && overview !== null ? (
                 <>
+                    {source !== "HISTORY" && (
                     <section className="analytics-section">
                         <div className="analytics-section-heading">
                             <div>
@@ -331,7 +339,9 @@ function StatisticsPage() {
                             />
                         </div>
                     </section>
+                    )}
 
+                    {source !== "OBSERVER" && (
                     <section className="analytics-section">
                         <div className="analytics-section-heading">
                             <div>
@@ -381,6 +391,7 @@ function StatisticsPage() {
                             />
                         </div>
                     </section>
+                    )}
 
                     <div className="analytics-grid analytics-grid-two">
                         <article className="content-card analytics-chart-card">
