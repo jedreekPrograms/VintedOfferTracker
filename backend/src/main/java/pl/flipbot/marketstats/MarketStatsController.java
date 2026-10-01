@@ -15,6 +15,7 @@ public class MarketStatsController {
     private final MarketStatsService marketStatsService;
     private final MarketStatsCalendarPlanningService calendarPlanningService;
     private final MarketStatsScanTriggerService scanTriggerService;
+    private final MarketStatsHealthService healthService;
 
     @GetMapping("/planning")
     public List<CalendarModelPlanningResponse> getPlanning() {
@@ -24,6 +25,11 @@ public class MarketStatsController {
     @GetMapping("/targets")
     public List<MarketStatsTargetResponse> getTargets() {
         return marketStatsService.getTargets();
+    }
+
+    @GetMapping("/health")
+    public MarketStatsHealthResponse getHealth() {
+        return healthService.getHealth();
     }
 
     @GetMapping("/scan-needed")

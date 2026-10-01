@@ -162,7 +162,8 @@
 
 .analytics-legend {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 8px 16px;
     margin-bottom: 8px;
     color: #6d7582;
     font-size: 11px;
@@ -188,8 +189,9 @@
 
 .analytics-chart-footer {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 10px;
+    gap: 6px 10px;
     color: #858d98;
     font-size: 10px;
 }
@@ -325,6 +327,13 @@
     color: #8b939e;
     font-size: 12px;
     text-align: center;
+}
+
+.analytics-custom-range-note {
+    margin-top: -6px;
+    color: #7a8492;
+    font-size: 11px;
+    font-weight: 700;
 }
 
 .dashboard-filter-group {
@@ -596,6 +605,12 @@
 }
 
 @media (max-width: 650px) {
+    .analytics-chart-footer > span:nth-child(2) {
+        order: 3;
+        width: 100%;
+        text-align: center;
+    }
+
     .analytics-filter-row-main {
         grid-template-columns: 1fr;
     }

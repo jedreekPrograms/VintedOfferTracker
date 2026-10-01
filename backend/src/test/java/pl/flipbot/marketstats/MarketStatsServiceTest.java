@@ -6,14 +6,17 @@ import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.dictionary.DictionaryBrand;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
-import pl.flipbot.negotiation.audit.RealActionAuditRepository;
+import pl.flipbot.marketstats.dto.MarketObservationBatchRequest;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -34,9 +37,6 @@ class MarketStatsServiceTest {
                 mock(MarketModelScanStateRepository.class);
         MarketListingObservationRepository observationRepository =
                 mock(MarketListingObservationRepository.class);
-        RealActionAuditRepository realActionAuditRepository =
-                mock(RealActionAuditRepository.class);
-
         MarketModelScanState state = MarketModelScanState.builder()
                 .trackingGeneration(3)
                 .initializedAt(LocalDateTime.now().minusDays(10))
@@ -64,8 +64,7 @@ class MarketStatsServiceTest {
                 configurationRepository,
                 additionalTargetRepository,
                 scanStateRepository,
-                observationRepository,
-                realActionAuditRepository
+                observationRepository
         );
 
         service.resetModelTracking(30L);
@@ -80,4 +79,58 @@ class MarketStatsServiceTest {
         verify(scanStateRepository).save(state);
         verify(observationRepository, never()).deleteByModel_Id(anyLong());
     }
+    @Test
+    void staleObserverBatchIsRejectedAfterTrackingGenerationChanges() {
+        DictionaryModelRepository modelRepository =
+                mock(DictionaryModelRepository.class);
+        BotConfigurationRepository configurationRepository =
+                mock(BotConfigurationRepository.class);
+        BotAdditionalTargetRepository additionalTargetRepository =
+                mock(BotAdditionalTargetRepository.class);
+        MarketModelScanStateRepository scanStateRepository =
+                mock(MarketModelScanStateRepository.class);
+        MarketListingObservationRepository observationRepository =
+                mock(MarketListingObservationRepository.class);
+
+        DictionaryModel model = DictionaryModel.builder()
+                .id(30L)
+                .name("Galaxy S24")
+                .brand(DictionaryBrand.builder().id(1L).name("Samsung").build())
+                .build();
+        MarketModelScanState state = MarketModelScanState.builder()
+                .model(model)
+                .trackingGeneration(4)
+                .initializedAt(LocalDateTime.now())
+                .lastScanComplete(false)
+                .build();
+
+        when(modelRepository.findByIdForUpdate(30L))
+                .thenReturn(Optional.of(model));
+        when(scanStateRepository.findByModelIdForUpdate(30L))
+                .thenReturn(Optional.of(state));
+
+        MarketStatsService service = new MarketStatsService(
+                modelRepository,
+                configurationRepository,
+                additionalTargetRepository,
+                scanStateRepository,
+                observationRepository
+        );
+
+        MarketObservationBatchRequest staleRequest =
+                new MarketObservationBatchRequest(
+                        List.of("123"),
+                        true,
+                        null,
+                        null,
+                        3,
+                        Map.of()
+                );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service.recordObservations(30L, staleRequest)
+        );
+    }
+
 }

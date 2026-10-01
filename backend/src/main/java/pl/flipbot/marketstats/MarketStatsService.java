@@ -15,17 +15,9 @@ import pl.flipbot.marketstats.dto.KnownMarketListingIdsResponse;
 import pl.flipbot.marketstats.dto.MarketObservationBatchRequest;
 import pl.flipbot.marketstats.dto.MarketObservationBatchResponse;
 import pl.flipbot.marketstats.dto.MarketStatsTargetResponse;
-import pl.flipbot.marketstats.dto.ModelPlanningResponse;
-import pl.flipbot.negotiation.audit.RealActionAudit;
-import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
-import pl.flipbot.negotiation.audit.RealActionAuditRepository;
-import pl.flipbot.negotiation.guard.RealActionType;
 
 import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -42,51 +34,14 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class MarketStatsService {
 
-    private static final int TRACKING_WINDOW_DAYS = 7;
-    private static final int NEW_CONVERSATIONS_PER_BOT_PER_DAY = 5;
     private static final int OBSERVATION_RETENTION_DAYS = 400;
     private static final String CATEGORY_PATH_SEPARATOR_REGEX = "\\s*>\\s*";
-    private static final ZoneId NEGOTIATION_USAGE_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
     private final BotAdditionalTargetRepository additionalTargetRepository;
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
-    private final RealActionAuditRepository realActionAuditRepository;
-
-    @Transactional(readOnly = true)
-    public List<ModelPlanningResponse> getPlanning() {
-        LocalDateTime now = LocalDateTime.now();
-        LocalDate today = LocalDate.now(NEGOTIATION_USAGE_ZONE);
-        List<BotConfiguration> configurations = configurationRepository.findAll();
-        List<BotAdditionalTarget> additionalTargets =
-                additionalTargetRepository.findAll()
-                        .stream()
-                        .filter(target -> Boolean.TRUE.equals(target.getActive()))
-                        .toList();
-        NegotiationUsageByBot negotiationUsage = loadNegotiationUsage(today);
-
-        return modelRepository.findAll()
-                .stream()
-                .sorted(
-                        Comparator.comparing(
-                                        (DictionaryModel model) -> model.getBrand().getName(),
-                                        String.CASE_INSENSITIVE_ORDER
-                                )
-                                .thenComparing(
-                                        DictionaryModel::getName,
-                                        String.CASE_INSENSITIVE_ORDER
-                                )
-                )
-                .map(model -> toPlanningResponse(
-                        model,
-                        configurations,
-                        now,
-                        negotiationUsage
-                ))
-                .toList();
-    }
 
     @Transactional(readOnly = true)
     public List<MarketStatsTargetResponse> getTargets() {
@@ -119,7 +74,8 @@ public class MarketStatsService {
                             category.path(),
                             category.resolved(),
                             model.getMarketMinPrice(),
-                            model.getMarketMaxPrice()
+                            model.getMarketMaxPrice(),
+                            currentTrackingGeneration(model.getId())
                     );
                 })
                 .toList();
@@ -226,6 +182,22 @@ public class MarketStatsService {
         MarketModelScanState state = scanStateRepository
                 .findByModelIdForUpdate(modelId)
                 .orElse(null);
+
+        int currentGeneration = trackingGeneration(state);
+        int requestedGeneration = request.trackingGeneration() == null
+                ? 1
+                : request.trackingGeneration();
+
+        if (requestedGeneration != currentGeneration) {
+            throw new IllegalStateException(
+                    "Stale market observer batch rejected for model "
+                            + modelId
+                            + ": request generation="
+                            + requestedGeneration
+                            + ", current generation="
+                            + currentGeneration
+            );
+        }
 
         boolean createdState = state == null;
 
@@ -336,179 +308,6 @@ public class MarketStatsService {
                 now,
                 request.complete()
         );
-    }
-
-    private ModelPlanningResponse toPlanningResponse(
-            DictionaryModel model,
-            List<BotConfiguration> configurations,
-            LocalDateTime now,
-            NegotiationUsageByBot negotiationUsage
-    ) {
-        MarketModelScanState state = scanStateRepository
-                .findById(model.getId())
-                .orElse(null);
-
-        List<Long> matchingBotIds = configurations.stream()
-                .filter(configuration -> matchesModel(model, configuration))
-                .map(BotConfiguration::getBot)
-                .filter(Objects::nonNull)
-                .map(bot -> bot.getId())
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-
-        int existingBots = matchingBotIds.size();
-        int negotiationsStartedToday = sumNegotiationUsage(
-                matchingBotIds,
-                negotiationUsage.todayByBot()
-        );
-        int negotiationsStartedLast7Days = sumNegotiationUsage(
-                matchingBotIds,
-                negotiationUsage.last7DaysByBot()
-        );
-
-        if (state == null || state.getBaselineCompleteAt() == null) {
-            return new ModelPlanningResponse(
-                    model.getId(),
-                    null,
-                    null,
-                    null,
-                    negotiationsStartedToday,
-                    negotiationsStartedLast7Days,
-                    null,
-                    existingBots,
-                    false,
-                    0,
-                    state == null ? null : state.getLastScanAt(),
-                    state != null && Boolean.TRUE.equals(state.getLastScanComplete())
-            );
-        }
-
-        long trackedHours = Math.max(
-                0L,
-                Duration.between(
-                        state.getBaselineCompleteAt(),
-                        now
-                ).toHours()
-        );
-
-        int trackedDays = Math.min(
-                TRACKING_WINDOW_DAYS,
-                (int) (trackedHours / 24L)
-        );
-
-        boolean statsReady = trackedHours >= TRACKING_WINDOW_DAYS * 24L;
-
-        int offersLast24Hours = safeInt(
-                observationRepository
-                        .countByModel_IdAndTrackingGenerationAndBaselineFalseAndFirstSeenAtAfter(
-                                model.getId(),
-                                trackingGeneration(state),
-                                now.minusHours(24L)
-                        )
-        );
-
-        Integer offersLast7Days = null;
-        Integer recommendedBots = null;
-
-        if (statsReady) {
-            long offers = observationRepository
-                    .countByModel_IdAndTrackingGenerationAndBaselineFalseAndFirstSeenAtAfter(
-                            model.getId(),
-                            trackingGeneration(state),
-                            now.minusDays(TRACKING_WINDOW_DAYS)
-                    );
-
-            offersLast7Days = safeInt(offers);
-            recommendedBots = calculateRecommendedBots(offersLast7Days);
-        }
-
-        return new ModelPlanningResponse(
-                model.getId(),
-                state.getBaselineOfferCount(),
-                offersLast24Hours,
-                offersLast7Days,
-                negotiationsStartedToday,
-                negotiationsStartedLast7Days,
-                recommendedBots,
-                existingBots,
-                statsReady,
-                trackedDays,
-                state.getLastScanAt(),
-                Boolean.TRUE.equals(state.getLastScanComplete())
-        );
-    }
-
-    private NegotiationUsageByBot loadNegotiationUsage(
-            LocalDate today
-    ) {
-        LocalDate firstTrackedDay = today.minusDays(TRACKING_WINDOW_DAYS - 1L);
-        LocalDateTime firstTrackedAt = firstTrackedDay.atStartOfDay();
-        Map<Long, Integer> todayByBot = new HashMap<>();
-        Map<Long, Integer> last7DaysByBot = new HashMap<>();
-
-        for (RealActionAudit audit : realActionAuditRepository
-                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
-                        RealActionType.FIRST_OFFER,
-                        RealActionAuditOutcome.CONFIRMED,
-                        firstTrackedAt
-                )) {
-            if (audit.getBotId() == null || audit.getCreatedAt() == null) {
-                continue;
-            }
-
-            LocalDate usageDay = audit.getCreatedAt().toLocalDate();
-            if (usageDay.isBefore(firstTrackedDay) || usageDay.isAfter(today)) {
-                continue;
-            }
-
-            Long botId = audit.getBotId();
-            last7DaysByBot.merge(botId, 1, this::safeAdd);
-
-            if (today.equals(usageDay)) {
-                todayByBot.merge(botId, 1, this::safeAdd);
-            }
-        }
-
-        return new NegotiationUsageByBot(
-                Map.copyOf(todayByBot),
-                Map.copyOf(last7DaysByBot)
-        );
-    }
-
-    private int sumNegotiationUsage(
-            List<Long> botIds,
-            Map<Long, Integer> usageByBot
-    ) {
-        long sum = 0L;
-
-        for (Long botId : botIds) {
-            sum += Math.max(usageByBot.getOrDefault(botId, 0), 0);
-        }
-
-        return safeInt(sum);
-    }
-
-    private int safeAdd(
-            int left,
-            int right
-    ) {
-        return safeInt((long) left + right);
-    }
-
-    private int calculateRecommendedBots(
-            int offersLast7Days
-    ) {
-        int weeklyCapacityPerBot =
-                TRACKING_WINDOW_DAYS
-                        * NEW_CONVERSATIONS_PER_BOT_PER_DAY;
-
-        if (offersLast7Days <= 0) {
-            return 0;
-        }
-
-        return (offersLast7Days + weeklyCapacityPerBot - 1)
-                / weeklyCapacityPerBot;
     }
 
     private CategoryResolution resolveCategory(
@@ -686,6 +485,12 @@ public class MarketStatsService {
                 );
     }
 
+    private int currentTrackingGeneration(Long modelId) {
+        return scanStateRepository.findById(modelId)
+                .map(this::trackingGeneration)
+                .orElse(1);
+    }
+
     private int trackingGeneration(MarketModelScanState state) {
         if (state == null
                 || state.getTrackingGeneration() == null
@@ -836,12 +641,6 @@ public class MarketStatsService {
         return value > Integer.MAX_VALUE
                 ? Integer.MAX_VALUE
                 : (int) value;
-    }
-
-    private record NegotiationUsageByBot(
-            Map<Long, Integer> todayByBot,
-            Map<Long, Integer> last7DaysByBot
-    ) {
     }
 
     private record CategoryResolution(

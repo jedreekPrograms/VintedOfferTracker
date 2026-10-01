@@ -283,6 +283,18 @@
     font-size: 8px;
 }
 
+.price-metric-warning {
+    display: inline-flex;
+    margin-top: 2px;
+    border-radius: 999px;
+    padding: 2px 6px;
+    color: #9a5b0a;
+    background: #fff3d6;
+    font-size: 8px;
+    font-weight: 800;
+    line-height: 1.3;
+}
+
 .price-sheet-empty {
     padding: 22px 18px;
     color: var(--muted-text-color, #64748b);

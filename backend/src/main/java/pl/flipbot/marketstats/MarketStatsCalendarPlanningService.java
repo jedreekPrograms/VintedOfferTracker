@@ -8,6 +8,9 @@ import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.configuration.BotConfigurationRepository;
 import pl.flipbot.bot.configuration.TargetMode;
+import pl.flipbot.analytics.HistoryModelResolver;
+import pl.flipbot.listing.Listing;
+import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
@@ -43,6 +46,8 @@ public class MarketStatsCalendarPlanningService {
     private final MarketModelScanStateRepository scanStateRepository;
     private final MarketListingObservationRepository observationRepository;
     private final RealActionAuditRepository realActionAuditRepository;
+    private final ListingRepository listingRepository;
+    private final HistoryModelResolver historyModelResolver;
 
     @Transactional(readOnly = true)
     public List<CalendarModelPlanningResponse> getPlanning() {
@@ -53,11 +58,14 @@ public class MarketStatsCalendarPlanningService {
                         .stream()
                         .filter(target -> Boolean.TRUE.equals(target.getActive()))
                         .toList();
+        List<DictionaryModel> models = modelRepository.findAll();
         ConversationCapacityProfile capacityProfile =
-                loadConversationCapacity(now.toLocalDate());
+                loadConversationCapacity(
+                        now.toLocalDate(),
+                        models
+                );
 
-        return modelRepository.findAll()
-                .stream()
+        return models.stream()
                 .sorted(
                         Comparator.comparing(
                                         (DictionaryModel model) -> model.getBrand().getName(),
@@ -96,7 +104,10 @@ public class MarketStatsCalendarPlanningService {
         );
         int existingBots = matchingBotIds.size();
         int dailyConversationCapacityPerBot =
-                capacityProfile.dailyCapacityFor(matchingBotIds);
+                capacityProfile.dailyCapacityFor(
+                        model.getId(),
+                        matchingBotIds
+                );
         int weeklyConversationCapacityPerBot =
                 dailyConversationCapacityPerBot
                         * MarketStatsPlanningCalculator.DAYS_PER_WEEK;
@@ -306,25 +317,65 @@ public class MarketStatsCalendarPlanningService {
     }
 
     private ConversationCapacityProfile loadConversationCapacity(
-            LocalDate today
+            LocalDate today,
+            List<DictionaryModel> models
     ) {
         LocalDateTime from = today
                 .minusDays(CAPACITY_LOOKBACK_DAYS - 1L)
                 .atStartOfDay();
 
-        Map<Long, Map<LocalDate, Integer>> byBotDay = new HashMap<>();
-
-        for (RealActionAudit audit : realActionAuditRepository
+        List<RealActionAudit> audits = realActionAuditRepository
                 .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
                         RealActionType.FIRST_OFFER,
                         RealActionAuditOutcome.CONFIRMED,
                         from
-                )) {
-            if (audit.getBotId() == null || audit.getCreatedAt() == null) {
+                );
+
+        if (audits.isEmpty()) {
+            return ConversationCapacityProfile.empty();
+        }
+
+        Set<Long> listingIds = audits.stream()
+                .map(RealActionAudit::getBackendListingId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+
+        Map<Long, Listing> listingsById = listingRepository
+                .findAllById(listingIds)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        Listing::getId,
+                        listing -> listing
+                ));
+
+        Map<Long, Map<Long, Map<LocalDate, Integer>>> counts =
+                new HashMap<>();
+
+        for (RealActionAudit audit : audits) {
+            if (audit.getBotId() == null
+                    || audit.getCreatedAt() == null
+                    || audit.getBackendListingId() == null) {
                 continue;
             }
 
-            byBotDay.computeIfAbsent(
+            Listing listing = listingsById.get(audit.getBackendListingId());
+            if (listing == null) {
+                continue;
+            }
+
+            Long modelId = historyModelResolver
+                    .resolveModelId(listing, models)
+                    .orElse(null);
+
+            if (modelId == null) {
+                continue;
+            }
+
+            counts.computeIfAbsent(
+                            modelId,
+                            ignored -> new HashMap<>()
+                    )
+                    .computeIfAbsent(
                             audit.getBotId(),
                             ignored -> new HashMap<>()
                     )
@@ -335,58 +386,32 @@ public class MarketStatsCalendarPlanningService {
                     );
         }
 
-        Map<Long, List<Integer>> dailyCountsByBot = new HashMap<>();
-        List<Integer> allDailyCounts = new ArrayList<>();
+        Map<Long, Map<Long, List<Integer>>> compact = new HashMap<>();
 
-        for (Map.Entry<Long, Map<LocalDate, Integer>> entry
-                : byBotDay.entrySet()) {
-            List<Integer> counts = entry.getValue()
-                    .values()
-                    .stream()
-                    .filter(value -> value != null && value > 0)
-                    .toList();
+        for (Map.Entry<Long, Map<Long, Map<LocalDate, Integer>>> modelEntry
+                : counts.entrySet()) {
+            Map<Long, List<Integer>> botCounts = new HashMap<>();
 
-            if (!counts.isEmpty()) {
-                dailyCountsByBot.put(entry.getKey(), counts);
-                allDailyCounts.addAll(counts);
+            for (Map.Entry<Long, Map<LocalDate, Integer>> botEntry
+                    : modelEntry.getValue().entrySet()) {
+                List<Integer> dailyCounts = botEntry.getValue()
+                        .values()
+                        .stream()
+                        .filter(value -> value != null && value > 0)
+                        .sorted()
+                        .toList();
+
+                if (!dailyCounts.isEmpty()) {
+                    botCounts.put(botEntry.getKey(), dailyCounts);
+                }
+            }
+
+            if (!botCounts.isEmpty()) {
+                compact.put(modelEntry.getKey(), Map.copyOf(botCounts));
             }
         }
 
-        return new ConversationCapacityProfile(
-                Map.copyOf(dailyCountsByBot),
-                estimateDailyCapacity(allDailyCounts)
-        );
-    }
-
-    private int estimateDailyCapacity(List<Integer> positiveDailyCounts) {
-        if (positiveDailyCounts == null || positiveDailyCounts.isEmpty()) {
-            return FALLBACK_DAILY_CONVERSATION_CAPACITY;
-        }
-
-        List<Integer> sorted = positiveDailyCounts.stream()
-                .filter(value -> value != null && value > 0)
-                .sorted()
-                .toList();
-
-        if (sorted.isEmpty()) {
-            return FALLBACK_DAILY_CONVERSATION_CAPACITY;
-        }
-
-        int nearestRankIndex = Math.max(
-                0,
-                (int) Math.ceil(sorted.size() * 0.90d) - 1
-        );
-        int demonstrated = sorted.get(
-                Math.min(nearestRankIndex, sorted.size() - 1)
-        );
-
-        return Math.min(
-                HARD_DAILY_OFFER_LIMIT,
-                Math.max(
-                        FALLBACK_DAILY_CONVERSATION_CAPACITY,
-                        demonstrated
-                )
-        );
+        return new ConversationCapacityProfile(Map.copyOf(compact));
     }
 
     private boolean matchesModel(
@@ -480,33 +505,39 @@ public class MarketStatsCalendarPlanningService {
     }
 
     private record ConversationCapacityProfile(
-            Map<Long, List<Integer>> dailyCountsByBot,
-            int globalDailyCapacity
+            Map<Long, Map<Long, List<Integer>>> dailyCountsByModelAndBot
     ) {
-        int dailyCapacityFor(List<Long> botIds) {
-            List<Integer> counts = new ArrayList<>();
+        static ConversationCapacityProfile empty() {
+            return new ConversationCapacityProfile(Map.of());
+        }
 
-            if (botIds != null) {
-                for (Long botId : botIds) {
-                    counts.addAll(
-                            dailyCountsByBot.getOrDefault(
-                                    botId,
-                                    List.of()
-                            )
+        int dailyCapacityFor(
+                Long modelId,
+                List<Long> botIds
+        ) {
+            if (modelId == null || botIds == null || botIds.isEmpty()) {
+                return FALLBACK_DAILY_CONVERSATION_CAPACITY;
+            }
+
+            Map<Long, List<Integer>> byBot =
+                    dailyCountsByModelAndBot.getOrDefault(
+                            modelId,
+                            Map.of()
                     );
-                }
+
+            List<Integer> counts = new ArrayList<>();
+            for (Long botId : botIds) {
+                counts.addAll(byBot.getOrDefault(botId, List.of()));
             }
 
             if (counts.isEmpty()) {
-                return globalDailyCapacity;
+                return FALLBACK_DAILY_CONVERSATION_CAPACITY;
             }
 
-            List<Integer> sorted = counts.stream()
-                    .sorted()
-                    .toList();
+            List<Integer> sorted = counts.stream().sorted().toList();
             int index = Math.max(
                     0,
-                    (int) Math.ceil(sorted.size() * 0.90d) - 1
+                    (int) Math.ceil(sorted.size() * 0.75d) - 1
             );
             int demonstrated = sorted.get(
                     Math.min(index, sorted.size() - 1)

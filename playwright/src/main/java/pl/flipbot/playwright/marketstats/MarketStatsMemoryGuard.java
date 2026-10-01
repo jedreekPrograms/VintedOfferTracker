@@ -9,7 +9,7 @@ final class MarketStatsMemoryGuard {
 
     static final double MAX_USED_RATIO = 0.82d;
     static final long MIN_FREE_BYTES =
-            5L * 1024L * 1024L * 1024L;
+            2L * 1024L * 1024L * 1024L;
 
     private final MemoryProbe memoryProbe;
     private String lastSummary = "unmeasured";

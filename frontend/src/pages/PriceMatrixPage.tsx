@@ -672,7 +672,7 @@ function RecommendedBotsMetricCell({
                 {" · "}{planning.weeklyConversationCapacityPerBot}/tydz.
             </span>
             <span className="price-metric-note">
-                liczone z potwierdzonych FIRST_OFFER z ostatnich 28 dni; minimum awaryjne 5/dzień
+                per model: 75. percentyl aktywnych dni z ostatnich 28 dni; minimum awaryjne 5/dzień
             </span>
         </div>
     );
