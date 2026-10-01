@@ -48,6 +48,18 @@ public record NegotiationConversationSnapshot(
 
     }
 
+    public static NegotiationConversationSnapshot cancelled(
+            String rawStatus
+    ) {
+
+        return new NegotiationConversationSnapshot(
+                NegotiationConversationResult.CANCELLED,
+                null,
+                rawStatus
+        );
+
+    }
+
     public static NegotiationConversationSnapshot sellerCounterOffer(
             BigDecimal price
     ) {

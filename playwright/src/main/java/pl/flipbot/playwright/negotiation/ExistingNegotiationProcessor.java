@@ -126,8 +126,21 @@ public class ExistingNegotiationProcessor {
 
                 if ((snapshot.result() == NegotiationConversationResult.PENDING
                         || snapshot.result() == NegotiationConversationResult.UNKNOWN
-                        || snapshot.result() == NegotiationConversationResult.REJECTED)
+                        || snapshot.result() == NegotiationConversationResult.REJECTED
+                        || snapshot.result() == NegotiationConversationResult.CANCELLED)
                         && closeIfNegotiationControlsUnavailable(listing)) {
+                    continue;
+                }
+
+                if (snapshot.result() == NegotiationConversationResult.CANCELLED) {
+                    ListingResponseDto expired =
+                            listingStatusUpdater.markExpired(listing);
+                    clearContactUnavailableSuspicion(listing);
+                    log.warn(
+                            "[CONVERSATION] Listing {} changed from NEGOTIATING to EXPIRED because Vinted marks the latest own offer as CANCELLED ('{}'). No quota or follow-up offer will be attempted.",
+                            expired.listingId(),
+                            snapshot.rawStatus()
+                    );
                     continue;
                 }
 

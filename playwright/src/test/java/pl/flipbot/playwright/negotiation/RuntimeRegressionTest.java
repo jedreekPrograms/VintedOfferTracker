@@ -19,10 +19,10 @@ public class RuntimeRegressionTest {
     @Test
     public void unknownConversationSnapshotCanPreserveVisibleRawStatus() {
         NegotiationConversationSnapshot snapshot =
-                NegotiationConversationSnapshot.unknown("Anulowane");
+                NegotiationConversationSnapshot.unknown("Nieznany status Vinted");
 
         assertEquals(NegotiationConversationResult.UNKNOWN, snapshot.result());
-        assertEquals("Anulowane", snapshot.rawStatus());
+        assertEquals("Nieznany status Vinted", snapshot.rawStatus());
         assertNull(snapshot.sellerCounterOfferPrice());
     }
 }

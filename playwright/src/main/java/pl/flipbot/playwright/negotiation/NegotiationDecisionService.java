@@ -61,6 +61,7 @@ public class NegotiationDecisionService {
                     snapshot,
                     configuration
             );
+            case CANCELLED -> NegotiationDecision.unknown();
             case SELLER_COUNTER_OFFER -> decideAfterSellerCounterOffer(
                     listing,
                     snapshot,

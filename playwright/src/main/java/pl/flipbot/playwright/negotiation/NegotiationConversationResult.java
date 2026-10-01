@@ -8,6 +8,8 @@ public enum NegotiationConversationResult {
 
     REJECTED,
 
+    CANCELLED,
+
     SELLER_COUNTER_OFFER,
 
     UNKNOWN

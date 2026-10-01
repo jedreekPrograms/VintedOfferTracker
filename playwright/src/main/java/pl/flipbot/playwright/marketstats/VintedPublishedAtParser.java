@@ -143,6 +143,11 @@ final class VintedPublishedAtParser {
          * [data-testid="item-attributes-upload_date"] field can render
          * singular relative ages without a numeric prefix or datetime.
          */
+        if (normalized.equals("minuta")
+                || normalized.equals("minuty")) {
+            return Optional.of(observedAt.minusMinutes(1L));
+        }
+
         if (normalized.equals("godziny")) {
             return Optional.of(observedAt.minusHours(1L));
         }
