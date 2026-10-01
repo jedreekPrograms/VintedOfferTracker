@@ -10,6 +10,9 @@ import pl.flipbot.bot.configuration.TargetMode;
 import pl.flipbot.dictionary.DictionaryBrand;
 import pl.flipbot.dictionary.DictionaryModel;
 import pl.flipbot.dictionary.DictionaryModelRepository;
+import pl.flipbot.analytics.HistoryModelResolver;
+import pl.flipbot.listing.Listing;
+import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
 import pl.flipbot.negotiation.audit.RealActionAudit;
 import pl.flipbot.negotiation.audit.RealActionAuditRepository;
@@ -40,6 +43,10 @@ class MarketStatsCalendarPlanningServiceTest {
                 mock(MarketListingObservationRepository.class);
         RealActionAuditRepository realActionAuditRepository =
                 mock(RealActionAuditRepository.class);
+        ListingRepository listingRepository =
+                mock(ListingRepository.class);
+        HistoryModelResolver historyModelResolver =
+                mock(HistoryModelResolver.class);
 
         DictionaryBrand samsung = DictionaryBrand.builder()
                 .id(1L)
@@ -79,10 +86,16 @@ class MarketStatsCalendarPlanningServiceTest {
             audits.add(
                     RealActionAudit.builder()
                             .botId(9L)
+                            .backendListingId(100L)
                             .createdAt(yesterday.plusMinutes(index))
                             .build()
             );
         }
+
+        Listing listing = Listing.builder()
+                .id(100L)
+                .productTargetLabel("Samsung → Galaxy S26")
+                .build();
 
         when(modelRepository.findAll()).thenReturn(List.of(s26));
         when(configurationRepository.findAll()).thenReturn(List.of(configuration));
@@ -95,6 +108,10 @@ class MarketStatsCalendarPlanningServiceTest {
                         any(LocalDateTime.class)
                 ))
                 .thenReturn(audits);
+        when(listingRepository.findAllById(any()))
+                .thenReturn(List.of(listing));
+        when(historyModelResolver.resolveModelId(listing, List.of(s26)))
+                .thenReturn(Optional.of(30L));
 
         MarketStatsCalendarPlanningService service =
                 new MarketStatsCalendarPlanningService(
@@ -103,7 +120,9 @@ class MarketStatsCalendarPlanningServiceTest {
                         additionalTargetRepository,
                         scanStateRepository,
                         observationRepository,
-                        realActionAuditRepository
+                        realActionAuditRepository,
+                        listingRepository,
+                        historyModelResolver
                 );
 
         CalendarModelPlanningResponse response =
