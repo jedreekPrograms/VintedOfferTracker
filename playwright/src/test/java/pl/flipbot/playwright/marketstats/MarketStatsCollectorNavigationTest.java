@@ -33,6 +33,26 @@ public class MarketStatsCollectorNavigationTest {
     }
 
     @Test
+    public void largeModelsMayExtendBeyondConfiguredSoftLimit() {
+        assertEquals(
+                2_400,
+                MarketStatsCollector.dynamicMaxListingsPerModel(600)
+        );
+        assertEquals(
+                200,
+                MarketStatsCollector.dynamicMaxListingsPerModel(50)
+        );
+        assertEquals(
+                5_000,
+                MarketStatsCollector.dynamicMaxListingsPerModel(2_000)
+        );
+        assertEquals(
+                5_000,
+                MarketStatsCollector.dynamicMaxListingsPerModel(5_000)
+        );
+    }
+
+    @Test
     public void statisticsWindowStartsAtPreviousWeeksMonday() {
         assertEquals(
                 LocalDateTime.of(2026, 8, 31, 0, 0),
