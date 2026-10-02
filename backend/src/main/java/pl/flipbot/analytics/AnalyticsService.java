@@ -531,9 +531,24 @@ public class AnalyticsService {
             ).add(listing.getCurrentPrice());
         }
 
-        Set<LocalDate> dates = new TreeSet<>();
-        dates.addAll(marketCounts.keySet());
-        dates.addAll(purchasePrices.keySet());
+        TreeSet<LocalDate> observedDates = new TreeSet<>();
+        observedDates.addAll(marketCounts.keySet());
+        observedDates.addAll(purchasePrices.keySet());
+
+        if (observedDates.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDate firstBucket = observedDates.iterator().next();
+        LocalDate lastBucket = observedDates.last();
+
+        List<LocalDate> dates = new ArrayList<>();
+        LocalDate cursor = firstBucket;
+
+        while (!cursor.isAfter(lastBucket)) {
+            dates.add(cursor);
+            cursor = nextBucket(cursor, granularity);
+        }
 
         return dates.stream()
                 .map(date -> {
@@ -556,14 +571,28 @@ public class AnalyticsService {
                             date,
                             bucketLabel(date, granularity),
                             marketCounts.getOrDefault(date, 0L),
+                            marketSummary.count(),
                             marketSummary.average(),
                             marketSummary.median(),
+                            purchaseSummary.count(),
                             purchaseSummary.count(),
                             purchaseSummary.average(),
                             purchaseSummary.median()
                     );
                 })
                 .toList();
+    }
+
+    private LocalDate nextBucket(
+            LocalDate date,
+            AnalyticsGranularity granularity
+    ) {
+        return switch (granularity) {
+            case DAY -> date.plusDays(1);
+            case WEEK -> date.plusWeeks(1);
+            case MONTH -> date.plusMonths(1);
+            case YEAR -> date.plusYears(1);
+        };
     }
 
     private LocalDate bucketStart(

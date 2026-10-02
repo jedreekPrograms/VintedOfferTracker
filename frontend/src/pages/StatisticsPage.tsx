@@ -728,6 +728,7 @@ function PriceTimelineChart({
             className: "analytics-line-market",
             dotClass: "analytics-dot-market",
             value: (point: AnalyticsTimelinePoint) => point.medianMarketPrice,
+            sampleCount: (point: AnalyticsTimelinePoint) => point.marketPriceSampleCount,
         },
         {
             id: "MARKET_AVERAGE" as const,
@@ -735,6 +736,7 @@ function PriceTimelineChart({
             className: "analytics-line-market-average",
             dotClass: "analytics-dot-market-average",
             value: (point: AnalyticsTimelinePoint) => point.averageMarketPrice,
+            sampleCount: (point: AnalyticsTimelinePoint) => point.marketPriceSampleCount,
         },
         {
             id: "PURCHASE_AVERAGE" as const,
@@ -742,6 +744,7 @@ function PriceTimelineChart({
             className: "analytics-line-purchase",
             dotClass: "analytics-dot-purchase",
             value: (point: AnalyticsTimelinePoint) => point.averagePurchasePrice,
+            sampleCount: (point: AnalyticsTimelinePoint) => point.purchasePriceSampleCount,
         },
         {
             id: "PURCHASE_MEDIAN" as const,
@@ -749,6 +752,7 @@ function PriceTimelineChart({
             className: "analytics-line-purchase-median",
             dotClass: "analytics-dot-purchase-median",
             value: (point: AnalyticsTimelinePoint) => point.medianPurchasePrice,
+            sampleCount: (point: AnalyticsTimelinePoint) => point.purchasePriceSampleCount,
         },
     ].filter(item => {
         const sourceAllowed = source === "OBSERVER"
@@ -828,7 +832,11 @@ function PriceTimelineChart({
                                         cx={x(index)}
                                         cy={y(value)}
                                         r="3.5"
-                                    />
+                                    >
+                                        <title>
+                                            {`${point.label}: ${item.label} ${formatPrice(value)} · próba: ${item.sampleCount(point)}`}
+                                        </title>
+                                    </circle>
                                 );
                             })}
                         </g>
