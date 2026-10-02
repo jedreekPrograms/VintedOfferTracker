@@ -85,9 +85,11 @@ export interface AnalyticsTimelinePoint {
     date: string;
     label: string;
     marketListingCount: number;
+    marketPriceSampleCount: number;
     averageMarketPrice: number | null;
     medianMarketPrice: number | null;
     purchaseCount: number;
+    purchasePriceSampleCount: number;
     averagePurchasePrice: number | null;
     medianPurchasePrice: number | null;
 }
