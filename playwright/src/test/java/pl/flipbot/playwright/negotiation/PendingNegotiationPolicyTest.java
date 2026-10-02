@@ -113,7 +113,7 @@ public class PendingNegotiationPolicyTest {
     @Test
     public void readPendingOfferDoesNotRaisePriceAfterThreeHours() {
         PendingNegotiationDecision decision = policy.decide(
-                listing("2026-01-01T10:00:00", null, "2026-01-01T11:00:00"),
+                listing("2026-01-03T07:00:00", null, "2026-01-03T08:00:00"),
                 new ConversationActivitySnapshot(
                         true, true, false, null, null, true
                 ),
@@ -127,7 +127,7 @@ public class PendingNegotiationPolicyTest {
     @Test
     public void sellerChatMessageDoesNotRaisePriceWhileOfferIsStillPending() {
         PendingNegotiationDecision decision = policy.decide(
-                listing("2026-01-01T10:00:00", "2026-01-01T11:00:00", null),
+                listing("2026-01-03T07:00:00", "2026-01-03T08:00:00", null),
                 new ConversationActivitySnapshot(
                         true,
                         true,
@@ -136,7 +136,7 @@ public class PendingNegotiationPolicyTest {
                         LocalDateTime.parse("2026-01-01T11:00:00"),
                         false
                 ),
-                new BotConfigurationDto()
+                fiveStepConfiguration()
         );
 
         assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
