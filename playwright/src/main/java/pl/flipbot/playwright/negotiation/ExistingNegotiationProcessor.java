@@ -172,10 +172,28 @@ public class ExistingNegotiationProcessor {
                                     pending.reason()
                             );
                         }
-                        case SEND_NEXT_STEP -> throw new IllegalStateException(
-                                "Explicit Vinted PENDING state must never trigger a price increase. "
-                                        + "Unexpected pending-policy action: " + pending.action()
-                        );
+                        case SEND_NEXT_STEP -> {
+                            stepSent = processNextStep(
+                                    listing,
+                                    NegotiationDecision.sendNextStep(
+                                            pending.nextStep(),
+                                            null,
+                                            pending.reason()
+                                    )
+                            );
+
+                            if (stepSent) {
+                                sent++;
+                                log.warn(
+                                        "[NEXT STEP REAL] Sent next steps during this run: {}/{}",
+                                        sent,
+                                        maxRealNextStepsPerRun
+                                );
+                                if (sent >= maxRealNextStepsPerRun) {
+                                    return true;
+                                }
+                            }
+                        }
                     }
                     continue;
                 } else {
