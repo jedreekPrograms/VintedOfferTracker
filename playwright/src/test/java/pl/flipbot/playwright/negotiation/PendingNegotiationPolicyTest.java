@@ -72,6 +72,65 @@ public class PendingNegotiationPolicyTest {
         assertTrue(decision.reason().contains("12h"));
     }
 
+
+    @Test
+    public void sellerChatMessageStillAdvancesAfterNoResponseTimeout() {
+        BotConfigurationDto configuration = fiveStepConfiguration();
+
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-02T21:00:00",
+                        "2026-01-02T22:00:00",
+                        null,
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        true,
+                        "1190 PLN?",
+                        LocalDateTime.parse("2026-01-02T22:00:00"),
+                        false
+                ),
+                configuration
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+    }
+
+    @Test
+    public void immediateRejectionPolicyUsesConservativeTwelveHourNoResponseFallback() {
+        BotConfigurationDto configuration = fiveStepConfiguration();
+        NegotiationStepDto step2 = configuration
+                .getNegotiationSteps()
+                .get(1);
+        step2.setRejectionAction(
+                NegotiationReactionAction.NEXT_STEP_NOW
+        );
+        step2.setRejectionWaitHours(null);
+
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-02T21:59:59",
+                        null,
+                        null,
+                        2
+                ),
+                ConversationActivitySnapshot.unavailable(),
+                configuration
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertTrue(decision.reason().contains("6h x 2 = 12h"));
+    }
+
     @Test
     public void finalPendingOfferExpiresAfter48Hours() {
         BotConfigurationDto configuration = fiveStepConfiguration();
