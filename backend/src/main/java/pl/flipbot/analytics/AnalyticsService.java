@@ -541,14 +541,8 @@ public class AnalyticsService {
             return List.of();
         }
 
-        LocalDate firstBucket = range.from().equals(LocalDateTime.MIN)
-                ? observedDates.iterator().next()
-                : bucketStart(range.from().toLocalDate(), granularity);
-
-        LocalDate lastBucket = bucketStart(
-                range.to().toLocalDate(),
-                granularity
-        );
+        LocalDate firstBucket = observedDates.iterator().next();
+        LocalDate lastBucket = ((TreeSet<LocalDate>) observedDates).last();
 
         List<LocalDate> dates = new ArrayList<>();
         LocalDate cursor = firstBucket;
