@@ -261,8 +261,7 @@ public class AnalyticsService {
                 buildTimeline(
                         history,
                         market,
-                        effectiveGranularity,
-                        range
+                        effectiveGranularity
                 );
 
         List<BigDecimal> marketPrices =
@@ -488,8 +487,7 @@ public class AnalyticsService {
     private List<AnalyticsOverviewResponse.TimelinePoint> buildTimeline(
             List<Listing> history,
             List<MarketListingObservation> market,
-            AnalyticsGranularity granularity,
-            TimeRange range
+            AnalyticsGranularity granularity
     ) {
         Map<LocalDate, List<BigDecimal>> marketPrices = new LinkedHashMap<>();
         Map<LocalDate, Long> marketCounts = new LinkedHashMap<>();
@@ -533,7 +531,7 @@ public class AnalyticsService {
             ).add(listing.getCurrentPrice());
         }
 
-        Set<LocalDate> observedDates = new TreeSet<>();
+        TreeSet<LocalDate> observedDates = new TreeSet<>();
         observedDates.addAll(marketCounts.keySet());
         observedDates.addAll(purchasePrices.keySet());
 
@@ -542,7 +540,7 @@ public class AnalyticsService {
         }
 
         LocalDate firstBucket = observedDates.iterator().next();
-        LocalDate lastBucket = ((TreeSet<LocalDate>) observedDates).last();
+        LocalDate lastBucket = observedDates.last();
 
         List<LocalDate> dates = new ArrayList<>();
         LocalDate cursor = firstBucket;
