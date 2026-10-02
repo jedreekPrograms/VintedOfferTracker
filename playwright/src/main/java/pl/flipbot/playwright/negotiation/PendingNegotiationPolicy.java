@@ -2,6 +2,8 @@ package pl.flipbot.playwright.negotiation;
 
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
+import pl.flipbot.playwright.model.NegotiationReactionAction;
+import pl.flipbot.playwright.model.NegotiationStepDto;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -13,23 +15,43 @@ import java.util.Objects;
  * A visible Vinted PENDING state is authoritative: the seller has not formally
  * accepted, rejected or countered the latest offer yet.
  *
- * Reading the offer, sending a normal chat message, or simply letting time pass
- * is not enough evidence to raise our price or close the negotiation. Formal
- * rejection/counteroffer timing is handled by NegotiationDecisionService using
- * the user-configured response policies.
+ * Reading the offer or sending a normal chat message is not a formal seller
+ * response. For non-final steps we nevertheless avoid leaving a PENDING offer
+ * open forever: the no-response timeout is twice the configured rejection wait
+ * for the current step. If the rejection policy is immediate/legacy and has no
+ * positive wait value, a conservative 12h fallback is used.
+ *
+ * The final configured step is never auto-raised again and expires after 48h.
  */
 public class PendingNegotiationPolicy {
 
     private static final int FINAL_STEP_PENDING_EXPIRY_HOURS = 48;
+    private static final int FALLBACK_NON_RESPONSE_WAIT_HOURS = 12;
+    private static final int NON_RESPONSE_MULTIPLIER = 2;
 
     private final Clock clock;
+    private final AdaptiveNegotiationPricingService pricingService;
 
     public PendingNegotiationPolicy() {
-        this(Clock.systemDefaultZone());
+        this(
+                Clock.systemDefaultZone(),
+                new AdaptiveNegotiationPricingService()
+        );
     }
 
     PendingNegotiationPolicy(Clock clock) {
+        this(
+                clock,
+                new AdaptiveNegotiationPricingService()
+        );
+    }
+
+    PendingNegotiationPolicy(
+            Clock clock,
+            AdaptiveNegotiationPricingService pricingService
+    ) {
         this.clock = Objects.requireNonNull(clock);
+        this.pricingService = Objects.requireNonNull(pricingService);
     }
 
     public PendingNegotiationDecision decide(
@@ -45,6 +67,12 @@ public class PendingNegotiationPolicy {
                 decideFinalStepPendingExpiry(listing, configuration);
         if (finalStepDecision != null) {
             return finalStepDecision;
+        }
+
+        PendingNegotiationDecision nonFinalTimeoutDecision =
+                decideNonFinalPendingTimeout(listing, configuration);
+        if (nonFinalTimeoutDecision != null) {
+            return nonFinalTimeoutDecision;
         }
 
         if (activitySnapshot.sellerMessageAfterLatestOwnOffer()) {
@@ -64,10 +92,24 @@ public class PendingNegotiationPolicy {
 
         LocalDateTime startedAt = parseDateTime(listing.currentStepStartedAt());
         if (startedAt != null) {
+            NegotiationStepDto currentStep = findCurrentStep(
+                    listing,
+                    configuration
+            );
+            int rejectionWaitHours = rejectionWaitHours(currentStep);
+            long noResponseWaitHours =
+                    (long) rejectionWaitHours * NON_RESPONSE_MULTIPLIER;
+            LocalDateTime nextActionAt = startedAt.plusHours(
+                    noResponseWaitHours
+            );
+
             return PendingNegotiationDecision.waitForSeller(
                     "Vinted still reports the latest offer as PENDING since "
                             + startedAt
-                            + ". Elapsed time alone is not terminal evidence, so the negotiation remains active."
+                            + ". No formal response exists yet. The non-final no-response timeout is "
+                            + noResponseWaitHours
+                            + "h (2x rejection wait), so the next step becomes eligible at "
+                            + nextActionAt + "."
             );
         }
 
@@ -75,6 +117,138 @@ public class PendingNegotiationPolicy {
                 "Vinted still reports the latest offer as PENDING. No trustworthy formal response exists, "
                         + "so the negotiation remains active."
         );
+    }
+
+    private PendingNegotiationDecision decideNonFinalPendingTimeout(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration
+    ) {
+        NegotiationStepDto currentStep = findCurrentStep(
+                listing,
+                configuration
+        );
+
+        LocalDateTime startedAt = parseDateTime(
+                listing.currentStepStartedAt()
+        );
+
+        if (startedAt == null) {
+            return null;
+        }
+
+        int rejectionWaitHours = rejectionWaitHours(currentStep);
+        long noResponseWaitHours =
+                (long) rejectionWaitHours * NON_RESPONSE_MULTIPLIER;
+
+        LocalDateTime nextActionAt = startedAt.plusHours(
+                noResponseWaitHours
+        );
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        if (now.isBefore(nextActionAt)) {
+            return null;
+        }
+
+        NegotiationStepDto configuredNextStep = findNextStep(
+                listing,
+                configuration
+        );
+
+        if (configuredNextStep == null) {
+            return PendingNegotiationDecision.expire(
+                    "Vinted still reports the offer as PENDING after "
+                            + noResponseWaitHours
+                            + "h without a formal seller response, but no next configured negotiation step exists."
+            );
+        }
+
+        return pricingService
+                .adaptNextStep(
+                        listing,
+                        configuredNextStep,
+                        configuration
+                )
+                .map(nextStep ->
+                        PendingNegotiationDecision.sendNextStep(
+                                nextStep,
+                                "Vinted still reports step "
+                                        + listing.currentStep()
+                                        + " as PENDING without a formal seller response. "
+                                        + "The no-response policy waits 2x the rejection wait: "
+                                        + rejectionWaitHours + "h x "
+                                        + NON_RESPONSE_MULTIPLIER + " = "
+                                        + noResponseWaitHours + "h. "
+                                        + "Step started at " + startedAt
+                                        + "; next step became eligible at "
+                                        + nextActionAt + "."
+                        )
+                )
+                .orElseGet(() ->
+                        PendingNegotiationDecision.expire(
+                                "Vinted still reports the offer as PENDING after "
+                                        + noResponseWaitHours
+                                        + "h, but the next adaptive step cannot be sent within the configured automatic-offer cap. "
+                                        + "The stale negotiation is closed instead of remaining active forever."
+                        )
+                );
+    }
+
+    private int rejectionWaitHours(
+            NegotiationStepDto currentStep
+    ) {
+        if (currentStep.getRejectionAction()
+                == NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
+                && currentStep.getRejectionWaitHours() != null
+                && currentStep.getRejectionWaitHours() > 0) {
+            return currentStep.getRejectionWaitHours();
+        }
+
+        return FALLBACK_NON_RESPONSE_WAIT_HOURS / NON_RESPONSE_MULTIPLIER;
+    }
+
+    private NegotiationStepDto findCurrentStep(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration
+    ) {
+        if (listing.currentStep() == null
+                || configuration.getNegotiationSteps() == null) {
+            throw new IllegalStateException(
+                    "Cannot evaluate PENDING timeout without a current negotiation step."
+            );
+        }
+
+        return configuration.getNegotiationSteps()
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(step -> Objects.equals(
+                        step.getStepNumber(),
+                        listing.currentStep()
+                ))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Cannot find negotiation configuration for current step "
+                                + listing.currentStep()
+                ));
+    }
+
+    private NegotiationStepDto findNextStep(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration
+    ) {
+        if (listing.currentStep() == null
+                || configuration.getNegotiationSteps() == null) {
+            return null;
+        }
+
+        return configuration.getNegotiationSteps()
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(step -> step.getStepNumber() != null)
+                .filter(step -> step.getStepNumber() > listing.currentStep())
+                .min(Comparator.comparing(
+                        NegotiationStepDto::getStepNumber
+                ))
+                .orElse(null);
     }
 
     private PendingNegotiationDecision decideFinalStepPendingExpiry(
