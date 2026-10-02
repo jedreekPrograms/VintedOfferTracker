@@ -79,9 +79,11 @@ public record AnalyticsOverviewResponse(
             LocalDate date,
             String label,
             long marketListingCount,
+            int marketPriceSampleCount,
             BigDecimal averageMarketPrice,
             BigDecimal medianMarketPrice,
             long purchaseCount,
+            int purchasePriceSampleCount,
             BigDecimal averagePurchasePrice,
             BigDecimal medianPurchasePrice
     ) {
