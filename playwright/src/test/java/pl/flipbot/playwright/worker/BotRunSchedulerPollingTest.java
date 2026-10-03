@@ -264,6 +264,55 @@ public class BotRunSchedulerPollingTest {
     }
 
     @Test
+    public void manualSessionInterventionMakesBlockedPreviewDueImmediatelyOnceRequested()
+            throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+
+        try {
+            scheduler.setPausedBotIds(Set.of(12L));
+            scheduler.reconcileRunningBots(Map.of(12L, true));
+
+            ScheduledBotTask blocked =
+                    scheduler.pollPreviewNext(12L, 100L);
+            assertNotNull(blocked);
+
+            scheduler.completeRun(
+                    blocked.botId(),
+                    blocked.jobType(),
+                    7L * 60L * 60L * 1_000L,
+                    true,
+                    false
+            );
+
+            assertNull(scheduler.pollPreviewNext(12L, 30L));
+            assertNull(scheduler.pollNext(30L));
+
+            scheduler.wakeForManualSessionIntervention(12L);
+
+            /*
+             * The bot remains exclusive to the LIVE preview owner. Generic
+             * workers still cannot claim it, but the preview can immediately
+             * run one visible recovery attempt instead of waiting hours.
+             */
+            assertNull(scheduler.pollNext(30L));
+
+            ScheduledBotTask recoveryProbe =
+                    scheduler.pollPreviewNext(12L, 100L);
+
+            assertNotNull(recoveryProbe);
+            assertEquals(Long.valueOf(12L), recoveryProbe.botId());
+            assertEquals(
+                    ScheduledJobType.NEGOTIATION_CHECK,
+                    recoveryProbe.jobType()
+            );
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
     public void verifiedSessionRecoveryReleasesPreviewCooldownImmediately()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
