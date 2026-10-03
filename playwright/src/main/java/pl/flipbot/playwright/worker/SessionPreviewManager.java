@@ -174,6 +174,12 @@ final class SessionPreviewManager implements AutoCloseable {
                         browserManager,
                         recoveryMonitor
                 );
+                armManualInterventionProbeIfNeeded(
+                        botId,
+                        handle,
+                        recoveryMonitor,
+                        scheduler
+                );
 
                 while (!handle.stopRequested.get()) {
                     ScheduledBotTask task = scheduler.pollPreviewNext(
@@ -199,12 +205,16 @@ final class SessionPreviewManager implements AutoCloseable {
                     closeContext(idleContext, botId, "before scheduled job");
                     idleContext = null;
 
+                    boolean manualInterventionProbe =
+                            recoveryMonitor.consumeManualInterventionProbe();
+
                     executeScheduledTask(
                             botId,
                             task,
                             bot,
                             browserManager,
-                            scheduler
+                            scheduler,
+                            manualInterventionProbe
                     );
 
                     if (!handle.stopRequested.get()) {
@@ -213,6 +223,12 @@ final class SessionPreviewManager implements AutoCloseable {
                                 bot,
                                 browserManager,
                                 recoveryMonitor
+                        );
+                        armManualInterventionProbeIfNeeded(
+                                botId,
+                                handle,
+                                recoveryMonitor,
+                                scheduler
                         );
                     }
                 }
@@ -414,19 +430,49 @@ final class SessionPreviewManager implements AutoCloseable {
         }
     }
 
+    private void armManualInterventionProbeIfNeeded(
+            Long botId,
+            PreviewHandle handle,
+            RecoveryMonitor monitor,
+            BotRunScheduler scheduler
+    ) {
+        if (handle.manualInterventionProbeUsed.get()) {
+            return;
+        }
+
+        if (!hasPersistedSessionBlock(botId)) {
+            return;
+        }
+
+        if (!handle.manualInterventionProbeUsed.compareAndSet(false, true)) {
+            return;
+        }
+
+        monitor.recoveryObserved = true;
+        monitor.manualInterventionProbePending = true;
+        scheduler.wakeForManualSessionIntervention(botId);
+
+        log.warn(
+                "[SESSION PREVIEW] Persisted SESSION_BLOCKED detected for bot {} when LIVE preview was requested. The normal cooldown will be bypassed exactly once for a visible manual-recovery attempt. Complete CAPTCHA/authentication in the headed Chromium; successful authenticated work clears the block, while another block returns to the normal cooldown.",
+                botId
+        );
+    }
+
     private void executeScheduledTask(
             Long botId,
             ScheduledBotTask task,
             BotDetailsDto bot,
             BrowserManager browserManager,
-            BotRunScheduler scheduler
+            BotRunScheduler scheduler,
+            boolean manualInterventionProbe
     ) {
         ScheduledJobType jobType = task.jobType();
 
         Long persistedBlockDelayMillis =
                 persistedSessionBlockDelay(botId);
 
-        if (persistedBlockDelayMillis != null
+        if (!manualInterventionProbe
+                && persistedBlockDelayMillis != null
                 && persistedBlockDelayMillis > 0L) {
             log.warn(
                     "[SESSION PREVIEW] Bot {} remains under persisted Vinted session cooldown for about {} minute(s). The visible window stays available for manual recovery, but scheduled marketplace actions will not run early.",
@@ -447,6 +493,15 @@ final class SessionPreviewManager implements AutoCloseable {
                     false
             );
             return;
+        }
+
+        if (manualInterventionProbe
+                && persistedBlockDelayMillis != null
+                && persistedBlockDelayMillis > 0L) {
+            log.warn(
+                    "[SESSION PREVIEW] Bot {} is still under a persisted SESSION_BLOCKED cooldown, but the user explicitly opened LIVE preview. Bypassing that cooldown for this ONE visible recovery attempt so CAPTCHA/authentication can be completed interactively.",
+                    botId
+            );
         }
 
         long nextDelayMillis = TimeUnit.SECONDS.toMillis(
@@ -785,12 +840,21 @@ final class SessionPreviewManager implements AutoCloseable {
 
     private static final class RecoveryMonitor {
         private boolean recoveryObserved;
+        private boolean manualInterventionProbePending;
+
+        private boolean consumeManualInterventionProbe() {
+            boolean pending = manualInterventionProbePending;
+            manualInterventionProbePending = false;
+            return pending;
+        }
     }
 
     private static final class PreviewHandle {
         private final AtomicBoolean stopRequested =
                 new AtomicBoolean(false);
         private final AtomicBoolean finished =
+                new AtomicBoolean(false);
+        private final AtomicBoolean manualInterventionProbeUsed =
                 new AtomicBoolean(false);
         private volatile Future<?> future;
     }
