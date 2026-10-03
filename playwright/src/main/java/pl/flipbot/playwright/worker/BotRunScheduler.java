@@ -481,6 +481,54 @@ public class BotRunScheduler {
         }
     }
 
+    public synchronized void wakeForManualSessionIntervention(Long botId) {
+        BotSchedule schedule = schedules.get(botId);
+
+        if (schedule == null || !schedule.enabled) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+
+        schedule.nextCatalogAtEpochMs = Math.min(
+                schedule.nextCatalogAtEpochMs,
+                now
+        );
+
+        if (schedule.hasActiveNegotiations) {
+            schedule.nextNegotiationAtEpochMs = Math.min(
+                    schedule.nextNegotiationAtEpochMs,
+                    now
+            );
+        }
+
+        if (PRICE_PROBE_CONFIG.enabled()) {
+            schedule.nextPriceProbeAtEpochMs = Math.min(
+                    schedule.nextPriceProbeAtEpochMs,
+                    now
+            );
+        }
+
+        if (schedule.state == RunState.QUEUED) {
+            removeQueuedTask(botId);
+            schedule.state = null;
+            schedule.queuedJobType = null;
+            schedule.queuedRunAtNanos = 0L;
+        }
+
+        schedule.reportQueuedStatus = false;
+
+        if (!pausedBotIds.contains(botId)
+                && schedule.state == null) {
+            enqueueEarliestJob(botId, schedule, now);
+        }
+
+        log.warn(
+                "[SESSION PREVIEW] Manual intervention requested for blocked bot {}. One due job is made immediately eligible for the exclusive LIVE owner so a visible CAPTCHA/authentication challenge can be completed by the user. This does not clear the persisted block by itself.",
+                botId
+        );
+    }
+
     public synchronized void resumeAfterSessionRecovery(Long botId) {
         BotSchedule schedule = schedules.get(botId);
 
