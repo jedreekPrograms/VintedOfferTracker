@@ -385,7 +385,9 @@ function RuntimeRow({
                         </button>
                         {bot.sessionPreviewRequested && (
                             <div className="runtime-cell-secondary">
-                                LIVE · bot normalnie pracuje w widocznym Chromium
+                                {sessionBlocked
+                                    ? "LIVE · ręczne odblokowanie: przejdź CAPTCHA, a bot automatycznie wznowi pracę"
+                                    : "LIVE · bot normalnie pracuje w widocznym Chromium"}
                             </div>
                         )}
                     </>
