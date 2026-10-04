@@ -506,7 +506,7 @@ function TodayMetricCell({
             value={planning?.offersToday ?? null}
             complete={planning?.todayWindowComplete ?? false}
             completeText="od 00:00"
-            partialText="częściowy dzień od baseline"
+            partialText="brak pełnego skanu dzisiaj"
             showBaseline
         />
     );
@@ -524,7 +524,7 @@ function CurrentWeekMetricCell({
             value={planning?.offersCurrentWeek ?? null}
             complete={planning?.currentWeekWindowComplete ?? false}
             completeText="od pon. 00:00"
-            partialText="częściowy tydzień od baseline"
+            partialText="brak pełnego skanu dzisiaj"
         />
     );
 }
@@ -574,8 +574,14 @@ function CalendarMetricCell({
             ? `≥ ${value}`
             : "—";
 
+    const successfulScanLabel = planning.lastSuccessfulScanAt === null
+        ? null
+        : formatPlanningScanTime(planning.lastSuccessfulScanAt);
+
     const coverageText = complete
-        ? completeText
+        ? successfulScanLabel === null
+            ? completeText
+            : `${completeText} · stan na ${successfulScanLabel}`
         : value > 0
             ? `${partialText} · minimum wykryte`
             : `${partialText} · brak pełnego pokrycia`;
@@ -592,6 +598,16 @@ function CalendarMetricCell({
             {showBaseline && planning.baselineOffers !== null && (
                 <span className="price-metric-note">
                     punkt startowy: {planning.baselineOffers} ofert
+                </span>
+            )}
+            {complete && !planning.currentWindowFresh && (
+                <span className="price-metric-warning">
+                    Pełny skan jest starszy niż 2 godz.
+                </span>
+            )}
+            {!complete && successfulScanLabel !== null && (
+                <span className="price-metric-note">
+                    ostatni pełny skan: {successfulScanLabel}
                 </span>
             )}
             {!planning.lastScanComplete && (
@@ -781,6 +797,21 @@ function samePrice(left: number | null, right: number | null): boolean {
     }
 
     return Math.abs(left - right) < 0.0001;
+}
+
+function formatPlanningScanTime(value: string): string {
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+        return value;
+    }
+
+    return new Intl.DateTimeFormat("pl-PL", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(parsed);
 }
 
 function formatModelCount(count: number): string {
