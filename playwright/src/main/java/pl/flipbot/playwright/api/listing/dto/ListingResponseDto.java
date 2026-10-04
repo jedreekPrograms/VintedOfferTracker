@@ -1,5 +1,7 @@
 package pl.flipbot.playwright.api.listing.dto;
 
+import pl.flipbot.playwright.model.NegotiationStrategySnapshotDto;
+
 import java.math.BigDecimal;
 
 public record ListingResponseDto(
@@ -21,7 +23,9 @@ public record ListingResponseDto(
         String formalResponseFingerprint,
         String formalResponseDetectedAt,
         Long additionalTargetId,
-        String productTargetLabel
+        String productTargetLabel,
+        Integer negotiationStrategyVersion,
+        NegotiationStrategySnapshotDto negotiationStrategySnapshot
 ) {
 
     /* Backward-compatible constructor used by older tests/helpers. */
@@ -52,6 +56,8 @@ public record ListingResponseDto(
                 conversationUrl,
                 status,
                 decisionAt,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -100,6 +106,8 @@ public record ListingResponseDto(
                 null,
                 null,
                 null,
+                null,
+                null,
                 null
         );
     }
@@ -143,6 +151,8 @@ public record ListingResponseDto(
                 readDetectedAt,
                 formalResponseFingerprint,
                 formalResponseDetectedAt,
+                null,
+                null,
                 null,
                 null
         );
@@ -189,6 +199,8 @@ public record ListingResponseDto(
                 formalResponseFingerprint,
                 formalResponseDetectedAt,
                 additionalTargetId,
+                null,
+                null,
                 null
         );
     }
