@@ -63,6 +63,52 @@ public class NegotiationDecisionServiceAdaptiveTest {
     }
 
     @Test
+    public void sellerCounterOfferBelowGlobalCapBecomesActionRequiredImmediately() {
+        BotConfigurationDto configuration = adaptiveConfiguration("1450.00");
+        ListingResponseDto listing = negotiatingListing("1250.00", 1);
+
+        NegotiationDecision decision = service.decide(
+                listing,
+                NegotiationConversationSnapshot.sellerCounterOffer(
+                        new BigDecimal("1400.00")
+                ),
+                configuration
+        );
+
+        assertEquals(
+                NegotiationDecisionType.MARK_ACTION_REQUIRED,
+                decision.type()
+        );
+        assertEquals(
+                0,
+                new BigDecimal("1400.00").compareTo(
+                        decision.sellerCounterOfferPrice()
+                )
+        );
+        assertTrue(decision.reason().contains("global negotiation cap"));
+    }
+
+    @Test
+    public void sellerCounterOfferAboveGlobalCapKeepsNegotiating() {
+        BotConfigurationDto configuration = adaptiveConfiguration("1450.00");
+        ListingResponseDto listing = negotiatingListing("1250.00", 1);
+
+        NegotiationDecision decision = service.decide(
+                listing,
+                NegotiationConversationSnapshot.sellerCounterOffer(
+                        new BigDecimal("1500.00")
+                ),
+                configuration
+        );
+
+        assertEquals(
+                NegotiationDecisionType.SEND_NEXT_STEP,
+                decision.type()
+        );
+        assertNotNull(decision.nextStep());
+    }
+
+    @Test
     public void sellerCounterOfferBelowPlannedNextPriceBecomesActionRequired() {
         BotConfigurationDto configuration = adaptiveConfiguration("1500.00");
         ListingResponseDto listing = negotiatingListing("1250.00", 1);
