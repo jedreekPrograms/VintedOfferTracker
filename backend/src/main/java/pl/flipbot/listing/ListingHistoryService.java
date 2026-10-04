@@ -170,6 +170,7 @@ public class ListingHistoryService {
                                 : listing.getAdditionalTarget().getId()
                 )
                 .productTargetLabel(listing.getProductTargetLabel())
+                .negotiationStrategyVersion(listing.getNegotiationStrategyVersion())
                 .build();
     }
 }
