@@ -81,7 +81,7 @@ class MarketStatsServiceTest {
         verify(observationRepository, never()).deleteByModel_Id(anyLong());
     }
     @Test
-    void incrementalNewListingUsesFirstSeenAsPublicationFallback() {
+    void incrementalCompletionUsesFirstSeenAsPublicationFallback() {
         DictionaryModelRepository modelRepository =
                 mock(DictionaryModelRepository.class);
         BotConfigurationRepository configurationRepository =
@@ -98,6 +98,18 @@ class MarketStatsServiceTest {
                 .name("Galaxy S24")
                 .brand(DictionaryBrand.builder().id(1L).name("Samsung").build())
                 .build();
+        LocalDateTime firstSeenAt =
+                LocalDateTime.now().minusSeconds(20);
+        MarketListingObservation existing =
+                MarketListingObservation.builder()
+                        .model(model)
+                        .trackingGeneration(1)
+                        .marketplaceListingId("new-123")
+                        .firstSeenAt(firstSeenAt)
+                        .lastSeenAt(firstSeenAt)
+                        .publishedAt(null)
+                        .baseline(false)
+                        .build();
         MarketModelScanState state = MarketModelScanState.builder()
                 .model(model)
                 .trackingGeneration(1)
@@ -118,7 +130,7 @@ class MarketStatsServiceTest {
                         1,
                         List.of("new-123")
                 ))
-                .thenReturn(List.of());
+                .thenReturn(List.of(existing));
 
         MarketStatsService service = new MarketStatsService(
                 modelRepository,
@@ -132,7 +144,7 @@ class MarketStatsServiceTest {
                 30L,
                 new MarketObservationBatchRequest(
                         List.of("new-123"),
-                        false,
+                        true,
                         null,
                         null,
                         1,
@@ -140,15 +152,12 @@ class MarketStatsServiceTest {
                 )
         );
 
+        assertNotNull(existing.getPublishedAt());
+        assertEquals(firstSeenAt, existing.getPublishedAt());
         verify(observationRepository).saveAll(
-                org.mockito.ArgumentMatchers.argThat(observations -> {
-                    MarketListingObservation saved =
-                            observations.iterator().next();
-                    assertNotNull(saved.getPublishedAt());
-                    assertEquals(saved.getFirstSeenAt(), saved.getPublishedAt());
-                    assertFalse(Boolean.TRUE.equals(saved.getBaseline()));
-                    return true;
-                })
+                org.mockito.ArgumentMatchers.argThat(observations ->
+                        observations.iterator().next() == existing
+                )
         );
     }
 
