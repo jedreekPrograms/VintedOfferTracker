@@ -1,6 +1,6 @@
 package pl.flipbot.negotiation.strategy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.configuration.BotConfiguration;
@@ -45,7 +45,7 @@ class NegotiationStrategySnapshotServiceTest {
                 .build();
 
         NegotiationStrategySnapshotService service =
-                new NegotiationStrategySnapshotService(new ObjectMapper());
+                new NegotiationStrategySnapshotService(JsonMapper.builder().build());
 
         assertTrue(service.pinIfMissing(listing));
         assertEquals(3, listing.getNegotiationStrategyVersion());
