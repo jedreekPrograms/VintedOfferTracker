@@ -41,6 +41,21 @@ public class MarketStatsHealthService {
                         .count()
         );
 
+        LocalDateTime staleCutoff =
+                LocalDateTime.now(MARKET_STATS_ZONE)
+                        .minusMinutes(staleAfterMinutes());
+
+        int staleModels = safeInt(
+                states.stream()
+                        .filter(state -> state.getBaselineCompleteAt() != null)
+                        .filter(state ->
+                                state.getLastSuccessfulScanAt() == null
+                                        || state.getLastSuccessfulScanAt()
+                                        .isBefore(staleCutoff)
+                        )
+                        .count()
+        );
+
         LocalDateTime lastScanAt = states.stream()
                 .map(MarketModelScanState::getLastScanAt)
                 .filter(java.util.Objects::nonNull)
@@ -53,12 +68,19 @@ public class MarketStatsHealthService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
+        LocalDateTime oldestSuccessfulScanAt = states.stream()
+                .filter(state -> state.getBaselineCompleteAt() != null)
+                .map(MarketModelScanState::getLastSuccessfulScanAt)
+                .filter(java.util.Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .orElse(null);
+
         MarketStatsHealthStatus status = resolveStatus(
                 totalModels,
                 pendingBaseline,
                 incomplete,
-                lastScanAt,
-                lastSuccessfulScanAt
+                staleModels,
+                lastScanAt
         );
 
         return new MarketStatsHealthResponse(
@@ -67,8 +89,10 @@ public class MarketStatsHealthService {
                 baselineReady,
                 pendingBaseline,
                 incomplete,
+                staleModels,
                 lastScanAt,
-                lastSuccessfulScanAt
+                lastSuccessfulScanAt,
+                oldestSuccessfulScanAt
         );
     }
 
@@ -76,8 +100,8 @@ public class MarketStatsHealthService {
             int totalModels,
             int pendingBaseline,
             int incomplete,
-            LocalDateTime lastScanAt,
-            LocalDateTime lastSuccessfulScanAt
+            int staleModels,
+            LocalDateTime lastScanAt
     ) {
         if (totalModels == 0) {
             return MarketStatsHealthStatus.IDLE;
@@ -95,12 +119,7 @@ public class MarketStatsHealthService {
             return MarketStatsHealthStatus.WARMING_UP;
         }
 
-        if (lastSuccessfulScanAt == null
-                || lastSuccessfulScanAt.isBefore(
-                        LocalDateTime.now(MARKET_STATS_ZONE).minusMinutes(
-                                staleAfterMinutes()
-                        )
-                )) {
+        if (staleModels > 0) {
             return MarketStatsHealthStatus.STALE;
         }
 
