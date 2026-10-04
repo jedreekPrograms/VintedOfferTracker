@@ -51,12 +51,24 @@ public class MarketStatsService {
                         .stream()
                         .filter(target -> Boolean.TRUE.equals(target.getActive()))
                         .toList();
+        Map<Long, MarketModelScanState> scanStates =
+                scanStateRepository.findAll()
+                        .stream()
+                        .filter(state -> state.getModelId() != null)
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        MarketModelScanState::getModelId,
+                                        state -> state,
+                                        (left, right) -> left
+                                )
+                        );
 
         return modelRepository.findAll()
                 .stream()
                 .sorted(
                         MarketStatsTargetOrdering.comparator(
-                                configurations
+                                configurations,
+                                scanStates
                         )
                 )
                 .map(model -> {
@@ -245,6 +257,25 @@ public class MarketStatsService {
 
             if (existing != null) {
                 existing.setLastSeenAt(now);
+
+                /*
+                 * MarketStatsApiClient first persists discovery with
+                 * complete=false and only sends complete=true after publication
+                 * requirements have been satisfied. A healthy incremental scan
+                 * may intentionally skip detail-page timestamp resolution for a
+                 * brand-new post-baseline listing; only at this completion step
+                 * is firstSeenAt promoted to the publication fallback.
+                 *
+                 * Interrupted/full-recovery scans never reach complete=true
+                 * while an exact timestamp is still required, so they keep
+                 * publishedAt=null and remain retryable.
+                 */
+                if (existing.getPublishedAt() == null
+                        && request.complete()
+                        && !baselineMode) {
+                    existing.setPublishedAt(existing.getFirstSeenAt());
+                }
+
                 applyObservedPrice(existing, observedPrice);
                 changed.add(existing);
                 continue;

@@ -9,8 +9,10 @@ import pl.flipbot.dictionary.DictionaryBrand;
 import pl.flipbot.dictionary.DictionaryCategory;
 import pl.flipbot.dictionary.DictionaryModel;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -82,6 +84,86 @@ class MarketStatsTargetOrderingTest {
 
         assertEquals(
                 List.of(s25, s25Ultra, ipad),
+                models
+        );
+    }
+
+    @Test
+    void unfinishedModelBeatsRunningBotPriorityUntilCoverageIsHealthy() {
+        DictionaryBrand samsung = brand(1L, "Samsung");
+        DictionaryBrand apple = brand(2L, "Apple");
+
+        DictionaryCategory phones = category(
+                1L,
+                "Telefony",
+                "Elektronika > Telefony"
+        );
+        DictionaryCategory tablets = category(
+                2L,
+                "Tablety",
+                "Elektronika > Tablety"
+        );
+
+        DictionaryModel s25 = model(
+                10L,
+                samsung,
+                phones,
+                "Galaxy S25"
+        );
+        DictionaryModel ipad = model(
+                12L,
+                apple,
+                tablets,
+                "iPad Air 11 (2024)"
+        );
+
+        BotConfiguration runningS25Bot = BotConfiguration.builder()
+                .bot(
+                        Bot.builder()
+                                .id(100L)
+                                .status(BotStatus.RUNNING)
+                                .marketStatsObserver(false)
+                                .build()
+                )
+                .brand("Samsung")
+                .targetMode(TargetMode.VINTED_MODEL)
+                .model("Galaxy S25")
+                .categoryPath(List.of("Elektronika", "Telefony"))
+                .build();
+
+        LocalDateTime now = LocalDateTime.now();
+        MarketModelScanState healthySamsung =
+                MarketModelScanState.builder()
+                        .modelId(10L)
+                        .baselineCompleteAt(now.minusDays(4))
+                        .publicationWindowCompleteAt(now.minusDays(3))
+                        .lastSuccessfulScanAt(now.minusMinutes(10))
+                        .lastScanComplete(true)
+                        .build();
+        MarketModelScanState unfinishedIpad =
+                MarketModelScanState.builder()
+                        .modelId(12L)
+                        .baselineCompleteAt(now.minusDays(4))
+                        .publicationWindowCompleteAt(null)
+                        .lastSuccessfulScanAt(now.minusHours(5))
+                        .lastScanComplete(false)
+                        .build();
+
+        List<DictionaryModel> models =
+                new ArrayList<>(List.of(s25, ipad));
+
+        models.sort(
+                MarketStatsTargetOrdering.comparator(
+                        List.of(runningS25Bot),
+                        Map.of(
+                                10L, healthySamsung,
+                                12L, unfinishedIpad
+                        )
+                )
+        );
+
+        assertEquals(
+                List.of(ipad, s25),
                 models
         );
     }

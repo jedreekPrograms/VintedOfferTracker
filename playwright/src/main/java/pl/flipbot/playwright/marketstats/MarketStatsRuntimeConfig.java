@@ -38,7 +38,7 @@ public record MarketStatsRuntimeConfig(
     private static final long DEFAULT_REFRESH_COOLDOWN_MINUTES = 15L;
     private static final long MIN_REFRESH_COOLDOWN_MINUTES = 5L;
     private static final long MAX_REFRESH_COOLDOWN_MINUTES = 1_440L;
-    private static final int DEFAULT_BROWSER_RECYCLE_TARGETS = 3;
+    private static final int DEFAULT_BROWSER_RECYCLE_TARGETS = 6;
 
     public static MarketStatsRuntimeConfig fromEnvironment() {
         String explicitObserverHeadless = System.getenv(HEADLESS_ENV);

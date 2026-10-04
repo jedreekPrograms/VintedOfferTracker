@@ -15,6 +15,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -79,6 +80,87 @@ class MarketStatsServiceTest {
         verify(scanStateRepository).save(state);
         verify(observationRepository, never()).deleteByModel_Id(anyLong());
     }
+    @Test
+    void incrementalCompletionUsesFirstSeenAsPublicationFallback() {
+        DictionaryModelRepository modelRepository =
+                mock(DictionaryModelRepository.class);
+        BotConfigurationRepository configurationRepository =
+                mock(BotConfigurationRepository.class);
+        BotAdditionalTargetRepository additionalTargetRepository =
+                mock(BotAdditionalTargetRepository.class);
+        MarketModelScanStateRepository scanStateRepository =
+                mock(MarketModelScanStateRepository.class);
+        MarketListingObservationRepository observationRepository =
+                mock(MarketListingObservationRepository.class);
+
+        DictionaryModel model = DictionaryModel.builder()
+                .id(30L)
+                .name("Galaxy S24")
+                .brand(DictionaryBrand.builder().id(1L).name("Samsung").build())
+                .build();
+        LocalDateTime firstSeenAt =
+                LocalDateTime.now().minusSeconds(20);
+        MarketListingObservation existing =
+                MarketListingObservation.builder()
+                        .model(model)
+                        .trackingGeneration(1)
+                        .marketplaceListingId("new-123")
+                        .firstSeenAt(firstSeenAt)
+                        .lastSeenAt(firstSeenAt)
+                        .publishedAt(null)
+                        .baseline(false)
+                        .build();
+        MarketModelScanState state = MarketModelScanState.builder()
+                .model(model)
+                .trackingGeneration(1)
+                .initializedAt(LocalDateTime.now().minusDays(5))
+                .baselineCompleteAt(LocalDateTime.now().minusDays(4))
+                .publicationWindowCompleteAt(LocalDateTime.now().minusDays(3))
+                .lastSuccessfulScanAt(LocalDateTime.now().minusMinutes(15))
+                .lastScanComplete(true)
+                .build();
+
+        when(modelRepository.findByIdForUpdate(30L))
+                .thenReturn(Optional.of(model));
+        when(scanStateRepository.findByModelIdForUpdate(30L))
+                .thenReturn(Optional.of(state));
+        when(observationRepository
+                .findAllByModel_IdAndTrackingGenerationAndMarketplaceListingIdIn(
+                        30L,
+                        1,
+                        List.of("new-123")
+                ))
+                .thenReturn(List.of(existing));
+
+        MarketStatsService service = new MarketStatsService(
+                modelRepository,
+                configurationRepository,
+                additionalTargetRepository,
+                scanStateRepository,
+                observationRepository
+        );
+
+        service.recordObservations(
+                30L,
+                new MarketObservationBatchRequest(
+                        List.of("new-123"),
+                        true,
+                        null,
+                        null,
+                        1,
+                        Map.of()
+                )
+        );
+
+        assertNotNull(existing.getPublishedAt());
+        assertEquals(firstSeenAt, existing.getPublishedAt());
+        verify(observationRepository).saveAll(
+                org.mockito.ArgumentMatchers.argThat(observations ->
+                        observations.iterator().next() == existing
+                )
+        );
+    }
+
     @Test
     void staleObserverBatchIsRejectedAfterTrackingGenerationChanges() {
         DictionaryModelRepository modelRepository =

@@ -1,6 +1,7 @@
 package pl.flipbot.playwright.marketstats;
 
 import org.junit.Test;
+import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 
 import java.util.List;
 
@@ -57,12 +58,44 @@ public class MarketStatsTargetRotationTest {
         );
     }
 
+    @Test
+    public void resumableClientKeepsFrozenOrderAcrossBackendReordering() {
+        MarketStatsTargetDto a = target(1L, "A");
+        MarketStatsTargetDto b = target(2L, "B");
+        MarketStatsTargetDto c = target(3L, "C");
+
+        assertEquals(
+                List.of(c, a, b),
+                ResumableMarketStatsApiClient.applyPreferredTargetOrder(
+                        List.of(a, b, c),
+                        List.of(3L, 1L, 2L)
+                )
+        );
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNonPositiveBatchSize() {
         MarketStatsTargetRotation.batch(
                 List.of("a"),
                 0,
                 0
+        );
+    }
+
+    private MarketStatsTargetDto target(
+            Long id,
+            String model
+    ) {
+        return new MarketStatsTargetDto(
+                id,
+                "Brand",
+                model,
+                "VINTED_MODEL",
+                List.of("Elektronika"),
+                true,
+                null,
+                null,
+                1
         );
     }
 

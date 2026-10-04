@@ -130,7 +130,11 @@ final class MarketStatsObservationContext {
         }
 
         for (String listingId : normalizeIds(listingIds)) {
-            if (publicationTime(state, listingId) == null) {
+            if (publicationTime(state, listingId) == null
+                    && !canUseFirstSeenPublicationFallback(
+                    state,
+                    listingId
+            )) {
                 return false;
             }
         }
@@ -206,9 +210,39 @@ final class MarketStatsObservationContext {
             State state,
             String listingId
     ) {
-        return state.refreshAllPublicationTimes()
-                || state.missingPublicationListingIds().contains(listingId)
-                || publicationTime(state, listingId) == null;
+        if (state.refreshAllPublicationTimes()
+                || state.missingPublicationListingIds().contains(listingId)) {
+            return true;
+        }
+
+        if (publicationTime(state, listingId) != null) {
+            return false;
+        }
+
+        /*
+         * A healthy incremental scan already has a complete baseline and
+         * publication window. A listing that was not known in the previous
+         * scan is therefore a genuinely new observation for this tracking
+         * generation. Do not open a separate detail page just to obtain its
+         * exact Vinted timestamp; the backend persists firstSeenAt as a safe
+         * publication-time approximation for these incremental discoveries.
+         *
+         * Full/baseline recovery scans still resolve every missing timestamp
+         * exactly, because historical window reconstruction depends on it.
+         */
+        return !canUseFirstSeenPublicationFallback(
+                state,
+                listingId
+        );
+    }
+
+    private static boolean canUseFirstSeenPublicationFallback(
+            State state,
+            String listingId
+    ) {
+        return !state.fullCatalogScanRequired()
+                && !state.knownListingIds().contains(listingId)
+                && !state.missingPublicationListingIds().contains(listingId);
     }
 
     private static LocalDateTime publicationTime(

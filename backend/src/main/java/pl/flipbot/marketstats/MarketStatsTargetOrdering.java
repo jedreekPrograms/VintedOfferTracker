@@ -7,8 +7,10 @@ import pl.flipbot.dictionary.DictionaryModel;
 
 import java.util.Arrays;
 import java.util.Comparator;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 final class MarketStatsTargetOrdering {
 
@@ -20,15 +22,63 @@ final class MarketStatsTargetOrdering {
     static Comparator<DictionaryModel> comparator(
             List<BotConfiguration> configurations
     ) {
+        return comparator(
+                configurations,
+                Map.of()
+        );
+    }
+
+    static Comparator<DictionaryModel> comparator(
+            List<BotConfiguration> configurations,
+            Map<Long, MarketModelScanState> scanStates
+    ) {
         List<BotConfiguration> safeConfigurations =
                 configurations == null
                         ? List.of()
                         : configurations;
+        Map<Long, MarketModelScanState> safeScanStates =
+                scanStates == null
+                        ? Map.of()
+                        : scanStates;
+
+        Comparator<LocalDateTime> oldestFirst =
+                Comparator.nullsFirst(
+                        Comparator.naturalOrder()
+                );
 
         return Comparator
+                /*
+                 * Fill broken/unfinished Price Matrix rows first. A model with
+                 * no baseline/publication coverage or an incomplete latest scan
+                 * must not sit behind every currently-running Samsung model.
+                 */
                 .comparingInt(
                         (DictionaryModel model) ->
-                                priority(model, safeConfigurations)
+                                scanUrgency(
+                                        stateFor(
+                                                model,
+                                                safeScanStates
+                                        )
+                                )
+                )
+                .thenComparing(
+                        model -> lastSuccessfulScanAt(
+                                stateFor(
+                                        model,
+                                        safeScanStates
+                                )
+                        ),
+                        oldestFirst
+                )
+                /*
+                 * Once freshness is comparable, keep the previous business
+                 * priority: exact RUNNING bot target, same segment, same brand.
+                 */
+                .thenComparingInt(
+                        model -> priority(
+                                model,
+                                safeConfigurations
+                        )
                 )
                 .thenComparing(
                         model -> model.getBrand().getName(),
@@ -38,6 +88,39 @@ final class MarketStatsTargetOrdering {
                         DictionaryModel::getName,
                         String.CASE_INSENSITIVE_ORDER
                 );
+    }
+
+    private static MarketModelScanState stateFor(
+            DictionaryModel model,
+            Map<Long, MarketModelScanState> scanStates
+    ) {
+        if (model == null || model.getId() == null) {
+            return null;
+        }
+
+        return scanStates.get(model.getId());
+    }
+
+    private static int scanUrgency(
+            MarketModelScanState state
+    ) {
+        if (state == null
+                || state.getBaselineCompleteAt() == null
+                || state.getPublicationWindowCompleteAt() == null
+                || state.getLastSuccessfulScanAt() == null
+                || !Boolean.TRUE.equals(state.getLastScanComplete())) {
+            return 0;
+        }
+
+        return 1;
+    }
+
+    private static LocalDateTime lastSuccessfulScanAt(
+            MarketModelScanState state
+    ) {
+        return state == null
+                ? null
+                : state.getLastSuccessfulScanAt();
     }
 
     static int priority(

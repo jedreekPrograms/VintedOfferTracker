@@ -123,13 +123,13 @@ public class MarketStatsRuntimeConfigTest {
     }
 
     @Test
-    public void marketStatsBrowserDefaultsToThreeTargetsBeforeRecycle() {
+    public void marketStatsBrowserDefaultsToSixTargetsBeforeRecycle() {
         assertEquals(
-                3,
+                6,
                 MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount(null)
         );
         assertEquals(
-                3,
+                6,
                 MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount("bad")
         );
     }

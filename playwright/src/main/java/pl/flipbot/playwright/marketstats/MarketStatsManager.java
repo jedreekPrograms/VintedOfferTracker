@@ -2,6 +2,7 @@ package pl.flipbot.playwright.marketstats;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +42,7 @@ public class MarketStatsManager implements AutoCloseable {
 
     private volatile long nextAttemptAtMillis = 0L;
     private volatile int nextTargetStartIndex = 0;
+    private volatile List<Long> nextTargetOrder = List.of();
 
     public void start() {
         if (!config.enabled()) {
@@ -86,6 +88,7 @@ public class MarketStatsManager implements AutoCloseable {
 
         long startedAtMillis = System.currentTimeMillis();
         int passStartIndex = nextTargetStartIndex;
+        List<Long> passTargetOrder = nextTargetOrder;
         ResumableMarketStatsApiClient apiClient = null;
 
         try {
@@ -97,6 +100,7 @@ public class MarketStatsManager implements AutoCloseable {
             while (!stopping.get()) {
                 if (memoryGuard.shouldDeferNewBatch()) {
                     nextTargetStartIndex = batchStartIndex;
+                    nextTargetOrder = passTargetOrder;
                     nextAttemptAtMillis =
                             System.currentTimeMillis()
                                     + TimeUnit.MINUTES.toMillis(
@@ -121,7 +125,8 @@ public class MarketStatsManager implements AutoCloseable {
 
                 apiClient = new ResumableMarketStatsApiClient(
                         batchStartIndex,
-                        remainingTargets
+                        remainingTargets,
+                        passTargetOrder
                 );
                 batchNumber++;
 
@@ -137,6 +142,10 @@ public class MarketStatsManager implements AutoCloseable {
                 int returnedTargets = apiClient.returnedTargetCount();
                 totalTargets = apiClient.targetCount();
                 attemptedTargets += returnedTargets;
+
+                if (passTargetOrder.isEmpty()) {
+                    passTargetOrder = apiClient.targetOrderModelIds();
+                }
 
                 if (totalTargets <= 0 || returnedTargets <= 0) {
                     break;
@@ -185,6 +194,7 @@ public class MarketStatsManager implements AutoCloseable {
             );
 
             nextTargetStartIndex = 0;
+            nextTargetOrder = List.of();
             nextAttemptAtMillis =
                     completedAtMillis
                             + TimeUnit.MINUTES.toMillis(
@@ -221,6 +231,12 @@ public class MarketStatsManager implements AutoCloseable {
                 nextTargetStartIndex = apiClient == null
                         ? previousStartIndex
                         : apiClient.resumeIndexAfterCurrentTarget();
+                if (apiClient != null
+                        && !apiClient.targetOrderModelIds().isEmpty()) {
+                    nextTargetOrder = apiClient.targetOrderModelIds();
+                } else {
+                    nextTargetOrder = passTargetOrder;
+                }
                 nextAttemptAtMillis =
                         System.currentTimeMillis()
                                 + TimeUnit.MINUTES.toMillis(
@@ -241,6 +257,13 @@ public class MarketStatsManager implements AutoCloseable {
                         exception
                 );
                 return;
+            }
+
+            if (apiClient != null
+                    && !apiClient.targetOrderModelIds().isEmpty()) {
+                nextTargetOrder = apiClient.targetOrderModelIds();
+            } else {
+                nextTargetOrder = passTargetOrder;
             }
 
             nextAttemptAtMillis =
