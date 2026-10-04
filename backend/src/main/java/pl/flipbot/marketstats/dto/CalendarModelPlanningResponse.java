@@ -19,6 +19,8 @@ public record CalendarModelPlanningResponse(
         boolean previousFullWeekAvailable,
         int trackedDays,
         LocalDateTime lastStatsUpdatedAt,
+        LocalDateTime lastSuccessfulScanAt,
+        boolean currentWindowFresh,
         boolean lastScanComplete
 ) {
 }
