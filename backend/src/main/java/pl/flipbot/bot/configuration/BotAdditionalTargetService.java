@@ -106,9 +106,16 @@ public class BotAdditionalTargetService {
         boolean adaptiveModeChanged = Boolean.TRUE.equals(
                 target.getAutoRaiseOfferToVintedMinimum()
         ) != requestedAdaptive;
+        BigDecimal requestedGlobalCap = requestedAdaptive
+                ? request.getMaxAutomaticOffer()
+                : null;
+        boolean globalCapChanged = !sameDecimal(
+                target.getMaxAutomaticOffer(),
+                requestedGlobalCap
+        );
         boolean capIncreased = isGlobalCapIncreased(
                 target.getMaxAutomaticOffer(),
-                requestedAdaptive ? request.getMaxAutomaticOffer() : null
+                requestedGlobalCap
         );
         boolean stepDefinitionChanged = negotiationStepDefinitionChanged(
                 target,
@@ -118,6 +125,10 @@ public class BotAdditionalTargetService {
                 target,
                 request.getNegotiationSteps()
         );
+        boolean strategyChanged = adaptiveModeChanged
+                || globalCapChanged
+                || stepDefinitionChanged
+                || responsePoliciesChanged;
 
         List<Listing> activeListings = getActiveNegotiationListings(
                 botId,
@@ -126,9 +137,7 @@ public class BotAdditionalTargetService {
 
         validateActiveNegotiationEdit(
                 activeListings,
-                targetDefinitionChanged,
-                adaptiveModeChanged,
-                stepDefinitionChanged
+                targetDefinitionChanged
         );
 
         applyDefinitionFields(target, request);
@@ -137,6 +146,12 @@ public class BotAdditionalTargetService {
             replaceNegotiationSteps(target, request.getNegotiationSteps());
         } else if (responsePoliciesChanged) {
             applyResponsePolicies(target, request.getNegotiationSteps());
+        }
+
+        if (strategyChanged) {
+            target.setNegotiationStrategyVersion(
+                    nextStrategyVersion(target.getNegotiationStrategyVersion())
+            );
         }
 
         if (stepDefinitionChanged || adaptiveModeChanged || capIncreased) {
@@ -232,30 +247,16 @@ public class BotAdditionalTargetService {
 
     private void validateActiveNegotiationEdit(
             List<Listing> activeListings,
-            boolean targetDefinitionChanged,
-            boolean adaptiveModeChanged,
-            boolean stepDefinitionChanged
+            boolean targetDefinitionChanged
     ) {
         if (activeListings.isEmpty()) {
             return;
         }
 
-        List<String> lockedChanges = new ArrayList<>();
         if (targetDefinitionChanged) {
-            lockedChanges.add("kategoria/marka/model lub fraza wyszukiwania");
-        }
-        if (adaptiveModeChanged) {
-            lockedChanges.add("tryb adaptacyjnej ceny");
-        }
-        if (stepDefinitionChanged) {
-            lockedChanges.add("ceny/progi/wiadomości lub liczba kroków negocjacji");
-        }
-
-        if (!lockedChanges.isEmpty()) {
             throw new IllegalStateException(
-                    "Ten dodatkowy produkt ma aktywne negocjacje. Do ich zakończenia nie można zmienić: "
-                            + String.join(", ", lockedChanges)
-                            + ". Nadal można zmienić zakres cen nowych ogłoszeń, globalny limit przyszłych ofert oraz reguły/czasy reakcji. Produkt można też wyłączyć, co zatrzyma tylko nowe skany."
+                    "Ten dodatkowy produkt ma aktywne negocjacje, więc nie można teraz zmienić jego kategorii, marki, modelu ani frazy wyszukiwania. "
+                            + "Strategia negocjacji jest wersjonowana: ceny, progi, wiadomości, liczba kroków, tryb adaptacyjny, globalny limit i reguły reakcji można zmienić bez wpływu na rozpoczęte rozmowy."
             );
         }
     }
