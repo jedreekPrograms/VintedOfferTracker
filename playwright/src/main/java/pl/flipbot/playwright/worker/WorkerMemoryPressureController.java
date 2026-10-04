@@ -27,6 +27,7 @@ final class WorkerMemoryPressureController {
     static final double EMERGENCY_USED_RATIO = 0.92d;
     static final double RECOVERY_USED_RATIO = 0.72d;
 
+    static final int STARTUP_CAP = 4;
     static final int ELEVATED_CAP = 8;
     static final int HIGH_CAP = 6;
     static final int EMERGENCY_CAP = 4;
@@ -41,6 +42,7 @@ final class WorkerMemoryPressureController {
 
     private int adaptiveCap;
     private long healthySinceNanos = -1L;
+    private boolean startupRampLogged;
     private String lastSummary = "unmeasured";
 
     private WorkerMemoryPressureController(
@@ -59,7 +61,18 @@ final class WorkerMemoryPressureController {
         this.enabled = enabled;
         this.memoryProbe = memoryProbe;
         this.nanoTime = nanoTime;
-        this.adaptiveCap = configuredMaxSlots;
+
+        /*
+         * Never launch the whole configured pool on the first scheduler sync.
+         * A downscale request cannot stop jobs that already claimed work, so a
+         * ten-slot cold start can create ten Chromium runtimes before the next
+         * memory sample notices the spike. Start conservatively and let the
+         * existing recovery ramp add one slot at a time only after RAM proves
+         * it can sustain the load.
+         */
+        this.adaptiveCap = enabled
+                ? Math.min(configuredMaxSlots, STARTUP_CAP)
+                : configuredMaxSlots;
     }
 
     static WorkerMemoryPressureController fromEnvironment(
@@ -101,6 +114,17 @@ final class WorkerMemoryPressureController {
         if (!enabled) {
             lastSummary = "adaptive-disabled";
             return normalizedRequested;
+        }
+
+        if (!startupRampLogged
+                && adaptiveCap < configuredMaxSlots) {
+            startupRampLogged = true;
+            log.info(
+                    "[SCHEDULER MEMORY] Cold-start browser warm-up cap is {} of {} configured slot(s). "
+                            + "Capacity will increase one slot at a time only after physical memory remains healthy, preventing a many-Chromium launch storm before reactive downscaling can take effect.",
+                    adaptiveCap,
+                    configuredMaxSlots
+            );
         }
 
         MemorySnapshot snapshot;
