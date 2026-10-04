@@ -395,6 +395,17 @@ function AdditionalProductEditorPage() {
                 niezależnie od liczby produktów.
             </div>
 
+            {editing && editedTarget !== null && (
+                <div className="information-box">
+                    <strong>
+                        Strategia produktu: v{editedTarget.negotiationStrategyVersion}.
+                    </strong>{" "}
+                    {editedTarget.hasActiveNegotiations
+                        ? "Ten produkt ma aktywne rozmowy. Ich ceny, wiadomości i reguły są przypięte do wersji, z którą wystartowały. Możesz zapisać nową strategię dla kolejnych negocjacji; tylko kategoria/marka/model lub fraza pozostają zablokowane do zakończenia aktywnych rozmów."
+                        : "Zmiana cen, limitów, wiadomości, trybu adaptacyjnego lub reguł utworzy kolejną wersję dla nowych negocjacji."}
+                </div>
+            )}
+
             <form className="bot-form" onSubmit={handleSubmit}>
                 <fieldset
                     className="bot-form-fieldset"
@@ -413,6 +424,10 @@ function AdditionalProductEditorPage() {
                         maxPrice={form.maxPrice}
                         isLoadingDictionaries={isLoadingDictionaries}
                         areModelsLoading={areModelsLoading}
+                        targetFieldsDisabled={
+                            editing
+                            && Boolean(editedTarget?.hasActiveNegotiations)
+                        }
                         onCategoryChange={(value) => {
                             setCategory(value);
                             clearMessages();
