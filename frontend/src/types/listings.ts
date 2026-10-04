@@ -24,6 +24,8 @@ export interface Listing {
     additionalTargetId: number | null;
 
     productTargetLabel: string | null;
+
+    negotiationStrategyVersion: number | null;
 }
 
 export interface ActionRequiredListing {
