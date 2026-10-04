@@ -19,7 +19,7 @@ public class MarketStatsObservationContextTest {
     }
 
     @Test
-    public void newListingsRequirePublicationResolution() {
+    public void healthyIncrementalScanUsesFirstSeenFallbackForNewListings() {
         LocalDateTime knownPublishedAt =
                 LocalDateTime.of(2026, 9, 10, 18, 0);
 
@@ -35,6 +35,29 @@ public class MarketStatsObservationContextTest {
         assertFalse(MarketStatsObservationContext.claimPublicationResolution(
                 "known"
         ));
+        assertFalse(MarketStatsObservationContext.claimPublicationResolution(
+                "new-listing"
+        ));
+        assertTrue(MarketStatsObservationContext.publicationResolutionCompleteFor(
+                25L,
+                List.of("known", "new-listing")
+        ));
+    }
+
+    @Test
+    public void fullCatalogScanStillRequiresExactPublicationForNewListings() {
+        MarketStatsObservationContext.begin(
+                25L,
+                List.of("known"),
+                List.of(),
+                false,
+                true,
+                Map.of(
+                        "known",
+                        LocalDateTime.of(2026, 9, 10, 18, 0)
+                )
+        );
+
         assertTrue(MarketStatsObservationContext.claimPublicationResolution(
                 "new-listing"
         ));
