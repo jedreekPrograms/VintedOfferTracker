@@ -13,7 +13,7 @@ public class MarketStatsManager implements AutoCloseable {
     private static final long INITIAL_DELAY_SECONDS = 30L;
     private static final long OBSERVER_POLL_SECONDS = 60L;
     private static final long FAILURE_RETRY_MINUTES = 30L;
-    private static final long MEMORY_RETRY_MINUTES = 10L;
+    private static final long MEMORY_RETRY_MINUTES = 5L;
 
     private final MarketStatsRuntimeConfig config =
             MarketStatsRuntimeConfig.fromEnvironment();
