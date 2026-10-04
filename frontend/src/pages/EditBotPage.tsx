@@ -643,11 +643,6 @@ function normalizedText(value: string): string {
     return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function formatPrice(value: number): string {
-    return new Intl.NumberFormat("pl-PL", {
-        maximumFractionDigits: 2,
-    }).format(value);
-}
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
     return error instanceof Error ? error.message : fallbackMessage;
