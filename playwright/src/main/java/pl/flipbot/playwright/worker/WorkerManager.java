@@ -180,9 +180,13 @@ public class WorkerManager implements AutoCloseable {
                     scheduler
             );
 
-            int requestedSlots = Math.min(
-                    config.workerCount(),
-                    runningBots.size()
+            int activeLivePreviews =
+                    sessionPreviewManager.activeBotIds().size();
+
+            int requestedSlots = genericWorkerSlotsRequested(
+                    runningBots.size(),
+                    activeLivePreviews,
+                    config.workerCount()
             );
 
             int requiredSlots =
@@ -201,11 +205,12 @@ public class WorkerManager implements AutoCloseable {
             if (log.isDebugEnabled()) {
                 log.debug(
                         "[SCHEDULER] Sync complete. RUNNING={}, activeNegotiationBots={}, "
-                                + "queued={}, working={}, requestedSlots={}, targetSlots={}, activeSlots={}, retiringSlots={}, startedSlots={}, maxSlots={}, memory={}.",
+                                + "queued={}, working={}, activeLivePreviews={}, requestedSlots={}, targetSlots={}, activeSlots={}, retiringSlots={}, startedSlots={}, maxSlots={}, memory={}.",
                         scheduler.enabledBotCount(),
                         activeNegotiationBots,
                         scheduler.queuedCount(),
                         scheduler.workingCount(),
+                        activeLivePreviews,
                         requestedSlots,
                         requiredSlots,
                         currentAvailableSlotCount(),
@@ -221,6 +226,31 @@ public class WorkerManager implements AutoCloseable {
                     exception
             );
         }
+    }
+
+    static int genericWorkerSlotsRequested(
+            int runningBotCount,
+            int activeLivePreviewCount,
+            int configuredMaxSlots
+    ) {
+        int safeRunning = Math.max(runningBotCount, 0);
+        int safePreviews = Math.max(
+                0,
+                Math.min(activeLivePreviewCount, safeRunning)
+        );
+        int safeMax = Math.max(configuredMaxSlots, 0);
+
+        /*
+         * A LIVE preview owns its own persistent headed Chromium and executes
+         * that bot's scheduled jobs itself. Count it against the same browser
+         * capacity budget instead of keeping an unnecessary generic worker
+         * slot beside it. This prevents manual CAPTCHA recovery from pushing
+         * host RAM high enough to starve the market Observer.
+         */
+        return Math.min(
+                safeMax,
+                Math.max(0, safeRunning - safePreviews)
+        );
     }
 
     private synchronized void ensureWorkerSlots(int requiredSlotCount) {
