@@ -257,6 +257,25 @@ public class MarketStatsService {
 
             if (existing != null) {
                 existing.setLastSeenAt(now);
+
+                /*
+                 * MarketStatsApiClient first persists discovery with
+                 * complete=false and only sends complete=true after publication
+                 * requirements have been satisfied. A healthy incremental scan
+                 * may intentionally skip detail-page timestamp resolution for a
+                 * brand-new post-baseline listing; only at this completion step
+                 * is firstSeenAt promoted to the publication fallback.
+                 *
+                 * Interrupted/full-recovery scans never reach complete=true
+                 * while an exact timestamp is still required, so they keep
+                 * publishedAt=null and remain retryable.
+                 */
+                if (existing.getPublishedAt() == null
+                        && request.complete()
+                        && !baselineMode) {
+                    existing.setPublishedAt(existing.getFirstSeenAt());
+                }
+
                 applyObservedPrice(existing, observedPrice);
                 changed.add(existing);
                 continue;
@@ -271,16 +290,6 @@ public class MarketStatsService {
                             .marketplaceListingId(listingId)
                             .firstSeenAt(now)
                             .lastSeenAt(now)
-                            /*
-                             * Healthy incremental Observer scans deliberately
-                             * avoid opening one detail page per newly discovered
-                             * listing. For post-baseline discoveries, firstSeenAt
-                             * is therefore also the publication-time fallback.
-                             * Full/baseline recovery scans still resolve exact
-                             * Vinted timestamps and overwrite this value through
-                             * the publication update endpoint before completion.
-                             */
-                            .publishedAt(baseline ? null : now)
                             .baseline(baseline)
                             .build();
 
