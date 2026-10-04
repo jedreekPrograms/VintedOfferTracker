@@ -10,7 +10,9 @@ public record MarketStatsHealthResponse(
         int baselineReadyModels,
         int pendingBaselineModels,
         int incompleteModels,
+        int staleModels,
         LocalDateTime lastScanAt,
-        LocalDateTime lastSuccessfulScanAt
+        LocalDateTime lastSuccessfulScanAt,
+        LocalDateTime oldestSuccessfulScanAt
 ) {
 }

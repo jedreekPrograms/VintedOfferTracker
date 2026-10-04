@@ -35,7 +35,9 @@ import java.util.Set;
 public class MarketStatsCalendarPlanningService {
 
     private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
-    private static final long CURRENT_WINDOW_FRESHNESS_MINUTES = 120L;
+    private static final long MIN_CURRENT_WINDOW_FRESHNESS_MINUTES = 120L;
+    private static final long MAX_CURRENT_WINDOW_FRESHNESS_MINUTES = 360L;
+    private static final long ESTIMATED_MINUTES_PER_MODEL = 2L;
     private static final int CAPACITY_LOOKBACK_DAYS = 28;
     private static final int FALLBACK_DAILY_CONVERSATION_CAPACITY = 5;
     private static final int HARD_DAILY_OFFER_LIMIT = 25;
@@ -64,6 +66,8 @@ public class MarketStatsCalendarPlanningService {
                         now.toLocalDate(),
                         models
                 );
+        long currentWindowFreshnessMinutes =
+                currentWindowFreshnessMinutes(models.size());
 
         return models.stream()
                 .sorted(
@@ -81,7 +85,8 @@ public class MarketStatsCalendarPlanningService {
                         configurations,
                         additionalTargets,
                         capacityProfile,
-                        now
+                        now,
+                        currentWindowFreshnessMinutes
                 ))
                 .toList();
     }
@@ -91,7 +96,8 @@ public class MarketStatsCalendarPlanningService {
             List<BotConfiguration> configurations,
             List<BotAdditionalTarget> additionalTargets,
             ConversationCapacityProfile capacityProfile,
-            LocalDateTime now
+            LocalDateTime now,
+            long currentWindowFreshnessMinutes
     ) {
         MarketModelScanState state = scanStateRepository
                 .findById(model.getId())
@@ -130,6 +136,8 @@ public class MarketStatsCalendarPlanningService {
                     false,
                     0,
                     state == null ? null : state.getLastScanAt(),
+                    state == null ? null : state.getLastSuccessfulScanAt(),
+                    false,
                     state != null && Boolean.TRUE.equals(state.getLastScanComplete())
             );
         }
@@ -163,7 +171,7 @@ public class MarketStatsCalendarPlanningService {
                 && !lastSuccessfulScanAt.isBefore(windows.currentWeekStart());
         boolean currentScanFresh = lastSuccessfulScanAt != null
                 && !lastSuccessfulScanAt.isBefore(
-                        now.minusMinutes(CURRENT_WINDOW_FRESHNESS_MINUTES)
+                        now.minusMinutes(currentWindowFreshnessMinutes)
                 );
 
         /*
@@ -172,14 +180,14 @@ public class MarketStatsCalendarPlanningService {
          * Therefore a calendar window is exact only when the model baseline
          * was already complete at the START of that window.
          *
-         * Current-day/current-week values also need a recent successful scan;
-         * otherwise a stale value (especially 0) must not be presented as an
-         * exact live count.
+         * Current-day/current-week values are exact through the latest
+         * successful complete scan. Freshness is exposed separately so the UI
+         * can show "stan na HH:mm" instead of hiding a valid count merely
+         * because a large Observer pass takes longer than two hours.
          */
         boolean todayWindowComplete = publicationCoverageEstablished
                 && latestScanComplete
                 && successfulScanToday
-                && currentScanFresh
                 && MarketStatsPlanningCalculator.coversWindowFrom(
                         baselineCompleteAt,
                         windows.todayStart()
@@ -187,7 +195,6 @@ public class MarketStatsCalendarPlanningService {
         boolean currentWeekWindowComplete = publicationCoverageEstablished
                 && latestScanComplete
                 && successfulScanToday
-                && currentScanFresh
                 && MarketStatsPlanningCalculator.coversWindowFrom(
                         baselineCompleteAt,
                         windows.currentWeekStart()
@@ -254,7 +261,22 @@ public class MarketStatsCalendarPlanningService {
                 previousFullWeekAvailable,
                 trackedDays,
                 state.getLastScanAt(),
+                lastSuccessfulScanAt,
+                currentScanFresh,
                 latestScanComplete
+        );
+    }
+
+    static long currentWindowFreshnessMinutes(int modelCount) {
+        long estimatedCycleMinutes =
+                Math.max(0L, modelCount) * ESTIMATED_MINUTES_PER_MODEL;
+
+        return Math.max(
+                MIN_CURRENT_WINDOW_FRESHNESS_MINUTES,
+                Math.min(
+                        MAX_CURRENT_WINDOW_FRESHNESS_MINUTES,
+                        estimatedCycleMinutes
+                )
         );
     }
 

@@ -48,6 +48,44 @@ class MarketStatsHealthServiceTest {
     }
 
     @Test
+    void oneFreshModelDoesNotHideAnotherStaleModel() {
+        DictionaryModelRepository modelRepository =
+                mock(DictionaryModelRepository.class);
+        MarketModelScanStateRepository scanStateRepository =
+                mock(MarketModelScanStateRepository.class);
+
+        LocalDateTime now = LocalDateTime.now(WARSAW);
+        MarketModelScanState fresh = MarketModelScanState.builder()
+                .trackingGeneration(1)
+                .initializedAt(now.minusDays(5))
+                .baselineCompleteAt(now.minusDays(4))
+                .lastScanAt(now.minusMinutes(5))
+                .lastSuccessfulScanAt(now.minusMinutes(5))
+                .lastScanComplete(true)
+                .build();
+        MarketModelScanState stale = MarketModelScanState.builder()
+                .trackingGeneration(1)
+                .initializedAt(now.minusDays(5))
+                .baselineCompleteAt(now.minusDays(4))
+                .lastScanAt(now.minusHours(4))
+                .lastSuccessfulScanAt(now.minusHours(4))
+                .lastScanComplete(true)
+                .build();
+
+        when(modelRepository.count()).thenReturn(2L);
+        when(scanStateRepository.findAll()).thenReturn(List.of(fresh, stale));
+
+        MarketStatsHealthResponse response =
+                new MarketStatsHealthService(
+                        modelRepository,
+                        scanStateRepository
+                ).getHealth();
+
+        assertEquals(MarketStatsHealthStatus.STALE, response.status());
+        assertEquals(1, response.staleModels());
+    }
+
+    @Test
     void incompleteLatestScanIsNotShownAsHealthy() {
         DictionaryModelRepository modelRepository =
                 mock(DictionaryModelRepository.class);

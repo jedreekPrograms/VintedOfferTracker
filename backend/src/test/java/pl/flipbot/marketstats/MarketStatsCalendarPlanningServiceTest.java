@@ -30,6 +30,25 @@ import static org.mockito.Mockito.when;
 class MarketStatsCalendarPlanningServiceTest {
 
     @Test
+    void freshnessWindowScalesWithLargeObserverTargetSets() {
+        assertEquals(
+                120L,
+                MarketStatsCalendarPlanningService
+                        .currentWindowFreshnessMinutes(30)
+        );
+        assertEquals(
+                200L,
+                MarketStatsCalendarPlanningService
+                        .currentWindowFreshnessMinutes(100)
+        );
+        assertEquals(
+                360L,
+                MarketStatsCalendarPlanningService
+                        .currentWindowFreshnessMinutes(500)
+        );
+    }
+
+    @Test
     void activeAdditionalTargetCountsAsExistingBotAndUsesObservedCapacity() {
         DictionaryModelRepository modelRepository =
                 mock(DictionaryModelRepository.class);

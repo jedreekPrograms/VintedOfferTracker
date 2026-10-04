@@ -16,6 +16,8 @@ import java.util.List;
 public class MarketStatsHealthService {
 
     private static final long DEFAULT_REFRESH_MINUTES = 15L;
+    private static final long ESTIMATED_MINUTES_PER_MODEL = 2L;
+    private static final long MAX_STALE_WINDOW_MINUTES = 360L;
     private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DictionaryModelRepository modelRepository;
@@ -41,6 +43,21 @@ public class MarketStatsHealthService {
                         .count()
         );
 
+        LocalDateTime staleCutoff =
+                LocalDateTime.now(MARKET_STATS_ZONE)
+                        .minusMinutes(staleAfterMinutes(totalModels));
+
+        int staleModels = safeInt(
+                states.stream()
+                        .filter(state -> state.getBaselineCompleteAt() != null)
+                        .filter(state ->
+                                state.getLastSuccessfulScanAt() == null
+                                        || state.getLastSuccessfulScanAt()
+                                        .isBefore(staleCutoff)
+                        )
+                        .count()
+        );
+
         LocalDateTime lastScanAt = states.stream()
                 .map(MarketModelScanState::getLastScanAt)
                 .filter(java.util.Objects::nonNull)
@@ -53,12 +70,19 @@ public class MarketStatsHealthService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
+        LocalDateTime oldestSuccessfulScanAt = states.stream()
+                .filter(state -> state.getBaselineCompleteAt() != null)
+                .map(MarketModelScanState::getLastSuccessfulScanAt)
+                .filter(java.util.Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .orElse(null);
+
         MarketStatsHealthStatus status = resolveStatus(
                 totalModels,
                 pendingBaseline,
                 incomplete,
-                lastScanAt,
-                lastSuccessfulScanAt
+                staleModels,
+                lastScanAt
         );
 
         return new MarketStatsHealthResponse(
@@ -67,8 +91,10 @@ public class MarketStatsHealthService {
                 baselineReady,
                 pendingBaseline,
                 incomplete,
+                staleModels,
                 lastScanAt,
-                lastSuccessfulScanAt
+                lastSuccessfulScanAt,
+                oldestSuccessfulScanAt
         );
     }
 
@@ -76,8 +102,8 @@ public class MarketStatsHealthService {
             int totalModels,
             int pendingBaseline,
             int incomplete,
-            LocalDateTime lastScanAt,
-            LocalDateTime lastSuccessfulScanAt
+            int staleModels,
+            LocalDateTime lastScanAt
     ) {
         if (totalModels == 0) {
             return MarketStatsHealthStatus.IDLE;
@@ -95,19 +121,14 @@ public class MarketStatsHealthService {
             return MarketStatsHealthStatus.WARMING_UP;
         }
 
-        if (lastSuccessfulScanAt == null
-                || lastSuccessfulScanAt.isBefore(
-                        LocalDateTime.now(MARKET_STATS_ZONE).minusMinutes(
-                                staleAfterMinutes()
-                        )
-                )) {
+        if (staleModels > 0) {
             return MarketStatsHealthStatus.STALE;
         }
 
         return MarketStatsHealthStatus.OK;
     }
 
-    private long staleAfterMinutes() {
+    private long staleAfterMinutes(int totalModels) {
         long refreshMinutes = readPositiveLong(
                 System.getenv("FLIPBOT_MARKET_STATS_REFRESH_MINUTES"),
                 DEFAULT_REFRESH_MINUTES
@@ -126,7 +147,13 @@ public class MarketStatsHealthService {
             ) * 60L;
         }
 
-        return Math.max(45L, refreshMinutes * 3L);
+        long refreshBased = Math.max(45L, refreshMinutes * 3L);
+        long modelCycleBased = Math.min(
+                MAX_STALE_WINDOW_MINUTES,
+                Math.max(0L, totalModels) * ESTIMATED_MINUTES_PER_MODEL
+        );
+
+        return Math.max(refreshBased, modelCycleBased);
     }
 
     private long readPositiveLong(

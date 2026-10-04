@@ -151,10 +151,23 @@ function formatHealthDetail(health: MarketStatsHealth): string {
         parts.push(`${health.incompleteModels} niepełnych`);
     }
 
+    if (health.staleModels > 0) {
+        parts.push(`${health.staleModels} opóźnionych`);
+    }
+
     if (health.lastSuccessfulScanAt !== null) {
         parts.push(
-            `ostatni udany: ${formatDateTime(health.lastSuccessfulScanAt)}`,
+            `najnowszy udany: ${formatDateTime(health.lastSuccessfulScanAt)}`,
         );
+
+        if (
+            health.oldestSuccessfulScanAt !== null
+            && health.oldestSuccessfulScanAt !== health.lastSuccessfulScanAt
+        ) {
+            parts.push(
+                `najstarszy model: ${formatDateTime(health.oldestSuccessfulScanAt)}`,
+            );
+        }
     } else if (health.lastScanAt !== null) {
         parts.push(
             `ostatnia próba: ${formatDateTime(health.lastScanAt)}`,
