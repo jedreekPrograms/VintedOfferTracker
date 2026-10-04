@@ -5,6 +5,7 @@ import lombok.Getter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import pl.flipbot.negotiation.strategy.NegotiationStrategySnapshot;
 
 @Getter
 @Builder
@@ -47,4 +48,8 @@ public class ListingResponse {
     private Long additionalTargetId;
 
     private String productTargetLabel;
+
+    private Integer negotiationStrategyVersion;
+
+    private NegotiationStrategySnapshot negotiationStrategySnapshot;
 }

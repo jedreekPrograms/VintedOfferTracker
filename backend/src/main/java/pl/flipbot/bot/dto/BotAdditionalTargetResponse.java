@@ -17,6 +17,10 @@ public class BotAdditionalTargetResponse {
 
     private Boolean active;
 
+    private Boolean hasActiveNegotiations;
+
+    private Integer negotiationStrategyVersion;
+
     private Marketplace marketplace;
 
     private List<String> categoryPath;

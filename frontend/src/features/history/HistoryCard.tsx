@@ -300,6 +300,12 @@ function HistoryCard({
                     <HistoryDetail label="Produkt" value={productProvenance} />
                     <HistoryDetail label="Listing ID" value={listing.listingId} />
                     <HistoryDetail label="Krok negocjacji" value={String(listing.currentStep)} />
+                    <HistoryDetail
+                        label="Strategia"
+                        value={listing.negotiationStrategyVersion === null
+                            ? "legacy"
+                            : `v${listing.negotiationStrategyVersion}`}
+                    />
                     <HistoryDetail label="Status techniczny" value={listing.status} />
                 </div>
 

@@ -43,4 +43,6 @@ public class ListingHistoryResponse {
     private Long additionalTargetId;
 
     private String productTargetLabel;
+
+    private Integer negotiationStrategyVersion;
 }

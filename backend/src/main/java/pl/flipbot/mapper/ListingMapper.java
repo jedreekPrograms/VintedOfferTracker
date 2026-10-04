@@ -1,11 +1,16 @@
 package pl.flipbot.mapper;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.dto.ListingResponse;
+import pl.flipbot.negotiation.strategy.NegotiationStrategySnapshotService;
 
 @Component
+@RequiredArgsConstructor
 public class ListingMapper {
+
+    private final NegotiationStrategySnapshotService snapshotService;
 
     public ListingResponse map(
             Listing listing
@@ -70,6 +75,12 @@ public class ListingMapper {
                 )
                 .productTargetLabel(
                         listing.getProductTargetLabel()
+                )
+                .negotiationStrategyVersion(
+                        listing.getNegotiationStrategyVersion()
+                )
+                .negotiationStrategySnapshot(
+                        snapshotService.read(listing)
                 )
                 .build();
     }

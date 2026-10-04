@@ -79,6 +79,10 @@ public class BotAdditionalTarget {
     @Column(name = "max_automatic_offer")
     private BigDecimal maxAutomaticOffer;
 
+    @Column(name = "negotiation_strategy_version", nullable = false)
+    @Builder.Default
+    private Integer negotiationStrategyVersion = 1;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean active = true;

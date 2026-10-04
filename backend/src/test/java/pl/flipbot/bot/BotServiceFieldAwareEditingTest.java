@@ -72,6 +72,7 @@ class BotServiceFieldAwareEditingTest {
                 .autoRaiseOfferToVintedMinimum(true)
                 .maxAutomaticOffer(new BigDecimal("1500.00"))
                 .dailyNegotiationBudget(25)
+                .negotiationStrategyVersion(1)
                 .negotiationSteps(new ArrayList<>())
                 .build();
 
@@ -173,6 +174,7 @@ class BotServiceFieldAwareEditingTest {
         assertEquals(12, persistedSecondStep.getRejectionWaitHours());
         assertEquals(4, persistedSecondStep.getCounterOfferDefaultWaitHours());
         assertTrue(persistedSecondStep.getCounterOfferRules().isEmpty());
+        assertEquals(2, configuration.getNegotiationStrategyVersion());
     }
 
     @Test
@@ -192,7 +194,7 @@ class BotServiceFieldAwareEditingTest {
     }
 
     @Test
-    void activeNegotiationRejectsNegotiationStepChange() {
+    void activeNegotiationAllowsNegotiationStepChangeAndCreatesNewVersion() {
         activeNegotiation("1250.00");
 
         UpdateBotRequest request = unchangedRequest();
@@ -200,19 +202,24 @@ class BotServiceFieldAwareEditingTest {
                 .getNegotiationSteps()
                 .get(1)
                 .setOfferPrice(new BigDecimal("1010.00"));
+        request.getConfiguration()
+                .getNegotiationSteps()
+                .get(1)
+                .setMessage("Nowa wiadomość v2");
 
-        IllegalStateException exception = assertThrows(
-                IllegalStateException.class,
-                () -> service.updateBot(BOT_ID, request)
-        );
+        assertDoesNotThrow(() -> service.updateBot(BOT_ID, request));
 
-        assertTrue(exception.getMessage().contains("negotiation step"));
         assertEquals(
                 0,
-                new BigDecimal("1000.00").compareTo(
+                new BigDecimal("1010.00").compareTo(
                         configuration.getNegotiationSteps().get(1).getOfferPrice()
                 )
         );
+        assertEquals(
+                "Nowa wiadomość v2",
+                configuration.getNegotiationSteps().get(1).getMessage()
+        );
+        assertEquals(2, configuration.getNegotiationStrategyVersion());
     }
 
     @Test

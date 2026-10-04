@@ -75,8 +75,9 @@ public class ExistingNegotiationProcessor {
             return false;
         }
 
-        BotConfigurationDto configuration = context.getBot().getConfiguration();
-        if (configuration == null) {
+        BotConfigurationDto currentProductConfiguration =
+                context.getBot().getConfiguration();
+        if (currentProductConfiguration == null) {
             throw new IllegalStateException("Bot configuration is missing");
         }
 
@@ -89,16 +90,24 @@ public class ExistingNegotiationProcessor {
         int sent = 0;
 
         for (ListingResponseDto listing : listings) {
+            BotConfigurationDto configuration =
+                    NegotiationStrategyConfigurationResolver.resolve(
+                            currentProductConfiguration,
+                            listing.negotiationStrategySnapshot()
+                    );
+            context.getBot().setConfiguration(configuration);
+
             try {
                 inspected++;
                 log.info(
-                        "[CONVERSATION] Inspecting negotiation {}/{}. Backend listing {}, marketplace listing {}, conversation {}, current step {}",
+                        "[CONVERSATION] Inspecting negotiation {}/{}. Backend listing {}, marketplace listing {}, conversation {}, current step {}, strategy v{}",
                         inspected,
                         listings.size(),
                         listing.id(),
                         listing.listingId(),
                         listing.conversationId(),
-                        listing.currentStep()
+                        listing.currentStep(),
+                        listing.negotiationStrategyVersion()
                 );
 
                 if (!support.matchesConfiguredTarget(listing, configuration)) {
@@ -235,6 +244,8 @@ public class ExistingNegotiationProcessor {
                         listing.id(),
                         exception
                 );
+            } finally {
+                context.getBot().setConfiguration(currentProductConfiguration);
             }
         }
 

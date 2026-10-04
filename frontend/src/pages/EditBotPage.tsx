@@ -333,22 +333,6 @@ function EditBotPage() {
 
         clearMessages();
 
-        if (hasMainProductActiveNegotiations
-            && form.autoRaiseOfferToVintedMinimum
-            && editCapabilities?.minimumNegotiationCap !== null) {
-            const requestedCap = Number(form.maxAutomaticOffer);
-            const minimumCap = editCapabilities?.minimumNegotiationCap ?? null;
-
-            if (minimumCap !== null
-                && Number.isFinite(requestedCap)
-                && requestedCap < minimumCap) {
-                setErrorMessage(
-                    `Globalny limit negocjacji nie może być niższy niż bazowa pierwsza oferta ${formatPrice(minimumCap)} zł. Już wysłane wyższe oferty nie blokują obniżenia limitu; limit dotyczy przyszłych automatycznych akcji.`,
-                );
-                return;
-            }
-        }
-
         const validationResult = validateCreateBotForm({
             form,
             selectedCategory,
@@ -461,8 +445,9 @@ function EditBotPage() {
                     <h1 className="page-title">Edytuj bota</h1>
                     <p className="page-description">
                         Bot musi być zatrzymany podczas zapisu. Aktywne rozmowy
-                        zawsze blokują wspólne konto Vinted, ale pola produktu
-                        głównego są blokowane tylko przez jego własne negocjacje.
+                        zachowują własną wersję strategii negocjacji, więc możesz
+                        zmieniać ceny, limity, wiadomości i reguły dla nowych rozmów.
+                        Wspólne konto Vinted i tożsamość produktu pozostają chronione.
                     </p>
                 </div>
             </header>
@@ -475,22 +460,28 @@ function EditBotPage() {
 
             {hasMainProductActiveNegotiations ? (
                 <div className="information-box">
-                    <strong>Tryb ograniczonej edycji produktu głównego:</strong>{" "}
-                    możesz zmienić nazwę, zakres cen nowych ofert, dzienny budżet,
-                    globalny limit negocjacji oraz <strong>reakcję po odrzuceniu,
-                    czasy oczekiwania i reguły procentowe kontrofert</strong>.
-                    Konto Vinted, cel/model, tryb adaptacyjny, ceny kroków,
-                    progi akceptacji, wiadomości i liczba kroków pozostają
-                    zablokowane do zakończenia rozmów produktu głównego.
+                    <strong>Aktywne negocjacje produktu głównego:</strong>{" "}
+                    aktualne rozmowy pozostają na przypiętej wersji strategii.
+                    Możesz zmienić tryb adaptacyjny, globalny limit, ceny i progi
+                    kroków, wiadomości, liczbę kroków oraz reguły reakcji — zapis
+                    utworzy kolejną wersję dla nowych negocjacji. Kategoria, marka,
+                    model/fraza oraz wspólne konto Vinted pozostają zablokowane.
                 </div>
             ) : hasActiveNegotiations ? (
                 <div className="information-box">
                     <strong>Aktywna rozmowa dodatkowego produktu:</strong>{" "}
                     konto Vinted pozostaje zablokowane, bo jest wspólne dla całego
                     bota. Produkt główny nie ma własnej aktywnej negocjacji, więc
-                    jego cel/model, strategię i kroki możesz edytować normalnie.
+                    jego cel/model i strategię możesz edytować normalnie.
                 </div>
             ) : null}
+
+            <div className="information-box">
+                <strong>Aktualna strategia: v{bot.configuration.negotiationStrategyVersion}.</strong>{" "}
+                Zmiana cen, limitów, wiadomości, trybu adaptacyjnego lub reguł
+                negocjacji tworzy następną wersję. Rozpoczęte rozmowy nigdy nie
+                przełączają się automatycznie na nowszą wersję.
+            </div>
 
             {dictionaryErrorMessage !== null && (
                 <div className="form-message form-message-error" role="alert">
@@ -586,7 +577,6 @@ function EditBotPage() {
                         firstConfiguredOffer={
                             form.negotiationSteps[0]?.offerPrice ?? ""
                         }
-                        modeDisabled={hasMainProductActiveNegotiations}
                         minimumNegotiationCap={
                             editCapabilities.minimumNegotiationCap
                         }
@@ -603,7 +593,6 @@ function EditBotPage() {
                     <NegotiationStepsSection
                         negotiationSteps={form.negotiationSteps}
                         dailyNegotiationBudget={form.dailyNegotiationBudget}
-                        definitionDisabled={hasMainProductActiveNegotiations}
                         onAddStep={handleAddNegotiationStep}
                         onRemoveStep={handleRemoveNegotiationStep}
                         onUpdateStep={handleUpdateNegotiationStep}
@@ -654,11 +643,6 @@ function normalizedText(value: string): string {
     return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function formatPrice(value: number): string {
-    return new Intl.NumberFormat("pl-PL", {
-        maximumFractionDigits: 2,
-    }).format(value);
-}
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
     return error instanceof Error ? error.message : fallbackMessage;

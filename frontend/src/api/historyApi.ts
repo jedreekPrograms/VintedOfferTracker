@@ -48,6 +48,7 @@ export interface ListingHistoryResponse {
     botName: string;
     additionalTargetId: number | null;
     productTargetLabel: string | null;
+    negotiationStrategyVersion: number | null;
 }
 
 export async function getListingHistory(): Promise<ListingHistoryResponse[]> {

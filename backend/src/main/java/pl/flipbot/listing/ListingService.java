@@ -16,6 +16,7 @@ import pl.flipbot.listing.dto.NegotiationActivityResponse;
 import pl.flipbot.listing.dto.UpdateConversationIdentityRequest;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
+import pl.flipbot.negotiation.strategy.NegotiationStrategySnapshotService;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -40,6 +41,7 @@ public class ListingService {
     private final ListingMapper listingMapper;
     private final ListingClaimService listingClaimService;
     private final ListingRediscoveryService listingRediscoveryService;
+    private final NegotiationStrategySnapshotService negotiationStrategySnapshotService;
 
     public List<ListingResponse> getDiscoveredListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.DISCOVERED);
@@ -206,6 +208,7 @@ public class ListingService {
                 .bot(bot)
                 .build();
 
+        negotiationStrategySnapshotService.pinIfMissing(listing);
         return listingMapper.map(listingRepository.save(listing));
     }
 
@@ -234,6 +237,10 @@ public class ListingService {
         listing.setConversationId(request.getConversationId());
         listing.setConversationUrl(request.getConversationUrl());
         listing.setStatus(request.getStatus());
+
+        if (request.getStatus() == ListingStatus.NEGOTIATING) {
+            negotiationStrategySnapshotService.pinIfMissing(listing);
+        }
 
         if (request.getStatus() == ListingStatus.ACTION_REQUIRED
                 && listing.getBuyCandidateAt() == null) {

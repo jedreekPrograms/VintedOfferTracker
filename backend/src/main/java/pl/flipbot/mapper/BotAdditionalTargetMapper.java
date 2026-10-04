@@ -5,19 +5,40 @@ import org.springframework.stereotype.Component;
 import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.bot.configuration.BotConfiguration;
 import pl.flipbot.bot.dto.BotAdditionalTargetResponse;
+import pl.flipbot.listing.ListingRepository;
+import pl.flipbot.listing.ListingStatus;
 
 @Component
 @RequiredArgsConstructor
 public class BotAdditionalTargetMapper {
 
     private final NegotiationStepMapper negotiationStepMapper;
+    private final ListingRepository listingRepository;
 
     public BotAdditionalTargetResponse map(BotAdditionalTarget target) {
         BotConfiguration main = target.getConfiguration();
+        Long botId = main.getBot().getId();
+        boolean hasActiveNegotiations =
+                !listingRepository
+                        .findByBotIdAndStatusAndAdditionalTargetIdOrderByIdAsc(
+                                botId,
+                                ListingStatus.NEGOTIATING,
+                                target.getId()
+                        )
+                        .isEmpty()
+                        || !listingRepository
+                        .findByBotIdAndStatusAndAdditionalTargetIdOrderByIdAsc(
+                                botId,
+                                ListingStatus.ACTION_REQUIRED,
+                                target.getId()
+                        )
+                        .isEmpty();
 
         return BotAdditionalTargetResponse.builder()
                 .additionalTargetId(target.getId())
                 .active(target.getActive())
+                .hasActiveNegotiations(hasActiveNegotiations)
+                .negotiationStrategyVersion(target.getNegotiationStrategyVersion())
                 .marketplace(main.getMarketplace())
                 .categoryPath(target.getCategoryPath())
                 .brand(target.getBrand())

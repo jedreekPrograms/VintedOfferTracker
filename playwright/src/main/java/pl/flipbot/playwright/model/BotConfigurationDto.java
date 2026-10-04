@@ -38,5 +38,7 @@ public class BotConfigurationDto {
 
     private Integer dailyNegotiationBudget;
 
+    private Integer negotiationStrategyVersion;
+
     private List<NegotiationStepDto> negotiationSteps;
 }

@@ -237,6 +237,14 @@ function ActionRequiredPage() {
                                         <dd>{listing.currentStep}</dd>
                                     </div>
                                     <div>
+                                        <dt>Strategia</dt>
+                                        <dd>
+                                            {listing.negotiationStrategyVersion === null
+                                                ? "legacy"
+                                                : `v${listing.negotiationStrategyVersion}`}
+                                        </dd>
+                                    </div>
+                                    <div>
                                         <dt>Status</dt>
                                         <dd>{listing.status}</dd>
                                     </div>
