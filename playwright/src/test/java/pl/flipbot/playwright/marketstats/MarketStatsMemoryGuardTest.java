@@ -22,11 +22,23 @@ public class MarketStatsMemoryGuardTest {
     }
 
     @Test
-    public void highUsedRatioDefersObserverBatch() {
+    public void elevatedButUsableMemoryDoesNotStarveObserver() {
         MarketStatsMemoryGuard guard = MarketStatsMemoryGuard.forTest(
                 () -> new MarketStatsMemoryGuard.MemorySnapshot(
                         32L * GIB,
                         4L * GIB
+                )
+        );
+
+        assertFalse(guard.shouldDeferNewBatch());
+    }
+
+    @Test
+    public void genuinelyHighUsedRatioDefersObserverBatch() {
+        MarketStatsMemoryGuard guard = MarketStatsMemoryGuard.forTest(
+                () -> new MarketStatsMemoryGuard.MemorySnapshot(
+                        32L * GIB,
+                        (5L * GIB) / 2L
                 )
         );
 
