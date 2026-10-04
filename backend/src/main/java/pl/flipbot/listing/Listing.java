@@ -142,6 +142,17 @@ public class Listing {
     @Column(name = "product_target_label", length = 1000)
     private String productTargetLabel;
 
+    /**
+     * Strategy version and immutable JSON snapshot pinned when the first real
+     * offer starts the conversation. These fields prevent later product edits
+     * from changing the meaning of currentStep for an in-flight negotiation.
+     */
+    @Column(name = "negotiation_strategy_version")
+    private Integer negotiationStrategyVersion;
+
+    @Column(name = "negotiation_strategy_snapshot", columnDefinition = "TEXT")
+    private String negotiationStrategySnapshot;
+
     /*
      * NULL means the listing belongs to the bot's original/main product.
      * Existing rows remain NULL after the feature is deployed. Additional
