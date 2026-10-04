@@ -259,6 +259,16 @@ public class MarketStatsService {
                             .marketplaceListingId(listingId)
                             .firstSeenAt(now)
                             .lastSeenAt(now)
+                            /*
+                             * Healthy incremental Observer scans deliberately
+                             * avoid opening one detail page per newly discovered
+                             * listing. For post-baseline discoveries, firstSeenAt
+                             * is therefore also the publication-time fallback.
+                             * Full/baseline recovery scans still resolve exact
+                             * Vinted timestamps and overwrite this value through
+                             * the publication update endpoint before completion.
+                             */
+                            .publishedAt(baseline ? null : now)
                             .baseline(baseline)
                             .build();
 
