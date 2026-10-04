@@ -15,5 +15,7 @@ export interface ModelPlanning {
     previousFullWeekAvailable: boolean;
     trackedDays: number;
     lastStatsUpdatedAt: string | null;
+    lastSuccessfulScanAt: string | null;
+    currentWindowFresh: boolean;
     lastScanComplete: boolean;
 }
