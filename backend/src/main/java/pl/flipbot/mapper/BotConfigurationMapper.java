@@ -49,6 +49,9 @@ public class BotConfigurationMapper {
                 .dailyNegotiationBudget(
                         configuration.getDailyNegotiationBudget()
                 )
+                .negotiationStrategyVersion(
+                        configuration.getNegotiationStrategyVersion()
+                )
                 .negotiationSteps(
                         configuration.getNegotiationSteps()
                                 .stream()
