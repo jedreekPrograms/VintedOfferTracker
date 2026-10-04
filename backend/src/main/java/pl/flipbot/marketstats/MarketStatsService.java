@@ -51,12 +51,24 @@ public class MarketStatsService {
                         .stream()
                         .filter(target -> Boolean.TRUE.equals(target.getActive()))
                         .toList();
+        Map<Long, MarketModelScanState> scanStates =
+                scanStateRepository.findAll()
+                        .stream()
+                        .filter(state -> state.getModelId() != null)
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        MarketModelScanState::getModelId,
+                                        state -> state,
+                                        (left, right) -> left
+                                )
+                        );
 
         return modelRepository.findAll()
                 .stream()
                 .sorted(
                         MarketStatsTargetOrdering.comparator(
-                                configurations
+                                configurations,
+                                scanStates
                         )
                 )
                 .map(model -> {
