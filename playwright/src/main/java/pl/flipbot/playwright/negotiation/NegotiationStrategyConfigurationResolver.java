@@ -107,6 +107,7 @@ public final class NegotiationStrategyConfigurationResolver {
         );
         copy.setMaxAutomaticOffer(source.getMaxAutomaticOffer());
         copy.setDailyNegotiationBudget(source.getDailyNegotiationBudget());
+        copy.setNegotiationStrategyVersion(source.getNegotiationStrategyVersion());
         copy.setNegotiationSteps(copySteps(source.getNegotiationSteps()));
         return copy;
     }
