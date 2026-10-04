@@ -115,16 +115,36 @@ public class BotService {
         boolean priceRangeChanged = !sameDecimal(configuration.getMinPrice(), requested.getMinPrice())
                 || !sameDecimal(configuration.getMaxPrice(), requested.getMaxPrice());
         boolean adaptiveModeChanged = Boolean.TRUE.equals(configuration.getAutoRaiseOfferToVintedMinimum()) != requestedAdaptive;
+        BigDecimal requestedGlobalCap = requestedAdaptive
+                ? requested.getMaxAutomaticOffer()
+                : null;
+        boolean globalCapChanged = !sameDecimal(
+                configuration.getMaxAutomaticOffer(),
+                requestedGlobalCap
+        );
         boolean globalCapIncreased = isGlobalCapIncreased(
-                configuration.getMaxAutomaticOffer(), requestedAdaptive ? requested.getMaxAutomaticOffer() : null);
+                configuration.getMaxAutomaticOffer(),
+                requestedGlobalCap
+        );
+        boolean strategyChanged = stepDefinitionChanged
+                || responsePoliciesChanged
+                || adaptiveModeChanged
+                || globalCapChanged;
         boolean targetDefinitionChanged = targetDefinitionChanged(configuration, requested, requestedMode);
         boolean accountIdentityChanged = !sameNormalizedText(bot.getEmail(), normalizedEmail)
                 || (request.getPassword() != null && !request.getPassword().isBlank());
         List<Listing> active = getActiveNegotiationListings(botId);
         List<Listing> mainActive = getMainProductActiveNegotiationListings(botId);
         validateActiveNegotiationEdit(
-                bot, configuration, request, requested, requestedMode, requestedAdaptive,
-                normalizedEmail, stepDefinitionChanged, active, mainActive);
+                bot,
+                configuration,
+                request,
+                requested,
+                requestedMode,
+                normalizedEmail,
+                active,
+                mainActive
+        );
         if (botRepository.existsByEmailAndIdNot(normalizedEmail, botId)) {
             throw new BotAlreadyExistsException(normalizedEmail);
         }
@@ -148,6 +168,11 @@ public class BotService {
             replaceNegotiationSteps(configuration, requested.getNegotiationSteps());
         } else if (responsePoliciesChanged) {
             applyResponsePolicies(configuration, requested.getNegotiationSteps());
+        }
+        if (strategyChanged) {
+            configuration.setNegotiationStrategyVersion(
+                    nextStrategyVersion(configuration.getNegotiationStrategyVersion())
+            );
         }
         if (stepDefinitionChanged || adaptiveModeChanged || globalCapIncreased) {
             resetMainProductListingsWithStatus(botId, ListingStatus.SKIPPED_OFFER_TOO_LOW);
@@ -225,9 +250,7 @@ public class BotService {
             UpdateBotRequest request,
             CreateBotConfigurationRequest requested,
             TargetMode requestedMode,
-            boolean requestedAdaptive,
             String normalizedEmail,
-            boolean stepDefinitionChanged,
             List<Listing> active,
             List<Listing> mainActive
     ) {
@@ -248,18 +271,15 @@ public class BotService {
             } else if (!sameNormalizedText(configuration.getSearchQuery(), requested.getSearchQuery())) {
                 locked.add("search query");
             }
-            if (Boolean.TRUE.equals(configuration.getAutoRaiseOfferToVintedMinimum()) != requestedAdaptive) {
-                locked.add("adaptive pricing mode");
-            }
-            if (stepDefinitionChanged) locked.add("negotiation step prices/messages/structure");
         }
         if (!locked.isEmpty()) {
             throw new IllegalStateException(
                     "Bot has active negotiations. These fields cannot be changed while the affected conversations are active: "
                             + String.join(", ", locked)
                             + ". Shared Vinted account fields are locked by negotiations from any product; "
-                            + "main-product target/strategy fields are locked only by main-product negotiations. "
-                            + "Safe operational fields remain editable.");
+                            + "main-product target identity is locked only by main-product negotiations. "
+                            + "Negotiation prices, messages, limits and response policies are versioned: "
+                            + "active conversations keep their pinned strategy while new conversations use the saved version.");
         }
     }
 
@@ -326,6 +346,12 @@ public class BotService {
 
     private boolean isGlobalCapIncreased(BigDecimal currentCap, BigDecimal requestedCap) {
         return requestedCap != null && (currentCap == null || requestedCap.compareTo(currentCap) > 0);
+    }
+
+    private int nextStrategyVersion(Integer currentVersion) {
+        return currentVersion == null || currentVersion < 1
+                ? 2
+                : currentVersion + 1;
     }
 
     private boolean sameDecimal(BigDecimal left, BigDecimal right) {
