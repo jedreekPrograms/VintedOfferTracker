@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.listing.dto.UpdateConversationIdentityRequest;
 import pl.flipbot.mapper.ListingMapper;
+import pl.flipbot.negotiation.strategy.NegotiationStrategySnapshotService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -24,13 +25,16 @@ class ListingServiceConversationIdentityTest {
         ListingClaimService listingClaimService = mock(ListingClaimService.class);
         ListingRediscoveryService listingRediscoveryService =
                 mock(ListingRediscoveryService.class);
+        NegotiationStrategySnapshotService snapshotService =
+                mock(NegotiationStrategySnapshotService.class);
 
         ListingService service = new ListingService(
                 listingRepository,
                 botRepository,
                 listingMapper,
                 listingClaimService,
-                listingRediscoveryService
+                listingRediscoveryService,
+                snapshotService
         );
 
         LocalDateTime stepStartedAt =
