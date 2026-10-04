@@ -1,7 +1,7 @@
 package pl.flipbot.negotiation.strategy;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pl.flipbot.bot.configuration.BotAdditionalTarget;
@@ -16,7 +16,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class NegotiationStrategySnapshotService {
 
-    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper;
 
     public boolean pinIfMissing(Listing listing) {
         if (listing == null) {
@@ -40,11 +40,11 @@ public class NegotiationStrategySnapshotService {
             return null;
         }
         try {
-            return objectMapper.readValue(
+            return jsonMapper.readValue(
                     listing.getNegotiationStrategySnapshot(),
                     NegotiationStrategySnapshot.class
             );
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException(
                     "Cannot read negotiation strategy snapshot for listing "
                             + listing.getId(),
@@ -141,8 +141,8 @@ public class NegotiationStrategySnapshotService {
 
     private String serialize(NegotiationStrategySnapshot snapshot) {
         try {
-            return objectMapper.writeValueAsString(snapshot);
-        } catch (JsonProcessingException exception) {
+            return jsonMapper.writeValueAsString(snapshot);
+        } catch (JacksonException exception) {
             throw new IllegalStateException(
                     "Cannot serialize negotiation strategy snapshot.",
                     exception
