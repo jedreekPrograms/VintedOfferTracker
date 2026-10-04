@@ -16,6 +16,8 @@ import java.util.List;
 public class MarketStatsHealthService {
 
     private static final long DEFAULT_REFRESH_MINUTES = 15L;
+    private static final long ESTIMATED_MINUTES_PER_MODEL = 2L;
+    private static final long MAX_STALE_WINDOW_MINUTES = 360L;
     private static final ZoneId MARKET_STATS_ZONE = ZoneId.of("Europe/Warsaw");
 
     private final DictionaryModelRepository modelRepository;
@@ -43,7 +45,7 @@ public class MarketStatsHealthService {
 
         LocalDateTime staleCutoff =
                 LocalDateTime.now(MARKET_STATS_ZONE)
-                        .minusMinutes(staleAfterMinutes());
+                        .minusMinutes(staleAfterMinutes(totalModels));
 
         int staleModels = safeInt(
                 states.stream()
@@ -126,7 +128,7 @@ public class MarketStatsHealthService {
         return MarketStatsHealthStatus.OK;
     }
 
-    private long staleAfterMinutes() {
+    private long staleAfterMinutes(int totalModels) {
         long refreshMinutes = readPositiveLong(
                 System.getenv("FLIPBOT_MARKET_STATS_REFRESH_MINUTES"),
                 DEFAULT_REFRESH_MINUTES
@@ -145,7 +147,13 @@ public class MarketStatsHealthService {
             ) * 60L;
         }
 
-        return Math.max(45L, refreshMinutes * 3L);
+        long refreshBased = Math.max(45L, refreshMinutes * 3L);
+        long modelCycleBased = Math.min(
+                MAX_STALE_WINDOW_MINUTES,
+                Math.max(0L, totalModels) * ESTIMATED_MINUTES_PER_MODEL
+        );
+
+        return Math.max(refreshBased, modelCycleBased);
     }
 
     private long readPositiveLong(
