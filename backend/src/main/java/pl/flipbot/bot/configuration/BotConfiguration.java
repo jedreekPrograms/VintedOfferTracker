@@ -98,6 +98,14 @@ public class BotConfiguration {
 
     private Integer dailyNegotiationBudget;
 
+    /**
+     * Monotonic version of the negotiation strategy used for NEW conversations.
+     * Existing conversations carry an immutable listing-level snapshot.
+     */
+    @Column(name = "negotiation_strategy_version", nullable = false)
+    @Builder.Default
+    private Integer negotiationStrategyVersion = 1;
+
     @OneToOne
     @JoinColumn(name = "bot_id")
     private Bot bot;
