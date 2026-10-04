@@ -130,6 +130,8 @@ public class MarketStatsCalendarPlanningService {
                     false,
                     0,
                     state == null ? null : state.getLastScanAt(),
+                    state == null ? null : state.getLastSuccessfulScanAt(),
+                    false,
                     state != null && Boolean.TRUE.equals(state.getLastScanComplete())
             );
         }
@@ -172,14 +174,14 @@ public class MarketStatsCalendarPlanningService {
          * Therefore a calendar window is exact only when the model baseline
          * was already complete at the START of that window.
          *
-         * Current-day/current-week values also need a recent successful scan;
-         * otherwise a stale value (especially 0) must not be presented as an
-         * exact live count.
+         * Current-day/current-week values are exact through the latest
+         * successful complete scan. Freshness is exposed separately so the UI
+         * can show "stan na HH:mm" instead of hiding a valid count merely
+         * because a large Observer pass takes longer than two hours.
          */
         boolean todayWindowComplete = publicationCoverageEstablished
                 && latestScanComplete
                 && successfulScanToday
-                && currentScanFresh
                 && MarketStatsPlanningCalculator.coversWindowFrom(
                         baselineCompleteAt,
                         windows.todayStart()
@@ -187,7 +189,6 @@ public class MarketStatsCalendarPlanningService {
         boolean currentWeekWindowComplete = publicationCoverageEstablished
                 && latestScanComplete
                 && successfulScanToday
-                && currentScanFresh
                 && MarketStatsPlanningCalculator.coversWindowFrom(
                         baselineCompleteAt,
                         windows.currentWeekStart()
@@ -254,6 +255,8 @@ public class MarketStatsCalendarPlanningService {
                 previousFullWeekAvailable,
                 trackedDays,
                 state.getLastScanAt(),
+                lastSuccessfulScanAt,
+                currentScanFresh,
                 latestScanComplete
         );
     }
