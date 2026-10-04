@@ -278,6 +278,14 @@ public class ListingRediscoveryService {
         listing.setReadDetectedAt(null);
         listing.setFormalResponseFingerprint(null);
         listing.setFormalResponseDetectedAt(null);
+
+        /*
+         * Requalified rows are guaranteed to have no FIRST_OFFER audit. Clear
+         * any stale/legacy snapshot so the eventual new conversation pins the
+         * then-current product strategy rather than an obsolete definition.
+         */
+        listing.setNegotiationStrategyVersion(null);
+        listing.setNegotiationStrategySnapshot(null);
         listing.setLastFreshDiscoveryAt(now);
     }
 
