@@ -54,6 +54,8 @@ export interface CreateBotConfigurationRequest {
 
     dailyNegotiationBudget: number;
 
+    negotiationStrategyVersion: number;
+
     negotiationSteps: CreateNegotiationStepRequest[];
 }
 
@@ -146,6 +148,8 @@ export interface BotConfigurationDetails {
 export interface BotAdditionalTargetDetails {
     additionalTargetId: number;
     active: boolean;
+    hasActiveNegotiations: boolean;
+    negotiationStrategyVersion: number;
     marketplace: Marketplace;
     categoryPath: string[];
     brand: string;
