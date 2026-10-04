@@ -165,8 +165,10 @@ function NegotiationStepsSection({
                                     <span className="form-help">
                                         Jeśli sprzedający poda cenę nie wyższą
                                         niż ten próg, oferta trafia od razu do
-                                        „Oferty do kupienia”. Ten warunek ma
-                                        pierwszeństwo przed regułami procentowymi.
+                                        „Oferty do kupienia”. W trybie adaptacyjnym
+                                        formalna kontroferta nie wyższa od globalnej
+                                        maksymalnej ceny negocjacji również kończy
+                                        automat i trafia od razu do ręcznej decyzji.
                                     </span>
                                 </div>
                             </div>

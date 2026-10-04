@@ -130,7 +130,32 @@ public class NegotiationDecisionService {
                 configuration
         );
 
-        /* Explicit per-step acceptance threshold always has first priority. */
+        /*
+         * In adaptive mode maxAutomaticOffer is also the user's absolute
+         * purchase ceiling. A formal seller counteroffer at or below that
+         * ceiling is already a price the user is willing to pay, so surface it
+         * immediately for manual purchase instead of risking the deal by
+         * sending another automated counteroffer.
+         */
+        BigDecimal globalCap = configuration.getMaxAutomaticOffer();
+        if (pricingService.isAdaptiveModeEnabled(configuration)
+                && globalCap != null
+                && sellerPrice.compareTo(globalCap) <= 0) {
+            return new NegotiationDecision(
+                    NegotiationDecisionType.MARK_ACTION_REQUIRED,
+                    null,
+                    sellerPrice,
+                    "The seller made a formal counteroffer " + sellerPrice
+                            + " at or below the global negotiation cap "
+                            + globalCap
+                            + "; stop automatic negotiation and surface it for manual purchase"
+            );
+        }
+
+        /*
+         * Static/non-adaptive mode keeps the configured per-step acceptance
+         * threshold semantics.
+         */
         if (acceptedLimit != null && sellerPrice.compareTo(acceptedLimit) <= 0) {
             return NegotiationDecision.actionRequiredForCounterOffer(sellerPrice);
         }
