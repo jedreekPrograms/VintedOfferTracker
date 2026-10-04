@@ -35,5 +35,7 @@ public class BotConfigurationResponse {
 
     private Integer dailyNegotiationBudget;
 
+    private Integer negotiationStrategyVersion;
+
     private List<NegotiationStepResponse> negotiationSteps;
 }
