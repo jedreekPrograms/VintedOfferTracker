@@ -602,7 +602,7 @@ function CalendarMetricCell({
             )}
             {complete && !planning.currentWindowFresh && (
                 <span className="price-metric-warning">
-                    Pełny skan jest starszy niż 2 godz.
+                    Pełny skan jest starszy niż bieżący cykl Observera.
                 </span>
             )}
             {!complete && successfulScanLabel !== null && (
