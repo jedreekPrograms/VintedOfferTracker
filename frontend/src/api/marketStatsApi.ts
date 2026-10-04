@@ -33,8 +33,10 @@ export interface MarketStatsHealth {
     baselineReadyModels: number;
     pendingBaselineModels: number;
     incompleteModels: number;
+    staleModels: number;
     lastScanAt: string | null;
     lastSuccessfulScanAt: string | null;
+    oldestSuccessfulScanAt: string | null;
 }
 
 export async function getMarketStatsHealth(): Promise<MarketStatsHealth> {
