@@ -781,6 +781,12 @@ public class BotAdditionalTargetService {
         return left.compareTo(right) == 0;
     }
 
+    private int nextStrategyVersion(Integer currentVersion) {
+        return currentVersion == null || currentVersion < 1
+                ? 2
+                : currentVersion + 1;
+    }
+
     private boolean isGlobalCapIncreased(
             BigDecimal current,
             BigDecimal requested
