@@ -15,7 +15,13 @@ import java.util.List;
 
 @Slf4j
 @Component
-@Order(130)
+/*
+ * All additive local-schema initializers must run before this JPA backfill.
+ * A JPA Listing query selects every mapped column, so running this before a
+ * later schema initializer (for example last_terminal_watch_at) makes startup
+ * fail on databases created by an older build.
+ */
+@Order(400)
 @RequiredArgsConstructor
 public class NegotiationStrategySnapshotBackfillRunner implements ApplicationRunner {
 
