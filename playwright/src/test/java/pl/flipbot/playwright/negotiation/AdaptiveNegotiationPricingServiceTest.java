@@ -249,6 +249,60 @@ public class AdaptiveNegotiationPricingServiceTest {
     }
 
     @Test
+    public void laterAdaptiveStepRaisesToLiveVintedMinimumWithinCap() {
+        BotConfigurationDto configuration = adaptiveConfiguration();
+        configuration.setMaxAutomaticOffer(new BigDecimal("1450.00"));
+
+        NegotiationStepDto effective =
+                step(3, "1000.00", "1050.00", "step 3");
+
+        Optional<NegotiationStepDto> raised =
+                service.raiseEffectiveStepToVintedMinimum(
+                        effective,
+                        new BigDecimal("1080.00"),
+                        configuration
+                );
+
+        assertTrue(raised.isPresent());
+        assertEquals(
+                0,
+                new BigDecimal("1080.00").compareTo(
+                        raised.get().getOfferPrice()
+                )
+        );
+        assertEquals(
+                0,
+                new BigDecimal("1080.00").compareTo(
+                        raised.get().getMaxAcceptedCounterOffer()
+                )
+        );
+    }
+
+    @Test
+    public void liveVintedMinimumAboveGlobalCapDoesNotRaiseLaterStep() {
+        BotConfigurationDto configuration = adaptiveConfiguration();
+        configuration.setMaxAutomaticOffer(new BigDecimal("1050.00"));
+
+        NegotiationStepDto effective =
+                step(3, "1000.00", "1050.00", "step 3");
+
+        Optional<NegotiationStepDto> raised =
+                service.raiseEffectiveStepToVintedMinimum(
+                        effective,
+                        new BigDecimal("1080.00"),
+                        configuration
+                );
+
+        assertTrue(raised.isEmpty());
+        assertEquals(
+                0,
+                new BigDecimal("1000.00").compareTo(
+                        effective.getOfferPrice()
+                )
+        );
+    }
+
+    @Test
     public void disabledAdaptiveModeKeepsConfiguredStepExactly() {
         BotConfigurationDto configuration = adaptiveConfiguration();
         configuration.setAutoRaiseOfferToVintedMinimum(false);
