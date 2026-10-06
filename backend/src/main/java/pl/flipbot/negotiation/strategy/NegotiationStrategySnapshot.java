@@ -26,6 +26,8 @@ public record NegotiationStrategySnapshot(
             String message,
             NegotiationReactionAction rejectionAction,
             Integer rejectionWaitHours,
+            Integer readWaitHours,
+            Integer unreadWaitHours,
             NegotiationReactionAction counterOfferDefaultAction,
             Integer counterOfferDefaultWaitHours,
             List<SellerCounterOfferRuleSnapshot> counterOfferRules
