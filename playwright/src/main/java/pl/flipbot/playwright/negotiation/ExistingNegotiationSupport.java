@@ -76,9 +76,10 @@ public class ExistingNegotiationSupport {
                 && activity.latestOwnOfferFound()
                 && activity.sellerMessageAfterLatestOwnOffer();
         LocalDateTime sellerActivityAt = sellerMessageDetected
-                ? (activity.latestSellerMessageAt() == null
-                    ? LocalDateTime.now()
-                    : activity.latestSellerMessageAt())
+                ? normalizedSellerActivityAt(
+                        listing,
+                        activity.latestSellerMessageAt()
+                )
                 : null;
         boolean sellerActivity = sellerActivityAt != null;
         boolean readDetected = activity.inspectionSucceeded()
@@ -107,6 +108,39 @@ public class ExistingNegotiationSupport {
                     listing.listingId(),
                     friendlyError(exception)
             );
+        }
+    }
+
+    private LocalDateTime normalizedSellerActivityAt(
+            ListingResponseDto listing,
+            LocalDateTime detectedMessageAt
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+
+        if (detectedMessageAt == null) {
+            return now;
+        }
+
+        String rawStepStartedAt = listing.currentStepStartedAt();
+        if (rawStepStartedAt == null || rawStepStartedAt.isBlank()) {
+            return detectedMessageAt;
+        }
+
+        try {
+            LocalDateTime stepStartedAt =
+                    LocalDateTime.parse(rawStepStartedAt);
+
+            /*
+             * The browser detector only reports seller messages that are
+             * physically after our latest offer in the conversation DOM.
+             * If Vinted exposes an imprecise/stale message timestamp anyway,
+             * use detection time so the reaction is not lost forever.
+             */
+            return detectedMessageAt.isBefore(stepStartedAt)
+                    ? now
+                    : detectedMessageAt;
+        } catch (java.time.format.DateTimeParseException exception) {
+            return detectedMessageAt;
         }
     }
 
