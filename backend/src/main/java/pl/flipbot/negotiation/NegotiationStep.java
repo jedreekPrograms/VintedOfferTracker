@@ -60,6 +60,21 @@ public class NegotiationStep {
     private Integer rejectionWaitHours;
 
     /*
+     * PENDING follow-up policy for this step.
+     *
+     * readWaitHours starts when the latest own offer is first observed as read.
+     * unreadWaitHours starts from currentStepStartedAt when there is no seller
+     * message, formal response or read marker.
+     */
+    @Column(name = "read_wait_hours", nullable = false)
+    @Builder.Default
+    private Integer readWaitHours = 3;
+
+    @Column(name = "unread_wait_hours", nullable = false)
+    @Builder.Default
+    private Integer unreadWaitHours = 48;
+
+    /*
      * Fallback reaction for a seller counteroffer that is still above our
      * accepted-counteroffer threshold and does not match any discount rule.
      */
