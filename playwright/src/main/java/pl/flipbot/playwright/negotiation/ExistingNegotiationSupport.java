@@ -13,7 +13,7 @@ import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
 
-
+import java.time.LocalDateTime;
 
 
 
@@ -72,10 +72,15 @@ public class ExistingNegotiationSupport {
                 snapshot
         );
 
-        boolean sellerActivity = activity.inspectionSucceeded()
+        boolean sellerMessageDetected = activity.inspectionSucceeded()
                 && activity.latestOwnOfferFound()
-                && activity.sellerMessageAfterLatestOwnOffer()
-                && activity.latestSellerMessageAt() != null;
+                && activity.sellerMessageAfterLatestOwnOffer();
+        LocalDateTime sellerActivityAt = sellerMessageDetected
+                ? (activity.latestSellerMessageAt() == null
+                    ? LocalDateTime.now()
+                    : activity.latestSellerMessageAt())
+                : null;
+        boolean sellerActivity = sellerActivityAt != null;
         boolean readDetected = activity.inspectionSucceeded()
                 && activity.latestOwnOfferFound()
                 && activity.readIndicatorAfterLatestOwnOffer();
@@ -91,7 +96,7 @@ public class ExistingNegotiationSupport {
                     context.getBot().getId(),
                     listing.id(),
                     new NegotiationActivityRequestDto(
-                            sellerActivity ? activity.latestSellerMessageAt() : null,
+                            sellerActivityAt,
                             readDetected,
                             formalResponseFingerprint
                     )
