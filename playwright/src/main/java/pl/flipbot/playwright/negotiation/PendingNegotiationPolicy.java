@@ -10,20 +10,26 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Comparator;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
- * A visible Vinted PENDING state is authoritative: the seller has not formally
- * accepted, rejected or countered the latest offer yet.
+ * Handles Vinted PENDING state.
  *
- * Reading the offer or sending a normal chat message is not a formal seller
- * response. For non-final steps we nevertheless avoid leaving a PENDING offer
- * open forever: the no-response timeout uses the configured rejection wait for
- * that step. A seller who simply leaves the offer pending must not silently
- * double every configured negotiation delay. If the rejection policy is
- * immediate/legacy and has no positive wait value, a conservative 12h fallback
- * is used.
+ * A read indicator or a normal seller chat message is not a formal rejection,
+ * but it is a clear seller reaction to our current step. It therefore reuses
+ * the CURRENT STEP rejection policy:
  *
- * The final configured step is never auto-raised again and expires after 48h.
+ * - NEXT_STEP_NOW -> continue immediately;
+ * - WAIT_BEFORE_NEXT_STEP -> start the configured rejection wait from the
+ *   first seller reaction detected for this step.
+ *
+ * With no seller reaction at all, a non-final step still needs a bounded
+ * no-response timeout. A configured WAIT rejection delay is reused; legacy /
+ * immediate rejection policies use a conservative 12h fallback so the ladder
+ * does not cascade instantly without any seller activity.
+ *
+ * A completely untouched final PENDING step expires after 48h. If the seller
+ * has read or messaged on that final step, its rejection policy applies first.
  */
 public class PendingNegotiationPolicy {
 
@@ -61,136 +67,314 @@ public class PendingNegotiationPolicy {
             BotConfigurationDto configuration
     ) {
         Objects.requireNonNull(listing, "Listing cannot be null");
-        Objects.requireNonNull(activitySnapshot, "Conversation activity snapshot cannot be null");
-        Objects.requireNonNull(configuration, "Bot configuration cannot be null");
+        Objects.requireNonNull(
+                activitySnapshot,
+                "Conversation activity snapshot cannot be null"
+        );
+        Objects.requireNonNull(
+                configuration,
+                "Bot configuration cannot be null"
+        );
+
+        NegotiationStepDto currentStep =
+                findCurrentStep(listing, configuration);
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime stepStartedAt =
+                parseDateTime(listing.currentStepStartedAt());
+
+        SellerReaction sellerReaction = resolveSellerReaction(
+                listing,
+                activitySnapshot,
+                stepStartedAt,
+                now
+        );
+
+        if (sellerReaction != null) {
+            return applyRejectionPolicyToSellerReaction(
+                    listing,
+                    configuration,
+                    currentStep,
+                    sellerReaction,
+                    now
+            );
+        }
 
         PendingNegotiationDecision finalStepDecision =
-                decideFinalStepPendingExpiry(listing, configuration);
+                decideUntouchedFinalStepPendingExpiry(
+                        listing,
+                        configuration,
+                        stepStartedAt,
+                        now
+                );
+
         if (finalStepDecision != null) {
             return finalStepDecision;
         }
 
-        PendingNegotiationDecision nonFinalTimeoutDecision =
-                decideNonFinalPendingTimeout(listing, configuration);
-        if (nonFinalTimeoutDecision != null) {
-            return nonFinalTimeoutDecision;
-        }
+        return decideNoResponseTimeout(
+                listing,
+                configuration,
+                currentStep,
+                stepStartedAt,
+                now
+        );
+    }
 
-        if (activitySnapshot.sellerMessageAfterLatestOwnOffer()) {
-            return PendingNegotiationDecision.waitForSeller(
-                    "Vinted still reports the latest offer as PENDING. The seller sent a normal chat message, "
-                            + "but no formal rejection, acceptance or counteroffer was detected, so the bot will not raise its price."
-            );
-        }
+    private PendingNegotiationDecision applyRejectionPolicyToSellerReaction(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration,
+            NegotiationStepDto currentStep,
+            SellerReaction reaction,
+            LocalDateTime now
+    ) {
+        NegotiationReactionAction action =
+                currentStep.getRejectionAction();
 
-        if (activitySnapshot.readIndicatorAfterLatestOwnOffer()
-                || hasTimestamp(listing.readDetectedAt())) {
-            return PendingNegotiationDecision.waitForSeller(
-                    "Vinted still reports the latest offer as PENDING. A read indicator exists, "
-                            + "but reading an offer is not a formal response, so the bot will not raise its price."
-            );
-        }
-
-        LocalDateTime startedAt = parseDateTime(listing.currentStepStartedAt());
-        if (startedAt != null) {
-            NegotiationStepDto currentStep = findCurrentStep(
+        if (action == null
+                || action == NegotiationReactionAction.NEXT_STEP_NOW) {
+            return continueOrExpire(
                     listing,
-                    configuration
+                    configuration,
+                    reaction.reason()
+                            + ". The current step uses the same policy as a rejection: send the next step immediately."
             );
-            int rejectionWaitHours = rejectionWaitHours(currentStep);
-            long noResponseWaitHours = rejectionWaitHours;
-            LocalDateTime nextActionAt = startedAt.plusHours(
-                    noResponseWaitHours
-            );
+        }
 
+        if (action != NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP) {
             return PendingNegotiationDecision.waitForSeller(
-                    "Vinted still reports the latest offer as PENDING since "
-                            + startedAt
-                            + ". No formal response exists yet. The non-final no-response timeout is "
-                            + noResponseWaitHours
-                            + "h (configured rejection wait), so the next step becomes eligible at "
+                    reaction.reason()
+                            + ". Unsupported rejection policy "
+                            + action
+                            + "; failing closed without sending another offer."
+            );
+        }
+
+        Integer waitHours = currentStep.getRejectionWaitHours();
+        if (waitHours == null || waitHours <= 0) {
+            return PendingNegotiationDecision.waitForSeller(
+                    reaction.reason()
+                            + ". The step is configured to wait after rejection, but rejectionWaitHours is invalid; failing closed."
+            );
+        }
+
+        LocalDateTime nextActionAt =
+                reaction.detectedAt().plusHours(waitHours);
+
+        if (now.isBefore(nextActionAt)) {
+            return PendingNegotiationDecision.waitForSeller(
+                    reaction.reason()
+                            + ". This is treated like a rejection for timing. "
+                            + "Step " + listing.currentStep()
+                            + " is configured to wait "
+                            + waitHours + "h after rejection, so the next step is eligible at "
                             + nextActionAt + "."
             );
         }
 
-        return PendingNegotiationDecision.waitForSeller(
-                "Vinted still reports the latest offer as PENDING. No trustworthy formal response exists, "
-                        + "so the negotiation remains active."
+        return continueOrExpire(
+                listing,
+                configuration,
+                reaction.reason()
+                        + ". This is treated like a rejection for timing. "
+                        + "The configured " + waitHours
+                        + "h rejection wait elapsed at "
+                        + nextActionAt + "."
         );
     }
 
-    private PendingNegotiationDecision decideNonFinalPendingTimeout(
+    private PendingNegotiationDecision decideNoResponseTimeout(
             ListingResponseDto listing,
-            BotConfigurationDto configuration
+            BotConfigurationDto configuration,
+            NegotiationStepDto currentStep,
+            LocalDateTime stepStartedAt,
+            LocalDateTime now
     ) {
-        NegotiationStepDto currentStep = findCurrentStep(
-                listing,
-                configuration
-        );
-
-        LocalDateTime startedAt = parseDateTime(
-                listing.currentStepStartedAt()
-        );
-
-        if (startedAt == null) {
-            return null;
-        }
-
-        int rejectionWaitHours = rejectionWaitHours(currentStep);
-        long noResponseWaitHours = rejectionWaitHours;
-
-        LocalDateTime nextActionAt = startedAt.plusHours(
-                noResponseWaitHours
-        );
-        LocalDateTime now = LocalDateTime.now(clock);
-
-        if (now.isBefore(nextActionAt)) {
-            return null;
-        }
-
-        NegotiationStepDto configuredNextStep = findNextStep(
-                listing,
-                configuration
-        );
-
-        if (configuredNextStep == null) {
-            return PendingNegotiationDecision.expire(
-                    "Vinted still reports the offer as PENDING after "
-                            + noResponseWaitHours
-                            + "h without a formal seller response, but no next configured negotiation step exists."
+        if (stepStartedAt == null) {
+            return PendingNegotiationDecision.waitForSeller(
+                    "Vinted still reports the latest offer as PENDING, but currentStepStartedAt is missing. "
+                            + "The bot cannot safely calculate the no-response timer."
             );
         }
 
-        return pricingService
-                .adaptNextStep(
+        int waitHours = noResponseWaitHours(currentStep);
+        LocalDateTime nextActionAt =
+                stepStartedAt.plusHours(waitHours);
+
+        if (now.isBefore(nextActionAt)) {
+            return PendingNegotiationDecision.waitForSeller(
+                    "Vinted still reports step "
+                            + listing.currentStep()
+                            + " as PENDING with no seller message or read signal. "
+                            + "The no-response timeout is "
+                            + waitHours + "h; next step becomes eligible at "
+                            + nextActionAt + "."
+            );
+        }
+
+        return continueOrExpire(
+                listing,
+                configuration,
+                "Vinted still reports step "
+                        + listing.currentStep()
+                        + " as PENDING with no seller reaction. "
+                        + "The no-response timeout of "
+                        + waitHours + "h elapsed at "
+                        + nextActionAt + "."
+        );
+    }
+
+    private PendingNegotiationDecision continueOrExpire(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration,
+            String reason
+    ) {
+        NegotiationStepDto configuredNextStep =
+                findNextStep(listing, configuration);
+
+        if (configuredNextStep == null) {
+            return PendingNegotiationDecision.expire(
+                    reason
+                            + " There is no later configured negotiation step, so the conversation is closed as EXPIRED."
+            );
+        }
+
+        Optional<NegotiationStepDto> effectiveNextStep =
+                pricingService.adaptNextStep(
                         listing,
                         configuredNextStep,
                         configuration
-                )
-                .map(nextStep ->
-                        PendingNegotiationDecision.sendNextStep(
-                                nextStep,
-                                "Vinted still reports step "
-                                        + listing.currentStep()
-                                        + " as PENDING without a formal seller response. "
-                                        + "The no-response policy uses the configured rejection wait: "
-                                        + noResponseWaitHours + "h. "
-                                        + "Step started at " + startedAt
-                                        + "; next step became eligible at "
-                                        + nextActionAt + "."
-                        )
-                )
-                .orElseGet(() ->
-                        PendingNegotiationDecision.expire(
-                                "Vinted still reports the offer as PENDING after "
-                                        + noResponseWaitHours
-                                        + "h, but the next adaptive step cannot be sent within the configured automatic-offer cap. "
-                                        + "The stale negotiation is closed instead of remaining active forever."
-                        )
                 );
+
+        if (effectiveNextStep.isPresent()) {
+            return PendingNegotiationDecision.sendNextStep(
+                    effectiveNextStep.get(),
+                    reason
+                            + " Effective next offer: "
+                            + effectiveNextStep.get().getOfferPrice()
+                            + "."
+            );
+        }
+
+        return PendingNegotiationDecision.expire(
+                reason
+                        + " A later configured step exists, but its effective price cannot be sent within the automatic-offer cap."
+        );
     }
 
-    private int rejectionWaitHours(
+    private SellerReaction resolveSellerReaction(
+            ListingResponseDto listing,
+            ConversationActivitySnapshot activitySnapshot,
+            LocalDateTime stepStartedAt,
+            LocalDateTime now
+    ) {
+        LocalDateTime persistedMessageAt =
+                currentStepTimestamp(
+                        parseDateTime(listing.sellerActivityAt()),
+                        stepStartedAt
+                );
+        LocalDateTime persistedReadAt =
+                currentStepTimestamp(
+                        parseDateTime(listing.readDetectedAt()),
+                        stepStartedAt
+                );
+
+        LocalDateTime detectedMessageAt = null;
+        boolean messageDetected =
+                activitySnapshot.inspectionSucceeded()
+                        && activitySnapshot.latestOwnOfferFound()
+                        && activitySnapshot.sellerMessageAfterLatestOwnOffer();
+
+        if (messageDetected) {
+            detectedMessageAt =
+                    activitySnapshot.latestSellerMessageAt() == null
+                            ? now
+                            : currentStepTimestamp(
+                                    activitySnapshot.latestSellerMessageAt(),
+                                    stepStartedAt
+                            );
+        }
+
+        LocalDateTime detectedReadAt = null;
+        boolean readDetected =
+                activitySnapshot.inspectionSucceeded()
+                        && activitySnapshot.latestOwnOfferFound()
+                        && activitySnapshot.readIndicatorAfterLatestOwnOffer();
+
+        if (readDetected) {
+            detectedReadAt =
+                    persistedReadAt == null
+                            ? now
+                            : persistedReadAt;
+        }
+
+        LocalDateTime firstMessageAt =
+                earliest(persistedMessageAt, detectedMessageAt);
+        LocalDateTime firstReadAt =
+                earliest(persistedReadAt, detectedReadAt);
+        LocalDateTime firstReactionAt =
+                earliest(firstMessageAt, firstReadAt);
+
+        if (firstReactionAt == null) {
+            return null;
+        }
+
+        String reason;
+        if (firstMessageAt != null && firstReadAt != null) {
+            reason = "The seller reacted to the current PENDING offer (read/message), first detected at "
+                    + firstReactionAt;
+        } else if (firstMessageAt != null) {
+            reason = "The seller sent a normal chat message after the current offer, first detected at "
+                    + firstReactionAt;
+        } else {
+            reason = "The seller read the current offer but left it PENDING, first detected at "
+                    + firstReactionAt;
+        }
+
+        return new SellerReaction(firstReactionAt, reason);
+    }
+
+    private PendingNegotiationDecision decideUntouchedFinalStepPendingExpiry(
+            ListingResponseDto listing,
+            BotConfigurationDto configuration,
+            LocalDateTime startedAt,
+            LocalDateTime now
+    ) {
+        if (!isFinalNegotiationStep(listing, configuration)) {
+            return null;
+        }
+
+        if (startedAt == null) {
+            return PendingNegotiationDecision.waitForSeller(
+                    "Vinted still reports the final negotiation step as PENDING, but currentStepStartedAt is missing. "
+                            + "The bot cannot safely calculate the final-step expiry."
+            );
+        }
+
+        LocalDateTime expiresAt =
+                startedAt.plusHours(FINAL_STEP_PENDING_EXPIRY_HOURS);
+
+        if (!now.isBefore(expiresAt)) {
+            return PendingNegotiationDecision.expire(
+                    "The untouched final negotiation step has remained PENDING for at least "
+                            + FINAL_STEP_PENDING_EXPIRY_HOURS
+                            + "h without a seller message, read signal or formal response. "
+                            + "It started at " + startedAt
+                            + " and expired at " + expiresAt + "."
+            );
+        }
+
+        return PendingNegotiationDecision.waitForSeller(
+                "Vinted still reports the untouched final negotiation step as PENDING. "
+                        + "With no seller reaction, the bot waits up to "
+                        + FINAL_STEP_PENDING_EXPIRY_HOURS
+                        + "h. This step started at "
+                        + startedAt
+                        + " and will expire at "
+                        + expiresAt + "."
+        );
+    }
+
+    private int noResponseWaitHours(
             NegotiationStepDto currentStep
     ) {
         if (currentStep.getRejectionAction()
@@ -210,7 +394,7 @@ public class PendingNegotiationPolicy {
         if (listing.currentStep() == null
                 || configuration.getNegotiationSteps() == null) {
             throw new IllegalStateException(
-                    "Cannot evaluate PENDING timeout without a current negotiation step."
+                    "Cannot evaluate PENDING policy without a current negotiation step."
             );
         }
 
@@ -248,44 +432,6 @@ public class PendingNegotiationPolicy {
                 .orElse(null);
     }
 
-    private PendingNegotiationDecision decideFinalStepPendingExpiry(
-            ListingResponseDto listing,
-            BotConfigurationDto configuration
-    ) {
-        if (!isFinalNegotiationStep(listing, configuration)) {
-            return null;
-        }
-
-        LocalDateTime startedAt = parseDateTime(listing.currentStepStartedAt());
-        if (startedAt == null) {
-            return null;
-        }
-
-        LocalDateTime expiresAt = startedAt.plusHours(
-                FINAL_STEP_PENDING_EXPIRY_HOURS
-        );
-        LocalDateTime now = LocalDateTime.now(clock);
-
-        if (!now.isBefore(expiresAt)) {
-            return PendingNegotiationDecision.expire(
-                    "The final negotiation step has remained PENDING for at least "
-                            + FINAL_STEP_PENDING_EXPIRY_HOURS
-                            + "h without a formal acceptance, rejection or counteroffer. "
-                            + "It started at " + startedAt
-                            + " and expired at " + expiresAt + "."
-            );
-        }
-
-        return PendingNegotiationDecision.waitForSeller(
-                "Vinted still reports the final negotiation step as PENDING. "
-                        + "The bot waits up to "
-                        + FINAL_STEP_PENDING_EXPIRY_HOURS
-                        + "h for a formal response. This step started at "
-                        + startedAt
-                        + " and will expire at " + expiresAt + "."
-        );
-    }
-
     private boolean isFinalNegotiationStep(
             ListingResponseDto listing,
             BotConfigurationDto configuration
@@ -296,17 +442,42 @@ public class PendingNegotiationPolicy {
             return false;
         }
 
-        return configuration.getNegotiationSteps().stream()
+        return configuration.getNegotiationSteps()
+                .stream()
                 .filter(Objects::nonNull)
-                .map(step -> step.getStepNumber())
+                .map(NegotiationStepDto::getStepNumber)
                 .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
-                .map(maxStep -> Objects.equals(maxStep, listing.currentStep()))
+                .map(maxStep ->
+                        Objects.equals(maxStep, listing.currentStep())
+                )
                 .orElse(false);
     }
 
-    private boolean hasTimestamp(String rawValue) {
-        return parseDateTime(rawValue) != null;
+    private LocalDateTime currentStepTimestamp(
+            LocalDateTime candidate,
+            LocalDateTime stepStartedAt
+    ) {
+        if (candidate == null) {
+            return null;
+        }
+        if (stepStartedAt != null && candidate.isBefore(stepStartedAt)) {
+            return null;
+        }
+        return candidate;
+    }
+
+    private LocalDateTime earliest(
+            LocalDateTime left,
+            LocalDateTime right
+    ) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return left.isBefore(right) ? left : right;
     }
 
     private LocalDateTime parseDateTime(String rawValue) {
@@ -319,5 +490,11 @@ public class PendingNegotiationPolicy {
         } catch (DateTimeParseException ignored) {
             return null;
         }
+    }
+
+    private record SellerReaction(
+            LocalDateTime detectedAt,
+            String reason
+    ) {
     }
 }
