@@ -379,7 +379,7 @@ VintedOfferTracker/
 │   ├── worker/              # scheduler + worker slots
 │   ├── target/              # target verification / session classification
 │   ├── scanner/             # marketplace discovery
-│   └── negotiation/         # real browser negotiation flow
+│   └── negotiation/         # public negotiation orchestration / safety
 │
 ├── frontend/                # React dashboard
 ├── docker/                  # local PostgreSQL
@@ -456,7 +456,22 @@ npm ci
 npm run dev
 ```
 
-### 6. Start the scheduled Playwright runtime
+### 6. Bootstrap the private Playwright core
+
+The public repository intentionally does not contain the Vinted conversation-DOM implementation used by the real runtime. On an authorized Windows machine, bootstrap the private core once (and again after private-core updates):
+
+```powershell
+cd playwright
+.\bootstrap-private-core.ps1
+```
+
+The script clones/updates the private `jedreekPrograms/flipbot-playwright-core` repository into the ignored `.private/` directory, runs its tests, installs `pl.flipbot:flipbot-playwright-core` into the local Maven repository and activates the local Maven profile through an ignored marker file.
+
+No GitHub token is stored in this public repository. Git uses the credentials already configured on the authorized machine. Without the private core, the real `FlipBotPlaywrightApplication` deliberately refuses to start.
+
+After bootstrapping, reload/reimport the Playwright Maven project in the IDE.
+
+### 7. Start the scheduled Playwright runtime
 
 For full multi-bot scheduling and Runtime-dashboard telemetry, run:
 
@@ -496,7 +511,8 @@ GitHub Actions validates all three application layers on pull requests:
 
 - **Frontend** — `npm ci`, ESLint and production build,
 - **Backend** — Maven tests against PostgreSQL,
-- **Playwright** — Java unit tests for worker, targeting, negotiation and classification logic.
+- **Playwright** — Java unit tests for public worker/targeting/negotiation orchestration.
+- **Private Playwright core** — its private repository runs the Vinted DOM/classification tests and publishes a private Maven artifact.
 
 Useful local checks:
 
