@@ -89,7 +89,7 @@ public class NegotiationDecisionServiceAdaptiveTest {
     }
 
     @Test
-    public void s25SellerCounter1264Below1450CapBecomesBuyCandidate() {
+    public void sellerCounterBelowAdaptiveCapBecomesBuyCandidate() {
         BotConfigurationDto configuration =
                 adaptiveConfiguration("1450.00");
         ListingResponseDto listing =
@@ -98,7 +98,7 @@ public class NegotiationDecisionServiceAdaptiveTest {
         NegotiationDecision decision = service.decide(
                 listing,
                 NegotiationConversationSnapshot.sellerCounterOffer(
-                        new BigDecimal("1264.00")
+                        new BigDecimal("1275.00")
                 ),
                 configuration
         );
@@ -109,7 +109,7 @@ public class NegotiationDecisionServiceAdaptiveTest {
         );
         assertEquals(
                 0,
-                new BigDecimal("1264.00").compareTo(
+                new BigDecimal("1275.00").compareTo(
                         decision.sellerCounterOfferPrice()
                 )
         );

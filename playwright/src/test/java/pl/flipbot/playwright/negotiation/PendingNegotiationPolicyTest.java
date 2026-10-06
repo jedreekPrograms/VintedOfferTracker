@@ -4,6 +4,7 @@ import org.junit.Test;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationReactionAction;
+import pl.flipbot.playwright.model.NegotiationStepDto;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -11,8 +12,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-
-import pl.flipbot.playwright.model.NegotiationStepDto;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -28,9 +27,7 @@ public class PendingNegotiationPolicyTest {
             );
 
     @Test
-    public void nonFinalPendingOfferAdvancesAfterConfiguredRejectionWait() {
-        BotConfigurationDto configuration = fiveStepConfiguration();
-
+    public void nonFinalNoResponseAdvancesAfterConfiguredRejectionWait() {
         PendingNegotiationDecision decision = policy.decide(
                 listing(
                         "2026-01-03T03:59:59",
@@ -39,24 +36,19 @@ public class PendingNegotiationPolicyTest {
                         2
                 ),
                 ConversationActivitySnapshot.unavailable(),
-                configuration
+                fiveStepConfiguration()
         );
 
         assertEquals(
                 PendingNegotiationDecision.Action.SEND_NEXT_STEP,
                 decision.action()
         );
-        assertEquals(
-                3,
-                decision.nextStep().getStepNumber().intValue()
-        );
-        assertTrue(decision.reason().contains("configured rejection wait: 6h"));
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+        assertTrue(decision.reason().contains("no-response timeout of 6h"));
     }
 
     @Test
-    public void nonFinalPendingOfferWaitsBeforeConfiguredRejectionWait() {
-        BotConfigurationDto configuration = fiveStepConfiguration();
-
+    public void nonFinalNoResponseWaitsBeforeConfiguredRejectionWait() {
         PendingNegotiationDecision decision = policy.decide(
                 listing(
                         "2026-01-03T04:00:01",
@@ -65,22 +57,111 @@ public class PendingNegotiationPolicyTest {
                         2
                 ),
                 ConversationActivitySnapshot.unavailable(),
-                configuration
+                fiveStepConfiguration()
         );
 
         assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
-        assertTrue(decision.reason().contains("6h"));
+        assertTrue(decision.reason().contains("no-response timeout is 6h"));
     }
 
+    @Test
+    public void readPendingOfferUsesSameConfiguredWaitAsRejection() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T00:00:00",
+                        null,
+                        "2026-01-03T05:00:00",
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        false,
+                        null,
+                        null,
+                        true
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
+        assertTrue(
+                decision.reason().contains(
+                        "treated like a rejection for timing"
+                )
+        );
+        assertTrue(decision.reason().contains("wait 6h after rejection"));
+    }
 
     @Test
-    public void sellerChatMessageStillAdvancesAfterNoResponseTimeout() {
+    public void readPendingOfferAdvancesWhenRejectionWaitElapsed() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T00:00:00",
+                        null,
+                        "2026-01-03T03:59:59",
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        false,
+                        null,
+                        null,
+                        true
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+    }
+
+    @Test
+    public void readPendingOfferUsesImmediateRejectionPolicyImmediately() {
         BotConfigurationDto configuration = fiveStepConfiguration();
+        NegotiationStepDto step2 =
+                configuration.getNegotiationSteps().get(1);
+        step2.setRejectionAction(
+                NegotiationReactionAction.NEXT_STEP_NOW
+        );
+        step2.setRejectionWaitHours(null);
 
         PendingNegotiationDecision decision = policy.decide(
                 listing(
-                        "2026-01-02T21:00:00",
-                        "2026-01-02T22:00:00",
+                        "2026-01-03T09:00:00",
+                        null,
+                        "2026-01-03T09:59:59",
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        false,
+                        null,
+                        null,
+                        true
+                ),
+                configuration
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+        assertTrue(decision.reason().contains("send the next step immediately"));
+    }
+
+    @Test
+    public void sellerChatMessageUsesSameConfiguredWaitAsRejection() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T00:00:00",
+                        "2026-01-03T05:00:00",
                         null,
                         2
                 ),
@@ -88,8 +169,72 @@ public class PendingNegotiationPolicyTest {
                         true,
                         true,
                         true,
-                        "1190 PLN?",
-                        LocalDateTime.parse("2026-01-02T22:00:00"),
+                        "Czy cena aktualna?",
+                        LocalDateTime.parse("2026-01-03T05:00:00"),
+                        false
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
+        assertTrue(
+                decision.reason().contains(
+                        "treated like a rejection for timing"
+                )
+        );
+        assertTrue(decision.reason().contains("wait 6h after rejection"));
+    }
+
+    @Test
+    public void sellerChatMessageAdvancesWhenRejectionWaitElapsed() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T00:00:00",
+                        "2026-01-03T03:59:59",
+                        null,
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        true,
+                        "Czy cena aktualna?",
+                        LocalDateTime.parse("2026-01-03T03:59:59"),
+                        false
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+    }
+
+    @Test
+    public void sellerChatMessageUsesImmediateRejectionPolicyImmediately() {
+        BotConfigurationDto configuration = fiveStepConfiguration();
+        NegotiationStepDto step2 =
+                configuration.getNegotiationSteps().get(1);
+        step2.setRejectionAction(
+                NegotiationReactionAction.NEXT_STEP_NOW
+        );
+        step2.setRejectionWaitHours(null);
+
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T09:00:00",
+                        "2026-01-03T09:59:00",
+                        null,
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        true,
+                        "Dzień dobry",
+                        LocalDateTime.parse("2026-01-03T09:59:00"),
                         false
                 ),
                 configuration
@@ -103,11 +248,71 @@ public class PendingNegotiationPolicyTest {
     }
 
     @Test
-    public void immediateRejectionPolicyUsesConservativeTwelveHourNoResponseFallback() {
+    public void laterChatMessageDoesNotRestartEarlierReadReactionTimer() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T00:00:00",
+                        "2026-01-03T08:00:00",
+                        "2026-01-03T03:59:59",
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        true,
+                        "Jeszcze się zastanawiam",
+                        LocalDateTime.parse("2026-01-03T08:00:00"),
+                        true
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+        assertTrue(
+                decision.reason().contains(
+                        "first detected at 2026-01-03T03:59:59"
+                )
+        );
+    }
+
+    @Test
+    public void missingSellerMessageTimestampStillTriggersRejectionPolicy() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T09:00:00",
+                        null,
+                        null,
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        true,
+                        "Czy aktualne?",
+                        null,
+                        false
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
+        assertTrue(
+                decision.reason().contains(
+                        "seller sent a normal chat message"
+                )
+        );
+        assertTrue(decision.reason().contains("wait 6h after rejection"));
+    }
+
+    @Test
+    public void immediateRejectionPolicyUsesTwelveHourFallbackOnlyWhenThereIsNoSellerReaction() {
         BotConfigurationDto configuration = fiveStepConfiguration();
-        NegotiationStepDto step2 = configuration
-                .getNegotiationSteps()
-                .get(1);
+        NegotiationStepDto step2 =
+                configuration.getNegotiationSteps().get(1);
         step2.setRejectionAction(
                 NegotiationReactionAction.NEXT_STEP_NOW
         );
@@ -128,43 +333,11 @@ public class PendingNegotiationPolicyTest {
                 PendingNegotiationDecision.Action.SEND_NEXT_STEP,
                 decision.action()
         );
-        assertTrue(decision.reason().contains("configured rejection wait: 12h"));
+        assertTrue(decision.reason().contains("no-response timeout of 12h"));
     }
 
     @Test
-    public void twentyFourHourFirstStepWaitDoesNotBecomeFortyEightHours() {
-        BotConfigurationDto configuration = fiveStepConfiguration();
-        NegotiationStepDto first =
-                configuration.getNegotiationSteps().get(0);
-        first.setRejectionWaitHours(24);
-
-        PendingNegotiationDecision decision = policy.decide(
-                listing(
-                        "2026-01-02T09:59:59",
-                        null,
-                        null,
-                        1
-                ),
-                ConversationActivitySnapshot.unavailable(),
-                configuration
-        );
-
-        assertEquals(
-                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
-                decision.action()
-        );
-        assertEquals(2, decision.nextStep().getStepNumber().intValue());
-        assertTrue(
-                decision.reason().contains(
-                        "configured rejection wait: 24h"
-                )
-        );
-    }
-
-    @Test
-    public void finalPendingOfferExpiresAfter48Hours() {
-        BotConfigurationDto configuration = fiveStepConfiguration();
-
+    public void finalUntouchedPendingOfferExpiresAfter48Hours() {
         PendingNegotiationDecision decision = policy.decide(
                 listing(
                         "2026-01-01T10:00:00",
@@ -173,17 +346,18 @@ public class PendingNegotiationPolicyTest {
                         5
                 ),
                 ConversationActivitySnapshot.unavailable(),
-                configuration
+                fiveStepConfiguration()
         );
 
-        assertEquals(PendingNegotiationDecision.Action.EXPIRE, decision.action());
+        assertEquals(
+                PendingNegotiationDecision.Action.EXPIRE,
+                decision.action()
+        );
         assertTrue(decision.reason().contains("at least 48h"));
     }
 
     @Test
-    public void finalPendingOfferStillWaitsBefore48Hours() {
-        BotConfigurationDto configuration = fiveStepConfiguration();
-
+    public void finalUntouchedPendingOfferStillWaitsBefore48Hours() {
         PendingNegotiationDecision decision = policy.decide(
                 listing(
                         "2026-01-01T10:00:01",
@@ -192,7 +366,7 @@ public class PendingNegotiationPolicyTest {
                         5
                 ),
                 ConversationActivitySnapshot.unavailable(),
-                configuration
+                fiveStepConfiguration()
         );
 
         assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
@@ -200,36 +374,51 @@ public class PendingNegotiationPolicyTest {
     }
 
     @Test
-    public void readPendingOfferDoesNotRaisePriceAfterThreeHours() {
+    public void readFinalStepUsesRejectionWaitInsteadOfUntouched48HourTimer() {
         PendingNegotiationDecision decision = policy.decide(
-                listing("2026-01-03T07:00:00", null, "2026-01-03T08:00:00"),
+                listing(
+                        "2026-01-02T00:00:00",
+                        null,
+                        "2026-01-02T09:00:00",
+                        5
+                ),
                 new ConversationActivitySnapshot(
-                        true, true, false, null, null, true
+                        true,
+                        true,
+                        false,
+                        null,
+                        null,
+                        true
                 ),
                 fiveStepConfiguration()
         );
 
-        assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
-        assertTrue(decision.reason().contains("not a formal response"));
+        assertEquals(
+                PendingNegotiationDecision.Action.EXPIRE,
+                decision.action()
+        );
+        assertTrue(
+                decision.reason().contains(
+                        "configured 24h rejection wait elapsed"
+                )
+        );
     }
 
     @Test
-    public void sellerChatMessageDoesNotRaisePriceWhileOfferIsStillPending() {
+    public void staleReadFromPreviousStepDoesNotTriggerCurrentStepReactionPolicy() {
         PendingNegotiationDecision decision = policy.decide(
-                listing("2026-01-03T07:00:00", "2026-01-03T08:00:00", null),
-                new ConversationActivitySnapshot(
-                        true,
-                        true,
-                        true,
-                        "Czy cena aktualna?",
-                        LocalDateTime.parse("2026-01-01T11:00:00"),
-                        false
+                listing(
+                        "2026-01-03T08:00:00",
+                        null,
+                        "2026-01-03T07:00:00",
+                        2
                 ),
+                ConversationActivitySnapshot.unavailable(),
                 fiveStepConfiguration()
         );
 
         assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
-        assertTrue(decision.reason().contains("no formal rejection"));
+        assertTrue(decision.reason().contains("no seller message or read signal"));
     }
 
     private BotConfigurationDto fiveStepConfiguration() {
@@ -263,19 +452,6 @@ public class PendingNegotiationPolicyTest {
         );
         step.setRejectionWaitHours(rejectionWaitHours);
         return step;
-    }
-
-    private ListingResponseDto listing(
-            String currentStepStartedAt,
-            String sellerActivityAt,
-            String readDetectedAt
-    ) {
-        return listing(
-                currentStepStartedAt,
-                sellerActivityAt,
-                readDetectedAt,
-                2
-        );
     }
 
     private ListingResponseDto listing(

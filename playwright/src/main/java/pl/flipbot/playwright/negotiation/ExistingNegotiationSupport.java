@@ -13,7 +13,7 @@ import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
 
-
+import java.time.LocalDateTime;
 
 
 
@@ -72,10 +72,16 @@ public class ExistingNegotiationSupport {
                 snapshot
         );
 
-        boolean sellerActivity = activity.inspectionSucceeded()
+        boolean sellerMessageDetected = activity.inspectionSucceeded()
                 && activity.latestOwnOfferFound()
-                && activity.sellerMessageAfterLatestOwnOffer()
-                && activity.latestSellerMessageAt() != null;
+                && activity.sellerMessageAfterLatestOwnOffer();
+        LocalDateTime sellerActivityAt = sellerMessageDetected
+                ? normalizedSellerActivityAt(
+                        listing,
+                        activity.latestSellerMessageAt()
+                )
+                : null;
+        boolean sellerActivity = sellerActivityAt != null;
         boolean readDetected = activity.inspectionSucceeded()
                 && activity.latestOwnOfferFound()
                 && activity.readIndicatorAfterLatestOwnOffer();
@@ -91,7 +97,7 @@ public class ExistingNegotiationSupport {
                     context.getBot().getId(),
                     listing.id(),
                     new NegotiationActivityRequestDto(
-                            sellerActivity ? activity.latestSellerMessageAt() : null,
+                            sellerActivityAt,
                             readDetected,
                             formalResponseFingerprint
                     )
@@ -102,6 +108,39 @@ public class ExistingNegotiationSupport {
                     listing.listingId(),
                     friendlyError(exception)
             );
+        }
+    }
+
+    private LocalDateTime normalizedSellerActivityAt(
+            ListingResponseDto listing,
+            LocalDateTime detectedMessageAt
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+
+        if (detectedMessageAt == null) {
+            return now;
+        }
+
+        String rawStepStartedAt = listing.currentStepStartedAt();
+        if (rawStepStartedAt == null || rawStepStartedAt.isBlank()) {
+            return detectedMessageAt;
+        }
+
+        try {
+            LocalDateTime stepStartedAt =
+                    LocalDateTime.parse(rawStepStartedAt);
+
+            /*
+             * The browser detector only reports seller messages that are
+             * physically after our latest offer in the conversation DOM.
+             * If Vinted exposes an imprecise/stale message timestamp anyway,
+             * use detection time so the reaction is not lost forever.
+             */
+            return detectedMessageAt.isBefore(stepStartedAt)
+                    ? now
+                    : detectedMessageAt;
+        } catch (java.time.format.DateTimeParseException exception) {
+            return detectedMessageAt;
         }
     }
 

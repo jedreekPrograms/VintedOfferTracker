@@ -18,11 +18,11 @@ public class TerminalNegotiationRecoveryPolicyTest {
             new TerminalNegotiationRecoveryPolicy();
 
     @Test
-    public void terminalS25Counter1264Below1450CapBecomesActionRequired() {
+    public void terminalSellerCounterBelowCapBecomesActionRequired() {
         TerminalNegotiationRecoveryDecision recovery = policy.decide(
                 terminalListing(3, "1230.00", "REJECTED"),
                 NegotiationConversationSnapshot.sellerCounterOffer(
-                        new BigDecimal("1264.00")
+                        new BigDecimal("1275.00")
                 ),
                 adaptiveConfiguration("1450.00")
         );
@@ -38,7 +38,7 @@ public class TerminalNegotiationRecoveryPolicyTest {
         );
         assertEquals(
                 0,
-                new BigDecimal("1264.00").compareTo(
+                new BigDecimal("1275.00").compareTo(
                         recovery.negotiationDecision()
                                 .sellerCounterOfferPrice()
                 )

@@ -229,8 +229,13 @@ function NegotiationStepsSection({
                                             <div>
                                                 <strong>Jeśli sprzedający odrzuci ofertę</strong>
                                                 <p>
-                                                    Formalne „Odrzucono”, bez własnej
-                                                    propozycji ceny.
+                                                    Ta sama reguła działa także wtedy,
+                                                    gdy sprzedający przeczyta ofertę
+                                                    albo napisze zwykłą wiadomość,
+                                                    ale oferta nadal ma status
+                                                    „Oczekujące”. W takim przypadku
+                                                    czas liczymy od pierwszej wykrytej
+                                                    reakcji sprzedającego.
                                                 </p>
                                             </div>
                                         </div>
