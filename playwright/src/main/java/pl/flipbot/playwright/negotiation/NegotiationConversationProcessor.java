@@ -81,6 +81,50 @@ public class NegotiationConversationProcessor {
 
     }
 
+    public NegotiationConversationSnapshot inspectRecoverySnapshot(
+            ListingResponseDto listing
+    ) {
+        Objects.requireNonNull(
+                listing,
+                "Listing cannot be null"
+        );
+
+        validateRecoveryListing(listing);
+
+        Page page = context.getPage();
+
+        log.info(
+                "[NEGOTIATION RECOVERY] Opening terminal conversation {} for backend listing {}, marketplace listing {}",
+                listing.conversationId(),
+                listing.id(),
+                listing.listingId()
+        );
+
+        new MarketplaceNavigator(context).goToTrustedVintedUrl(
+                listing.conversationUrl()
+        );
+
+        humanVerificationHandler.waitUntilVerified(page);
+
+        verifyOpenedConversationReadOnly(
+                page,
+                listing
+        );
+
+        NegotiationConversationSnapshot snapshot =
+                waitForConversationSnapshot(
+                        page,
+                        listing
+                );
+
+        logSnapshot(
+                listing,
+                snapshot
+        );
+
+        return snapshot;
+    }
+
     public NegotiationConversationSnapshot inspectSnapshot(
             ListingResponseDto listing
     ) {
@@ -638,6 +682,43 @@ public class NegotiationConversationProcessor {
 
     }
 
+    private void verifyOpenedConversationReadOnly(
+            Page page,
+            ListingResponseDto listing
+    ) {
+        ConversationIdentityResolver.ConversationIdentityAssessment assessment =
+                new ConversationIdentityResolver().assess(
+                        listing.conversationId(),
+                        page.url()
+                );
+
+        if (!assessment.matchesExpectedConversation()) {
+            throw new IllegalStateException(
+                    "Recovery inspection belongs to an unexpected conversation. Expected: "
+                            + listing.conversationId()
+                            + ", actual: "
+                            + assessment.actualConversationId()
+                            + ", URL: "
+                            + page.url()
+            );
+        }
+
+        if (assessment.canonicalRedirect()) {
+            /*
+             * Terminal recovery is intentionally read-only until business
+             * evidence justifies a state transition. Do not mutate the stored
+             * conversation identity merely because Vinted redirected an old
+             * route.
+             */
+            log.info(
+                    "[NEGOTIATION RECOVERY] Vinted canonicalized terminal conversation {} to {} for listing {}. Read-only inspection will continue without persisting the route.",
+                    listing.conversationId(),
+                    assessment.actualConversationId(),
+                    listing.listingId()
+            );
+        }
+    }
+
     private ListingResponseDto validateOpenedConversation(
             Page page,
             ListingResponseDto listing
@@ -655,6 +736,54 @@ public class NegotiationConversationProcessor {
         );
 
         return canonicalListing;
+    }
+
+    private void validateRecoveryListing(
+            ListingResponseDto listing
+    ) {
+        if (listing.id() == null) {
+            throw new IllegalArgumentException(
+                    "Backend listing ID cannot be null"
+            );
+        }
+
+        if (!"REJECTED".equals(listing.status())
+                && !"EXPIRED".equals(listing.status())) {
+            throw new IllegalArgumentException(
+                    "Recovery inspection only supports REJECTED/EXPIRED listings. Backend listing: "
+                            + listing.id()
+                            + ", current status: "
+                            + listing.status()
+            );
+        }
+
+        if (listing.currentStep() == null
+                || listing.currentStep() <= 0) {
+            throw new IllegalArgumentException(
+                    "Terminal negotiation "
+                            + listing.id()
+                            + " has an invalid current step: "
+                            + listing.currentStep()
+            );
+        }
+
+        if (listing.conversationId() == null
+                || listing.conversationId().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Terminal negotiation "
+                            + listing.id()
+                            + " has no conversation ID"
+            );
+        }
+
+        if (listing.conversationUrl() == null
+                || listing.conversationUrl().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Terminal negotiation "
+                            + listing.id()
+                            + " has no conversation URL"
+            );
+        }
     }
 
     private void validateListing(
