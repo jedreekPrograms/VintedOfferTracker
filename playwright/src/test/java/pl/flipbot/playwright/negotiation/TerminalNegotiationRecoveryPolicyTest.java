@@ -4,6 +4,7 @@ import org.junit.Test;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
+import pl.flipbot.playwright.model.NegotiationStrategySnapshotDto;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -74,6 +75,20 @@ public class TerminalNegotiationRecoveryPolicyTest {
     }
 
     @Test
+    public void legacyNonFinalRejectedWithoutPinnedStrategyDoesNotAutoReopen() {
+        TerminalNegotiationRecoveryDecision recovery = policy.decide(
+                terminalListingWithoutSnapshot(2, "1100.00", "REJECTED"),
+                NegotiationConversationSnapshot.rejected("Odrzucone"),
+                adaptiveConfiguration("1450.00")
+        );
+
+        assertEquals(
+                TerminalNegotiationRecoveryDecision.Action.KEEP_TERMINAL,
+                recovery.action()
+        );
+    }
+
+    @Test
     public void finalStepHighCounterStaysTerminal() {
         TerminalNegotiationRecoveryDecision recovery = policy.decide(
                 terminalListing(5, "1450.00", "REJECTED"),
@@ -119,6 +134,41 @@ public class TerminalNegotiationRecoveryPolicyTest {
     }
 
     private ListingResponseDto terminalListing(
+            int currentStep,
+            String currentPrice,
+            String status
+    ) {
+        NegotiationStrategySnapshotDto snapshot =
+                new NegotiationStrategySnapshotDto();
+        snapshot.setVersion(1);
+        snapshot.setNegotiationSteps(List.of());
+
+        return new ListingResponseDto(
+                100L,
+                "9700000000",
+                "Samsung Galaxy S25",
+                "https://www.vinted.pl/items/9700000000-samsung-galaxy-s25",
+                new BigDecimal("2000.00"),
+                new BigDecimal(currentPrice),
+                currentStep,
+                false,
+                "12345",
+                "https://www.vinted.pl/inbox/12345",
+                status,
+                "2026-10-05T20:00:00",
+                "2026-10-05T18:00:00",
+                null,
+                null,
+                null,
+                null,
+                null,
+                "Samsung / Galaxy S25",
+                1,
+                snapshot
+        );
+    }
+
+    private ListingResponseDto terminalListingWithoutSnapshot(
             int currentStep,
             String currentPrice,
             String status
