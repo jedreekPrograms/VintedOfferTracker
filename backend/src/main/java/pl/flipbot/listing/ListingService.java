@@ -337,7 +337,7 @@ public class ListingService {
         if (!negotiationRecoveryCandidateService
                 .isWatchedTerminalStatus(listing.getStatus())) {
             throw new IllegalStateException(
-                    "Only recent REJECTED/EXPIRED negotiations may be recovered. Listing "
+                    "Only recent technical terminal negotiations may be recovered. Listing "
                             + listingId + " currently has status " + listing.getStatus()
             );
         }
