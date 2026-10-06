@@ -45,7 +45,7 @@ public class TerminalNegotiationRecoveryPolicy {
 
             case SELLER_COUNTER_OFFER, REJECTED -> {
                 NegotiationDecision decision = decisionService.decide(
-                        listing,
+                        asNegotiatingDecisionView(listing),
                         snapshot,
                         configuration
                 );
@@ -104,6 +104,40 @@ public class TerminalNegotiationRecoveryPolicy {
                     "The terminal conversation state could not be recognized safely."
             );
         };
+    }
+
+    private ListingResponseDto asNegotiatingDecisionView(
+            ListingResponseDto listing
+    ) {
+        /*
+         * NegotiationDecisionService deliberately accepts only NEGOTIATING
+         * rows. Recovery must not weaken that invariant. Build a transient
+         * decision-only view while the persisted row remains terminal until
+         * the recovery action is explicitly committed.
+         */
+        return new ListingResponseDto(
+                listing.id(),
+                listing.listingId(),
+                listing.title(),
+                listing.url(),
+                listing.originalPrice(),
+                listing.currentPrice(),
+                listing.currentStep(),
+                listing.awaitingSellerResponse(),
+                listing.conversationId(),
+                listing.conversationUrl(),
+                "NEGOTIATING",
+                listing.decisionAt(),
+                listing.currentStepStartedAt(),
+                listing.sellerActivityAt(),
+                listing.readDetectedAt(),
+                listing.formalResponseFingerprint(),
+                listing.formalResponseDetectedAt(),
+                listing.additionalTargetId(),
+                listing.productTargetLabel(),
+                listing.negotiationStrategyVersion(),
+                listing.negotiationStrategySnapshot()
+        );
     }
 
     private boolean hasPinnedStrategy(
