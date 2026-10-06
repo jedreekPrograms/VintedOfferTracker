@@ -66,25 +66,26 @@ public class ExistingNegotiationProcessor {
     public boolean process() {
         Long botId = context.getBot().getId();
 
-        List<ListingResponseDto> recoveryCandidates =
-                listingClient.getNegotiationRecoveryCandidates(botId);
-        inspectTerminalRecoveryCandidates(recoveryCandidates);
-
         /*
-         * Load active rows AFTER recovery. A live non-final conversation may
-         * have just been safely reopened, in which case it should immediately
-         * re-enter the normal policy/quota/guard pipeline in this same run.
+         * Active conversations always have priority. Terminal recovery is a
+         * bounded safety net and must never delay normal negotiations.
          */
         List<ListingResponseDto> listings =
                 listingClient.getNegotiatingListings(botId);
 
         log.info(
-                "Bot {} currently has {} active negotiations after checking {} terminal recovery candidate(s)",
+                "Bot {} currently has {} active negotiations",
                 botId,
-                listings.size(),
-                recoveryCandidates.size()
+                listings.size()
         );
-        return inspectExistingNegotiations(listings);
+
+        boolean sentAny = inspectExistingNegotiations(listings);
+
+        List<ListingResponseDto> recoveryCandidates =
+                listingClient.getNegotiationRecoveryCandidates(botId);
+        inspectTerminalRecoveryCandidates(recoveryCandidates);
+
+        return sentAny;
     }
 
     private void inspectTerminalRecoveryCandidates(
