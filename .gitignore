@@ -8,3 +8,6 @@
 # Environment variables
 /frontend/.env
 /frontend/.env.*
+# Private Playwright core checkout (never commit)
+.private/
+playwright/.private-core.enabled

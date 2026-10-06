@@ -1,84 +1,45 @@
 package pl.flipbot.playwright.negotiation;
 
-import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.PlaywrightException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
+import pl.flipbot.playwright.privatecore.PrivateVintedCoreBridge;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
-import java.math.BigDecimal;
-import java.util.Locale;
 import java.util.Objects;
 
 @Slf4j
 @RequiredArgsConstructor
 public class NegotiationConversationProcessor {
 
-    private static final double CONVERSATION_STATE_TIMEOUT_MS =
-            20_000;
-
-    private static final double POLL_INTERVAL_MS =
-            500;
-
-    private static final double LOADED_EMPTY_STATE_SETTLE_MS =
-            8_000;
-
-    private static final String OWN_OFFER_STATUS_TEST_ID =
-            "offer-status-title";
-
-    private static final String SELLER_COUNTER_OFFER_PRICE_TEST_ID =
-            "offer-current-price-label";
-
     private final BotContext context;
 
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
 
-    private ConversationOfferModalPriceInspector offerModalPriceInspector() {
-        return new ConversationOfferModalPriceInspector(context);
-    }
-
     /*
-     * Tymczasowo zostawiamy starą metodę, żeby obecny BotWorker
-     * nadal się kompilował.
-     *
-     * W następnym kroku BotWorker zacznie korzystać bezpośrednio
-     * z inspectSnapshot().
+     * Compatibility method retained for the older worker entry point.
      */
     public NegotiationConversationResult inspect(
             ListingResponseDto listing
     ) {
-
         NegotiationConversationSnapshot snapshot =
-                inspectSnapshot(
-                        listing
-                );
+                inspectSnapshot(listing);
 
-        /*
-         * Stary BotWorker nie obsługuje jeszcze ceny kontroferty.
-         * Dlatego na jeden krok przejściowy zwracamy UNKNOWN.
-         */
         if (snapshot.result()
                 == NegotiationConversationResult.SELLER_COUNTER_OFFER) {
-
             log.warn(
-                    "[CONVERSATION] Seller counteroffer {} was detected "
-                            + "for listing {}, but the current BotWorker "
-                            + "does not process snapshots yet.",
+                    "[CONVERSATION] Seller counteroffer {} was detected for listing {}, but the compatibility API cannot expose its price.",
                     snapshot.sellerCounterOfferPrice(),
                     listing.listingId()
             );
-
             return NegotiationConversationResult.UNKNOWN;
-
         }
 
         return snapshot.result();
-
     }
 
     public NegotiationConversationSnapshot inspectRecoverySnapshot(
@@ -112,7 +73,7 @@ public class NegotiationConversationProcessor {
         );
 
         NegotiationConversationSnapshot snapshot =
-                waitForConversationSnapshot(
+                inspectWithPrivateCore(
                         page,
                         listing
                 );
@@ -128,22 +89,17 @@ public class NegotiationConversationProcessor {
     public NegotiationConversationSnapshot inspectSnapshot(
             ListingResponseDto listing
     ) {
-
         Objects.requireNonNull(
                 listing,
                 "Listing cannot be null"
         );
 
-        validateListing(
-                listing
-        );
+        validateListing(listing);
 
-        Page page =
-                context.getPage();
+        Page page = context.getPage();
 
         log.info(
-                "[CONVERSATION] Opening conversation {} "
-                        + "for backend listing {}, marketplace listing {}",
+                "[CONVERSATION] Opening conversation {} for backend listing {}, marketplace listing {}",
                 listing.conversationId(),
                 listing.id(),
                 listing.listingId()
@@ -153,9 +109,7 @@ public class NegotiationConversationProcessor {
                 listing.conversationUrl()
         );
 
-        humanVerificationHandler.waitUntilVerified(
-                page
-        );
+        humanVerificationHandler.waitUntilVerified(page);
 
         ListingResponseDto canonicalListing =
                 validateOpenedConversation(
@@ -164,7 +118,7 @@ public class NegotiationConversationProcessor {
                 );
 
         NegotiationConversationSnapshot snapshot =
-                waitForConversationSnapshot(
+                inspectWithPrivateCore(
                         page,
                         canonicalListing
                 );
@@ -175,511 +129,44 @@ public class NegotiationConversationProcessor {
         );
 
         return snapshot;
-
     }
 
-    private NegotiationConversationSnapshot waitForConversationSnapshot(
+    private NegotiationConversationSnapshot inspectWithPrivateCore(
             Page page,
             ListingResponseDto listing
     ) {
-
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) CONVERSATION_STATE_TIMEOUT_MS;
-
-        Long loadedWithoutEventSince = null;
-
-        while (System.currentTimeMillis() < deadline) {
-
-            humanVerificationHandler.waitUntilVerified(
-                    page
-            );
-
-            NegotiationConversationSnapshot snapshot =
-                    readLatestNegotiationEvent(
-                            page,
-                            listing
-                    );
-
-            /*
-             * A stable, visible own-offer status is useful evidence even when
-             * we do not yet know its business semantics. Returning that raw
-             * status immediately lets the later availability detector inspect
-             * the page instead of logging the same unsupported label every
-             * 500 ms for the full 20-second timeout. UNKNOWN remains fail-safe:
-             * the decision layer sends no follow-up action for it.
-             */
-            if (snapshot.result()
-                    != NegotiationConversationResult.UNKNOWN
-                    || (snapshot.rawStatus() != null
-                    && !snapshot.rawStatus().isBlank())) {
-
-                return snapshot;
-
-            }
-
-            if (isConversationContentVisible(page)) {
-                if (loadedWithoutEventSince == null) {
-                    loadedWithoutEventSince = System.currentTimeMillis();
-                } else if (System.currentTimeMillis()
-                        - loadedWithoutEventSince
-                        >= (long) LOADED_EMPTY_STATE_SETTLE_MS) {
-                    log.warn(
-                            "[CONVERSATION] Conversation content is loaded, but no stable negotiation event appeared within {} seconds. Returning fail-safe UNKNOWN early so availability/contact guards can run without blocking the worker for the full {} seconds. Conversation: {}, marketplace listing: {}",
-                            Math.round(LOADED_EMPTY_STATE_SETTLE_MS / 1_000),
-                            Math.round(CONVERSATION_STATE_TIMEOUT_MS / 1_000),
-                            listing.conversationId(),
-                            listing.listingId()
-                    );
-                    return NegotiationConversationSnapshot.unknown();
-                }
-            } else {
-                loadedWithoutEventSince = null;
-            }
-
-            page.waitForTimeout(
-                    POLL_INTERVAL_MS
-            );
-
-        }
-
-        log.warn(
-                "[CONVERSATION] Could not recognize the latest negotiation "
-                        + "event within {} seconds. "
-                        + "Conversation: {}, marketplace listing: {}",
-                Math.round(
-                        CONVERSATION_STATE_TIMEOUT_MS / 1_000
-                ),
+        return PrivateVintedCoreBridge.inspectConversation(
+                page,
+                listing.listingId(),
                 listing.conversationId(),
-                listing.listingId()
+                listing.originalPrice(),
+                () -> humanVerificationHandler
+                        .waitUntilVerified(page)
         );
-
-        return NegotiationConversationSnapshot.unknown();
-
-    }
-
-    private NegotiationConversationSnapshot readLatestNegotiationEvent(
-            Page page,
-            ListingResponseDto listing
-    ) {
-
-        try {
-
-            Locator conversationContent =
-                    page.getByTestId(
-                                    "conversation-content"
-                            )
-                            .first();
-
-            if (!conversationContent.isVisible()) {
-
-                return NegotiationConversationSnapshot.unknown();
-
-            }
-
-            /*
-             * Locator z selektorem rozdzielonym przecinkiem zwraca
-             * oba typy elementów w kolejności ich wystąpienia w DOM.
-             */
-            Locator negotiationEvents =
-                    conversationContent.locator(
-                            "[data-testid='"
-                                    + OWN_OFFER_STATUS_TEST_ID
-                                    + "'], "
-                                    + "[data-testid='"
-                                    + SELLER_COUNTER_OFFER_PRICE_TEST_ID
-                                    + "']"
-                    );
-
-            int eventsCount =
-                    negotiationEvents.count();
-
-            if (eventsCount == 0) {
-
-                return NegotiationConversationSnapshot.unknown();
-
-            }
-
-            /*
-             * Idziemy od końca, ponieważ interesuje nas najnowsze
-             * widoczne zdarzenie negocjacyjne.
-             */
-            for (int index = eventsCount - 1;
-                 index >= 0;
-                 index--) {
-
-                Locator event =
-                        negotiationEvents.nth(
-                                index
-                        );
-
-                if (!event.isVisible()) {
-                    continue;
-                }
-
-                String testId =
-                        event.getAttribute(
-                                "data-testid"
-                        );
-
-                String rawText =
-                        event.innerText();
-
-                if (SELLER_COUNTER_OFFER_PRICE_TEST_ID.equals(
-                        testId
-                )) {
-
-                    /*
-                     * Vinted reuses offer-current-price-label in more than one
-                     * price-bearing UI fragment. Treat it as a real seller
-                     * counteroffer only when the price belongs to the same
-                     * message card as Vinted's seller-offer buy action.
-                     *
-                     * Without this scope check a decorative/current-price
-                     * label can appear after our own offer status in DOM order
-                     * and incorrectly win the "latest event" scan.
-                     */
-                    if (!isSellerCounterOfferCard(event)) {
-                        log.debug(
-                                "[CONVERSATION] Ignoring unscoped '{}' price label for listing {} because no seller-offer buy action exists in the same conversation card. Raw text={}",
-                                SELLER_COUNTER_OFFER_PRICE_TEST_ID,
-                                listing.listingId(),
-                                rawText
-                        );
-                        continue;
-                    }
-
-                    BigDecimal counterOfferPrice =
-                            VintedPriceParser.parse(
-                                    rawText
-                            );
-
-                    /*
-                     * originalPrice is a historical snapshot. Read Vinted's
-                     * CURRENT item price from the read-only offer modal for
-                     * every strongly-scoped seller counteroffer when possible.
-                     * This avoids accepting a bogus price merely because an
-                     * old stored price was higher, and also allows a legitimate
-                     * counteroffer after the seller raised the item price.
-                     */
-                    BigDecimal liveItemPrice =
-                            offerModalPriceInspector()
-                                    .readCurrentItemPrice()
-                                    .orElse(null);
-
-                    BigDecimal validationCeiling =
-                            liveItemPrice != null
-                                    ? liveItemPrice
-                                    : listing.originalPrice();
-
-                    if (!isPlausibleSellerCounterOffer(
-                            validationCeiling,
-                            counterOfferPrice
-                    )) {
-                        log.error(
-                                "[CONVERSATION] Ignoring implausible seller counteroffer for listing {}. Raw price={}, parsed={}, captured original price={}, current item price from offer modal={}. Returning UNKNOWN so no price-based action can be sent from ambiguous DOM evidence.",
-                                listing.listingId(),
-                                rawText,
-                                counterOfferPrice,
-                                listing.originalPrice(),
-                                liveItemPrice
-                        );
-
-                        return NegotiationConversationSnapshot.unknown(
-                                rawText
-                        );
-                    }
-
-                    if (liveItemPrice != null
-                            && listing.originalPrice() != null
-                            && liveItemPrice.compareTo(
-                            listing.originalPrice()
-                    ) != 0) {
-                        log.info(
-                                "[CONVERSATION] Vinted current item price {} differs from captured original price {} for listing {}. Seller counteroffer validation uses the current modal price; backend negotiation prices are otherwise unchanged.",
-                                liveItemPrice,
-                                listing.originalPrice(),
-                                listing.listingId()
-                        );
-                    }
-
-                    log.info(
-                            "[CONVERSATION] Latest negotiation event is "
-                                    + "a seller counteroffer. Raw price: {}, "
-                                    + "parsed price: {}, validation ceiling: {}",
-                            rawText,
-                            counterOfferPrice,
-                            validationCeiling
-                    );
-
-                    return NegotiationConversationSnapshot
-                            .sellerCounterOffer(
-                                    counterOfferPrice
-                            );
-
-                }
-
-                if (OWN_OFFER_STATUS_TEST_ID.equals(
-                        testId
-                )) {
-
-                    log.info(
-                            "[CONVERSATION] Latest negotiation event is "
-                                    + "an own-offer status: {}",
-                            rawText
-                    );
-
-                    return createStatusSnapshot(
-                            rawText
-                    );
-
-                }
-
-            }
-
-            return NegotiationConversationSnapshot.unknown();
-
-        } catch (PlaywrightException exception) {
-
-            log.debug(
-                    "Conversation DOM changed while reading "
-                            + "the latest negotiation event",
-                    exception
-            );
-
-            return NegotiationConversationSnapshot.unknown();
-
-        } catch (IllegalArgumentException exception) {
-
-            log.warn(
-                    "[CONVERSATION] Could not parse the latest "
-                            + "negotiation event",
-                    exception
-            );
-
-            return NegotiationConversationSnapshot.unknown();
-
-        }
-
-    }
-
-    NegotiationConversationSnapshot createStatusSnapshot(
-            String rawStatus
-    ) {
-
-        String normalizedStatus =
-                normalizeStatus(
-                        rawStatus
-                );
-
-        /*
-         * Vinted has used multiple Polish grammatical forms for the same
-         * offer state across UI variants (for example "Zaakceptowane",
-         * "Zaakceptowana" and "Zaakceptowano"). Matching the stable word
-         * stem keeps those presentation changes from silently leaving a
-         * genuinely accepted offer in NEGOTIATING.
-         */
-        if (normalizedStatus.contains(
-                "oczekuj"
-        )) {
-
-            return NegotiationConversationSnapshot.pending(
-                    rawStatus
-            );
-
-        }
-
-        if (!normalizedStatus.contains(
-                "niezaakceptowan"
-        ) && normalizedStatus.contains(
-                "zaakceptowan"
-        )) {
-
-            return NegotiationConversationSnapshot.accepted(
-                    rawStatus
-            );
-
-        }
-
-        if (normalizedStatus.contains(
-                "odrzucon"
-        )) {
-
-            return NegotiationConversationSnapshot.rejected(
-                    rawStatus
-            );
-
-        }
-
-        if (normalizedStatus.contains(
-                "anulowan"
-        )) {
-
-            return NegotiationConversationSnapshot.cancelled(
-                    rawStatus
-            );
-
-        }
-
-        log.warn(
-                "[CONVERSATION] Unsupported own-offer status: {}. Returning UNKNOWN without polling the same stable label for 20 seconds; availability checks will still run and no follow-up offer will be sent from UNKNOWN state.",
-                rawStatus
-        );
-
-        return NegotiationConversationSnapshot.unknown(
-                rawStatus
-        );
-
-    }
-
-    static boolean isPlausibleSellerCounterOffer(
-            BigDecimal originalPrice,
-            BigDecimal counterOfferPrice
-    ) {
-        if (counterOfferPrice == null
-                || counterOfferPrice.signum() <= 0) {
-            return false;
-        }
-
-        if (originalPrice == null
-                || originalPrice.signum() <= 0) {
-            return true;
-        }
-
-        return counterOfferPrice.compareTo(originalPrice) <= 0;
-    }
-
-    private boolean isConversationContentVisible(
-            Page page
-    ) {
-        try {
-            return page.getByTestId("conversation-content")
-                    .first()
-                    .isVisible();
-        } catch (PlaywrightException exception) {
-            return false;
-        }
-    }
-
-    private boolean isSellerCounterOfferCard(
-            Locator priceLabel
-    ) {
-        try {
-            Object result = priceLabel.evaluate(
-                    """
-                    node => {
-                        const root = node.closest(
-                            '[data-testid="conversation-content"]'
-                        );
-
-                        let current = node.parentElement;
-
-                        while (current && current !== root) {
-                            if (current.querySelector(
-                                '[data-testid="offer-message-buy-button"]'
-                            )) {
-                                return true;
-                            }
-                            current = current.parentElement;
-                        }
-
-                        return false;
-                    }
-                    """
-            );
-
-            return Boolean.TRUE.equals(result);
-        } catch (PlaywrightException exception) {
-            log.debug(
-                    "[CONVERSATION] Could not scope seller-price label to its offer card: {}",
-                    exception.getMessage()
-            );
-            return false;
-        }
     }
 
     private void logSnapshot(
             ListingResponseDto listing,
             NegotiationConversationSnapshot snapshot
     ) {
-
         if (snapshot.result()
                 == NegotiationConversationResult.SELLER_COUNTER_OFFER) {
-
             log.info(
-                    "[CONVERSATION] Conversation {} for listing {} "
-                            + "was classified as SELLER_COUNTER_OFFER. "
-                            + "Seller price: {}",
+                    "[CONVERSATION] Conversation {} for listing {} was classified as SELLER_COUNTER_OFFER. Seller price: {}",
                     listing.conversationId(),
                     listing.listingId(),
                     snapshot.sellerCounterOfferPrice()
             );
-
             return;
-
         }
 
         log.info(
-                "[CONVERSATION] Conversation {} for listing {} "
-                        + "was classified as {}. Raw status: {}",
+                "[CONVERSATION] Conversation {} for listing {} was classified as {}. Raw status: {}",
                 listing.conversationId(),
                 listing.listingId(),
                 snapshot.result(),
                 snapshot.rawStatus()
         );
-
-    }
-
-    private String normalizeStatus(
-            String status
-    ) {
-
-        if (status == null) {
-            return "";
-        }
-
-        return status
-                .toLowerCase(
-                        Locale.ROOT
-                )
-                .replace(
-                        "ą",
-                        "a"
-                )
-                .replace(
-                        "ć",
-                        "c"
-                )
-                .replace(
-                        "ę",
-                        "e"
-                )
-                .replace(
-                        "ł",
-                        "l"
-                )
-                .replace(
-                        "ń",
-                        "n"
-                )
-                .replace(
-                        "ó",
-                        "o"
-                )
-                .replace(
-                        "ś",
-                        "s"
-                )
-                .replace(
-                        "ź",
-                        "z"
-                )
-                .replace(
-                        "ż",
-                        "z"
-                )
-                .trim();
-
     }
 
     private void verifyOpenedConversationReadOnly(
@@ -704,12 +191,6 @@ public class NegotiationConversationProcessor {
         }
 
         if (assessment.canonicalRedirect()) {
-            /*
-             * Terminal recovery is intentionally read-only until business
-             * evidence justifies a state transition. Do not mutate the stored
-             * conversation identity merely because Vinted redirected an old
-             * route.
-             */
             log.info(
                     "[NEGOTIATION RECOVERY] Vinted canonicalized terminal conversation {} to {} for listing {}. Read-only inspection will continue without persisting the route.",
                     listing.conversationId(),
@@ -791,51 +272,37 @@ public class NegotiationConversationProcessor {
     private void validateListing(
             ListingResponseDto listing
     ) {
-
         if (listing.id() == null) {
-
             throw new IllegalArgumentException(
                     "Backend listing ID cannot be null"
             );
-
         }
 
-        if (!"NEGOTIATING".equals(
-                listing.status()
-        )) {
-
+        if (!"NEGOTIATING".equals(listing.status())) {
             throw new IllegalArgumentException(
-                    "Conversation can only be inspected for a NEGOTIATING "
-                            + "listing. Backend listing: "
+                    "Conversation can only be inspected for a NEGOTIATING listing. Backend listing: "
                             + listing.id()
                             + ", current status: "
                             + listing.status()
             );
-
         }
 
         if (listing.conversationId() == null
                 || listing.conversationId().isBlank()) {
-
             throw new IllegalArgumentException(
                     "Negotiating listing "
                             + listing.id()
                             + " has no conversation ID"
             );
-
         }
 
         if (listing.conversationUrl() == null
                 || listing.conversationUrl().isBlank()) {
-
             throw new IllegalArgumentException(
                     "Negotiating listing "
                             + listing.id()
                             + " has no conversation URL"
             );
-
         }
-
     }
-
 }
