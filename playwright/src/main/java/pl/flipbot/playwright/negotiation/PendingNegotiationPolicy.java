@@ -98,8 +98,7 @@ public class PendingNegotiationPolicy {
                     configuration
             );
             int rejectionWaitHours = rejectionWaitHours(currentStep);
-            long noResponseWaitHours =
-                    (long) rejectionWaitHours * NON_RESPONSE_MULTIPLIER;
+            long noResponseWaitHours = rejectionWaitHours;
             LocalDateTime nextActionAt = startedAt.plusHours(
                     noResponseWaitHours
             );
@@ -138,8 +137,7 @@ public class PendingNegotiationPolicy {
         }
 
         int rejectionWaitHours = rejectionWaitHours(currentStep);
-        long noResponseWaitHours =
-                (long) rejectionWaitHours * NON_RESPONSE_MULTIPLIER;
+        long noResponseWaitHours = rejectionWaitHours;
 
         LocalDateTime nextActionAt = startedAt.plusHours(
                 noResponseWaitHours
