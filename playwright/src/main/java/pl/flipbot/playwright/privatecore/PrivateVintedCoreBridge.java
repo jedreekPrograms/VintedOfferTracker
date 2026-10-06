@@ -28,9 +28,69 @@ public final class PrivateVintedCoreBridge {
     private PrivateVintedCoreBridge() {
     }
 
+    public static boolean isAvailable() {
+        try {
+            Class.forName(CONVERSATION_INSPECTOR);
+            Class.forName(ACTIVITY_INSPECTOR);
+            return true;
+        } catch (ClassNotFoundException exception) {
+            return false;
+        }
+    }
+
     public static void requireAvailable() {
-        requireClass(CONVERSATION_INSPECTOR);
-        requireClass(ACTIVITY_INSPECTOR);
+        try {
+            Class<?> conversationInspector =
+                    requireClass(CONVERSATION_INSPECTOR);
+            Method conversationMethod =
+                    conversationInspector.getMethod(
+                            "inspect",
+                            Page.class,
+                            String.class,
+                            String.class,
+                            BigDecimal.class,
+                            Runnable.class
+                    );
+
+            Class<?> conversationResult =
+                    conversationMethod.getReturnType();
+            conversationResult.getMethod("result");
+            conversationResult.getMethod(
+                    "sellerCounterOfferPrice"
+            );
+            conversationResult.getMethod("rawStatus");
+
+            Class<?> activityInspector =
+                    requireClass(ACTIVITY_INSPECTOR);
+            Method activityMethod =
+                    activityInspector.getMethod(
+                            "inspect",
+                            Page.class
+                    );
+
+            Class<?> activityResult =
+                    activityMethod.getReturnType();
+            activityResult.getMethod("inspectionSucceeded");
+            activityResult.getMethod("latestOwnOfferFound");
+            activityResult.getMethod(
+                    "sellerMessageAfterLatestOwnOffer"
+            );
+            activityResult.getMethod(
+                    "latestSellerMessageText"
+            );
+            activityResult.getMethod(
+                    "latestSellerMessageAt"
+            );
+            activityResult.getMethod(
+                    "readIndicatorAfterLatestOwnOffer"
+            );
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException(
+                    "Private Playwright core is present but its API is incompatible with this public runtime. "
+                            + "Run .\\bootstrap-private-core.ps1 again after pulling both repositories.",
+                    exception
+            );
+        }
     }
 
     public static NegotiationConversationSnapshot inspectConversation(
