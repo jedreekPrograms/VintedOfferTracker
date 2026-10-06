@@ -450,11 +450,15 @@ public class ListingService {
                         listing.getCurrentStep(),
                         listing.getCurrentStepStartedAt()
                 );
-            } else if (listing.getSellerActivityAt() == null
-                    || sellerActivityAt.isAfter(listing.getSellerActivityAt())) {
+            } else if (listing.getSellerActivityAt() == null) {
+                /*
+                 * Preserve the FIRST seller reaction for this negotiation step.
+                 * Read/message PENDING handling reuses the rejection wait, so a
+                 * later chat message must not keep restarting that timer.
+                 */
                 listing.setSellerActivityAt(sellerActivityAt);
                 log.info(
-                        "Listing {} for bot {} recorded seller activity at {}",
+                        "Listing {} for bot {} recorded first seller activity at {}",
                         listingId,
                         botId,
                         sellerActivityAt
