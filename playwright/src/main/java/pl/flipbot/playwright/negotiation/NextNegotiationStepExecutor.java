@@ -18,6 +18,8 @@ import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.math.BigDecimal;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -38,6 +40,12 @@ public class NextNegotiationStepExecutor {
 
     private static final double OFFER_VALIDATION_TIMEOUT_MS =
             1_500;
+
+    private static final Pattern VINTED_MINIMUM_PRICE_PATTERN =
+            Pattern.compile(
+                    "Minimalna\\s+wartość\\s+nie\\s+może\\s+być\\s+niższa\\s+niż\\s*([0-9\\s.,\\u00A0\\u202F]+)",
+                    Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+            );
 
     private static final double MODAL_CLOSE_TIMEOUT_MS =
             3_000;
@@ -621,18 +629,31 @@ public class NextNegotiationStepExecutor {
                 "Tab"
         );
 
-        if (isOfferTooLow(
-                page,
-                logPrefix
-        )) {
+        OfferPriceValidation validation =
+                inspectOfferPriceValidation(
+                        page,
+                        logPrefix
+                );
 
-            closeOfferModal(
-                    page,
-                    logPrefix
-            );
+        if (validation.tooLow()) {
+            boolean recovered =
+                    tryRaiseAdaptiveStepToLiveMinimum(
+                            page,
+                            listing,
+                            nextStep,
+                            validation,
+                            priceInput,
+                            logPrefix
+                    );
 
-            return false;
+            if (!recovered) {
+                closeOfferModal(
+                        page,
+                        logPrefix
+                );
 
+                return false;
+            }
         }
 
         Locator submitButton =
@@ -671,11 +692,10 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private boolean isOfferTooLow(
+    private OfferPriceValidation inspectOfferPriceValidation(
             Page page,
             String logPrefix
     ) {
-
         Locator errorMessage =
                 page.getByText(
                                 Pattern.compile(
@@ -688,32 +708,125 @@ public class NextNegotiationStepExecutor {
                         .first();
 
         try {
-
             errorMessage.waitFor(
                     new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    OFFER_VALIDATION_TIMEOUT_MS
-                            )
+                            .setState(WaitForSelectorState.VISIBLE)
+                            .setTimeout(OFFER_VALIDATION_TIMEOUT_MS)
             );
+
+            String message = errorMessage.innerText();
+            Optional<BigDecimal> minimum =
+                    parseMinimumAllowedPrice(message);
 
             log.warn(
-                    "{} Vinted rejected the configured price as too low. "
-                            + "Validation message: {}",
+                    "{} Vinted rejected the configured price as too low. Validation message: {}. Parsed live minimum: {}",
                     logPrefix,
-                    errorMessage.innerText()
+                    message,
+                    minimum.map(BigDecimal::toPlainString).orElse("unknown")
             );
 
-            return true;
-
+            return new OfferPriceValidation(
+                    true,
+                    minimum.orElse(null)
+            );
         } catch (TimeoutError exception) {
+            return new OfferPriceValidation(false, null);
+        }
+    }
 
+    private boolean tryRaiseAdaptiveStepToLiveMinimum(
+            Page page,
+            ListingResponseDto listing,
+            NegotiationStepDto nextStep,
+            OfferPriceValidation validation,
+            Locator priceInput,
+            String logPrefix
+    ) {
+        if (validation.minimumAllowedPrice() == null
+                || context.getBot() == null
+                || context.getBot().getConfiguration() == null) {
             return false;
-
         }
 
+        AdaptiveNegotiationPricingService pricingService =
+                new AdaptiveNegotiationPricingService();
+
+        Optional<NegotiationStepDto> adjusted =
+                pricingService.raiseEffectiveStepToVintedMinimum(
+                        nextStep,
+                        validation.minimumAllowedPrice(),
+                        context.getBot().getConfiguration()
+                );
+
+        if (adjusted.isEmpty()) {
+            return false;
+        }
+
+        String adjustedPrice =
+                adjusted.get().getOfferPrice().toPlainString();
+
+        priceInput.fill(adjustedPrice);
+
+        if (!adjustedPrice.equals(priceInput.inputValue())) {
+            throw new IllegalStateException(
+                    "Adaptive Vinted-minimum retry input mismatch. Expected: "
+                            + adjustedPrice
+                            + ", actual: "
+                            + priceInput.inputValue()
+            );
+        }
+
+        log.warn(
+                "{} Retrying step {} for listing {} at Vinted live minimum {}. This is still bounded by the global cap.",
+                logPrefix,
+                nextStep.getStepNumber(),
+                listing.listingId(),
+                adjustedPrice
+        );
+
+        priceInput.press("Tab");
+
+        OfferPriceValidation retryValidation =
+                inspectOfferPriceValidation(
+                        page,
+                        logPrefix
+                );
+
+        return !retryValidation.tooLow();
+    }
+
+    static Optional<BigDecimal> parseMinimumAllowedPrice(
+            String validationMessage
+    ) {
+        if (validationMessage == null
+                || validationMessage.isBlank()) {
+            return Optional.empty();
+        }
+
+        Matcher matcher =
+                VINTED_MINIMUM_PRICE_PATTERN.matcher(
+                        validationMessage
+                );
+
+        if (!matcher.find()) {
+            return Optional.empty();
+        }
+
+        try {
+            return Optional.of(
+                    VintedPriceParser.parse(
+                            matcher.group(1)
+                    )
+            );
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private record OfferPriceValidation(
+            boolean tooLow,
+            BigDecimal minimumAllowedPrice
+    ) {
     }
 
     private void closeOfferModal(
