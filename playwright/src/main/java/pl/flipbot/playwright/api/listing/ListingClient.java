@@ -6,6 +6,7 @@ import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.api.listing.dto.DiscoverListingsRequestDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.NegotiationCapacityResponseDto;
+import pl.flipbot.playwright.api.listing.dto.ReopenNegotiationRequestDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateConversationIdentityRequestDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 
@@ -167,6 +168,94 @@ public class ListingClient extends ApiClient {
 
         return listings;
 
+    }
+
+    public List<ListingResponseDto> getNegotiationRecoveryCandidates(
+            Long botId
+    ) {
+        Objects.requireNonNull(botId, "Bot id cannot be null");
+
+        HttpResponse<String> response = get(
+                "/api/bots/"
+                        + botId
+                        + "/listings/recovery-candidates"
+        );
+
+        validateResponse(
+                response,
+                "load negotiation recovery candidates for bot " + botId
+        );
+
+        if (isEmptyBody(response)) {
+            return List.of();
+        }
+
+        List<ListingResponseDto> listings = readListingList(response);
+        log.info(
+                "Loaded {} terminal negotiation recovery candidate(s) for bot {}",
+                listings.size(),
+                botId
+        );
+        return listings;
+    }
+
+    public ListingResponseDto markNegotiationRecoveryChecked(
+            Long botId,
+            Long backendListingId
+    ) {
+        HttpResponse<String> response = patch(
+                "/api/bots/"
+                        + botId
+                        + "/listings/"
+                        + backendListingId
+                        + "/recovery-checked"
+        );
+
+        validateResponse(
+                response,
+                "mark negotiation recovery check for listing "
+                        + backendListingId
+        );
+
+        return readBody(response, ListingResponseDto.class);
+    }
+
+    public ListingResponseDto reopenNegotiationForRecovery(
+            Long botId,
+            Long backendListingId,
+            boolean awaitingSellerResponse,
+            String reason
+    ) {
+        HttpResponse<String> response = patch(
+                "/api/bots/"
+                        + botId
+                        + "/listings/"
+                        + backendListingId
+                        + "/reopen-negotiation",
+                new ReopenNegotiationRequestDto(
+                        awaitingSellerResponse,
+                        reason
+                )
+        );
+
+        validateResponse(
+                response,
+                "reopen negotiation for listing " + backendListingId
+        );
+
+        ListingResponseDto reopened =
+                readBody(response, ListingResponseDto.class);
+
+        log.warn(
+                "[NEGOTIATION RECOVERY] Backend listing {} / marketplace listing {} reopened as {} at step {}. Reason: {}",
+                reopened.id(),
+                reopened.listingId(),
+                reopened.status(),
+                reopened.currentStep(),
+                reason
+        );
+
+        return reopened;
     }
 
     public int getAllowedNewNegotiations(
