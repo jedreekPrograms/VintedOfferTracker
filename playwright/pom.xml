@@ -19,6 +19,7 @@
         <slf4j.version>2.0.17</slf4j.version>
         <logback.version>1.5.18</logback.version>
         <junit.version>4.13.2</junit.version>
+        <flipbot.private.core.version>0.1.1</flipbot.private.core.version>
     </properties>
 
     <dependencies>
@@ -69,5 +70,29 @@
         </dependency>
 
     </dependencies>
+
+    <!--
+        The public repository compiles and runs its unit suite without access
+        to the private implementation. On an authorized development machine,
+        bootstrap-private-core.ps1 installs the private artifact into ~/.m2
+        and creates .private-core.enabled, activating this runtime dependency.
+    -->
+    <profiles>
+        <profile>
+            <id>private-vinted-core</id>
+            <activation>
+                <file>
+                    <exists>.private-core.enabled</exists>
+                </file>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>pl.flipbot</groupId>
+                    <artifactId>flipbot-playwright-core</artifactId>
+                    <version>${flipbot.private.core.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 
 </project>
