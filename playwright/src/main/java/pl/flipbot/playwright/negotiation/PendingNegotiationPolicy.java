@@ -285,13 +285,15 @@ public class PendingNegotiationPolicy {
                         && activitySnapshot.sellerMessageAfterLatestOwnOffer();
 
         if (messageDetected) {
-            detectedMessageAt =
-                    activitySnapshot.latestSellerMessageAt() == null
-                            ? now
-                            : currentStepTimestamp(
-                                    activitySnapshot.latestSellerMessageAt(),
-                                    stepStartedAt
-                            );
+            detectedMessageAt = currentStepTimestamp(
+                    activitySnapshot.latestSellerMessageAt(),
+                    stepStartedAt
+            );
+            if (detectedMessageAt == null) {
+                detectedMessageAt = persistedMessageAt == null
+                        ? now
+                        : persistedMessageAt;
+            }
         }
 
         LocalDateTime detectedReadAt = null;
