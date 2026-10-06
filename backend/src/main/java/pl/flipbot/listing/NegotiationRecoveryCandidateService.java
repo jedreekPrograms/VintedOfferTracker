@@ -15,7 +15,7 @@ public class NegotiationRecoveryCandidateService {
 
     public static final int WATCH_WINDOW_DAYS = 7;
     public static final int RECHECK_INTERVAL_MINUTES = 5;
-    public static final int MAX_CANDIDATES_PER_RUN = 12;
+    public static final int MAX_CANDIDATES_PER_RUN = 4;
 
     private static final List<ListingStatus> WATCHED_STATUSES =
             List.of(
