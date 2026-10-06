@@ -248,6 +248,67 @@ public class PendingNegotiationPolicyTest {
     }
 
     @Test
+    public void laterChatMessageDoesNotRestartEarlierReadReactionTimer() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T00:00:00",
+                        "2026-01-03T08:00:00",
+                        "2026-01-03T03:59:59",
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        true,
+                        "Jeszcze się zastanawiam",
+                        LocalDateTime.parse("2026-01-03T08:00:00"),
+                        true
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertEquals(3, decision.nextStep().getStepNumber().intValue());
+        assertTrue(
+                decision.reason().contains(
+                        "first detected at 2026-01-03T03:59:59"
+                )
+        );
+    }
+
+    @Test
+    public void missingSellerMessageTimestampStillTriggersRejectionPolicy() {
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-03T09:00:00",
+                        null,
+                        null,
+                        2
+                ),
+                new ConversationActivitySnapshot(
+                        true,
+                        true,
+                        true,
+                        "Czy aktualne?",
+                        null,
+                        false
+                ),
+                fiveStepConfiguration()
+        );
+
+        assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
+        assertTrue(
+                decision.reason().contains(
+                        "seller sent a normal chat message"
+                )
+        );
+        assertTrue(decision.reason().contains("wait 6h after rejection"));
+    }
+
+    @Test
     public void immediateRejectionPolicyUsesTwelveHourFallbackOnlyWhenThereIsNoSellerReaction() {
         BotConfigurationDto configuration = fiveStepConfiguration();
         NegotiationStepDto step2 =
