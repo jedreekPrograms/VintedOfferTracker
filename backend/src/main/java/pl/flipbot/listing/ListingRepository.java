@@ -143,11 +143,11 @@ public interface ListingRepository
                     listing.lastTerminalWatchAt is null
                     or listing.lastTerminalWatchAt <= :dueBefore
               )
-            order by coalesce(
-                    listing.lastTerminalWatchAt,
-                    listing.decisionAt,
-                    listing.currentStepStartedAt
-            ) asc, listing.id asc
+            order by
+                case when listing.lastTerminalWatchAt is null then 0 else 1 end asc,
+                listing.lastTerminalWatchAt asc,
+                coalesce(listing.decisionAt, listing.currentStepStartedAt) desc,
+                listing.id desc
             """)
     List<Listing> findDueTerminalConversationCandidates(
             @Param("botId") Long botId,
