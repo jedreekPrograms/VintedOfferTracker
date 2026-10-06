@@ -63,7 +63,7 @@ public class SchedulerRunningBotService {
          * seller counteroffer after our local terminal decision. Make that
          * bounded read-only recovery work visible to the scheduler as well;
          * otherwise a bot with zero NEGOTIATING rows would never open the
-         * conversation again (the exact bot-3 / 1264 PLN failure mode).
+         * conversation again (for example after a later formal seller counteroffer).
          */
         botsWithActiveNegotiations.addAll(
                 negotiationRecoveryCandidateService
