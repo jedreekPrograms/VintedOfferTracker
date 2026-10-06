@@ -748,9 +748,11 @@ public class NegotiationConversationProcessor {
         }
 
         if (!"REJECTED".equals(listing.status())
-                && !"EXPIRED".equals(listing.status())) {
+                && !"EXPIRED".equals(listing.status())
+                && !"UNAVAILABLE".equals(listing.status())
+                && !"CONTACT_UNAVAILABLE".equals(listing.status())) {
             throw new IllegalArgumentException(
-                    "Recovery inspection only supports REJECTED/EXPIRED listings. Backend listing: "
+                    "Recovery inspection only supports recent technical terminal listings. Backend listing: "
                             + listing.id()
                             + ", current status: "
                             + listing.status()
