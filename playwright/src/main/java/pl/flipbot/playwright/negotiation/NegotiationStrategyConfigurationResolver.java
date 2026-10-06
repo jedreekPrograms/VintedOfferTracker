@@ -132,6 +132,8 @@ public final class NegotiationStrategyConfigurationResolver {
             copy.setMessage(step.getMessage());
             copy.setRejectionAction(step.getRejectionAction());
             copy.setRejectionWaitHours(step.getRejectionWaitHours());
+            copy.setReadWaitHours(step.getReadWaitHours());
+            copy.setUnreadWaitHours(step.getUnreadWaitHours());
             copy.setCounterOfferDefaultAction(
                     step.getCounterOfferDefaultAction()
             );
