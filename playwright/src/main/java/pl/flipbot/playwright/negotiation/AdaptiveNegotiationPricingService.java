@@ -276,6 +276,70 @@ public class AdaptiveNegotiationPricingService {
         return Optional.of(effectiveStep);
     }
 
+    /**
+     * Vinted may raise the minimum allowed price after a conversation has
+     * already started (for example because the seller changed the item price).
+     * In adaptive mode a later step is allowed to move up to that live minimum,
+     * but never above the user's global cap.
+     */
+    public Optional<NegotiationStepDto> raiseEffectiveStepToVintedMinimum(
+            NegotiationStepDto effectiveStep,
+            BigDecimal vintedMinimum,
+            BotConfigurationDto configuration
+    ) {
+        Objects.requireNonNull(effectiveStep, "Effective step cannot be null");
+        Objects.requireNonNull(vintedMinimum, "Vinted minimum cannot be null");
+        Objects.requireNonNull(configuration, "Configuration cannot be null");
+
+        if (!isAdaptiveModeEnabled(configuration)) {
+            return Optional.empty();
+        }
+
+        requirePositive(effectiveStep.getOfferPrice(), "Effective step offer");
+        requirePositive(vintedMinimum, "Vinted minimum");
+
+        BigDecimal candidate = vintedMinimum.setScale(
+                2,
+                RoundingMode.CEILING
+        );
+        BigDecimal cap = configuration.getMaxAutomaticOffer().setScale(
+                2,
+                RoundingMode.UNNECESSARY
+        );
+
+        if (candidate.compareTo(effectiveStep.getOfferPrice()) <= 0) {
+            return Optional.empty();
+        }
+
+        if (candidate.compareTo(cap) > 0) {
+            log.info(
+                    "[ADAPTIVE PRICE] Vinted requires at least {} for step {}, above global cap {}. No automatic offer will be sent.",
+                    candidate,
+                    effectiveStep.getStepNumber(),
+                    cap
+            );
+            return Optional.empty();
+        }
+
+        effectiveStep.setOfferPrice(candidate);
+
+        BigDecimal accepted = effectiveStep.getMaxAcceptedCounterOffer();
+        if (accepted == null || accepted.compareTo(candidate) < 0) {
+            effectiveStep.setMaxAcceptedCounterOffer(candidate);
+        } else if (accepted.compareTo(cap) > 0) {
+            effectiveStep.setMaxAcceptedCounterOffer(cap);
+        }
+
+        log.warn(
+                "[ADAPTIVE PRICE] Raised effective step {} to Vinted live minimum {} without exceeding global cap {}.",
+                effectiveStep.getStepNumber(),
+                candidate,
+                cap
+        );
+
+        return Optional.of(effectiveStep);
+    }
+
     public BigDecimal effectiveAcceptedCounterOfferLimit(
             ListingResponseDto listing,
             NegotiationStepDto configuredCurrentStep,
