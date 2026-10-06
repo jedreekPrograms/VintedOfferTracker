@@ -47,6 +47,15 @@ public class CreateNegotiationStepRequest {
 
     private Integer rejectionWaitHours;
 
+    /*
+     * Follow-up delays while Vinted still shows our offer as PENDING.
+     * Missing values keep backward-compatible defaults: 3h after read and
+     * 48h when there is no read/activity signal.
+     */
+    private Integer readWaitHours;
+
+    private Integer unreadWaitHours;
+
     private NegotiationReactionAction counterOfferDefaultAction;
 
     private Integer counterOfferDefaultWaitHours;
