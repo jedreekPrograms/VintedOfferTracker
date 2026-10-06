@@ -110,6 +110,8 @@ public class NegotiationStrategySnapshotService {
                 step.getMessage(),
                 step.getRejectionAction(),
                 step.getRejectionWaitHours(),
+                step.getReadWaitHours(),
+                step.getUnreadWaitHours(),
                 step.getCounterOfferDefaultAction(),
                 step.getCounterOfferDefaultWaitHours(),
                 step.getCounterOfferRules() == null
