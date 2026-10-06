@@ -1,11 +1,13 @@
 package pl.flipbot.listing;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -123,6 +125,60 @@ public interface ListingRepository
     List<Long> findDistinctBotIdsByStatusAndBotIdIn(
             @Param("status") ListingStatus status,
             @Param("botIds") Collection<Long> botIds
+    );
+
+    @Query("""
+            select listing
+            from Listing listing
+            where listing.bot.id = :botId
+              and listing.status in :statuses
+              and listing.conversationId is not null
+              and listing.conversationId <> ''
+              and listing.conversationUrl is not null
+              and listing.conversationUrl <> ''
+              and listing.currentStep is not null
+              and listing.currentStep > 0
+              and coalesce(listing.decisionAt, listing.currentStepStartedAt) >= :watchCutoff
+              and (
+                    listing.lastTerminalWatchAt is null
+                    or listing.lastTerminalWatchAt <= :dueBefore
+              )
+            order by coalesce(
+                    listing.lastTerminalWatchAt,
+                    listing.decisionAt,
+                    listing.currentStepStartedAt
+            ) asc, listing.id asc
+            """)
+    List<Listing> findDueTerminalConversationCandidates(
+            @Param("botId") Long botId,
+            @Param("statuses") Collection<ListingStatus> statuses,
+            @Param("watchCutoff") LocalDateTime watchCutoff,
+            @Param("dueBefore") LocalDateTime dueBefore,
+            Pageable pageable
+    );
+
+    @Query("""
+            select distinct listing.bot.id
+            from Listing listing
+            where listing.bot.id in :botIds
+              and listing.status in :statuses
+              and listing.conversationId is not null
+              and listing.conversationId <> ''
+              and listing.conversationUrl is not null
+              and listing.conversationUrl <> ''
+              and listing.currentStep is not null
+              and listing.currentStep > 0
+              and coalesce(listing.decisionAt, listing.currentStepStartedAt) >= :watchCutoff
+              and (
+                    listing.lastTerminalWatchAt is null
+                    or listing.lastTerminalWatchAt <= :dueBefore
+              )
+            """)
+    List<Long> findDistinctBotIdsWithDueTerminalConversationCandidates(
+            @Param("botIds") Collection<Long> botIds,
+            @Param("statuses") Collection<ListingStatus> statuses,
+            @Param("watchCutoff") LocalDateTime watchCutoff,
+            @Param("dueBefore") LocalDateTime dueBefore
     );
 
 }
