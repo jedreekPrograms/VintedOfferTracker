@@ -23,6 +23,10 @@ public class NegotiationStepResponse {
 
     private Integer rejectionWaitHours;
 
+    private Integer readWaitHours;
+
+    private Integer unreadWaitHours;
+
     private NegotiationReactionAction counterOfferDefaultAction;
 
     private Integer counterOfferDefaultWaitHours;
