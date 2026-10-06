@@ -60,7 +60,8 @@ public class TerminalNegotiationRecoveryPolicy {
                 if ((decision.type() == NegotiationDecisionType.WAIT
                         || decision.type()
                         == NegotiationDecisionType.SEND_NEXT_STEP)
-                        && hasConfiguredNextStep(listing, configuration)) {
+                        && hasConfiguredNextStep(listing, configuration)
+                        && hasPinnedStrategy(listing)) {
                     yield TerminalNegotiationRecoveryDecision.reopen(
                             false,
                             "Live Vinted state is "
@@ -85,6 +86,7 @@ public class TerminalNegotiationRecoveryPolicy {
             }
 
             case PENDING -> hasConfiguredNextStep(listing, configuration)
+                    && hasPinnedStrategy(listing)
                     ? TerminalNegotiationRecoveryDecision.reopen(
                             true,
                             "Vinted still shows the latest own offer as PENDING and the local row is terminal even though another configured step exists. "
@@ -102,6 +104,12 @@ public class TerminalNegotiationRecoveryPolicy {
                     "The terminal conversation state could not be recognized safely."
             );
         };
+    }
+
+    private boolean hasPinnedStrategy(
+            ListingResponseDto listing
+    ) {
+        return listing.negotiationStrategySnapshot() != null;
     }
 
     private boolean hasConfiguredNextStep(
