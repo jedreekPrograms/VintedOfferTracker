@@ -8,6 +8,7 @@ import pl.flipbot.bot.runtime.BotRuntimeStateRepository;
 import pl.flipbot.bot.runtime.BotSessionPreviewService;
 import pl.flipbot.bot.scheduler.SchedulerRunningBotService;
 import pl.flipbot.listing.ListingRepository;
+import pl.flipbot.listing.NegotiationRecoveryCandidateService;
 
 import java.util.List;
 
@@ -31,8 +32,17 @@ class SessionPreviewFlowTest {
                 bots, mock(BotRuntimeStateRepository.class), previews);
         DashboardController controller = new DashboardController(
                 mock(DashboardStatsService.class), runtime, previews);
+        NegotiationRecoveryCandidateService recovery =
+                mock(NegotiationRecoveryCandidateService.class);
+        when(recovery.findBotIdsWithDueCandidates(List.of(7L, 8L)))
+                .thenReturn(java.util.Set.of());
+
         SchedulerRunningBotService sync = new SchedulerRunningBotService(
-                bots, mock(ListingRepository.class), previews);
+                bots,
+                mock(ListingRepository.class),
+                previews,
+                recovery
+        );
 
         assertFalse(runtime.getRuntimeDashboard().bots().getFirst().sessionPreviewRequested());
         assertEquals(204, controller.setSessionPreview(7L, true).getStatusCode().value());

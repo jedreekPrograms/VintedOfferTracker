@@ -13,6 +13,7 @@ import pl.flipbot.listing.dto.DiscoverListingsRequest;
 import pl.flipbot.listing.dto.ListingResponse;
 import pl.flipbot.listing.dto.NegotiationActivityRequest;
 import pl.flipbot.listing.dto.NegotiationActivityResponse;
+import pl.flipbot.listing.dto.ReopenNegotiationRequest;
 import pl.flipbot.listing.dto.UpdateConversationIdentityRequest;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
@@ -42,6 +43,7 @@ public class ListingService {
     private final ListingClaimService listingClaimService;
     private final ListingRediscoveryService listingRediscoveryService;
     private final NegotiationStrategySnapshotService negotiationStrategySnapshotService;
+    private final NegotiationRecoveryCandidateService negotiationRecoveryCandidateService;
 
     public List<ListingResponse> getDiscoveredListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.DISCOVERED);
@@ -49,6 +51,15 @@ public class ListingService {
 
     public List<ListingResponse> getNegotiatingListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.NEGOTIATING);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ListingResponse> getNegotiationRecoveryCandidates(Long botId) {
+        validateBotExists(botId);
+        return negotiationRecoveryCandidateService.findDueCandidates(botId)
+                .stream()
+                .map(listingMapper::map)
+                .toList();
     }
 
     public List<ListingResponse> getActionRequiredListings(Long botId) {
@@ -242,6 +253,12 @@ public class ListingService {
             negotiationStrategySnapshotService.pinIfMissing(listing);
         }
 
+        if (isHistoryTerminalStatus(previousStatus)
+                && (request.getStatus() == ListingStatus.ACTION_REQUIRED
+                || request.getStatus() == ListingStatus.NEGOTIATING)) {
+            listing.setDecisionAt(null);
+        }
+
         if (request.getStatus() == ListingStatus.ACTION_REQUIRED
                 && listing.getBuyCandidateAt() == null) {
             LocalDateTime now = LocalDateTime.now();
@@ -283,6 +300,82 @@ public class ListingService {
                     now
             );
         }
+
+        return listingMapper.map(listing);
+    }
+
+    @Transactional
+    public ListingResponse markNegotiationRecoveryChecked(
+            Long botId,
+            Long listingId
+    ) {
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Listing " + listingId + " was not found for bot " + botId
+                ));
+
+        if (!negotiationRecoveryCandidateService
+                .isWatchedTerminalStatus(listing.getStatus())) {
+            return listingMapper.map(listing);
+        }
+
+        listing.setLastTerminalWatchAt(LocalDateTime.now());
+        return listingMapper.map(listing);
+    }
+
+    @Transactional
+    public ListingResponse reopenNegotiationForRecovery(
+            Long botId,
+            Long listingId,
+            ReopenNegotiationRequest request
+    ) {
+        Listing listing = listingRepository.findByIdAndBotId(listingId, botId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Listing " + listingId + " was not found for bot " + botId
+                ));
+
+        if (!negotiationRecoveryCandidateService
+                .isWatchedTerminalStatus(listing.getStatus())) {
+            throw new IllegalStateException(
+                    "Only recent technical terminal negotiations may be recovered. Listing "
+                            + listingId + " currently has status " + listing.getStatus()
+            );
+        }
+
+        if (listing.getConversationId() == null
+                || listing.getConversationId().isBlank()
+                || listing.getConversationUrl() == null
+                || listing.getConversationUrl().isBlank()
+                || listing.getCurrentStep() == null
+                || listing.getCurrentStep() <= 0) {
+            throw new IllegalStateException(
+                    "Listing " + listingId
+                            + " cannot be recovered because its conversation identity/current step is incomplete."
+            );
+        }
+
+        ListingStatus previousStatus = listing.getStatus();
+        listing.setStatus(ListingStatus.NEGOTIATING);
+        listing.setAwaitingSellerResponse(request.awaitingSellerResponse());
+        listing.setDecisionAt(null);
+        listing.setLastTerminalWatchAt(null);
+
+        /*
+         * Deliberately preserve currentStepStartedAt and the current step's
+         * activity/formal-response clocks. Recovery must not restart a 6h/24h
+         * timer from zero merely because our local terminal state was wrong.
+         */
+        negotiationStrategySnapshotService.pinIfMissing(listing);
+
+        log.warn(
+                "Recovered backend listing {} / marketplace listing {} for bot {} from {} to NEGOTIATING at step {} without resetting timers. Reason: {}",
+                listing.getId(),
+                listing.getListingId(),
+                botId,
+                previousStatus,
+                listing.getCurrentStep(),
+                request.reason()
+        );
 
         return listingMapper.map(listing);
     }

@@ -28,12 +28,12 @@ public class PendingNegotiationPolicyTest {
             );
 
     @Test
-    public void nonFinalPendingOfferAdvancesAfterDoubleRejectionWait() {
+    public void nonFinalPendingOfferAdvancesAfterConfiguredRejectionWait() {
         BotConfigurationDto configuration = fiveStepConfiguration();
 
         PendingNegotiationDecision decision = policy.decide(
                 listing(
-                        "2026-01-02T21:59:59",
+                        "2026-01-03T03:59:59",
                         null,
                         null,
                         2
@@ -50,16 +50,16 @@ public class PendingNegotiationPolicyTest {
                 3,
                 decision.nextStep().getStepNumber().intValue()
         );
-        assertTrue(decision.reason().contains("6h x 2 = 12h"));
+        assertTrue(decision.reason().contains("configured rejection wait: 6h"));
     }
 
     @Test
-    public void nonFinalPendingOfferWaitsBeforeDoubleRejectionWait() {
+    public void nonFinalPendingOfferWaitsBeforeConfiguredRejectionWait() {
         BotConfigurationDto configuration = fiveStepConfiguration();
 
         PendingNegotiationDecision decision = policy.decide(
                 listing(
-                        "2026-01-03T00:00:01",
+                        "2026-01-03T04:00:01",
                         null,
                         null,
                         2
@@ -69,7 +69,7 @@ public class PendingNegotiationPolicyTest {
         );
 
         assertEquals(PendingNegotiationDecision.Action.WAIT, decision.action());
-        assertTrue(decision.reason().contains("12h"));
+        assertTrue(decision.reason().contains("6h"));
     }
 
 
@@ -128,7 +128,37 @@ public class PendingNegotiationPolicyTest {
                 PendingNegotiationDecision.Action.SEND_NEXT_STEP,
                 decision.action()
         );
-        assertTrue(decision.reason().contains("6h x 2 = 12h"));
+        assertTrue(decision.reason().contains("configured rejection wait: 12h"));
+    }
+
+    @Test
+    public void twentyFourHourFirstStepWaitDoesNotBecomeFortyEightHours() {
+        BotConfigurationDto configuration = fiveStepConfiguration();
+        NegotiationStepDto first =
+                configuration.getNegotiationSteps().get(0);
+        first.setRejectionWaitHours(24);
+
+        PendingNegotiationDecision decision = policy.decide(
+                listing(
+                        "2026-01-02T09:59:59",
+                        null,
+                        null,
+                        1
+                ),
+                ConversationActivitySnapshot.unavailable(),
+                configuration
+        );
+
+        assertEquals(
+                PendingNegotiationDecision.Action.SEND_NEXT_STEP,
+                decision.action()
+        );
+        assertEquals(2, decision.nextStep().getStepNumber().intValue());
+        assertTrue(
+                decision.reason().contains(
+                        "configured rejection wait: 24h"
+                )
+        );
     }
 
     @Test

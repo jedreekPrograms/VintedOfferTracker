@@ -46,6 +46,19 @@ public class TargetBoundListingClient extends ListingClient {
     }
 
     @Override
+    public List<ListingResponseDto> getNegotiationRecoveryCandidates(
+            Long botId
+    ) {
+        return super.getNegotiationRecoveryCandidates(botId)
+                .stream()
+                .filter(listing -> Objects.equals(
+                        listing.additionalTargetId(),
+                        additionalTargetId
+                ))
+                .toList();
+    }
+
+    @Override
     public int getAllowedNewNegotiations(Long botId) {
         if (additionalTargetId == null) {
             return super.getAllowedNewNegotiations(botId);

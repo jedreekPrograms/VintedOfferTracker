@@ -25,6 +25,7 @@ public class ExistingNegotiationProcessor {
     private final ConsecutiveContactUnavailableTracker contactUnavailableTracker;
     private final NegotiationDecisionService decisionService;
     private final PendingNegotiationPolicy pendingPolicy;
+    private final TerminalNegotiationRecoveryPolicy terminalRecoveryPolicy;
     private final NextNegotiationStepExecutor nextStepExecutor;
     private final PreparedNextStepCoordinator preparedNextStepCoordinator;
     private final ExistingNegotiationSupport support;
@@ -49,6 +50,7 @@ public class ExistingNegotiationProcessor {
         this.contactUnavailableTracker = new ConsecutiveContactUnavailableTracker();
         this.decisionService = new NegotiationDecisionService();
         this.pendingPolicy = new PendingNegotiationPolicy();
+        this.terminalRecoveryPolicy = new TerminalNegotiationRecoveryPolicy();
         this.nextStepExecutor = new NextNegotiationStepExecutor(context);
         this.preparedNextStepCoordinator = new PreparedNextStepCoordinator(context, offerQuotaClient);
         this.support = new ExistingNegotiationSupport(
@@ -63,10 +65,150 @@ public class ExistingNegotiationProcessor {
 
     public boolean process() {
         Long botId = context.getBot().getId();
-        List<ListingResponseDto> listings = listingClient.getNegotiatingListings(botId);
 
-        log.info("Bot {} currently has {} active negotiations", botId, listings.size());
-        return inspectExistingNegotiations(listings);
+        /*
+         * Active conversations always have priority. Terminal recovery is a
+         * bounded safety net and must never delay normal negotiations.
+         */
+        List<ListingResponseDto> listings =
+                listingClient.getNegotiatingListings(botId);
+
+        log.info(
+                "Bot {} currently has {} active negotiations",
+                botId,
+                listings.size()
+        );
+
+        boolean sentAny = inspectExistingNegotiations(listings);
+
+        List<ListingResponseDto> recoveryCandidates =
+                listingClient.getNegotiationRecoveryCandidates(botId);
+        inspectTerminalRecoveryCandidates(recoveryCandidates);
+
+        return sentAny;
+    }
+
+    private void inspectTerminalRecoveryCandidates(
+            List<ListingResponseDto> candidates
+    ) {
+        if (candidates == null || candidates.isEmpty()) {
+            return;
+        }
+
+        BotConfigurationDto currentProductConfiguration =
+                context.getBot().getConfiguration();
+        if (currentProductConfiguration == null) {
+            throw new IllegalStateException("Bot configuration is missing");
+        }
+
+        log.info(
+                "[NEGOTIATION RECOVERY] Inspecting {} recent terminal conversation candidate(s) read-only before active negotiations.",
+                candidates.size()
+        );
+
+        for (ListingResponseDto listing : candidates) {
+            BotConfigurationDto configuration =
+                    NegotiationStrategyConfigurationResolver.resolve(
+                            currentProductConfiguration,
+                            listing.negotiationStrategySnapshot()
+                    );
+
+            context.getBot().setConfiguration(configuration);
+            boolean transitioned = false;
+
+            try {
+                NegotiationConversationSnapshot snapshot =
+                        conversationProcessor.inspectRecoverySnapshot(listing);
+
+                TerminalNegotiationRecoveryDecision recovery =
+                        terminalRecoveryPolicy.decide(
+                                listing,
+                                snapshot,
+                                configuration
+                        );
+
+                switch (recovery.action()) {
+                    case KEEP_TERMINAL -> log.info(
+                            "[NEGOTIATION RECOVERY] Listing {} stays {}. Live result={}. Reason: {}",
+                            listing.listingId(),
+                            listing.status(),
+                            snapshot.result(),
+                            recovery.reason()
+                    );
+
+                    case REOPEN_NEGOTIATING -> {
+                        ListingResponseDto reopened =
+                                listingClient.reopenNegotiationForRecovery(
+                                        context.getBot().getId(),
+                                        listing.id(),
+                                        recovery.awaitingSellerResponse(),
+                                        recovery.reason()
+                                );
+                        transitioned = true;
+
+                        log.warn(
+                                "[NEGOTIATION RECOVERY] Listing {} recovered from {} to {} at step {}. No offer was sent by the recovery layer.",
+                                reopened.listingId(),
+                                listing.status(),
+                                reopened.status(),
+                                reopened.currentStep()
+                        );
+                    }
+
+                    case MARK_ACTION_REQUIRED -> {
+                        ListingResponseDto updated =
+                                listingStatusUpdater.markActionRequired(
+                                        listing,
+                                        recovery.negotiationDecision()
+                                );
+                        transitioned = true;
+                        clearContactUnavailableSuspicion(listing);
+
+                        log.warn(
+                                "[NEGOTIATION RECOVERY] Fresh seller decision recovered from terminal history. Listing {} changed from {} to ACTION_REQUIRED at price {}. No buyer offer was sent. Reason: {}",
+                                updated.listingId(),
+                                listing.status(),
+                                updated.currentPrice(),
+                                recovery.reason()
+                        );
+                    }
+                }
+            } catch (VintedRateLimitException exception) {
+                throw exception;
+            } catch (Exception exception) {
+                log.error(
+                        "[NEGOTIATION RECOVERY] Failed to inspect terminal backend listing {}, marketplace listing {}, conversation {}: {}",
+                        listing.id(),
+                        listing.listingId(),
+                        listing.conversationId(),
+                        support.friendlyError(exception)
+                );
+                log.trace(
+                        "[NEGOTIATION RECOVERY] Full exception for backend listing {}.",
+                        listing.id(),
+                        exception
+                );
+            } finally {
+                if (!transitioned) {
+                    try {
+                        listingClient.markNegotiationRecoveryChecked(
+                                context.getBot().getId(),
+                                listing.id()
+                        );
+                    } catch (Exception exception) {
+                        log.warn(
+                                "[NEGOTIATION RECOVERY] Could not persist recovery throttle for backend listing {}: {}",
+                                listing.id(),
+                                support.friendlyError(exception)
+                        );
+                    }
+                }
+
+                context.getBot().setConfiguration(
+                        currentProductConfiguration
+                );
+            }
+        }
     }
 
     private boolean inspectExistingNegotiations(List<ListingResponseDto> listings) {

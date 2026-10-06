@@ -79,6 +79,16 @@ public class BotListingController {
 
     }
 
+    @GetMapping("/recovery-candidates")
+    public ResponseEntity<List<ListingResponse>>
+    getNegotiationRecoveryCandidates(
+            @PathVariable Long botId
+    ) {
+        return ResponseEntity.ok(
+                listingService.getNegotiationRecoveryCandidates(botId)
+        );
+    }
+
     @GetMapping("/action-required")
     public ResponseEntity<List<ListingResponse>>
     getActionRequiredListings(
@@ -182,6 +192,36 @@ public class BotListingController {
                 )
         );
 
+    }
+
+    @PatchMapping("/{listingId}/recovery-checked")
+    public ResponseEntity<ListingResponse>
+    markNegotiationRecoveryChecked(
+            @PathVariable Long botId,
+            @PathVariable Long listingId
+    ) {
+        return ResponseEntity.ok(
+                listingService.markNegotiationRecoveryChecked(
+                        botId,
+                        listingId
+                )
+        );
+    }
+
+    @PatchMapping("/{listingId}/reopen-negotiation")
+    public ResponseEntity<ListingResponse>
+    reopenNegotiationForRecovery(
+            @PathVariable Long botId,
+            @PathVariable Long listingId,
+            @RequestBody ReopenNegotiationRequest request
+    ) {
+        return ResponseEntity.ok(
+                listingService.reopenNegotiationForRecovery(
+                        botId,
+                        listingId,
+                        request
+                )
+        );
     }
 
     @PatchMapping("/{listingId}/conversation")

@@ -17,6 +17,14 @@ public class VintedPriceParserTest {
     }
 
     @Test
+    public void parsesExact1264PolishCounteroffer() {
+        assertEquals(
+                new BigDecimal("1264.00"),
+                VintedPriceParser.parse("1 264,00\u00A0zł")
+        );
+    }
+
+    @Test
     public void parsesThousandsAndDecimalComma() {
         assertEquals(
                 new BigDecimal("2098.43"),

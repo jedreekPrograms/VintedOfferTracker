@@ -10,6 +10,7 @@ import pl.flipbot.bot.dto.RunningBotResponse;
 import pl.flipbot.bot.runtime.BotSessionPreviewService;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
+import pl.flipbot.listing.NegotiationRecoveryCandidateService;
 
 import java.util.HashSet;
 import java.util.List;
@@ -22,6 +23,7 @@ public class SchedulerRunningBotService {
     private final BotRepository botRepository;
     private final ListingRepository listingRepository;
     private final BotSessionPreviewService sessionPreviewService;
+    private final NegotiationRecoveryCandidateService negotiationRecoveryCandidateService;
 
     @Transactional(readOnly = true)
     public List<RunningBotResponse> getRunningBots() {
@@ -55,6 +57,18 @@ public class SchedulerRunningBotService {
                                 runningBotIds
                         )
                 );
+
+        /*
+         * A recent REJECTED/EXPIRED conversation can receive a fresh formal
+         * seller counteroffer after our local terminal decision. Make that
+         * bounded read-only recovery work visible to the scheduler as well;
+         * otherwise a bot with zero NEGOTIATING rows would never open the
+         * conversation again (the exact bot-3 / 1264 PLN failure mode).
+         */
+        botsWithActiveNegotiations.addAll(
+                negotiationRecoveryCandidateService
+                        .findBotIdsWithDueCandidates(runningBotIds)
+        );
 
         return runningBots.stream()
                 .map(

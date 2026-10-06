@@ -27,6 +27,8 @@ class ListingServiceConversationIdentityTest {
                 mock(ListingRediscoveryService.class);
         NegotiationStrategySnapshotService snapshotService =
                 mock(NegotiationStrategySnapshotService.class);
+        NegotiationRecoveryCandidateService recoveryCandidateService =
+                mock(NegotiationRecoveryCandidateService.class);
 
         ListingService service = new ListingService(
                 listingRepository,
@@ -34,7 +36,8 @@ class ListingServiceConversationIdentityTest {
                 listingMapper,
                 listingClaimService,
                 listingRediscoveryService,
-                snapshotService
+                snapshotService,
+                recoveryCandidateService
         );
 
         LocalDateTime stepStartedAt =

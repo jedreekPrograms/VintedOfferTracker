@@ -17,9 +17,11 @@ import java.util.Objects;
  *
  * Reading the offer or sending a normal chat message is not a formal seller
  * response. For non-final steps we nevertheless avoid leaving a PENDING offer
- * open forever: the no-response timeout is twice the configured rejection wait
- * for the current step. If the rejection policy is immediate/legacy and has no
- * positive wait value, a conservative 12h fallback is used.
+ * open forever: the no-response timeout uses the configured rejection wait for
+ * that step. A seller who simply leaves the offer pending must not silently
+ * double every configured negotiation delay. If the rejection policy is
+ * immediate/legacy and has no positive wait value, a conservative 12h fallback
+ * is used.
  *
  * The final configured step is never auto-raised again and expires after 48h.
  */
@@ -27,7 +29,6 @@ public class PendingNegotiationPolicy {
 
     private static final int FINAL_STEP_PENDING_EXPIRY_HOURS = 48;
     private static final int FALLBACK_NON_RESPONSE_WAIT_HOURS = 12;
-    private static final int NON_RESPONSE_MULTIPLIER = 2;
 
     private final Clock clock;
     private final AdaptiveNegotiationPricingService pricingService;
@@ -97,8 +98,7 @@ public class PendingNegotiationPolicy {
                     configuration
             );
             int rejectionWaitHours = rejectionWaitHours(currentStep);
-            long noResponseWaitHours =
-                    (long) rejectionWaitHours * NON_RESPONSE_MULTIPLIER;
+            long noResponseWaitHours = rejectionWaitHours;
             LocalDateTime nextActionAt = startedAt.plusHours(
                     noResponseWaitHours
             );
@@ -108,7 +108,7 @@ public class PendingNegotiationPolicy {
                             + startedAt
                             + ". No formal response exists yet. The non-final no-response timeout is "
                             + noResponseWaitHours
-                            + "h (2x rejection wait), so the next step becomes eligible at "
+                            + "h (configured rejection wait), so the next step becomes eligible at "
                             + nextActionAt + "."
             );
         }
@@ -137,8 +137,7 @@ public class PendingNegotiationPolicy {
         }
 
         int rejectionWaitHours = rejectionWaitHours(currentStep);
-        long noResponseWaitHours =
-                (long) rejectionWaitHours * NON_RESPONSE_MULTIPLIER;
+        long noResponseWaitHours = rejectionWaitHours;
 
         LocalDateTime nextActionAt = startedAt.plusHours(
                 noResponseWaitHours
@@ -174,9 +173,7 @@ public class PendingNegotiationPolicy {
                                 "Vinted still reports step "
                                         + listing.currentStep()
                                         + " as PENDING without a formal seller response. "
-                                        + "The no-response policy waits 2x the rejection wait: "
-                                        + rejectionWaitHours + "h x "
-                                        + NON_RESPONSE_MULTIPLIER + " = "
+                                        + "The no-response policy uses the configured rejection wait: "
                                         + noResponseWaitHours + "h. "
                                         + "Step started at " + startedAt
                                         + "; next step became eligible at "
@@ -203,7 +200,7 @@ public class PendingNegotiationPolicy {
             return currentStep.getRejectionWaitHours();
         }
 
-        return FALLBACK_NON_RESPONSE_WAIT_HOURS / NON_RESPONSE_MULTIPLIER;
+        return FALLBACK_NON_RESPONSE_WAIT_HOURS;
     }
 
     private NegotiationStepDto findCurrentStep(

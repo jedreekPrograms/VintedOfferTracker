@@ -116,6 +116,15 @@ public class Listing {
     @Column(name = "last_fresh_discovery_at")
     private LocalDateTime lastFreshDiscoveryAt;
 
+    /**
+     * Throttles read-only rechecks of recently terminal conversations. A
+     * seller may send a formal Vinted counteroffer after our local state was
+     * already REJECTED/EXPIRED; those conversations are watched for a short
+     * bounded window without being blindly reopened or sending any action.
+     */
+    @Column(name = "last_terminal_watch_at")
+    private LocalDateTime lastTerminalWatchAt;
+
     /*
      * Formal response timing is deliberately persisted. Vinted may show the
      * same "rejected" state or the same counteroffer on every poll. Without a

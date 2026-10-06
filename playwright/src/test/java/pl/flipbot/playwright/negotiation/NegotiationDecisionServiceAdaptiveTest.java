@@ -89,6 +89,38 @@ public class NegotiationDecisionServiceAdaptiveTest {
     }
 
     @Test
+    public void s25SellerCounter1264Below1450CapBecomesBuyCandidate() {
+        BotConfigurationDto configuration =
+                adaptiveConfiguration("1450.00");
+        ListingResponseDto listing =
+                negotiatingListing("1230.00", 3);
+
+        NegotiationDecision decision = service.decide(
+                listing,
+                NegotiationConversationSnapshot.sellerCounterOffer(
+                        new BigDecimal("1264.00")
+                ),
+                configuration
+        );
+
+        assertEquals(
+                NegotiationDecisionType.MARK_ACTION_REQUIRED,
+                decision.type()
+        );
+        assertEquals(
+                0,
+                new BigDecimal("1264.00").compareTo(
+                        decision.sellerCounterOfferPrice()
+                )
+        );
+        assertTrue(
+                decision.reason().contains(
+                        "global negotiation cap"
+                )
+        );
+    }
+
+    @Test
     public void sellerCounterOfferAboveGlobalCapKeepsNegotiating() {
         BotConfigurationDto configuration = adaptiveConfiguration("1450.00");
         ListingResponseDto listing = negotiatingListing("1250.00", 1);
