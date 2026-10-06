@@ -2,6 +2,7 @@ package pl.flipbot.playwright;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.marketstats.MarketStatsManager;
+import pl.flipbot.playwright.privatecore.PrivateVintedCoreBridge;
 import pl.flipbot.playwright.session.PlaywrightRuntimeInstanceLock;
 import pl.flipbot.playwright.session.SessionTempFileCleaner;
 import pl.flipbot.playwright.worker.WorkerManager;
@@ -16,6 +17,13 @@ public class FlipBotPlaywrightApplication {
         log.info(
                 "Starting FlipBot Playwright..."
         );
+
+        /*
+         * The public repository intentionally does not contain Vinted
+         * conversation-inspection internals. Refuse to start the real worker
+         * runtime unless the authorized private core is on the classpath.
+         */
+        PrivateVintedCoreBridge.requireAvailable();
 
         try (PlaywrightRuntimeInstanceLock runtimeLock =
                      PlaywrightRuntimeInstanceLock.acquireDefault()) {
