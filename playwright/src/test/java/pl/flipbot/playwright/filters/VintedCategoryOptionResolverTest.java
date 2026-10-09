@@ -19,10 +19,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Verified root picker (nine rows) and Electronics submenu (eleven rows).
- * Rows have no data-testid in this UI but expose numeric catalog_ids-list-item
- * IDs with role=button. The submenu's "Wszystkie" reuses the Electronics
- * category ID 2994, so IDs alone must never establish a row's label.
+ * Verified root picker (nine rows), Electronics submenu (eleven rows),
+ * and phones/communication submenu (seven rows). Rows have no data-testid
+ * in this UI but use numeric catalog_ids-list-item IDs and role=button.
+ * "Wszystkie" reuses its parent ID at both submenu levels; an ID alone
+ * must never establish the intended current-row label.
  * Observed IDs are test fixtures only, never production category-ID mapping.
  */
 public class VintedCategoryOptionResolverTest {
@@ -96,6 +97,74 @@ public class VintedCategoryOptionResolverTest {
             assertSame(pair[0], row,
                     VintedCategoryOptionResolver.resolve(page, pair[0]));
         }
+    }
+
+    @Test
+    public void observedMobilePhonesSubcategoryRowsUseTheSameExactNativeIdStructure() {
+        String[][] observed = {
+                {"Wszystkie", "3565"},
+                {"Telefony komórkowe", "3661"},
+                {"Części i akcesoria do telefonów komórkowych", "3662"},
+                {"Telefony stacjonarne", "3663"},
+                {"Faksy", "3664"},
+                {"Komunikacja radiowa", "3665"},
+                {"Atrapy telefonów komórkowych", "3666"}
+        };
+
+        for (String[] pair : observed) {
+            Page page = mock(Page.class);
+            Locator allRows = mock(Locator.class);
+            Locator filteredRows = mock(Locator.class);
+            Locator row = mock(Locator.class);
+            when(page.locator(ROW_SELECTOR)).thenReturn(allRows);
+            when(allRows.filter(any(Locator.FilterOptions.class))).thenReturn(filteredRows);
+            when(filteredRows.count()).thenReturn(1);
+            when(filteredRows.nth(0)).thenReturn(row);
+            when(row.isVisible()).thenReturn(true);
+            when(row.innerText()).thenReturn(pair[0]);
+            when(row.getAttribute("id")).thenReturn("catalog_ids-list-item-" + pair[1]);
+            when(row.getAttribute("role")).thenReturn("button");
+
+            assertSame(pair[0], row,
+                    VintedCategoryOptionResolver.resolve(page, pair[0]));
+        }
+    }
+
+    @Test
+    public void allEntryOnPhoneSubmenuMustNotBeTreatedAsTheParentRow() {
+        // "Telefony komórkowe i komunikacja" has ID 3565 at the prior
+        // menu level, while "Wszystkie" carries the SAME ID at this level.
+        Page page = mock(Page.class);
+        Locator allRows = mock(Locator.class);
+        Locator matches = mock(Locator.class);
+        Locator allRow = mock(Locator.class);
+        when(page.locator(ROW_SELECTOR)).thenReturn(allRows);
+        when(allRows.filter(any(Locator.FilterOptions.class))).thenReturn(matches);
+        when(matches.count()).thenReturn(1);
+        when(matches.nth(0)).thenReturn(allRow);
+        when(allRow.isVisible()).thenReturn(true);
+        when(allRow.innerText()).thenReturn("Wszystkie");
+        when(allRow.getAttribute("id")).thenReturn("catalog_ids-list-item-3565");
+        when(allRow.getAttribute("role")).thenReturn("button");
+
+        assertNull(VintedCategoryOptionResolver.findExactVisibleCategoryRow(
+                page, "Telefony komórkowe i komunikacja"
+        ));
+        assertSame(allRow, VintedCategoryOptionResolver.resolve(
+                page, "Wszystkie"
+        ));
+    }
+
+    @Test
+    public void exactPhoneCategoryNeverMatchesAccessoriesOrPhoneDummies() {
+        var phones = VintedCategoryOptionResolver.exactLabelPattern(
+                "Telefony komórkowe"
+        );
+        assertTrue(phones.matcher("Telefony komórkowe").matches());
+        assertFalse(phones.matcher("Telefony komórkowe i komunikacja").matches());
+        assertFalse(phones.matcher("Części i akcesoria do telefonów komórkowych").matches());
+        assertFalse(phones.matcher("Atrapy telefonów komórkowych").matches());
+        assertFalse(phones.matcher("Telefony stacjonarne").matches());
     }
 
     @Test
