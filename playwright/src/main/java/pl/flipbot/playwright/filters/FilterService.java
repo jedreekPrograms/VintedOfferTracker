@@ -26,10 +26,6 @@ public class FilterService {
             "SEARCH_QUERY";
 
 
-    private static final String VINTED_SEARCH_INPUT_SELECTOR =
-            "form[action='/catalog'] input[name='search_text']";
-
-
     private static final double URL_PERSIST_TIMEOUT_MS =
             5_000;
 
@@ -442,68 +438,7 @@ public class FilterService {
 
 
     private Locator resolveVisibleSearchInput() {
-
-        Locator visibleHeaderInputs =
-                page.locator(
-                        "header "
-                                + VINTED_SEARCH_INPUT_SELECTOR
-                                + ":visible"
-                );
-
-
-        int visibleHeaderCount =
-                visibleHeaderInputs.count();
-
-
-        if (visibleHeaderCount > 0) {
-
-            log.info(
-                    "[FILTER SEARCH] Found {} visible search input(s) "
-                            + "inside <header>. Using the first one.",
-                    visibleHeaderCount
-            );
-
-
-            return visibleHeaderInputs.first();
-        }
-
-
-        Locator visibleSearchInputs =
-                page.locator(
-                        VINTED_SEARCH_INPUT_SELECTOR
-                                + ":visible"
-                );
-
-
-        int visibleSearchInputCount =
-                visibleSearchInputs.count();
-
-
-        log.info(
-                "[FILTER SEARCH] No visible header search input found. "
-                        + "Visible /catalog search inputs: {}.",
-                visibleSearchInputCount
-        );
-
-
-        if (visibleSearchInputCount == 0) {
-
-            int allSearchInputCount =
-                    page.locator(
-                                    VINTED_SEARCH_INPUT_SELECTOR
-                            )
-                            .count();
-
-
-            throw new IllegalStateException(
-                    "Vinted search input is not visible. "
-                            + "Matching /catalog search inputs in DOM: "
-                            + allSearchInputCount
-            );
-        }
-
-
-        return visibleSearchInputs.first();
+        return VintedCatalogSearchInputResolver.resolveVisible(page);
     }
 
 
