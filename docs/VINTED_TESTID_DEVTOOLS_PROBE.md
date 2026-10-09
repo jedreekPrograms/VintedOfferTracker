@@ -120,6 +120,38 @@ fallbacku.
 
 W DevTools **Elements** zaznacz konkretną opcję modelu (np. Galaxy S25). Prawy klik -> Copy -> Copy outerHTML, ale **tylko jednego publicznego wiersza filtra z jego etykietą**, bez formularza logowania lub całej strony. Wklej ten mały fragment do rozmowy. Wtedy można bez zgadywania zaprojektować locator obsługujący aktualny wariant.
 
+## Następny pomiar: rozwinięta lista marek (Samsung)
+
+Po potwierdzeniu pięciu opcji S25 następnym miejscem do zamiany
+`getByRole(BUTTON, name=option)` na dokładny `data-testid` jest
+`FilterActions.getOptionLocator`, używany do wyboru **marki/kategorii**.
+Na katalogu otwórz **Marka**, wpisz `Samsung`, zostaw otwartą listę i
+uruchom poniższy **odczytowy** kod. Nie wybieraj marki ani nie zmieniaj filtrów.
+
+~~~javascript
+(() => {
+  const nodes = [...document.querySelectorAll("[data-testid]")];
+  const rows = nodes
+    .filter(el => /^(selectable-item-|catalog--brand-filter|filter-selection-button)/i
+      .test(el.getAttribute("data-testid") || ""))
+    .map(el => ({
+      testId: (el.getAttribute("data-testid") || "")
+        .replace(/\d{6,}/g, "#"), // zachowuje krótkie ID taksonomii
+      tag: el.tagName,
+      role: el.getAttribute("role"),
+      label: (el.innerText || el.getAttribute("aria-label") || "")
+        .replace(/\s+/g, " ").trim().slice(0, 80)
+    }));
+  console.table(rows);
+  copy(JSON.stringify(rows, null, 2));
+  return { matched: rows.length };
+})();
+~~~
+
+Wklej tutaj wynik ze schowka. Ponieważ filtr marek wyświetla publiczne
+nazwy marek, ten pomiar nie wymaga tekstu prywatnych rozmów. Nie wysyłaj
+całego DOM strony ani zrzutu HTML zalogowanego konta.
+
 ## Priorytetowe fakty, które chcemy uzyskać
 
 - Czy nazwa modelu jest w dokładnym wierszu z identyfikatorem kolekcji, czy dopiero w jego rodzicu?
