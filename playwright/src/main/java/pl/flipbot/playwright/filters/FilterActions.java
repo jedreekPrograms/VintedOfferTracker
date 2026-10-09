@@ -619,26 +619,9 @@ public class FilterActions {
          * title contains additional metadata or whose label is outside the
          * title child (including the anonymous observer compatibility view).
          */
-        Locator exactTitleCandidates = titles.filter(
-                new Locator.FilterOptions()
-                        .setHasText(exactModelOptionPattern(requestedModel))
-        );
-        int fastCandidateCount = safeCount(exactTitleCandidates);
-        for (int index = 0; index < fastCandidateCount; index++) {
-            Locator candidate = exactTitleCandidates.nth(index);
-            if (!safeIsVisible(candidate)) {
-                continue;
-            }
-
-            String text = safeInnerText(candidate);
-            if (normalizeOptionText(requestedModel)
-                    .equalsIgnoreCase(normalizeOptionText(text))) {
-                log.debug(
-                        "[FILTER MODEL] Exact '{}' found by --title test ID and browser-side exact-text match.",
-                        requestedModel
-                );
-                return new ExactModelTitleMatch(candidate, 1, 1, List.of());
-            }
+        Locator fastExactTitle = findFastExactModelTitle(titles, requestedModel);
+        if (fastExactTitle != null) {
+            return new ExactModelTitleMatch(fastExactTitle, 1, 1, List.of());
         }
 
         int count = safeCount(titles);
@@ -727,6 +710,38 @@ public class FilterActions {
                 visibleCount,
                 List.copyOf(partialLabels)
         );
+    }
+
+    /**
+     * Fast path for Vinted's verified --title data-testid. The Java-side exact
+     * check is deliberate defense in depth: a Playwright text filter must
+     * never accidentally turn S25 into an S25 FE/Ultra/Edge/+ selection.
+     */
+    Locator findFastExactModelTitle(Locator titles, String requestedModel) {
+        Locator exactTitleCandidates = titles.filter(
+                new Locator.FilterOptions()
+                        .setHasText(exactModelOptionPattern(requestedModel))
+        );
+
+        int fastCandidateCount = safeCount(exactTitleCandidates);
+        for (int index = 0; index < fastCandidateCount; index++) {
+            Locator candidate = exactTitleCandidates.nth(index);
+            if (!safeIsVisible(candidate)) {
+                continue;
+            }
+
+            String text = safeInnerText(candidate);
+            if (normalizeOptionText(requestedModel)
+                    .equalsIgnoreCase(normalizeOptionText(text))) {
+                log.debug(
+                        "[FILTER MODEL] Exact '{}' found by --title test ID and browser-side exact-text match.",
+                        requestedModel
+                );
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private record ExactModelTitleMatch(
