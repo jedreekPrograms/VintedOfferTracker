@@ -308,7 +308,7 @@ utrwalenia kategorii w adresie katalogu** po kliknięciu i zatwierdzeniu
 ostatniej pozycji. Testy mockowane sprawdzają kolejność wywołań, ale
 nie zastępują żywego testu.
 
-### Opcjonalna kontrola końcowego parametru katalogu
+### Końcowy parametr katalogu — potwierdzony na żywym Vinted
 
 Po wybraniu w filtrze `Telefony komórkowe` oraz zatwierdzeniu
 filtra (bez klikania żadnej oferty) wykonaj w Console poniższy
@@ -329,9 +329,22 @@ a nie pełny URL, sesję czy inne parametry:
 })();
 ~~~
 
-Jeżeli Vinted zapisze ten filtr inną formą niż `catalog[]`,
-wynik `false` sam w sobie nie dowodzi błędu; wymaga osobnej analizy
-**publicznych, niesekretnych** danych filtra, a nie pełnego adresu.
+**Wynik potwierdzony przez użytkownika:** po zatwierdzeniu filtra
+`Telefony komórkowe` skrypt zwrócił `catalogIds: Array(1)`,
+`expected: '3661'`, `matches: true`. W obserwowanym przypadku
+Vinted zapisał pojedynczy parametr `catalog[]=3661` (po odkodowaniu).
+Nie zakładaj, że identyfikatory kategorii zawsze będą takie same.
+
+Dzięki temu `FilterActions` / `CategoryNavigator` weryfikują teraz
+**dokładny ID klikniętego, zweryfikowanego wiersza** w końcowym
+`catalog[]`, zamiast samej obecności dowolnej wartości.
+Identyfikator jest odczytywany z aktualnego DOM, nie kodowany na stałe.
+Jeśli alternatywny wariant Vinted nie udostępni weryfikowalnego ID,
+pozostaje dotychczasowa kontrola obecności parametru z ostrzeżeniem.
+
+To potwierdza ręczne filtrowanie, nie end-to-end działanie bota.
+Przed scaleniem PR potrzebny jest jeszcze browser smoke test z
+rzeczywistym `CategoryNavigator`.
 
 ## Priorytetowe fakty, które chcemy uzyskać
 
