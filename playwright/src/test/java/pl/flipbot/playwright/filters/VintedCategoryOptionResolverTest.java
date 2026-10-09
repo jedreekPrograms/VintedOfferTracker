@@ -19,10 +19,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Observed expanded category-picker DOM: five category rows have no
+ * Verified expanded root category-picker DOM: nine category rows have no
  * data-testid, but do have role=button and numeric catalog_ids-list-item IDs.
- * "Elektronika" in the supplied probe belonged to the page breadcrumb, not
- * the category panel; its identity is deliberately not assumed here.
+ * The earlier "Elektronika" result came from a page breadcrumb; a separate
+ * category-row-only probe later confirmed catalog_ids-list-item-2994.
+ * Observed IDs are fixtures only, not a production category-ID mapping.
  */
 public class VintedCategoryOptionResolverTest {
 
@@ -36,7 +37,11 @@ public class VintedCategoryOptionResolverTest {
                 {"Mężczyźni", "5"},
                 {"Przedmioty designerskie", "2993"},
                 {"Dzieci", "1193"},
-                {"Dom", "1918"}
+                {"Dom", "1918"},
+                {"Elektronika", "2994"},
+                {"Książki i multimedia", "2309"},
+                {"Hobby i kolekcjonerstwo", "4824"},
+                {"Sport", "4332"}
         };
 
         for (String[] pair : observed) {
@@ -81,8 +86,10 @@ public class VintedCategoryOptionResolverTest {
         when(allRows.filter(any(Locator.FilterOptions.class))).thenReturn(matches);
         when(matches.count()).thenReturn(0);
 
-        // "Elektronika" from the user probe was in breadcrumbs (<a> in <li>),
-        // not in the role=button category row. No category ID may be inferred.
+        // A broad page-wide text search once found "Elektronika" only in
+        // breadcrumbs (<a> in <li>), not in the category picker. A breadcrumb
+        // alone is never evidence that the category-row locator is present.
+        // Its actual root-row ID 2994 was confirmed in a separate later probe.
         assertNull(VintedCategoryOptionResolver.findExactVisibleCategoryRow(
                 page, "Elektronika"
         ));
