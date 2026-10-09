@@ -203,6 +203,53 @@ Prześlij skopiowaną listę, bez cookies, sesji i pełnego HTML.
 Jeżeli kategorie mają własne \`data-testid\` i zachowują się stabilnie,
 będzie można ograniczyć \`getByRole\` również w \`CategoryNavigator\`.
 
+## Potwierdzony HTML kategorii — 2026-10-10
+
+W przeciwieństwie do marek i modeli **wiersze kategorii nie mają własnych
+`data-testid` w przechwyconym widoku**. Są to `DIV` o `role="button"`
+oraz natywnych ID `catalog_ids-list-item-<ID>`:
+
+| Kategoria | ID wiersza w filtrze |
+| --- | --- |
+| Kobiety | `catalog_ids-list-item-1904` |
+| Mężczyźni | `catalog_ids-list-item-5` |
+| Przedmioty designerskie | `catalog_ids-list-item-2993` |
+| Dzieci | `catalog_ids-list-item-1193` |
+| Dom | `catalog_ids-list-item-1918` |
+
+**Uwaga na „Elektronikę”:** skrypt szukający nazwy na całej stronie
+odnalazł `A` w `LI` nawigacji *breadcrumbs*, a nie wiersz filtra.
+Nie przyjmujemy dla niej identyfikatora filtra bez niezależnej weryfikacji.
+
+Nowy `VintedCategoryOptionResolver` używa `id^="catalog_ids-list-item-"`
+z dokładnym dopasowaniem widocznej etykiety, a następnie dopuszcza awaryjne
+`getByRole(BUTTON)` z zakotwiczoną dokładną nazwą. **Nie wymyślamy test ID**
+i nie kodujemy na stałe numerów kategorii.
+
+### Opcjonalnie: sprawdzenie kolejnego poziomu kategorii
+
+Jeśli chcesz, rozwiń w filtrze **Elektronika → Telefony komórkowe i komunikacja
+→ Telefony komórkowe** i uruchom poniższy odczytowy kod przy każdym poziomie.
+Nie klikaj „Pokaż wyniki”. Wynik pokaże, czy identyfikatory pozostają w tej
+samej strukturze również dla podkategorii.
+
+~~~javascript
+(() => {
+  const rows = [...document.querySelectorAll(
+    '[id^="catalog_ids-list-item-"][role="button"]'
+  )].filter(el => el.getClientRects().length > 0)
+    .map(el => ({
+      id: el.id,
+      role: el.getAttribute("role"),
+      name: (el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 90)
+    }));
+  const result = JSON.stringify(rows, null, 2);
+  copy(result);
+  console.log(result);
+  return { visibleCategoryRows: rows.length };
+})();
+~~~
+
 ## Priorytetowe fakty, które chcemy uzyskać
 
 - Czy nazwa modelu jest w dokładnym wierszu z identyfikatorem kolekcji, czy dopiero w jego rodzicu?
