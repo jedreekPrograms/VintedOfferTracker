@@ -18,6 +18,9 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import static pl.flipbot.playwright.filters.VintedModelOptionIdentity.MODEL_TEST_ID_PREFIX;
+import static pl.flipbot.playwright.filters.VintedModelOptionIdentity.MODEL_TITLE_TEST_ID_SUFFIX;
+
 @Slf4j
 @RequiredArgsConstructor
 public class FilterActions {
@@ -41,10 +44,6 @@ public class FilterActions {
     private static final double MODEL_PERSIST_TIMEOUT_MS = 5_000;
     private static final double MODEL_RETRY_DELAY_MS = 1_000;
     private static final double MODEL_PANEL_SETTLE_MS = 350;
-    private static final String MODEL_TEST_ID_PREFIX =
-            "selectable-item-brand_collection-";
-    private static final String MODEL_TITLE_TEST_ID_SUFFIX =
-            "--title";
 
     private final Page page;
 
@@ -1141,126 +1140,25 @@ public class FilterActions {
         }
     }
 
+    // Keep package-private entry points used by existing regression tests.
     static String canonicalModelRowTestId(String collectionId) {
-        if (collectionId == null
-                || !collectionId.matches("^\\d+$")) {
-            throw new IllegalArgumentException(
-                    "Model collection id must contain digits only"
-            );
-        }
-
-        return MODEL_TEST_ID_PREFIX + collectionId;
+        return VintedModelOptionIdentity.canonicalModelRowTestId(collectionId);
     }
 
     static String modelCollectionIdFromTestId(String testId) {
-        if (testId == null || !testId.startsWith(MODEL_TEST_ID_PREFIX)) {
-            return null;
-        }
-
-        String candidate = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
-
-        if (candidate.endsWith(MODEL_TITLE_TEST_ID_SUFFIX)) {
-            candidate = candidate.substring(
-                    0,
-                    candidate.length() - MODEL_TITLE_TEST_ID_SUFFIX.length()
-            );
-        }
-
-        if (!candidate.matches("^\\d+$")) {
-            return null;
-        }
-
-        return candidate;
+        return VintedModelOptionIdentity.modelCollectionIdFromTestId(testId);
     }
 
     static Pattern exactModelOptionPattern(String model) {
-        String normalizedModel = normalizeOptionText(model);
-        return Pattern.compile(
-                "^\\s*" + Pattern.quote(normalizedModel) + "\\s*$",
-                Pattern.CASE_INSENSITIVE
-        );
+        return VintedModelOptionIdentity.exactModelOptionPattern(model);
     }
 
-    static boolean exactVisibleModelLabelMatches(
-            String requestedModel,
-            String visibleText
-    ) {
-        String normalizedRequested = normalizeOptionText(requestedModel);
-
-        if (normalizedRequested.isBlank() || visibleText == null) {
-            return false;
-        }
-
-        String normalizedVisible = normalizeOptionText(visibleText);
-        if (normalizedRequested.equalsIgnoreCase(normalizedVisible)) {
-            return true;
-        }
-
-        if (startsWithIgnoreCase(normalizedVisible, normalizedRequested)) {
-            String suffix = normalizedVisible
-                    .substring(normalizedRequested.length())
-                    .trim();
-            if (isModelOptionMetadata(suffix)) {
-                return true;
-            }
-        }
-
-        List<String> lines = visibleText.lines()
-                .map(FilterActions::normalizeOptionText)
-                .filter(line -> !line.isBlank())
-                .toList();
-
-        for (int index = 0; index < lines.size(); index++) {
-            if (!normalizedRequested.equalsIgnoreCase(lines.get(index))) {
-                continue;
-            }
-
-            boolean onlyMetadataAroundExactLabel = true;
-            for (int otherIndex = 0; otherIndex < lines.size(); otherIndex++) {
-                if (otherIndex == index) {
-                    continue;
-                }
-
-                if (!isModelOptionMetadata(lines.get(otherIndex))) {
-                    onlyMetadataAroundExactLabel = false;
-                    break;
-                }
-            }
-
-            if (onlyMetadataAroundExactLabel) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static boolean startsWithIgnoreCase(String value, String prefix) {
-        return value.length() >= prefix.length()
-                && value.regionMatches(true, 0, prefix, 0, prefix.length());
-    }
-
-    private static boolean isModelOptionMetadata(String value) {
-        String normalized = normalizeOptionText(value);
-        if (normalized.isBlank()) {
-            return false;
-        }
-
-        if (normalized.matches("^\\d[\\d\\s.,]*$")) {
-            return true;
-        }
-
-        String lower = normalized.toLowerCase(Locale.ROOT);
-        return lower.matches(
-                "^\\d[\\d\\s.,]*\\s*(przedmiot\\p{L}*|item\\p{L}*|article\\p{L}*|result\\p{L}*|wynik\\p{L}*)$"
-        );
+    static boolean exactVisibleModelLabelMatches(String requestedModel, String visibleText) {
+        return VintedModelOptionIdentity.exactVisibleModelLabelMatches(requestedModel, visibleText);
     }
 
     static String normalizeOptionText(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.trim().replaceAll("\\s+", " ");
+        return VintedModelOptionIdentity.normalizeOptionText(value);
     }
 
     private List<String> readCompleteModelOptionTexts(Locator locator) {
