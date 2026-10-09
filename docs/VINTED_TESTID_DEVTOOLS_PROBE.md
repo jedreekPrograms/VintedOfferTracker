@@ -152,6 +152,57 @@ Wklej tutaj wynik ze schowka. Ponieważ filtr marek wyświetla publiczne
 nazwy marek, ten pomiar nie wymaga tekstu prywatnych rozmów. Nie wysyłaj
 całego DOM strony ani zrzutu HTML zalogowanego konta.
 
+## Potwierdzony otwarty filtr marek — 2026-10-10
+
+Po wyszukaniu „Samsung” użytkownik przesłał dokładne dane 10 wyników
+po trzy elementy na markę (wiersz / \`--title\` / \`--suffix\`).
+Każdy wiersz jest \`DIV[role="button"]\`, etykieta nazwy jest w
+\`selectable-item-brand-<id>--title\`, a \`--suffix\` nie zawiera tekstu.
+
+| Marka | Zweryfikowane ID |
+| --- | --- |
+| Samsung | \`109048\` |
+| Samsonite | \`26963\` |
+| Sass & Belle | \`482197\` |
+| SAM & JO | \`1034997\` |
+| Samson | \`191894\` |
+| Sass & Bide | \`186294\` |
+| Sam & Libby | \`274001\` |
+| Disney x Samsonite | \`7136871\` |
+| Sam & Lili | \`109246\` |
+| Sass & Me | \`4892497\` |
+
+Na tej podstawie zaimplementowano resolver \`VintedBrandOptionResolver\`
+wyłącznie dla aktywnego filtra Marki, nie dla kategorii. ID nie są
+zaszywane w logice produkcyjnej. Dobór kategorii pozostaje do zbadania.
+
+## Kolejny opcjonalny pomiar: kategorie
+
+Na katalogu kliknij „Kategoria” (otwórz panel), ale **nie zatwierdzaj
+zmiany filtra**. Wklej:
+
+~~~javascript
+(() => {
+  const rows = [...document.querySelectorAll("[data-testid]")]
+    .filter(el => /^(selectable-item-|catalog--catalog-filter|filter-selection-button)/i
+      .test(el.getAttribute("data-testid") || ""))
+    .map(el => ({
+      testId: el.getAttribute("data-testid"),
+      tag: el.tagName.toLowerCase(),
+      role: el.getAttribute("role") || "",
+      text: (el.innerText || el.getAttribute("aria-label") || "")
+        .trim().replace(/\s+/g, " ").slice(0, 80)
+    }));
+  console.table(rows);
+  copy(JSON.stringify(rows, null, 2));
+  return { entries: rows.length };
+})();
+~~~
+
+Prześlij skopiowaną listę, bez cookies, sesji i pełnego HTML.
+Jeżeli kategorie mają własne \`data-testid\` i zachowują się stabilnie,
+będzie można ograniczyć \`getByRole\` również w \`CategoryNavigator\`.
+
 ## Priorytetowe fakty, które chcemy uzyskać
 
 - Czy nazwa modelu jest w dokładnym wierszu z identyfikatorem kolekcji, czy dopiero w jego rodzicu?
