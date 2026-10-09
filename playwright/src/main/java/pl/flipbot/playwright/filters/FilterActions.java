@@ -50,6 +50,7 @@ public class FilterActions {
     private String activeFilterTestId;
     private String activeFilterBaseUrl;
     private String selectedBrandOption;
+    private String selectedCategoryId;
     private String selectedModelOption;
     private String selectedModelCollectionId;
     private String verifiedModelCollectionId;
@@ -62,6 +63,10 @@ public class FilterActions {
         if (FilterSelectors.BRAND_FILTER.equals(filterTestId)) {
             activeFilterBaseUrl = page.url();
             selectedBrandOption = null;
+        }
+
+        if (FilterSelectors.CATEGORY_FILTER.equals(filterTestId)) {
+            selectedCategoryId = null;
         }
 
         if (FilterSelectors.MODEL_FILTER.equals(filterTestId)) {
@@ -82,11 +87,24 @@ public class FilterActions {
     public void selectOption(String option) {
         Locator locator = getOptionLocator(option);
         waitUntilVisible(locator, OPTION_TIMEOUT_MS);
+
+        // Capture the current DOM row's native category ID BEFORE clicking,
+        // because Vinted replaces the whole menu after moving one level.
+        // Only an exact visible label plus verified native ID is sufficient.
+        String clickedCategoryId =
+                FilterSelectors.CATEGORY_FILTER.equals(activeFilterTestId)
+                        ? VintedCategoryOptionResolver.verifiedCategoryId(locator, option)
+                        : null;
+
         locator.click();
 
         if (FilterSelectors.BRAND_FILTER.equals(activeFilterTestId)) {
             selectedBrandOption = option;
             return;
+        }
+
+        if (FilterSelectors.CATEGORY_FILTER.equals(activeFilterTestId)) {
+            selectedCategoryId = clickedCategoryId;
         }
 
         assertStillOnVinted("selecting filter option '" + option + "'");
@@ -1628,6 +1646,28 @@ public class FilterActions {
 
     public void waitForTimeout(double milliseconds) {
         page.waitForTimeout(milliseconds);
+    }
+
+    /**
+     * Check the actual clicked category leaf when its native ID was proven
+     * from the visible row; otherwise preserve the legacy URL-presence
+     * verification for Vinted variants lacking trustworthy row IDs.
+     *
+     * The verified UI uses a single catalog[] parameter. Its final exact ID
+     * was independently confirmed in the browser for mobile phones (3661).
+     */
+    public boolean waitForSelectedCategoryPersisted(double timeoutMilliseconds) {
+        if (selectedCategoryId != null && !selectedCategoryId.isBlank()) {
+            return waitForUrlParameterValue(
+                    "catalog[]", selectedCategoryId, timeoutMilliseconds
+            );
+        }
+
+        log.warn(
+                "[FILTER CATEGORY] No verified native category ID was supplied by "
+                        + "the visible row; falling back to legacy catalog[] presence check."
+        );
+        return waitForUrlParameterPresent("catalog[]", timeoutMilliseconds);
     }
 
     public boolean waitForUrlParameterPresent(
