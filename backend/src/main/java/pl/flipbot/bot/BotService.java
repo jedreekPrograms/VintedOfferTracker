@@ -16,12 +16,15 @@ import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotMapper;
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.CounterRuleValue;
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
+import pl.flipbot.negotiation.NegotiationStepPolicySupport;
 import pl.flipbot.negotiation.NegotiationReactionAction;
 import pl.flipbot.negotiation.NegotiationStep;
-import pl.flipbot.negotiation.SellerCounterOfferRule;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.samePolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.applyPolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -310,30 +313,7 @@ public class BotService {
     }
 
     private List<NegotiationStep> orderedSteps(BotConfiguration configuration) {
-        return configuration.getNegotiationSteps().stream()
-                .sorted(Comparator.comparing(step -> step.getStepNumber() == null ? Integer.MAX_VALUE : step.getStepNumber()))
-                .toList();
-    }
-
-    private boolean samePolicy(NegotiationStep existing, ResolvedStepPolicy requested) {
-        if (existing.getRejectionAction() != requested.rejectionAction()
-                || !Objects.equals(existing.getRejectionWaitHours(), requested.rejectionWaitHours())
-                || existing.getCounterOfferDefaultAction() != requested.counterDefaultAction()
-                || !Objects.equals(existing.getCounterOfferDefaultWaitHours(), requested.counterDefaultWaitHours())) return false;
-        List<CounterRuleValue> left = existing.getCounterOfferRules().stream()
-                .map(rule -> new CounterRuleValue(rule.getMinimumDiscountPercent(), rule.getAction(), rule.getWaitHours()))
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent)).toList();
-        List<CounterRuleValue> right = requested.rules().stream()
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent)).toList();
-        if (left.size() != right.size()) return false;
-        for (int i = 0; i < left.size(); i++) {
-            CounterRuleValue a = left.get(i);
-            CounterRuleValue b = right.get(i);
-            if (!sameDecimal(a.minimumDiscountPercent(), b.minimumDiscountPercent())
-                    || a.action() != b.action()
-                    || !Objects.equals(a.waitHours(), b.waitHours())) return false;
-        }
-        return true;
+        return NegotiationStepPolicySupport.orderedSteps(configuration.getNegotiationSteps());
     }
 
     private boolean targetDefinitionChanged(BotConfiguration current, CreateBotConfigurationRequest requested, TargetMode requestedMode) {
@@ -406,22 +386,8 @@ public class BotService {
         for (int i = 0; i < existing.size(); i++) {
             NegotiationStep step = existing.get(i);
             ResolvedStepPolicy policy = resolvePolicy(requests.get(i), i + 1);
-            step.setRejectionAction(policy.rejectionAction());
-            step.setRejectionWaitHours(policy.rejectionWaitHours());
-            step.setCounterOfferDefaultAction(policy.counterDefaultAction());
-            step.setCounterOfferDefaultWaitHours(policy.counterDefaultWaitHours());
-            step.getCounterOfferRules().clear();
-            step.getCounterOfferRules().addAll(toRuleEntities(policy.rules()));
+            applyPolicy(step, policy);
         }
-    }
-
-    private List<SellerCounterOfferRule> toRuleEntities(List<CounterRuleValue> rules) {
-        return rules.stream()
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent))
-                .map(rule -> SellerCounterOfferRule.builder()
-                        .minimumDiscountPercent(rule.minimumDiscountPercent())
-                        .action(rule.action()).waitHours(rule.waitHours()).build())
-                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
     }
 
     private void validateConfiguration(CreateBotConfigurationRequest request) {
