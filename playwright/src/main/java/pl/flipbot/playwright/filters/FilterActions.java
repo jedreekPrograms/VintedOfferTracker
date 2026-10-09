@@ -1750,6 +1750,11 @@ public class FilterActions {
     }
 
     private Locator getOptionLocator(String option) {
+        if (FilterSelectors.BRAND_FILTER.equals(activeFilterTestId)) {
+            return VintedBrandOptionResolver.resolve(page, option);
+        }
+
+        // Keep existing category/other-filter semantics untouched.
         return page.getByRole(
                 AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName(option)
