@@ -281,30 +281,57 @@ schemacie `DIV[role="button"][id="catalog_ids-list-item-<ID>"]`:
 resolver musi nadal sprawdzać aktualnie widoczną etykietę i rolę wiersza.
 `VintedCategoryOptionResolverTest` zawiera teraz te przypadki.
 
-### Następny pomiar: trzeci poziom (telefony)
+### Potwierdzony trzeci poziom: telefony i komunikacja
 
-Kliknij `Telefony komórkowe i komunikacja` (bez „Pokaż wyniki”).
-Uruchom ten sam bezpieczny skrypt odczytowy:
+Po kliknięciu `Telefony komórkowe i komunikacja` użytkownik dostarczył
+siedem widocznych wierszy o tym samym `id="catalog_ids-list-item-<ID>"`
+i `role="button"`:
+
+| Wiersz widoczny | Zweryfikowane ID |
+| --- | --- |
+| Wszystkie | `3565` |
+| Telefony komórkowe | `3661` |
+| Części i akcesoria do telefonów komórkowych | `3662` |
+| Telefony stacjonarne | `3663` |
+| Faksy | `3664` |
+| Komunikacja radiowa | `3665` |
+| Atrapy telefonów komórkowych | `3666` |
+
+**Uwaga:** `Wszystkie=3565` to ten sam numeryczny ID, co nadrzędna
+kategoria `Telefony komórkowe i komunikacja`. Wybór w produkcji opiera
+się na aktualnym wierszu i dokładnej nazwie, nie na samym ID.
+
+Potwierdzono zatem realny układ DOM trzech poziomów:
+`Elektronika` → `Telefony komórkowe i komunikacja` →
+`Telefony komórkowe`. Nadal brakuje sprawdzenia **rzeczywistego
+utrwalenia kategorii w adresie katalogu** po kliknięciu i zatwierdzeniu
+ostatniej pozycji. Testy mockowane sprawdzają kolejność wywołań, ale
+nie zastępują żywego testu.
+
+### Opcjonalna kontrola końcowego parametru katalogu
+
+Po wybraniu w filtrze `Telefony komórkowe` oraz zatwierdzeniu
+filtra (bez klikania żadnej oferty) wykonaj w Console poniższy
+**tylko odczytowy** kod. Kopiuje wyłącznie parametry taksonomii,
+a nie pełny URL, sesję czy inne parametry:
 
 ~~~javascript
 (() => {
-  const result = [...document.querySelectorAll(
-    '[id^="catalog_ids-list-item-"][role="button"]'
-  )]
-    .filter(el => el.getClientRects().length > 0)
-    .map(el => ({
-      id: el.id,
-      nazwa: (el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 90)
-    }));
-  const text = JSON.stringify(result, null, 2);
-  copy(text);
-  console.log(text);
-  return { znalezione: result.length };
+  const params = new URL(location.href).searchParams;
+  const wynik = {
+    katalog: params.getAll("catalog[]"),
+    oczekiwanyIdTelefonow: "3661",
+    zawieraIdTelefonow: params.getAll("catalog[]").includes("3661")
+  };
+  copy(JSON.stringify(wynik, null, 2));
+  console.log(wynik);
+  return wynik;
 })();
 ~~~
 
-Prześlij samą skopiowaną listę. Nie potrzebujemy treści konta ani
-komunikacji, a także nie musisz klikać żadnej oferty.
+Jeżeli Vinted zapisze ten filtr inną formą niż `catalog[]`,
+wynik `false` sam w sobie nie dowodzi błędu; wymaga osobnej analizy
+**publicznych, niesekretnych** danych filtra, a nie pełnego adresu.
 
 ## Priorytetowe fakty, które chcemy uzyskać
 
