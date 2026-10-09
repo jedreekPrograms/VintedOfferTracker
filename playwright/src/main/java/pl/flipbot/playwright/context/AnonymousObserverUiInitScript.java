@@ -29,6 +29,11 @@ final class AnonymousObserverUiInitScript {
             (() => {
                 const MODEL_PREFIX = "selectable-item-brand_collection-";
                 const MODEL_SELECTOR = `[data-testid^="${MODEL_PREFIX}"]`;
+                // Scan only canonical selectable rows: live DOM has three test IDs
+                // per model (row, --title, --suffix). Keep MODEL_SELECTOR for
+                // legacy sibling-label provenance checks.
+                const MODEL_ROOT_SELECTOR =
+                    `[data-testid^="${MODEL_PREFIX}"]:not([data-testid*="--"])`;
                 const ACCEPT_ALL_LABELS = new Set([
                     "zgoda na wszystkie",
                     "akceptuj wszystkie",
@@ -198,7 +203,7 @@ final class AnonymousObserverUiInitScript {
 
                 const exposeModelLabels = () => {
                     const candidates = Array.from(
-                        document.querySelectorAll(MODEL_SELECTOR)
+                        document.querySelectorAll(MODEL_ROOT_SELECTOR)
                     );
 
                     for (const candidate of candidates) {
