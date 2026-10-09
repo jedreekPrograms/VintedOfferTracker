@@ -4,6 +4,20 @@
 
 Publiczna strona Vinted jest dostępna przez narzędzie odczytu stron jako przetworzona treść, ale to narzędzie nie udostępnia pełnego dynamicznego DOM z atrybutami (i nie obsługuje zalogowanych modali). **Nie zakładamy**, że identyfikator z innej wersji interfejsu jest obecny dziś.
 
+## Wynik z katalogu — 2026-10-09
+
+Użytkownik uruchomił skrypt na stronie z zamkniętym filtrem modelu:
+`matchedTestIds=51, modelRows=0`. Dostarczony HTML potwierdza
+`catalog--brand_collection-filter--trigger` z `aria-expanded="false"`,
+już zastosowany filtr modelu z `catalog--selected-filter-brand_collectionIds-9141`,
+oraz **dwa** `input[data-testid="search-text--input"]` (wersje responsywne).
+`modelRows=0` oznacza brak wierszy w DOM w tym momencie i **nie jest**
+dowodem, że Vinted usunął `selectable-item-brand_collection-<id>` z interfejsu.
+Otwórz **przycisk Model (trigger)** i wykonaj pomiar jeszcze raz.
+
+Nie commituj pełnego HTML katalogu z zalogowanego konta; może zawierać
+identyfikatory ofert, zdjęcia, dane profilu lub inne informacje prywatne.
+
 ## Jak sprawdzić
 
 1. Otwórz publiczny Vinted w Chrome/Edge, np. katalog z wyszukiwaniem modelu.
@@ -17,9 +31,15 @@ Publiczna strona Vinted jest dostępna przez narzędzie odczytu stron jako przet
 ~~~javascript
 (() => {
   const wanted = /(catalog|filter|brand|collection|price|search|login|auth|error|message|send|offer|item-attributes|sold|unblock|status|consent|modal|dialog|composer)/i;
-  const redacted = value => String(value || "")
-    .replace(/\d{4,}/g, "#") // ukrywa numery ofert i inne długie identyfikatory
-    .slice(0, 120);
+  // Collection IDs are public model taxonomy IDs, needed to match exact rows.
+  // Redact unrelated listing IDs and long identifiers.
+  const redacted = value => {
+    const text = String(value || "");
+    if (/^(selectable-item-brand_collection-\d+(?:--(?:title|suffix))?|catalog--selected-filter-brand_collectionIds-\d+(?:--(?:text|suffix))?)$/.test(text)) {
+      return text.slice(0, 120);
+    }
+    return text.replace(/\d{4,}/g, "#").slice(0, 120);
+  };
 
   const results = new Map();
   for (const element of document.querySelectorAll("[data-testid]")) {
@@ -62,7 +82,15 @@ Publiczna strona Vinted jest dostępna przez narzędzie odczytu stron jako przet
     )
   }));
   console.table(modelSummary);
-  return { matchedTestIds: sorted.length, modelRows: modelItems.length };
+  const modelTrigger = document.querySelector(
+    '[data-testid="catalog--brand_collection-filter--trigger"]'
+  );
+  const modelFilterOpen = modelTrigger?.getAttribute("aria-expanded");
+  if (modelItems.length === 0) {
+    console.info("Brak otwartych opcji modelu. Model trigger aria-expanded:", modelFilterOpen);
+  }
+  return { matchedTestIds: sorted.length, modelRows: modelItems.length,
+           modelFilterOpen };
 })();
 ~~~
 
