@@ -19,11 +19,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Verified expanded root category-picker DOM: nine category rows have no
- * data-testid, but do have role=button and numeric catalog_ids-list-item IDs.
- * The earlier "Elektronika" result came from a page breadcrumb; a separate
- * category-row-only probe later confirmed catalog_ids-list-item-2994.
- * Observed IDs are fixtures only, not a production category-ID mapping.
+ * Verified root picker (nine rows) and Electronics submenu (eleven rows).
+ * Rows have no data-testid in this UI but expose numeric catalog_ids-list-item
+ * IDs with role=button. The submenu's "Wszystkie" reuses the Electronics
+ * category ID 2994, so IDs alone must never establish a row's label.
+ * Observed IDs are test fixtures only, never production category-ID mapping.
  */
 public class VintedCategoryOptionResolverTest {
 
@@ -61,6 +61,84 @@ public class VintedCategoryOptionResolverTest {
             assertSame(row, VintedCategoryOptionResolver.resolve(page, pair[0]));
             verify(page).locator(ROW_SELECTOR);
         }
+    }
+
+    @Test
+    public void observedElectronicsSubcategoryRowsPreserveTheirExactNamesAndIds() {
+        String[][] observed = {
+                {"Wszystkie", "2994"},
+                {"Gry wideo i konsole", "3002"},
+                {"Komputery i akcesoria", "3564"},
+                {"Telefony komórkowe i komunikacja", "3565"},
+                {"Audio i słuchawki", "3566"},
+                {"Aparaty fotograficzne i akcesoria", "3054"},
+                {"Tablety, czytniki e-booków i akcesoria", "3567"},
+                {"Telewizor i kino domowe", "3568"},
+                {"Urządzenia do pielęgnacji urody", "3569"},
+                {"Urządzenia ubieralne", "3004"},
+                {"Inne urządzenia i akcesoria", "2995"}
+        };
+
+        for (String[] pair : observed) {
+            Page page = mock(Page.class);
+            Locator allRows = mock(Locator.class);
+            Locator filteredRows = mock(Locator.class);
+            Locator row = mock(Locator.class);
+            when(page.locator(ROW_SELECTOR)).thenReturn(allRows);
+            when(allRows.filter(any(Locator.FilterOptions.class))).thenReturn(filteredRows);
+            when(filteredRows.count()).thenReturn(1);
+            when(filteredRows.nth(0)).thenReturn(row);
+            when(row.isVisible()).thenReturn(true);
+            when(row.innerText()).thenReturn(pair[0]);
+            when(row.getAttribute("id")).thenReturn("catalog_ids-list-item-" + pair[1]);
+            when(row.getAttribute("role")).thenReturn("button");
+
+            assertSame(pair[0], row,
+                    VintedCategoryOptionResolver.resolve(page, pair[0]));
+        }
+    }
+
+    @Test
+    public void allEntryReusesParentCategoryIdButNotParentCategoryName() {
+        // Both "Elektronika" (root picker) and "Wszystkie" (its submenu)
+        // have ID catalog_ids-list-item-2994 in the observed UI. Selection
+        // must depend on the exact visible name on the CURRENT menu level.
+        assertTrue(VintedCategoryOptionResolver.exactLabelPattern("Wszystkie")
+                .matcher("Wszystkie").matches());
+        assertFalse(VintedCategoryOptionResolver.exactLabelPattern("Elektronika")
+                .matcher("Wszystkie").matches());
+
+        Page page = mock(Page.class);
+        Locator allRows = mock(Locator.class);
+        Locator matches = mock(Locator.class);
+        Locator reusedParentRow = mock(Locator.class);
+        when(page.locator(ROW_SELECTOR)).thenReturn(allRows);
+        when(allRows.filter(any(Locator.FilterOptions.class))).thenReturn(matches);
+        when(matches.count()).thenReturn(1);
+        when(matches.nth(0)).thenReturn(reusedParentRow);
+        when(reusedParentRow.isVisible()).thenReturn(true);
+        when(reusedParentRow.innerText()).thenReturn("Wszystkie");
+        when(reusedParentRow.getAttribute("id"))
+                .thenReturn("catalog_ids-list-item-2994");
+        when(reusedParentRow.getAttribute("role")).thenReturn("button");
+
+        // Even a mistakenly broad browser-side result cannot be accepted
+        // as "Elektronika" by the Java-side exact-label verification.
+        assertNull(VintedCategoryOptionResolver.findExactVisibleCategoryRow(
+                page, "Elektronika"
+        ));
+        assertSame(reusedParentRow, VintedCategoryOptionResolver.resolve(
+                page, "Wszystkie"
+        ));
+    }
+
+    @Test
+    public void parentPhoneCategoryDoesNotAccidentallyMatchLeafPhoneCategory() {
+        assertFalse(VintedCategoryOptionResolver.exactLabelPattern("Telefony komórkowe")
+                .matcher("Telefony komórkowe i komunikacja").matches());
+        assertFalse(VintedCategoryOptionResolver.exactLabelPattern(
+                "Telefony komórkowe i komunikacja")
+                .matcher("Telefony komórkowe").matches());
     }
 
     @Test
