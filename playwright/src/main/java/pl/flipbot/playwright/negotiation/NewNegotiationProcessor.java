@@ -910,7 +910,7 @@ public class NewNegotiationProcessor {
         return eligibleListings;
     }
 
-    private boolean hasCurrentExactModelProof(
+    static boolean hasCurrentExactModelProof(
             ListingResponseDto listing,
             BotConfigurationDto configuration,
             Set<String> currentScanListingIds
@@ -922,7 +922,7 @@ public class NewNegotiationProcessor {
                 && currentScanListingIds.contains(listing.listingId());
     }
 
-    private boolean usesExactVintedModelFilter(
+    static boolean usesExactVintedModelFilter(
             BotConfigurationDto configuration
     ) {
         if (configuration == null) {
