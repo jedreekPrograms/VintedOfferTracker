@@ -1655,12 +1655,26 @@ public class FilterActions {
      *
      * The verified UI uses a single catalog[] parameter. Its final exact ID
      * was independently confirmed in the browser for mobile phones (3661).
+     * Reject extra/duplicated category parameters as ambiguous evidence.
      */
     public boolean waitForSelectedCategoryPersisted(double timeoutMilliseconds) {
         if (selectedCategoryId != null && !selectedCategoryId.isBlank()) {
-            return waitForUrlParameterValue(
-                    "catalog[]", selectedCategoryId, timeoutMilliseconds
-            );
+            long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
+
+            while (System.currentTimeMillis() <= deadline) {
+                assertStillOnVinted("verifying persisted exact category ID");
+
+                if (VintedCatalogCategoryUrlEvidence.matchesExactlyOneCategory(
+                        page.url(), selectedCategoryId
+                )) {
+                    rememberCurrentVintedUrl();
+                    return true;
+                }
+
+                page.waitForTimeout(200);
+            }
+
+            return false;
         }
 
         log.warn(
