@@ -1,0 +1,91 @@
+# Flipbot — inventory of DOM lookups that might be replaced by `data-testid`
+
+Audit date: 2026-10-09. Snapshot: `refactor/architecture-cleanup-20261009`.
+
+**Scope:** application Playwright Java module plus the separate private `jedreekPrograms/flipbot-playwright-core` implementation. Backend persistence and the React application do not scrape the external Vinted DOM. Locations refer to the current refactor branch (line numbers may move as code is split).
+
+**Important:** `data-testid` is an implementation detail of Vinted. A candidate selector is **NOT evidence** that a particular test ID exists. Existing selectors verified in the source are labelled **already used**; other direct selectors must first be captured from a real Vinted page and stored in fixtures.
+
+**Priority:** P1 = strong opportunity to stop repeatedly searching broad DOM; P2 = local/scoped fallback cleanup; P3 = diagnostic or high-stakes change where removing the fallback is not justified without live fixtures. Safeguards for wrong model, missing listing, blocked sessions, retries and action idempotency must remain.
+
+## A. Broad DOM / HTML scans and injected scripts (highest potential)
+
+| Priority | File + code location | Current approach | Better candidate / restriction |
+| --- | --- | --- | --- |
+| P1 | `context/BotContext.java` ~180–415, `ANONYMOUS_OBSERVER_UI_STABILITY_SCRIPT` / `resolveAssociatedModelText` / `exposeModelLabels` | `document.querySelectorAll(MODEL_SELECTOR)`, ancestor traversal (up to seven levels), scan leaf `*` descendants, synthesize `title` attribute, `MutationObserver` | Prefer actual `selectable-item-brand_collection-<id>--title` or a *confirmed* model label inside the exact `data-testid` row. **DO NOT delete until the anonymous observer's currently problematic DOM variant is captured and reproduced**: the code exists because a visible label sometimes renders outside the exact row. |
+| P2 | `context/BotContext.java` ~212–246, `acceptCookieConsent` in same script | Scans every page `button` by localized innerText | Already tries `#onetrust-accept-btn-handler`; prioritize that stable OneTrust SDK ID. Restrict text fallback to OneTrust dialog; OneTrust is third-party, so don't assume any Vinted `data-testid`. |
+| P2 | `browser/OneTrustConsentGuard.java` ~66–156, `clickExplicitAcceptAllLabel` / `MutationObserver` | Looks through `#onetrust-consent-sdk button, #onetrust-pc-sdk button` | Known SDK control IDs are already preferred. Use exact SDK IDs or role scoped to the SDK. `data-testid` is **not guaranteed for OneTrust**. Continuous MutationObserver may be justified for late overlays. |
+| P2 | `browser/VintedInformationalDialogGuard.java` ~50–145, `dismissElectronicsVerification` | Loops visible overlays and buttons; checks title and localized text; MutationObserver | If actual electronics-check dialog/button `data-testid` is present, use scoped `getByTestId`; keep exact dialog-identity verification so other modals are not dismissed. |
+| P1 | `marketstats/MarketListingPublishedAtResolver.java` ~35–160, `EXTRACT_PUBLISHED_AT_SCRIPT` | First looks at `[data-testid="item-attributes-upload_date"]`, then `document.createTreeWalker(document.body, SHOW_TEXT)` to find `Dodane` and climb parents | **Already has strong `data-testid` first**. Isolate/scoped fallback to item attributes; use `time[datetime]` where present. Don't erase fallback without fixtures of pages lacking upload-date field. Measure cost. |
+| P1 | `marketstats/MarketListingPublishedAtResolver.java` ~165–343, JSON-LD and `hydratedCreatedAt` | Scans JSON-LD scripts, serializes/searches `document.documentElement.outerHTML` and decodes escaped content for `created_at_ts` | A `data-testid` timestamp would eliminate DOM-wide search **if it actually exposes full publication date**. Otherwise prefer targeted structured state / script data, not DOM label guesswork; preserve timezone/precision. |
+| P1 | `marketstats/MarketCatalogPublishedAtResolver.java` ~20–145, `EXTRACT_CATALOG_TIMESTAMPS_SCRIPT` | Scans `document.documentElement.innerHTML` and searches hydration snippets near listing IDs for timestamps | Catalog tiles are already identified by `product-item-id-...` test IDs, but test IDs alone do not contain `created_at_ts`. Could use per-card timestamp attribute *if present*; otherwise current batch hydration pass may be preferable to per-listing Playwright round trips. Profile first. |
+| P1 | `login/LoginService.java` ~861–883, `detectExplicitLoginError` | Reads **entire** `body.innerText()` and matches localized phrases | Discover error/alert/message `data-testid` on real login modal; scope to login dialog/form. Keep explicit error semantics, captcha detection and session-block handling. |
+| P2 | `target/ListingDetailTargetInspector.java` ~360–396, `throwIfListingUnavailable` | Reads page title + **whole body** for removed/sold/rate-limit markers | Prefer item-page status banner `data-testid` **if confirmed**; keep separate rate-limit and unavailable evidence and fail closed on uncertainty. |
+| P2 | `negotiation/AdaptiveFirstOfferExecutor.java` ~335–360, `isExplicitlySold` | Visible exact sold-label lookup then whole body | Prefer exact item-page sold-status element `data-testid`, if present; never mark sold from a sidebar or unrelated recommendation. |
+| P2 | `target/VintedSessionBlockDetector.java` ~26–39, `throwIfBlocked` | Reads whole body and title for blocked session text | Prefer **known blocking/challenge container** if present; retaining a global fallback may be necessary because blocked pages are *outside the usual Vinted application DOM*. |
+| P2 | `verification/HumanVerificationHandler.java` ~143–205, `verificationEvidence` / `renderedVerificationIframeEvidence` | Whole-body challenge text and `iframe.evaluate` computed visibility | Prefer iframe `src`/`title`/known dedicated challenge locator. Captcha provider rarely exposes a stable Vinted test ID; don't remove broad fail-closed detection blindly. `evaluate` here measures rendering rather than finding a button. |
+
+## B. Filters, catalog, login and listing identification
+
+| Priority | File + code location | Current approach | Better candidate / restriction |
+| --- | --- | --- | --- |
+| P2 | `filters/FilterActions.java` ~595–695, `findExactVisibleModelTitle` | Scans all model `--title` test IDs; fallback enumerates canonical rows and reads label/aria/title | **Already uses** `selectable-item-brand_collection-<id>--title` and canonical row IDs. Exact visible label is needed to map unknown numeric collection ID to configured name. Narrow traversal if variant coverage permits, but do not infer S25 from S25 Ultra. |
+| P3 | `filters/FilterActions.java` ~746–1030, `selectExactModelRow` | On proven `--suffix` and row: Playwright click, DOM `element.click()`, physical mouse center, row click, Enter/Space, native checkbox DOM click | **Already uses exact `data-testid` and collection ID.** The extra code solves click/actionability variants, not selector discovery. Replace only after browser fixtures prove a single `Locator.click()` path works on the problematic builds. Preserve URL and checked-state verification. |
+| P2 | `filters/FilterActions.java` ~1165–1243, `readCompleteModelOptionTexts` | Reads `innerText`, `textContent`, aria/title and up to ten nested `label` elements per row | Prefer the `--title` child, and scoped fallback when the child is absent. Must keep variant-safe exact name checks. |
+| P2 | `filters/FilterActions.java` ~1702, `getOptionLocator` | `page.getByRole(BUTTON, name=option)` for category / brand | Inspect and capture category/brand option-specific test IDs; use only if anchored to the intended filter panel (Vinted language varies). Existing role selector is not intrinsically bad. |
+| P2 | `filters/FilterSelectors.java` + `FilterService.java` | `#brand_collection_filter_search`, `#price_from`, `#price_to`, `#sort_by-list-item-newest_first` CSS IDs | These are already explicit DOM IDs and may be more stable than test IDs. Confirm availability before replacing; don't change solely to use `getByTestId`. |
+| P1 | `filters/FilterService.java` ~29 and ~440–500, `resolveVisibleSearchInput` | `header form[action='/catalog'] input[name='search_text']:visible`, else all matching catalog inputs | Prefer a **verified search-box test ID** if Vinted has one, otherwise a scoped `getByRole(TEXTBOX)` or existing strong `name='search_text'`. Keep URL query persistence check; two identical desktop/mobile inputs can exist. |
+| P2 | `login/LoginService.java` ~326–424, `clickEmailLoginAndWait`, `clickRegistrationSwitchAndWait` | Normal clicks with JavaScript `element.click()` retries | Use exact login view/control test IDs where available; a test ID itself does not solve click interception. Keep view transition evidence, bounded retries. |
+| P3 | `login/LoginService.java` ~605–645, credential submission | Click, Enter, then `HTMLFormElement.requestSubmit()` | This is a behavioral fallback on the **correct credential form**, not a missing selector. Removing it is not justified by adding a test ID. |
+| P2 | `login/LoginService.java` ~1030–1150, text/diagnostics | Reads locator text and visible login controls | Add specific error and login-switch test IDs *if verified*. Existing `LoginSelectors.LOGIN_BUTTON = header--login-button` and authenticated conversations test ID already exist. |
+| P3 | `scanner/ListingScanner.java` ~190–272, `readSnapshots` | One `items.evaluateAll` maps item descendants using six nested `querySelector` operations | **Already entirely based on `data-testid` selectors** in `ListingSelectors` (card, title, price, image, link, favorites). Bulk JS may be *faster* than six Java Playwright RPCs per item. Not a priority to remove. |
+| P2 | `target/VintedItemIdentityReader.java` ~20–147, `readVisibleTitle`, `readSummaryText`, `readLabelledValue` | Reads whole `[data-testid='item-page-summary-plugin']` and parses `Marka`/`Model` text | Prefer **dedicated structured brand/model field test IDs if they exist**; keep seller-written title as weaker evidence. Never replace genuine structured model evidence with only `h1`. |
+
+## C. Conversations, offers, contact and price probes
+
+| Priority | File + code location | Current approach | Better candidate / restriction |
+| --- | --- | --- | --- |
+| P3 | `negotiation/FirstOfferExecutor.java` ~809–909, `waitForOfferButtonOrNull` | Exact `item-buyer-offer-button` first, fallback accessible role/name | Already has strong test ID; role fallback protects UI variants and failure-to-negotiate distinction. |
+| P3 | `negotiation/FirstOfferExecutor.java` ~916–1010, `openOfferModal` | Exact offer button clicked normally, then DOM `element.click()` fallback | Already uses test ID. Keep guarded fallback until fixtures; opening the form does **not** submit an offer. |
+| P2 | `negotiation/FirstOfferExecutor.java` ~1140–1175, `isOfferTooLow` | `getByText` for localized price-too-low validation | Prefer modal-scoped **validation-error test ID** if present. Do not confuse errors from other form controls. |
+| P3 | `negotiation/NextNegotiationStepExecutor.java` ~409–545, `openOfferModal` | Uses `make-offer-request-button`, fallback DOM click | Already uses test ID. Pure click actionability issue; keep safeguards. |
+| P2 | `negotiation/NextNegotiationStepExecutor.java` ~677–724, offer minimum price validation | Reads localized validation message and parses minimum | Prefer exact modal validation-error test ID (if found). Text/numeric parsing must remain for varying minimum amounts. |
+| P2 | `negotiation/PreparedNextStepSubmitter.java` ~213–241, send message | Finds icon `arrow-right` by test ID and climbs `xpath=ancestor::button[1]` | If Vinted exposes a unique **send button** test ID, use it directly, scoped to the conversation composer. `arrow-right` may not be unique, so don't click an unrelated arrow. |
+| P2 | `negotiation/ConversationContactAvailabilityDetector.java` ~171–225, `findExplicitUnavailableReason` | Reads status message by test ID; then scans all `[data-testid='conversation-content'] button` for `Odblokuj/Unblock` | Search for actual **unblock action** test ID in a blocked conversation. Keep conversation scope and explicit evidence before marking contact unavailable. |
+| P2 | `negotiation/ConversationAvailabilityDetector.java` ~57–110, sold/removed state | Reads exact status messages; fallback `conversation-content.innerText()` | Locate **sold/removed banner test ID** if present. Current fallback is conversation-scoped (good) and prevents reading another conversation. |
+| P1 | `probe/PriceProbeExecutor.java` ~270–379, `findMessageAction`, `findSemanticActionFallback` | Several known message test IDs then broad scan of up to 80 visible buttons/links using testid substring, aria and text heuristics | Highest-value **test-id candidate** in live actions: capture exact item-page contact/message button on all supported UI variants and remove broad fallback *only after proof*. No guessing based solely on 'message' substring for real action. |
+| P2 | `probe/PriceProbeExecutor.java` ~405–455, `waitForComposer`/`visibleComposer` | Exact `composer--input`, fallback any visible textarea/contenteditable | Prefer exact composer test ID; keep scoped fallback only if variants prove necessary. |
+| P2 | `probe/PriceProbeExecutor.java` ~455–485, `resolveSendButton` | Finds `arrow-right` icon and climbs to ancestor button/form submit | Prefer dedicated **composer send button test ID** if actual DOM provides one; keep form-scoped fallback, avoid generic page-wide submit. |
+| P3 | `probe/PriceProbeExecutor.java` ~513–539, `describeVisibleActions` | Broad scan of visible actions | Diagnostic logging only; optimize cost or cap but not necessarily replace, because it should explain unknown UI rather than assume known test IDs. |
+
+## D. Private core: `flipbot-playwright-core`
+
+Private source paths below are in the separate repository; do not move sensitive implementation into public code.
+
+| Priority | File + code location | Current approach | Better candidate / restriction |
+| --- | --- | --- | --- |
+| P2 | `src/main/java/pl/flipbot/core/vinted/ConversationActivityInspector.java` ~20–112, `INSPECTION_SCRIPT` | `page.evaluate`, reads `conversation-content`, `conversation-message`, price and read indicator test IDs, but also uses `aria-label^="Message from "`, `closest([class*="conversation-message-container"])`, siblings and `[title]` | The root/message/price/read signals **already use test IDs**. Capture seller message sender/timestamp test IDs if available; avoid broad sibling/class heuristics. Keep seller-vs-own discrimination and read timestamps. |
+| P2 | `src/main/java/pl/flipbot/core/vinted/ConversationInspector.java` ~145–190, event detection | Scoped `conversation-content` plus event locator and `innerText` | Favor known event test IDs for status and offer events (if verified). Existing root scope is good. |
+| P2 | `src/main/java/pl/flipbot/core/vinted/ConversationInspector.java` ~290–335, offer modal and item price | Already uses `make-offer-request-button`, offer modal, price input test IDs; item price can come from `modal.innerText()` | Prefer a dedicated offer-modal item-price test ID **if it exists**. Preserve current minimum/safety logic. |
+| P2 | `src/main/java/pl/flipbot/core/vinted/ConversationInspector.java` ~400–450, price-label ancestry | `priceLabel.evaluate` climbs DOM via `closest` and sibling selectors | Look for an exact containing offer-event card test ID and the price test ID; retain event ownership and seller/own distinctions. |
+
+## E. Things NOT to replace blindly
+
+1. `data-testid` is already deeply used: `ListingSelectors`, `FilterSelectors`, `NegotiationSelectors`, `LoginSelectors`, and private core conversation fields.
+2. `Locator.getByRole` can be more stable than a guessed `data-testid`, especially for a third-party consent provider and localized labels. Prefer known stable ids/roles over inventing IDs.
+3. `ListingScanner.evaluateAll` batches data extraction and might be an optimization, not bloat.
+4. `FirstOfferExecutor` and `NextNegotiationStepExecutor` JS clicks are **last-resort interactions with already-known buttons**, not arbitrary DOM-wide search. A test ID does not guarantee actionability.
+5. Broad `body.innerText()` on anti-bot/blocked pages may be necessary when the normal Vinted markup is gone. Restrict to relevant state when safe; do not remove detection.
+6. Never remove `currentScanListingIds` provenance requirement, stale-backlog recheck, exact model selection, final SEARCH_QUERY model verification, real-action guard, offer quota reservation, scheduler retirement or session cooldown.
+7. `OneTrustConsentGuard` is a third-party SDK; use its genuine ID (`#onetrust-accept-btn-handler`) before assuming Vinted test IDs.
+8. `document.documentElement.innerHTML/outerHTML` search is different from visible DOM selection: a `data-testid` label may not expose underlying timestamps. Evaluate completeness and performance independently.
+
+## Recommended sequence (fixture-driven)
+
+1. Record anonymized real DOM **fixtures** for model filter exact/variant rows, unknown brands, two search boxes, login validation, an available/sold/removed item, conversation blocked/unblocked, message/probe actions, late OneTrust popup and observer-only anonymous view. Never commit account cookies, credentials, messages or session tokens.
+2. Add tests asserting exact test ID and state transitions for each fixture. Record runtime selector frequency/timeout, number of DOM rescans, retry use and cache hit/miss.
+3. Replace the highest-cost **broad** lookup with a scoped exact locator, keep the previous path temporarily as a feature-flagged diagnostic fallback and compare on fixtures and real runs.
+4. Remove fallback only after stable live results, without weakening safety gates.
+5. Keep the backup branch and PR in draft until backend + Playwright tests and real UI smoke checks pass.
+
+**Outcome:** this file is an *inventory of candidates*, not authorization or proof that every DOM traversal can be dropped. The identified DOM test IDs are real names present in code, but live availability must still be validated against the active Vinted UI.
