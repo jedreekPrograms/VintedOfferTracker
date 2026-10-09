@@ -62,9 +62,8 @@ final class VintedCategoryOptionResolver {
                 continue;
             }
 
-            String id = row.getAttribute("id");
-            if (id == null || !CATEGORY_ROW_ID.matcher(id).matches()
-                    || !"button".equalsIgnoreCase(row.getAttribute("role"))) {
+            String id = verifiedCategoryId(row, category);
+            if (id == null) {
                 continue;
             }
 
@@ -80,6 +79,40 @@ final class VintedCategoryOptionResolver {
         }
 
         return matchedRow;
+    }
+
+    /**
+     * Return the ID of the exact currently visible category row only when
+     * both its native ID and complete label are proven. In particular, the
+     * Electronics root row and its submenu "Wszystkie" may share the same
+     * numeric ID; that number alone must not count as provenance.
+     *
+     * Null means that the UI variant did not supply verified native evidence.
+     */
+    static String verifiedCategoryId(Locator row, String requestedCategory) {
+        if (row == null || requestedCategory == null || requestedCategory.isBlank()) {
+            return null;
+        }
+
+        try {
+            if (!row.isVisible()
+                    || !"button".equalsIgnoreCase(row.getAttribute("role"))
+                    || !normalized(requestedCategory).equalsIgnoreCase(
+                            normalized(row.innerText()))) {
+                return null;
+            }
+
+            String id = row.getAttribute("id");
+            if (id == null || !CATEGORY_ROW_ID.matcher(id).matches()) {
+                return null;
+            }
+
+            return id.substring("catalog_ids-list-item-".length());
+        } catch (RuntimeException ignored) {
+            // Unsupported or detached variant: let the caller retain the
+            // existing compatibility behavior rather than invent an ID.
+            return null;
+        }
     }
 
     static Pattern exactLabelPattern(String name) {
