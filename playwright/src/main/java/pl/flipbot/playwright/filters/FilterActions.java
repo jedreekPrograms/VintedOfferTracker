@@ -1754,7 +1754,11 @@ public class FilterActions {
             return VintedBrandOptionResolver.resolve(page, option);
         }
 
-        // Keep existing category/other-filter semantics untouched.
+        if (FilterSelectors.CATEGORY_FILTER.equals(activeFilterTestId)) {
+            return VintedCategoryOptionResolver.resolve(page, option);
+        }
+
+        // Keep unknown and other filter types on their original locator.
         return page.getByRole(
                 AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName(option)
