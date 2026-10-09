@@ -14,7 +14,7 @@
 
 1. Select an **exact** visible native Vinted model and verify the selected collection ID persists in the catalog URL. An S25 option must not silently match S25 FE, Ultra, Edge, etc.
 2. **Trust listings actually present in the CURRENT native filtered scan**, even when the seller-written title looks inconsistent with the target model. Do not run SEARCH_QUERY semantic matching on these listings.
-3. A stored/backlog listing that is **not** present in that current verified scan is **deferred**. Do not promote stale provenance to current proof and do not run seller-title heuristics to reclassify it.
+3. A stored/backlog listing that is **not** present in that current verified scan is **deferred until a fresh native-filter scan rechecks it**. It may have been sold, removed, changed or become unavailable. Do not promote stale provenance to current proof and do not run seller-title heuristics to reclassify it. Preserve all existing listing-availability checks and terminal-state transitions.
 4. Safety checks unrelated to seller-title model classification still apply: listing/action identity, availability, account/session restrictions, marketplace ownership, quotas, idempotency and persistence.
 
 Key implementation: `NewNegotiationProcessor.retainTargetEligibleListings`, `hasCurrentExactModelProof`, `FilterActions.confirmExactModelWithRetry`, `AdaptiveFirstOfferExecutor.applyLiveTargetConsistencyGuard`.
