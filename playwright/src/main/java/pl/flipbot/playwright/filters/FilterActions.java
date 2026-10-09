@@ -606,6 +606,41 @@ public class FilterActions {
                         + "'][data-testid$='" + MODEL_TITLE_TEST_ID_SUFFIX + "']";
 
         Locator titles = page.locator(selector);
+
+        /*
+         * On the observed Vinted model picker each selectable model has a
+         * dedicated --title test ID containing its COMPLETE name. First ask
+         * Playwright to match that exact title in the browser: this avoids
+         * fetching every model label across the Java/Playwright boundary on
+         * the normal UI. Anchoring is essential: S25 must not match S25 FE,
+         * Edge, Ultra or +.
+         *
+         * Keep the original row-by-row scan below for Vinted variants whose
+         * title contains additional metadata or whose label is outside the
+         * title child (including the anonymous observer compatibility view).
+         */
+        Locator exactTitleCandidates = titles.filter(
+                new Locator.FilterOptions()
+                        .setHasText(exactModelOptionPattern(requestedModel))
+        );
+        int fastCandidateCount = safeCount(exactTitleCandidates);
+        for (int index = 0; index < fastCandidateCount; index++) {
+            Locator candidate = exactTitleCandidates.nth(index);
+            if (!safeIsVisible(candidate)) {
+                continue;
+            }
+
+            String text = safeInnerText(candidate);
+            if (normalizeOptionText(requestedModel)
+                    .equalsIgnoreCase(normalizeOptionText(text))) {
+                log.debug(
+                        "[FILTER MODEL] Exact '{}' found by --title test ID and browser-side exact-text match.",
+                        requestedModel
+                );
+                return new ExactModelTitleMatch(candidate, 1, 1, List.of());
+            }
+        }
+
         int count = safeCount(titles);
         int visibleCount = 0;
         int textMatchedCount = 0;
