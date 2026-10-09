@@ -18,6 +18,28 @@ Otwórz **przycisk Model (trigger)** i wykonaj pomiar jeszcze raz.
 Nie commituj pełnego HTML katalogu z zalogowanego konta; może zawierać
 identyfikatory ofert, zdjęcia, dane profilu lub inne informacje prywatne.
 
+## Potwierdzony rozwinięty filtr Galaxy S25 — 2026-10-10
+
+Po otwarciu filtra Model i wpisaniu `Galaxy S25` użytkownik otrzymał
+`{ znalezione: 15 }`, czyli **pięć opcji po trzy test ID**:
+
+| Model widoczny | `data-testid` wiersza | `--title` | `--suffix` |
+|---|---|---|---|
+| Galaxy S25 | `selectable-item-brand_collection-9141` | tekst Galaxy S25 | brak tekstu |
+| Galaxy S25 Edge | `selectable-item-brand_collection-9976` | tekst Galaxy S25 Edge | brak tekstu |
+| Galaxy S25 FE | `selectable-item-brand_collection-9977` | tekst Galaxy S25 FE | brak tekstu |
+| Galaxy S25 Ultra | `selectable-item-brand_collection-9142` | tekst Galaxy S25 Ultra | brak tekstu |
+| Galaxy S25+ | `selectable-item-brand_collection-9143` | tekst Galaxy S25+ | brak tekstu |
+
+Wszystkie wiersze są `DIV[role="button"]`, dzieci `--title` i `--suffix`
+są `DIV`. Te publiczne identyfikatory kolekcji zapisano w testach
+regresji, **nie** jako stałe mapowanie w produkcyjnym filtrze. Potwierdzona
+postać DOM pozwoliła zawęzić `exposeModelLabels` do kanonicznych wierszy.
+Obserwowany jest widok zalogowany; wariant anonimowego obserwatora, w którym
+etykieta wiersza jest poza jego wnętrzem, nadal wymaga osobnego przechwycenia
+małego, pozbawionego danych użytkownika fragmentu DOM. Nie usuwamy jego
+fallbacku.
+
 ## Jak sprawdzić
 
 1. Otwórz publiczny Vinted w Chrome/Edge, np. katalog z wyszukiwaniem modelu.
