@@ -15,12 +15,15 @@ import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotAdditionalTargetMapper;
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.CounterRuleValue;
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
+import pl.flipbot.negotiation.NegotiationStepPolicySupport;
 import pl.flipbot.negotiation.NegotiationReactionAction;
 import pl.flipbot.negotiation.NegotiationStep;
-import pl.flipbot.negotiation.SellerCounterOfferRule;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.samePolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.applyPolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -332,12 +335,7 @@ public class BotAdditionalTargetService {
             NegotiationStep step = existing.get(index);
             ResolvedStepPolicy policy = resolvePolicy(requests.get(index), index + 1);
 
-            step.setRejectionAction(policy.rejectionAction());
-            step.setRejectionWaitHours(policy.rejectionWaitHours());
-            step.setCounterOfferDefaultAction(policy.counterDefaultAction());
-            step.setCounterOfferDefaultWaitHours(policy.counterDefaultWaitHours());
-            step.getCounterOfferRules().clear();
-            step.getCounterOfferRules().addAll(toRuleEntities(policy.rules()));
+            applyPolicy(step, policy);
         }
     }
 
@@ -390,58 +388,8 @@ public class BotAdditionalTargetService {
         return false;
     }
 
-    private boolean samePolicy(
-            NegotiationStep existing,
-            ResolvedStepPolicy requested
-    ) {
-        if (existing.getRejectionAction() != requested.rejectionAction()
-                || !Objects.equals(
-                existing.getRejectionWaitHours(),
-                requested.rejectionWaitHours()
-        )
-                || existing.getCounterOfferDefaultAction() != requested.counterDefaultAction()
-                || !Objects.equals(
-                existing.getCounterOfferDefaultWaitHours(),
-                requested.counterDefaultWaitHours()
-        )) {
-            return false;
-        }
-
-        List<CounterRuleValue> leftRules = existing.getCounterOfferRules().stream()
-                .map(rule -> new CounterRuleValue(
-                        rule.getMinimumDiscountPercent(),
-                        rule.getAction(),
-                        rule.getWaitHours()
-                ))
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent))
-                .toList();
-        List<CounterRuleValue> rightRules = requested.rules().stream()
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent))
-                .toList();
-
-        if (leftRules.size() != rightRules.size()) {
-            return false;
-        }
-        for (int index = 0; index < leftRules.size(); index++) {
-            CounterRuleValue left = leftRules.get(index);
-            CounterRuleValue right = rightRules.get(index);
-            if (!sameDecimal(left.minimumDiscountPercent(), right.minimumDiscountPercent())
-                    || left.action() != right.action()
-                    || !Objects.equals(left.waitHours(), right.waitHours())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private List<NegotiationStep> orderedSteps(BotAdditionalTarget target) {
-        return target.getNegotiationSteps().stream()
-                .sorted(Comparator.comparing(
-                        step -> step.getStepNumber() == null
-                                ? Integer.MAX_VALUE
-                                : step.getStepNumber()
-                ))
-                .toList();
+        return NegotiationStepPolicySupport.orderedSteps(target.getNegotiationSteps());
     }
 
     private boolean targetDefinitionChanged(
@@ -650,22 +598,6 @@ public class BotAdditionalTargetService {
                     label + " wymaga czasu 1-720 godzin."
             );
         }
-    }
-
-    private List<SellerCounterOfferRule> toRuleEntities(
-            List<CounterRuleValue> rules
-    ) {
-        List<SellerCounterOfferRule> result = new ArrayList<>();
-        rules.stream()
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent))
-                .forEach(rule -> result.add(
-                        SellerCounterOfferRule.builder()
-                                .minimumDiscountPercent(rule.minimumDiscountPercent())
-                                .action(rule.action())
-                                .waitHours(rule.waitHours())
-                                .build()
-                ));
-        return result;
     }
 
     private boolean categoryPathsEqual(
