@@ -13,11 +13,14 @@ import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotAdditionalTargetMapper;
+import pl.flipbot.negotiation.NegotiationPolicyDefaults.CounterRuleValue;
+import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
 import pl.flipbot.negotiation.NegotiationReactionAction;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.SellerCounterOfferRule;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
-import pl.flipbot.negotiation.dto.SellerCounterOfferRuleRequest;
+
+import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -649,92 +652,6 @@ public class BotAdditionalTargetService {
         }
     }
 
-    private ResolvedStepPolicy resolvePolicy(
-            CreateNegotiationStepRequest request,
-            int stepNumber
-    ) {
-        NegotiationReactionAction rejectionAction = request.getRejectionAction();
-        Integer rejectionWait = request.getRejectionWaitHours();
-        if (rejectionAction == null) {
-            if (stepNumber == 1) {
-                rejectionAction = NegotiationReactionAction.NEXT_STEP_NOW;
-                rejectionWait = null;
-            } else {
-                rejectionAction = NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP;
-                rejectionWait = defaultRejectionWaitHours(stepNumber);
-            }
-        }
-        if (rejectionAction == NegotiationReactionAction.NEXT_STEP_NOW) {
-            rejectionWait = null;
-        }
-
-        NegotiationReactionAction counterAction = request.getCounterOfferDefaultAction();
-        Integer counterWait = request.getCounterOfferDefaultWaitHours();
-        if (counterAction == null) {
-            counterAction = NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP;
-            counterWait = 6;
-        }
-        if (counterAction == NegotiationReactionAction.NEXT_STEP_NOW) {
-            counterWait = null;
-        }
-
-        List<CounterRuleValue> rules;
-        if (request.getCounterOfferRules() == null) {
-            rules = defaultCounterOfferRules();
-        } else {
-            rules = request.getCounterOfferRules().stream()
-                    .filter(Objects::nonNull)
-                    .map(this::toRuleValue)
-                    .toList();
-        }
-
-        return new ResolvedStepPolicy(
-                rejectionAction,
-                rejectionWait,
-                counterAction,
-                counterWait,
-                rules
-        );
-    }
-
-    private CounterRuleValue toRuleValue(SellerCounterOfferRuleRequest request) {
-        NegotiationReactionAction action = request.getAction();
-        Integer wait = request.getWaitHours();
-        if (action == NegotiationReactionAction.NEXT_STEP_NOW) {
-            wait = null;
-        }
-        return new CounterRuleValue(
-                request.getMinimumDiscountPercent(),
-                action,
-                wait
-        );
-    }
-
-    private List<CounterRuleValue> defaultCounterOfferRules() {
-        return List.of(
-                new CounterRuleValue(
-                        new BigDecimal("10"),
-                        NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP,
-                        2
-                ),
-                new CounterRuleValue(
-                        new BigDecimal("15"),
-                        NegotiationReactionAction.NEXT_STEP_NOW,
-                        null
-                )
-        );
-    }
-
-    private int defaultRejectionWaitHours(int stepNumber) {
-        if (stepNumber == 2) {
-            return 6;
-        }
-        if (stepNumber == 3) {
-            return 12;
-        }
-        return 24;
-    }
-
     private List<SellerCounterOfferRule> toRuleEntities(
             List<CounterRuleValue> rules
     ) {
@@ -804,19 +721,4 @@ public class BotAdditionalTargetService {
         return value.trim().replaceAll("\\s+", " ");
     }
 
-    private record ResolvedStepPolicy(
-            NegotiationReactionAction rejectionAction,
-            Integer rejectionWaitHours,
-            NegotiationReactionAction counterDefaultAction,
-            Integer counterDefaultWaitHours,
-            List<CounterRuleValue> rules
-    ) {
-    }
-
-    private record CounterRuleValue(
-            BigDecimal minimumDiscountPercent,
-            NegotiationReactionAction action,
-            Integer waitHours
-    ) {
-    }
 }
