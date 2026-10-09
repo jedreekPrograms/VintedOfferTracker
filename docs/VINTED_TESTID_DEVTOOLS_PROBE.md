@@ -338,6 +338,13 @@ Nie zakładaj, że identyfikatory kategorii zawsze będą takie same.
 Dzięki temu `FilterActions` / `CategoryNavigator` weryfikują teraz
 **dokładny ID klikniętego, zweryfikowanego wiersza** w końcowym
 `catalog[]`, zamiast samej obecności dowolnej wartości.
+
+**Dodatkowe zabezpieczenie (etap 19):** w zweryfikowanym wariancie
+katalogu wymagany jest dokładnie **jeden** `catalog[]` równy ID
+klikniętej kategorii. Zduplikowany parametr (również z poprawnym ID
+w pierwszym wystąpieniu), URL poza katalogiem lub błędne kodowanie
+parametrów nie wystarczą do potwierdzenia zastosowania filtra.
+Wariant legacy bez wiarygodnego ID nadal ma dotychczasowy fallback.
 Identyfikator jest odczytywany z aktualnego DOM, nie kodowany na stałe.
 Jeśli alternatywny wariant Vinted nie udostępni weryfikowalnego ID,
 pozostaje dotychczasowa kontrola obecności parametru z ostrzeżeniem.
