@@ -72,6 +72,30 @@ public class FilterActionsExactCategoryPersistenceTest {
     }
 
     @Test
+    public void duplicateCategoryIdsMustNotCountAsPersistedProof() {
+        Page page = mock(Page.class);
+        when(page.url()).thenReturn(
+                "https://www.vinted.pl/catalog?catalog%5B%5D=3661&catalog%5B%5D=3662"
+        );
+
+        FilterActions actions = actionsWithVerifiedPhoneRow(page);
+
+        assertFalse(actions.waitForSelectedCategoryPersisted(25));
+    }
+
+    @Test
+    public void matchingIdOnNonCatalogPageMustNotCountAsPersistedProof() {
+        Page page = mock(Page.class);
+        when(page.url()).thenReturn(
+                "https://www.vinted.pl/items/123?catalog%5B%5D=3661"
+        );
+
+        FilterActions actions = actionsWithVerifiedPhoneRow(page);
+
+        assertFalse(actions.waitForSelectedCategoryPersisted(25));
+    }
+
+    @Test
     public void legacyUiWithoutVerifiedRowPreservesPresenceFallback() {
         Page page = mock(Page.class);
         when(page.url()).thenReturn(
