@@ -257,6 +257,55 @@ samej strukturze również dla podkategorii.
 })();
 ~~~
 
+## Potwierdzone podkategorie Elektroniki — 2026-10-10
+
+Po kliknięciu `Elektronika` pojawiło się 11 wierszy w dokładnie tym samym
+schemacie `DIV[role="button"][id="catalog_ids-list-item-<ID>"]`:
+
+| Wiersz widoczny | Zweryfikowane ID |
+| --- | --- |
+| Wszystkie | `2994` |
+| Gry wideo i konsole | `3002` |
+| Komputery i akcesoria | `3564` |
+| Telefony komórkowe i komunikacja | `3565` |
+| Audio i słuchawki | `3566` |
+| Aparaty fotograficzne i akcesoria | `3054` |
+| Tablety, czytniki e-booków i akcesoria | `3567` |
+| Telewizor i kino domowe | `3568` |
+| Urządzenia do pielęgnacji urody | `3569` |
+| Urządzenia ubieralne | `3004` |
+| Inne urządzenia i akcesoria | `2995` |
+
+**Ważne:** `Wszystkie` ma ID `2994`, identyczny jak nadrzędna
+`Elektronika`. Sam numeryczny ID nie wystarcza do rozpoznania czynności;
+resolver musi nadal sprawdzać aktualnie widoczną etykietę i rolę wiersza.
+`VintedCategoryOptionResolverTest` zawiera teraz te przypadki.
+
+### Następny pomiar: trzeci poziom (telefony)
+
+Kliknij `Telefony komórkowe i komunikacja` (bez „Pokaż wyniki”).
+Uruchom ten sam bezpieczny skrypt odczytowy:
+
+~~~javascript
+(() => {
+  const result = [...document.querySelectorAll(
+    '[id^="catalog_ids-list-item-"][role="button"]'
+  )]
+    .filter(el => el.getClientRects().length > 0)
+    .map(el => ({
+      id: el.id,
+      nazwa: (el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 90)
+    }));
+  const text = JSON.stringify(result, null, 2);
+  copy(text);
+  console.log(text);
+  return { znalezione: result.length };
+})();
+~~~
+
+Prześlij samą skopiowaną listę. Nie potrzebujemy treści konta ani
+komunikacji, a także nie musisz klikać żadnej oferty.
+
 ## Priorytetowe fakty, które chcemy uzyskać
 
 - Czy nazwa modelu jest w dokładnym wierszu z identyfikatorem kolekcji, czy dopiero w jego rodzicu?
