@@ -17,7 +17,9 @@ import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
 import pl.flipbot.negotiation.audit.RealActionAudit;
 import pl.flipbot.negotiation.audit.RealActionAuditRepository;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -100,7 +102,14 @@ class MarketStatsCalendarPlanningServiceTest {
                 .build();
 
         List<RealActionAudit> audits = new ArrayList<>();
-        LocalDateTime yesterday = LocalDateTime.now().minusDays(1);
+        // Align the fixture with production's Europe/Warsaw calendar. The old
+        // JVM-local clock fixture started near 23:56 UTC on CI, and adding
+        // minutes split the 8 confirmed actions across two calendar days.
+        // That reduced the observed daily capacity below 8 intermittently.
+        // Noon on yesterday's Warsaw date leaves all 8 actions on one day.
+        LocalDateTime yesterday = LocalDate.now(ZoneId.of("Europe/Warsaw"))
+                .minusDays(1)
+                .atTime(12, 0);
         for (int index = 0; index < 8; index++) {
             audits.add(
                     RealActionAudit.builder()
