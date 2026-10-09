@@ -93,7 +93,7 @@ final class VintedBrandOptionResolver {
         return exactRow;
     }
 
-    private static Pattern exactLabelPattern(String label) {
+    static Pattern exactLabelPattern(String label) {
         return Pattern.compile(
                 "^\\s*" + Pattern.quote(normalized(label)) + "\\s*$",
                 Pattern.CASE_INSENSITIVE
