@@ -23,7 +23,7 @@ public class CategoryNavigatorVerifiedPhonePathTest {
     @Test
     public void appliesObservedElectronicsToPhonesPathInTheCorrectOrder() {
         FilterActions actions = mock(FilterActions.class);
-        when(actions.waitForUrlParameterPresent("catalog[]", 5_000))
+        when(actions.waitForSelectedCategoryPersisted(5_000))
                 .thenReturn(true);
 
         CategoryNavigator navigator = new CategoryNavigator(actions);
@@ -41,8 +41,32 @@ public class CategoryNavigatorVerifiedPhonePathTest {
         order.verify(actions).selectOption("Telefony komórkowe i komunikacja");
         order.verify(actions).waitForOption("Telefony komórkowe", 10_000);
         order.verify(actions).selectOption("Telefony komórkowe");
-        order.verify(actions).waitForUrlParameterPresent("catalog[]", 5_000);
+        order.verify(actions).waitForSelectedCategoryPersisted(5_000);
         order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    public void successfulClickSequenceMustNotBeAcceptedIfLeafIdDidNotPersist() {
+        FilterActions actions = mock(FilterActions.class);
+        // The new check fails if the observed exact clicked category ID is
+        // missing or the persisted catalog[] contains a different category.
+        when(actions.waitForSelectedCategoryPersisted(5_000)).thenReturn(false);
+
+        CategoryNavigator navigator = new CategoryNavigator(actions);
+
+        org.junit.Assert.assertThrows(
+                IllegalStateException.class,
+                () -> navigator.select(List.of(
+                        "Elektronika",
+                        "Telefony komórkowe i komunikacja",
+                        "Telefony komórkowe"
+                ))
+        );
+
+        // Retrying is still retained; it never silently declares success
+        // merely because the catalog[] parameter exists with a wrong value.
+        verify(actions, org.mockito.Mockito.times(3))
+                .waitForSelectedCategoryPersisted(5_000);
     }
 
     @Test
