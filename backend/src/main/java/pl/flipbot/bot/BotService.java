@@ -14,11 +14,14 @@ import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotMapper;
+import pl.flipbot.negotiation.NegotiationPolicyDefaults.CounterRuleValue;
+import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
 import pl.flipbot.negotiation.NegotiationReactionAction;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.SellerCounterOfferRule;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
-import pl.flipbot.negotiation.dto.SellerCounterOfferRuleRequest;
+
+import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -475,51 +478,6 @@ public class BotService {
         }
     }
 
-    private ResolvedStepPolicy resolvePolicy(CreateNegotiationStepRequest request, int stepNumber) {
-        NegotiationReactionAction rejection = request.getRejectionAction();
-        Integer rejectionWait = request.getRejectionWaitHours();
-        if (rejection == null) {
-            if (stepNumber == 1) {
-                rejection = NegotiationReactionAction.NEXT_STEP_NOW;
-                rejectionWait = null;
-            } else {
-                rejection = NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP;
-                rejectionWait = defaultRejectionWaitHours(stepNumber);
-            }
-        }
-        if (rejection == NegotiationReactionAction.NEXT_STEP_NOW) rejectionWait = null;
-        NegotiationReactionAction counterDefault = request.getCounterOfferDefaultAction();
-        Integer counterWait = request.getCounterOfferDefaultWaitHours();
-        if (counterDefault == null) {
-            counterDefault = NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP;
-            counterWait = 6;
-        }
-        if (counterDefault == NegotiationReactionAction.NEXT_STEP_NOW) counterWait = null;
-        List<CounterRuleValue> rules = request.getCounterOfferRules() == null
-                ? defaultCounterOfferRules()
-                : request.getCounterOfferRules().stream().filter(Objects::nonNull).map(this::toRuleValue).toList();
-        return new ResolvedStepPolicy(rejection, rejectionWait, counterDefault, counterWait, rules);
-    }
-
-    private CounterRuleValue toRuleValue(SellerCounterOfferRuleRequest request) {
-        NegotiationReactionAction action = request.getAction();
-        Integer wait = request.getWaitHours();
-        if (action == NegotiationReactionAction.NEXT_STEP_NOW) wait = null;
-        return new CounterRuleValue(request.getMinimumDiscountPercent(), action, wait);
-    }
-
-    private int defaultRejectionWaitHours(int stepNumber) {
-        if (stepNumber == 2) return 6;
-        if (stepNumber == 3) return 12;
-        return 24;
-    }
-
-    private List<CounterRuleValue> defaultCounterOfferRules() {
-        return List.of(
-                new CounterRuleValue(new BigDecimal("10"), NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP, 2),
-                new CounterRuleValue(new BigDecimal("15"), NegotiationReactionAction.NEXT_STEP_NOW, null));
-    }
-
     private TargetMode resolveTargetMode(CreateBotConfigurationRequest request) {
         return request.getTargetMode() == null ? TargetMode.VINTED_MODEL : request.getTargetMode();
     }
@@ -538,13 +496,4 @@ public class BotService {
         return value.trim().replaceAll("\\s+", " ");
     }
 
-    private record ResolvedStepPolicy(
-            NegotiationReactionAction rejectionAction,
-            Integer rejectionWaitHours,
-            NegotiationReactionAction counterDefaultAction,
-            Integer counterDefaultWaitHours,
-            List<CounterRuleValue> rules
-    ) {}
-
-    private record CounterRuleValue(BigDecimal minimumDiscountPercent, NegotiationReactionAction action, Integer waitHours) {}
 }
