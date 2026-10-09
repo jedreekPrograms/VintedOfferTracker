@@ -539,30 +539,8 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private boolean waitForOfferForm(
-            Locator priceInput
-    ) {
-
-        try {
-
-            priceInput.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    FORM_OPEN_TIMEOUT_MS
-                            )
-            );
-
-            return true;
-
-        } catch (TimeoutError exception) {
-
-            return false;
-
-        }
-
+    private boolean waitForOfferForm(Locator priceInput) {
+        return OfferFormVisibility.waitUntilVisible(priceInput, FORM_OPEN_TIMEOUT_MS);
     }
 
     private boolean fillOfferPrice(
