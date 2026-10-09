@@ -216,10 +216,17 @@ oraz natywnych ID `catalog_ids-list-item-<ID>`:
 | Przedmioty designerskie | `catalog_ids-list-item-2993` |
 | Dzieci | `catalog_ids-list-item-1193` |
 | Dom | `catalog_ids-list-item-1918` |
+| Elektronika | `catalog_ids-list-item-2994` |
+| Książki i multimedia | `catalog_ids-list-item-2309` |
+| Hobby i kolekcjonerstwo | `catalog_ids-list-item-4824` |
+| Sport | `catalog_ids-list-item-4332` |
 
-**Uwaga na „Elektronikę”:** skrypt szukający nazwy na całej stronie
-odnalazł `A` w `LI` nawigacji *breadcrumbs*, a nie wiersz filtra.
-Nie przyjmujemy dla niej identyfikatora filtra bez niezależnej weryfikacji.
+**Korekta dotycząca „Elektroniki”:** pierwszy skrypt szukający nazwy
+na całej stronie znalazł `A` w `LI` nawigacji *breadcrumbs*, a nie wiersz
+filtra. **Drugi niezależny odczyt samych wierszy kategorii potwierdził
+`catalog_ids-list-item-2994` dla Elektroniki.** Wszystkie powyższe dane
+pochodzą z poziomu kategorii głównych; nie są jeszcze dowodem na strukturę
+podkategorii. Nazw i ID nie kodujemy na stałe w produkcyjnych selektorach.
 
 Nowy `VintedCategoryOptionResolver` używa `id^="catalog_ids-list-item-"`
 z dokładnym dopasowaniem widocznej etykiety, a następnie dopuszcza awaryjne
