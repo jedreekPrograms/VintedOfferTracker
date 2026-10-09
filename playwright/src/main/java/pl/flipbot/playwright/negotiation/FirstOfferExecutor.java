@@ -1113,31 +1113,9 @@ public class FirstOfferExecutor {
     }
 
 
-    private boolean waitForOfferForm(
-            Locator priceInput,
-            double timeoutMs
-    ) {
-
-        try {
-
-            priceInput.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    timeoutMs
-                            )
-            );
-
-            return true;
-
-        } catch (TimeoutError exception) {
-
-            return false;
-        }
+    private boolean waitForOfferForm(Locator priceInput, double timeoutMs) {
+        return OfferFormVisibility.waitUntilVisible(priceInput, timeoutMs);
     }
-
 
     private boolean isOfferTooLow(
             Page page
