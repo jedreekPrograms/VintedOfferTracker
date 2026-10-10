@@ -295,7 +295,7 @@ public class FirstOfferExecutor {
                 context.getPage();
 
         if (
-                !isCurrentListingPage(
+                !listingReadiness.isCurrentListingPage(
                         page,
                         listing.listingId()
                 )
