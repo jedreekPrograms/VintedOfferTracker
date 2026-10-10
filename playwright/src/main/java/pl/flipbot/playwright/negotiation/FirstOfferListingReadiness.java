@@ -293,7 +293,7 @@ final class FirstOfferListingReadiness {
         return null;
     }
 
-    private boolean isCurrentListingPage(
+    boolean isCurrentListingPage(
             Page page,
             String marketplaceListingId
     ) {
@@ -386,7 +386,7 @@ final class FirstOfferListingReadiness {
         }
     }
 
-    private String resolveListingUrl(
+    String resolveListingUrl(
             String url
     ) {
 
