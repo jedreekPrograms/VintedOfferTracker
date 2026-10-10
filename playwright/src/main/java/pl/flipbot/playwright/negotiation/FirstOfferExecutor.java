@@ -1015,100 +1015,31 @@ public class FirstOfferExecutor {
             ListingResponseDto listing,
             BigDecimal offerPrice
     ) {
-
-        Locator priceInput =
-                page.getByTestId(
-                                NegotiationSelectors.OFFER_PRICE_INPUT
-                        )
-                        .first();
-
-        priceInput.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                ELEMENT_TIMEOUT_MS
-                        )
+        Locator priceInput = page.getByTestId(NegotiationSelectors.OFFER_PRICE_INPUT).first();
+        String enteredValue = OfferPriceFormFields.fillAndVerify(
+                priceInput, offerPrice.toPlainString(), ELEMENT_TIMEOUT_MS,
+                "Offer input contains unexpected value. Expected: "
         );
-
-        String priceText =
-                offerPrice.toPlainString();
-
-        priceInput.fill(
-                priceText
-        );
-
-        String enteredValue =
-                priceInput.inputValue();
-
-        if (
-                !priceText.equals(
-                        enteredValue
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Offer input contains unexpected value. Expected: "
-                            + priceText
-                            + ", actual: "
-                            + enteredValue
-            );
-        }
 
         log.info(
                 "[REAL OFFER PREPARE] Filled offer input for marketplace "
                         + "listing {}. Value={}. No offer has been sent.",
-                listing.listingId(),
-                enteredValue
+                listing.listingId(), enteredValue
         );
 
-        priceInput.press(
-                "Tab"
-        );
+        priceInput.press("Tab");
 
-        if (
-                isOfferTooLow(
-                        page
-                )
-        ) {
-
-            closeOfferModal(
-                    page
-            );
-
+        if (isOfferTooLow(page)) {
+            closeOfferModal(page);
             clearPreparedState();
-
             return false;
         }
 
-        Locator submitButton =
-                page.getByTestId(
-                                NegotiationSelectors.OFFER_SUBMIT_BUTTON
-                        )
-                        .first();
-
-        submitButton.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                ELEMENT_TIMEOUT_MS
-                        )
+        OfferPriceFormFields.requireEnabledSubmit(
+                page, ELEMENT_TIMEOUT_MS,
+                "Offer submit button is disabled after filling price for "
+                        + "marketplace listing " + listing.listingId()
         );
-
-        if (
-                !submitButton.isEnabled()
-        ) {
-
-            throw new IllegalStateException(
-                    "Offer submit button is disabled after filling price for "
-                            + "marketplace listing "
-                            + listing.listingId()
-            );
-        }
-
         return true;
     }
 

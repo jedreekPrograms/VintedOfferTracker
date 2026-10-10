@@ -549,125 +549,41 @@ public class NextNegotiationStepExecutor {
             NegotiationStepDto nextStep,
             String logPrefix
     ) {
+        humanVerificationHandler.waitUntilVerified(page);
 
-        humanVerificationHandler.waitUntilVerified(
-                page
+        Locator priceInput = page.getByTestId(NegotiationSelectors.OFFER_PRICE_INPUT).first();
+        String expectedPrice = nextStep.getOfferPrice().toPlainString();
+        String actualInputValue = OfferPriceFormFields.fillAndVerify(
+                priceInput, expectedPrice, ELEMENT_TIMEOUT_MS,
+                "Offer input contains an unexpected value. Expected: "
         );
-
-        Locator priceInput =
-                page.getByTestId(
-                                NegotiationSelectors.OFFER_PRICE_INPUT
-                        )
-                        .first();
-
-        priceInput.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                ELEMENT_TIMEOUT_MS
-                        )
-        );
-
-        String expectedPrice =
-                nextStep.getOfferPrice()
-                        .toPlainString();
-
-        priceInput.fill(
-                expectedPrice
-        );
-
-        String actualInputValue =
-                priceInput.inputValue();
-
-        if (!expectedPrice.equals(
-                actualInputValue
-        )) {
-
-            throw new IllegalStateException(
-                    "Offer input contains an unexpected value. Expected: "
-                            + expectedPrice
-                            + ", actual: "
-                            + actualInputValue
-            );
-
-        }
 
         log.info(
-                "{} Filled offer input for listing {}. "
-                        + "Expected: {}, actual: {}",
-                logPrefix,
-                listing.listingId(),
-                expectedPrice,
-                actualInputValue
+                "{} Filled offer input for listing {}. Expected: {}, actual: {}",
+                logPrefix, listing.listingId(), expectedPrice, actualInputValue
         );
 
-        priceInput.press(
-                "Tab"
-        );
+        priceInput.press("Tab");
 
-        OfferPriceValidation validation =
-                inspectOfferPriceValidation(
-                        page,
-                        logPrefix
-                );
-
+        OfferPriceValidation validation = inspectOfferPriceValidation(page, logPrefix);
         if (validation.tooLow()) {
-            boolean recovered =
-                    tryRaiseAdaptiveStepToLiveMinimum(
-                            page,
-                            listing,
-                            nextStep,
-                            validation,
-                            priceInput,
-                            logPrefix
-                    );
+            boolean recovered = tryRaiseAdaptiveStepToLiveMinimum(
+                    page, listing, nextStep, validation, priceInput, logPrefix
+            );
 
             if (!recovered) {
-                closeOfferModal(
-                        page,
-                        logPrefix
-                );
-
+                closeOfferModal(page, logPrefix);
                 return false;
             }
         }
 
-        Locator submitButton =
-                page.getByTestId(
-                                NegotiationSelectors.OFFER_SUBMIT_BUTTON
-                        )
-                        .first();
-
-        submitButton.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                ELEMENT_TIMEOUT_MS
-                        )
+        OfferPriceFormFields.requireEnabledSubmit(
+                page, ELEMENT_TIMEOUT_MS,
+                "Offer submit button is disabled after entering price "
+                        + expectedPrice + " for marketplace listing " + listing.listingId()
         );
-
-        if (!submitButton.isEnabled()) {
-
-            throw new IllegalStateException(
-                    "Offer submit button is disabled after entering price "
-                            + expectedPrice
-                            + " for marketplace listing "
-                            + listing.listingId()
-            );
-
-        }
-
-        log.info(
-                "{} Submit button is visible and enabled.",
-                logPrefix
-        );
-
+        log.info("{} Submit button is visible and enabled.", logPrefix);
         return true;
-
     }
 
     private OfferPriceValidation inspectOfferPriceValidation(
