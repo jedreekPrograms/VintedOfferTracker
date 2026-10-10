@@ -31,23 +31,6 @@ public interface MarketListingObservationRepository
             LocalDateTime firstSeenAfter
     );
 
-    @Query(value = """
-            select count(*)
-            from market_listing_observation observation
-            where observation.model_id = :modelId
-              and observation.tracking_generation = :trackingGeneration
-              and observation.published_at is not null
-              and observation.published_at >= :fromInclusive
-              and observation.published_at < :toExclusive
-            """, nativeQuery = true)
-    long countPublishedListingsBetween(
-            @Param("modelId") Long modelId,
-            @Param("trackingGeneration") Integer trackingGeneration,
-            @Param("fromInclusive") LocalDateTime fromInclusive,
-            @Param("toExclusive") LocalDateTime toExclusive
-    );
-
-
     /**
      * All calendar publication windows in one grouped PostgreSQL query.
      * Joining the scan-state generation is essential: old observer generations

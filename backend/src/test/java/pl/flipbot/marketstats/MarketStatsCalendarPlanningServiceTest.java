@@ -282,11 +282,6 @@ class MarketStatsCalendarPlanningServiceTest {
                 any(LocalDateTime.class), any(LocalDateTime.class),
                 any(LocalDateTime.class), any(LocalDateTime.class)
         );
-        verify(observations, never()).countPublishedListingsBetween(
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.anyInt(),
-                any(LocalDateTime.class), any(LocalDateTime.class)
-        );
     }
 
     @Test
