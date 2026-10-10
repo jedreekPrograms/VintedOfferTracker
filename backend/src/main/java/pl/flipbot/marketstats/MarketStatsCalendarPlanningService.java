@@ -70,8 +70,16 @@ public class MarketStatsCalendarPlanningService {
         }
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
+        // Incomplete baselines must not produce a calendar count (or SQL work).
+        List<Long> trackedModelIds = models.stream()
+                .map(DictionaryModel::getId)
+                .filter(id -> {
+                    MarketModelScanState state = scanStates.get(id);
+                    return state != null && state.getBaselineCompleteAt() != null;
+                })
+                .toList();
         Map<Long, PublishedWindowCounts> publishedCounts =
-                loadPublishedWindowCounts(modelIds, windows);
+                loadPublishedWindowCounts(trackedModelIds, windows);
 
         ConversationCapacityProfile capacityProfile =
                 loadConversationCapacity(
