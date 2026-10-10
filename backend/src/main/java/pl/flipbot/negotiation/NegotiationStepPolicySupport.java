@@ -140,4 +140,44 @@ public final class NegotiationStepPolicySupport {
         return requested != null && (current == null || requested.compareTo(current) > 0);
     }
 
+    /**
+     * Construct a brand-new strategy step. The owner relation is intentionally
+     * assigned by the calling editor (main product or additional target).
+     * Caller also selects its historical message-normalization behavior.
+     */
+    public static NegotiationStep newStep(
+            CreateNegotiationStepRequest request, int number, String storedMessage
+    ) {
+        ResolvedStepPolicy policy = NegotiationPolicyDefaults.resolvePolicy(request, number);
+        return NegotiationStep.builder()
+                .stepNumber(number)
+                .offerPrice(request.getOfferPrice())
+                .maxAcceptedCounterOffer(request.getMaxAcceptedCounterOffer())
+                .message(storedMessage)
+                .rejectionAction(policy.rejectionAction())
+                .rejectionWaitHours(policy.rejectionWaitHours())
+                .counterOfferDefaultAction(policy.counterDefaultAction())
+                .counterOfferDefaultWaitHours(policy.counterDefaultWaitHours())
+                .counterOfferRules(toRuleEntities(policy.rules()))
+                .build();
+    }
+
+    /**
+     * Change the existing managed step entities and element collections
+     * IN PLACE. Throw the caller's original localized structure error.
+     */
+    public static void applyResponsePolicies(
+            List<NegotiationStep> existing,
+            List<CreateNegotiationStepRequest> requested,
+            String mismatchMessage
+    ) {
+        if (existing.size() != requested.size()) {
+            throw new IllegalStateException(mismatchMessage);
+        }
+        for (int i = 0; i < existing.size(); i++) {
+            applyPolicy(existing.get(i),
+                    NegotiationPolicyDefaults.resolvePolicy(requested.get(i), i + 1));
+        }
+    }
+
 }

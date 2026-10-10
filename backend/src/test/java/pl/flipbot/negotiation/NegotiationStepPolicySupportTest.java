@@ -192,4 +192,54 @@ class NegotiationStepPolicySupportTest {
         return req;
     }
 
+    @Test
+    void newStepKeepsItsOwnMessageAndOwnerUnassignedUntilEditorAttachesIt() {
+        CreateNegotiationStepRequest request = request("700.00", "750.00", " exact  spaces ");
+        NegotiationStep created = NegotiationStepPolicySupport.newStep(
+                request, 2, request.getMessage()
+        );
+        assertEquals(2, created.getStepNumber());
+        assertEquals(" exact  spaces ", created.getMessage());
+        assertEquals(0, created.getOfferPrice().compareTo(new BigDecimal("700")));
+        assertEquals(0, created.getMaxAcceptedCounterOffer().compareTo(new BigDecimal("750")));
+        assertEquals(null, created.getConfiguration());
+        assertEquals(null, created.getAdditionalTarget());
+        assertTrue(NegotiationStepPolicySupport.samePolicy(created,
+                NegotiationPolicyDefaults.resolvePolicy(request, 2)));
+        NegotiationStep normalized = NegotiationStepPolicySupport.newStep(
+                request, 2, "exact spaces"
+        );
+        assertEquals("exact spaces", normalized.getMessage());
+    }
+
+    @Test
+    void policyUpdatePreservesManagedListAndStepIdentities() {
+        CreateNegotiationStepRequest original = request("700", "750", "Hi");
+        NegotiationStep first = NegotiationStepPolicySupport.newStep(original, 1, "Hi");
+        List<SellerCounterOfferRule> rules = first.getCounterOfferRules();
+        java.util.ArrayList<NegotiationStep> managed = new java.util.ArrayList<>(List.of(first));
+        CreateNegotiationStepRequest revised = request("700", "750", "Hi");
+        revised.setCounterOfferRules(List.of());
+        NegotiationStepPolicySupport.applyResponsePolicies(managed, List.of(revised),
+                "structure mismatch");
+        assertSame(first, managed.getFirst());
+        assertSame(rules, first.getCounterOfferRules());
+        assertTrue(first.getCounterOfferRules().isEmpty());
+        assertTrue(NegotiationStepPolicySupport.samePolicy(first,
+                NegotiationPolicyDefaults.resolvePolicy(revised, 1)));
+    }
+
+    @Test
+    void invalidPolicyUpdateKeepsExistingStepsAndCallerErrorMessage() {
+        CreateNegotiationStepRequest request = request("700", "750", "Hi");
+        NegotiationStep step = NegotiationStepPolicySupport.newStep(request, 1, "Hi");
+        List<NegotiationStep> list = new java.util.ArrayList<>(List.of(step));
+        org.junit.jupiter.api.Assertions.assertEquals("localized mismatch",
+                org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                        () -> NegotiationStepPolicySupport.applyResponsePolicies(
+                                list, List.of(), "localized mismatch"
+                        )).getMessage());
+        assertSame(step, list.getFirst());
+    }
+
 }

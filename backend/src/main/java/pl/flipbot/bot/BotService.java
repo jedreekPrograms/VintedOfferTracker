@@ -24,8 +24,6 @@ import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.sameDecimal;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.nextStrategyVersion;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.isGlobalCapIncreased;
-import static pl.flipbot.negotiation.NegotiationStepPolicySupport.applyPolicy;
-import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -327,37 +325,32 @@ public class BotService {
         }
     }
 
-    private void replaceNegotiationSteps(BotConfiguration configuration, List<CreateNegotiationStepRequest> requests) {
+
+
+
+
+
+    private void replaceNegotiationSteps(
+            BotConfiguration configuration, List<CreateNegotiationStepRequest> requests
+    ) {
         configuration.getNegotiationSteps().clear();
         for (int i = 0; i < requests.size(); i++) {
             CreateNegotiationStepRequest request = requests.get(i);
-            int stepNumber = i + 1;
-            ResolvedStepPolicy policy = resolvePolicy(request, stepNumber);
-            configuration.getNegotiationSteps().add(NegotiationStep.builder()
-                    .stepNumber(stepNumber)
-                    .offerPrice(request.getOfferPrice())
-                    .maxAcceptedCounterOffer(request.getMaxAcceptedCounterOffer())
-                    .message(request.getMessage())
-                    .rejectionAction(policy.rejectionAction())
-                    .rejectionWaitHours(policy.rejectionWaitHours())
-                    .counterOfferDefaultAction(policy.counterDefaultAction())
-                    .counterOfferDefaultWaitHours(policy.counterDefaultWaitHours())
-                    .counterOfferRules(toRuleEntities(policy.rules()))
-                    .configuration(configuration)
-                    .build());
+            NegotiationStep step = NegotiationStepPolicySupport.newStep(
+                    request, i + 1, request.getMessage()
+            );
+            step.setConfiguration(configuration);
+            configuration.getNegotiationSteps().add(step);
         }
     }
 
-    private void applyResponsePolicies(BotConfiguration configuration, List<CreateNegotiationStepRequest> requests) {
-        List<NegotiationStep> existing = orderedSteps(configuration);
-        if (existing.size() != requests.size()) {
-            throw new IllegalStateException("Cannot apply response policies because negotiation step structure changed.");
-        }
-        for (int i = 0; i < existing.size(); i++) {
-            NegotiationStep step = existing.get(i);
-            ResolvedStepPolicy policy = resolvePolicy(requests.get(i), i + 1);
-            applyPolicy(step, policy);
-        }
+    private void applyResponsePolicies(
+            BotConfiguration configuration, List<CreateNegotiationStepRequest> requests
+    ) {
+        NegotiationStepPolicySupport.applyResponsePolicies(
+                orderedSteps(configuration), requests,
+                "Cannot apply response policies because negotiation step structure changed."
+        );
     }
 
     private void validateConfiguration(CreateBotConfigurationRequest request) {

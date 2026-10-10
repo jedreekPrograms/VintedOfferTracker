@@ -23,8 +23,6 @@ import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.sameDecimal;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.nextStrategyVersion;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.isGlobalCapIncreased;
-import static pl.flipbot.negotiation.NegotiationStepPolicySupport.applyPolicy;
-import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -284,51 +282,9 @@ public class BotAdditionalTargetService {
                 : null);
     }
 
-    private void replaceNegotiationSteps(
-            BotAdditionalTarget target,
-            List<CreateNegotiationStepRequest> requests
-    ) {
-        target.getNegotiationSteps().clear();
 
-        for (int index = 0; index < requests.size(); index++) {
-            CreateNegotiationStepRequest request = requests.get(index);
-            ResolvedStepPolicy policy = resolvePolicy(request, index + 1);
 
-            target.getNegotiationSteps().add(
-                    NegotiationStep.builder()
-                            .stepNumber(index + 1)
-                            .offerPrice(request.getOfferPrice())
-                            .maxAcceptedCounterOffer(request.getMaxAcceptedCounterOffer())
-                            .message(normalizeRequired(request.getMessage()))
-                            .rejectionAction(policy.rejectionAction())
-                            .rejectionWaitHours(policy.rejectionWaitHours())
-                            .counterOfferDefaultAction(policy.counterDefaultAction())
-                            .counterOfferDefaultWaitHours(policy.counterDefaultWaitHours())
-                            .counterOfferRules(toRuleEntities(policy.rules()))
-                            .additionalTarget(target)
-                            .build()
-            );
-        }
-    }
 
-    private void applyResponsePolicies(
-            BotAdditionalTarget target,
-            List<CreateNegotiationStepRequest> requests
-    ) {
-        List<NegotiationStep> existing = orderedSteps(target);
-        if (existing.size() != requests.size()) {
-            throw new IllegalStateException(
-                    "Nie można zapisać polityk reakcji, ponieważ zmieniła się struktura kroków."
-            );
-        }
-
-        for (int index = 0; index < existing.size(); index++) {
-            NegotiationStep step = existing.get(index);
-            ResolvedStepPolicy policy = resolvePolicy(requests.get(index), index + 1);
-
-            applyPolicy(step, policy);
-        }
-    }
 
 
 
@@ -336,6 +292,30 @@ public class BotAdditionalTargetService {
 
     private List<NegotiationStep> orderedSteps(BotAdditionalTarget target) {
         return NegotiationStepPolicySupport.orderedSteps(target.getNegotiationSteps());
+    }
+
+
+    private void replaceNegotiationSteps(
+            BotAdditionalTarget target, List<CreateNegotiationStepRequest> requests
+    ) {
+        target.getNegotiationSteps().clear();
+        for (int i = 0; i < requests.size(); i++) {
+            CreateNegotiationStepRequest request = requests.get(i);
+            NegotiationStep step = NegotiationStepPolicySupport.newStep(
+                    request, i + 1, normalizeRequired(request.getMessage())
+            );
+            step.setAdditionalTarget(target);
+            target.getNegotiationSteps().add(step);
+        }
+    }
+
+    private void applyResponsePolicies(
+            BotAdditionalTarget target, List<CreateNegotiationStepRequest> requests
+    ) {
+        NegotiationStepPolicySupport.applyResponsePolicies(
+                orderedSteps(target), requests,
+                "Nie można zapisać polityk reakcji, ponieważ zmieniła się struktura kroków."
+        );
     }
 
     private boolean targetDefinitionChanged(
