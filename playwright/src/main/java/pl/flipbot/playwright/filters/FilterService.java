@@ -2,7 +2,6 @@ package pl.flipbot.playwright.filters;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.options.WaitForSelectorState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.filters.category.CategoryNavigator;
@@ -33,6 +32,8 @@ public class FilterService {
     private final CategoryNavigator
             categoryNavigator;
 
+    private final VintedCatalogSearchFilter searchFilter;
+
 
     public FilterService(
             BotContext context
@@ -50,6 +51,8 @@ public class FilterService {
                 new CategoryNavigator(
                         actions
                 );
+
+        this.searchFilter = new VintedCatalogSearchFilter(page, actions);
     }
 
 
@@ -117,9 +120,7 @@ public class FilterService {
             }
 
 
-            applySearchQuery(
-                    bot
-            );
+            searchFilter.apply(bot);
         }
 
 
@@ -337,154 +338,13 @@ public class FilterService {
     }
 
 
-    private void applySearchQuery(
-            BotDetailsDto bot
-    ) {
-
-        String searchQuery =
-                normalizeSearchQuery(
-                        bot.getConfiguration()
-                                .getSearchQuery()
-                );
 
 
-        log.info(
-                "[FILTER SEARCH] Applying text search query: '{}'.",
-                searchQuery
-        );
 
 
-        Locator searchInput =
-                resolveVisibleSearchInput();
 
 
-        searchInput.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                5_000
-                        )
-        );
 
-
-        log.info(
-                "[FILTER SEARCH] Search input found. "
-                        + "Placeholder='{}', current value='{}'.",
-                searchInput.getAttribute(
-                        "placeholder"
-                ),
-                searchInput.inputValue()
-        );
-
-
-        searchInput.click();
-
-
-        searchInput.fill(
-                searchQuery
-        );
-
-
-        String enteredValue =
-                searchInput.inputValue();
-
-
-        if (
-                !searchQuery.equals(
-                        enteredValue
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Vinted search input contains unexpected value. "
-                            + "Expected: '"
-                            + searchQuery
-                            + "', actual: '"
-                            + enteredValue
-                            + "'."
-            );
-        }
-
-
-        log.info(
-                "[FILTER SEARCH] Search query entered successfully. "
-                        + "Input value='{}'.",
-                enteredValue
-        );
-
-
-        searchInput.press(
-                "Enter"
-        );
-
-
-        waitForSearchQueryInUrl(
-                searchQuery
-        );
-
-
-        log.info(
-                "[FILTER SEARCH] Search query submitted successfully. "
-                        + "Current URL: {}",
-                page.url()
-        );
-    }
-
-
-    private Locator resolveVisibleSearchInput() {
-        return VintedCatalogSearchInputResolver.resolveVisible(page);
-    }
-
-
-    private void waitForSearchQueryInUrl(
-            String expectedSearchQuery
-    ) {
-
-        final int maxAttempts =
-                20;
-
-        final double delayMilliseconds =
-                250;
-
-
-        for (
-                int attempt = 1;
-                attempt <= maxAttempts;
-                attempt++
-        ) {
-
-            String currentSearchQuery =
-                    getUrlParameter(
-                            "search_text"
-                    );
-
-
-            if (
-                    expectedSearchQuery.equals(
-                            currentSearchQuery
-                    )
-            ) {
-
-                return;
-            }
-
-
-            actions.waitForTimeout(
-                    delayMilliseconds
-            );
-        }
-
-
-        throw new IllegalStateException(
-                "Vinted did not submit the expected search query. "
-                        + "Expected search_text='"
-                        + expectedSearchQuery
-                        + "', current URL: "
-                        + page.url()
-        );
-    }
 
 
     private void applySortBy() {
@@ -744,7 +604,7 @@ public class FilterService {
         ) {
 
             String expectedSearchQuery =
-                    normalizeSearchQuery(
+                    VintedCatalogSearchFilter.normalizeSearchQuery(
                             configuration.getSearchQuery()
                     );
 
@@ -1073,23 +933,7 @@ public class FilterService {
     }
 
 
-    private String normalizeSearchQuery(
-            String searchQuery
-    ) {
 
-        if (searchQuery == null) {
-
-            return "";
-        }
-
-
-        return searchQuery
-                .trim()
-                .replaceAll(
-                        "\\s+",
-                        " "
-                );
-    }
 
 
     private String resolveTargetMode(
