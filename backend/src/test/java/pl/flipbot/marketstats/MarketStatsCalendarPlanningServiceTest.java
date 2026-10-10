@@ -28,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 
 class MarketStatsCalendarPlanningServiceTest {
 
@@ -128,7 +130,7 @@ class MarketStatsCalendarPlanningServiceTest {
         when(modelRepository.findAll()).thenReturn(List.of(s26));
         when(configurationRepository.findAll()).thenReturn(List.of(configuration));
         when(additionalTargetRepository.findAll()).thenReturn(List.of(additionalTarget));
-        when(scanStateRepository.findById(30L)).thenReturn(Optional.empty());
+        when(scanStateRepository.findAllById(List.of(30L))).thenReturn(List.of());
         when(realActionAuditRepository
                 .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
                         any(),
@@ -159,5 +161,49 @@ class MarketStatsCalendarPlanningServiceTest {
         assertEquals(1, response.existingBots());
         assertEquals(8, response.dailyConversationCapacityPerBot());
         assertEquals(56, response.weeklyConversationCapacityPerBot());
+        verify(scanStateRepository).findAllById(List.of(30L));
+        verify(scanStateRepository, never()).findById(30L);
+    }
+
+    @Test
+    void fetchesStatesOnceAndMapsThemToCorrectModelEvenWhenRowsAreOutOfOrder() {
+        DictionaryModelRepository models = mock(DictionaryModelRepository.class);
+        BotConfigurationRepository configs = mock(BotConfigurationRepository.class);
+        BotAdditionalTargetRepository targets = mock(BotAdditionalTargetRepository.class);
+        MarketModelScanStateRepository scanStates = mock(MarketModelScanStateRepository.class);
+        MarketListingObservationRepository observations = mock(MarketListingObservationRepository.class);
+        RealActionAuditRepository audits = mock(RealActionAuditRepository.class);
+        ListingRepository listings = mock(ListingRepository.class);
+        HistoryModelResolver history = mock(HistoryModelResolver.class);
+
+        DictionaryBrand samsung = DictionaryBrand.builder().id(1L).name("Samsung").build();
+        DictionaryModel s25 = DictionaryModel.builder()
+                .id(25L).brand(samsung).name("Galaxy S25").build();
+        DictionaryModel s26 = DictionaryModel.builder()
+                .id(26L).brand(samsung).name("Galaxy S26").build();
+        LocalDateTime successful = LocalDate.of(2026, 10, 8).atTime(12, 0);
+        MarketModelScanState state26 = MarketModelScanState.builder()
+                .modelId(26L).lastSuccessfulScanAt(successful).lastScanComplete(true).build();
+
+        when(models.findAll()).thenReturn(List.of(s25, s26));
+        when(configs.findAll()).thenReturn(List.of());
+        when(targets.findAll()).thenReturn(List.of());
+        when(scanStates.findAllById(List.of(25L, 26L))).thenReturn(List.of(state26));
+        when(audits.findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                any(), any(), any(LocalDateTime.class))).thenReturn(List.of());
+
+        MarketStatsCalendarPlanningService service = new MarketStatsCalendarPlanningService(
+                models, configs, targets, scanStates, observations, audits, listings, history
+        );
+        List<CalendarModelPlanningResponse> responses = service.getPlanning();
+
+        assertEquals(2, responses.size());
+        assertEquals(25L, responses.get(0).modelId());
+        assertEquals(null, responses.get(0).lastSuccessfulScanAt());
+        assertEquals(26L, responses.get(1).modelId());
+        assertEquals(successful, responses.get(1).lastSuccessfulScanAt());
+        verify(scanStates).findAllById(List.of(25L, 26L));
+        verify(scanStates, never()).findById(25L);
+        verify(scanStates, never()).findById(26L);
     }
 }

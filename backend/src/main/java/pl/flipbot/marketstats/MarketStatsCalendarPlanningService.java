@@ -61,6 +61,13 @@ public class MarketStatsCalendarPlanningService {
                         .filter(target -> Boolean.TRUE.equals(target.getActive()))
                         .toList();
         List<DictionaryModel> models = modelRepository.findAll();
+
+        // One bulk query instead of a repository lookup for every calendar row.
+        List<Long> modelIds = models.stream().map(DictionaryModel::getId).toList();
+        Map<Long, MarketModelScanState> scanStates = new HashMap<>();
+        for (MarketModelScanState state : scanStateRepository.findAllById(modelIds)) {
+            scanStates.put(state.getModelId(), state);
+        }
         ConversationCapacityProfile capacityProfile =
                 loadConversationCapacity(
                         now.toLocalDate(),
@@ -84,6 +91,7 @@ public class MarketStatsCalendarPlanningService {
                         model,
                         configurations,
                         additionalTargets,
+                        scanStates.get(model.getId()),
                         capacityProfile,
                         now,
                         currentWindowFreshnessMinutes
@@ -95,14 +103,11 @@ public class MarketStatsCalendarPlanningService {
             DictionaryModel model,
             List<BotConfiguration> configurations,
             List<BotAdditionalTarget> additionalTargets,
+            MarketModelScanState state,
             ConversationCapacityProfile capacityProfile,
             LocalDateTime now,
             long currentWindowFreshnessMinutes
     ) {
-        MarketModelScanState state = scanStateRepository
-                .findById(model.getId())
-                .orElse(null);
-
         List<Long> matchingBotIds = matchingBotIds(
                 model,
                 configurations,
