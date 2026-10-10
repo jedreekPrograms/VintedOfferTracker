@@ -36,7 +36,7 @@ public class NextStepBackendPersistenceTest {
         verify(client, times(1)).updateListing(eq(9L), eq(100L), request.capture());
         assertEquals("NEGOTIATING", request.getValue().status());
         assertEquals(new BigDecimal("1248.00"), request.getValue().currentPrice());
-        assertEquals(4, request.getValue().currentStep());
+        assertEquals(Integer.valueOf(4), request.getValue().currentStep());
         assertEquals(Boolean.TRUE, request.getValue().awaitingSellerResponse());
         assertEquals("chat-1", request.getValue().conversationId());
         assertEquals("https://www.vinted.pl/inbox/chat-1", request.getValue().conversationUrl());
