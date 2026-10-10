@@ -28,7 +28,7 @@ final class VintedModelRowInteractor {
         this.page = page;
     }
 
-    private Locator canonicalModelRow(
+    Locator canonicalModelRow(
             String collectionId,
             Locator evidenceLocator
     ) {
@@ -69,7 +69,7 @@ final class VintedModelRowInteractor {
         return evidenceLocator;
     }
 
-    private void selectExactModelRow(
+    void selectExactModelRow(
             Locator modelRow,
             String model,
             String collectionId
