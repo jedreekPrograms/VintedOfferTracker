@@ -13,10 +13,9 @@ import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotAdditionalTargetMapper;
-import pl.flipbot.negotiation.NegotiationPolicyDefaults.CounterRuleValue;
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
 import pl.flipbot.negotiation.NegotiationStepPolicySupport;
-import pl.flipbot.negotiation.NegotiationReactionAction;
+import pl.flipbot.negotiation.NegotiationResponsePolicyValidator;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
@@ -30,10 +29,8 @@ import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -41,8 +38,6 @@ public class BotAdditionalTargetService {
 
     public static final int MAX_ADDITIONAL_TARGETS = 4;
 
-    private static final int MAX_RESPONSE_WAIT_HOURS = 24 * 30;
-    private static final BigDecimal MAX_DISCOUNT_PERCENT = new BigDecimal("100");
 
     private final BotRepository botRepository;
     private final BotAdditionalTargetRepository additionalTargetRepository;
@@ -491,64 +486,14 @@ public class BotAdditionalTargetService {
         }
     }
 
-    private void validateResolvedPolicy(
-            ResolvedStepPolicy policy,
-            int stepNumber
-    ) {
-        validateReaction(
-                policy.rejectionAction(),
-                policy.rejectionWaitHours(),
-                "Krok " + stepNumber + " po odrzuceniu"
-        );
-        validateReaction(
-                policy.counterDefaultAction(),
-                policy.counterDefaultWaitHours(),
-                "Krok " + stepNumber + " domyślna kontroferta"
-        );
 
-        Set<String> thresholds = new HashSet<>();
-        for (CounterRuleValue rule : policy.rules()) {
-            if (rule.minimumDiscountPercent() == null
-                    || rule.minimumDiscountPercent().signum() <= 0
-                    || rule.minimumDiscountPercent().compareTo(MAX_DISCOUNT_PERCENT) > 0) {
-                throw new IllegalArgumentException(
-                        "Próg procentowy kroku " + stepNumber
-                                + " musi być większy od 0 i nie większy niż 100%."
-                );
-            }
-            String normalized = rule.minimumDiscountPercent()
-                    .stripTrailingZeros()
-                    .toPlainString();
-            if (!thresholds.add(normalized)) {
-                throw new IllegalArgumentException(
-                        "Krok " + stepNumber + " zawiera powtórzony próg "
-                                + normalized + "%."
-                );
-            }
-            validateReaction(
-                    rule.action(),
-                    rule.waitHours(),
-                    "Krok " + stepNumber + " próg " + normalized + "%"
-            );
-        }
-    }
 
-    private void validateReaction(
-            NegotiationReactionAction action,
-            Integer waitHours,
-            String label
-    ) {
-        if (action == null) {
-            throw new IllegalArgumentException(label + " nie ma ustawionej akcji.");
-        }
-        if (action == NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
-                && (waitHours == null
-                || waitHours < 1
-                || waitHours > MAX_RESPONSE_WAIT_HOURS)) {
-            throw new IllegalArgumentException(
-                    label + " wymaga czasu 1-720 godzin."
-            );
-        }
+
+
+    private void validateResolvedPolicy(ResolvedStepPolicy policy, int stepNumber) {
+        NegotiationResponsePolicyValidator.validate(
+                policy, stepNumber, NegotiationResponsePolicyValidator.MessageStyle.ADDITIONAL
+        );
     }
 
     private boolean categoryPathsEqual(

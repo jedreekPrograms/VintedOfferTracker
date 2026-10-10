@@ -14,10 +14,9 @@ import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotMapper;
-import pl.flipbot.negotiation.NegotiationPolicyDefaults.CounterRuleValue;
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
 import pl.flipbot.negotiation.NegotiationStepPolicySupport;
-import pl.flipbot.negotiation.NegotiationReactionAction;
+import pl.flipbot.negotiation.NegotiationResponsePolicyValidator;
 import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
@@ -31,16 +30,12 @@ import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class BotService {
-    private static final int MAX_RESPONSE_WAIT_HOURS = 24 * 30;
-    private static final BigDecimal MAX_DISCOUNT_PERCENT = new BigDecimal("100");
 
     private final BotRepository botRepository;
     private final BotConfigurationRepository botConfigurationRepository;
@@ -393,30 +388,14 @@ public class BotService {
         }
     }
 
-    private void validateResolvedPolicy(ResolvedStepPolicy policy, int stepNumber) {
-        validateReaction(policy.rejectionAction(), policy.rejectionWaitHours(), "Step " + stepNumber + " rejection policy");
-        validateReaction(policy.counterDefaultAction(), policy.counterDefaultWaitHours(), "Step " + stepNumber + " counteroffer fallback");
-        Set<String> thresholds = new HashSet<>();
-        for (CounterRuleValue rule : policy.rules()) {
-            if (rule.minimumDiscountPercent() == null
-                    || rule.minimumDiscountPercent().signum() <= 0
-                    || rule.minimumDiscountPercent().compareTo(MAX_DISCOUNT_PERCENT) > 0) {
-                throw new IllegalArgumentException("Step " + stepNumber + " counteroffer discount threshold must be greater than 0 and at most 100%.");
-            }
-            String threshold = rule.minimumDiscountPercent().stripTrailingZeros().toPlainString();
-            if (!thresholds.add(threshold)) {
-                throw new IllegalArgumentException("Step " + stepNumber + " contains duplicate counteroffer discount threshold " + threshold + "%.");
-            }
-            validateReaction(rule.action(), rule.waitHours(), "Step " + stepNumber + " counteroffer rule " + threshold + "%");
-        }
-    }
 
-    private void validateReaction(NegotiationReactionAction action, Integer waitHours, String label) {
-        if (action == null) throw new IllegalArgumentException(label + " has no action.");
-        if (action == NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
-                && (waitHours == null || waitHours < 1 || waitHours > MAX_RESPONSE_WAIT_HOURS)) {
-            throw new IllegalArgumentException(label + " wait time must be between 1 and " + MAX_RESPONSE_WAIT_HOURS + " hours.");
-        }
+
+
+
+    private void validateResolvedPolicy(ResolvedStepPolicy policy, int stepNumber) {
+        NegotiationResponsePolicyValidator.validate(
+                policy, stepNumber, NegotiationResponsePolicyValidator.MessageStyle.MAIN
+        );
     }
 
     private TargetMode resolveTargetMode(CreateBotConfigurationRequest request) {
