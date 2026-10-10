@@ -206,4 +206,112 @@ class MarketStatsCalendarPlanningServiceTest {
         verify(scanStates, never()).findById(25L);
         verify(scanStates, never()).findById(26L);
     }
+    @Test
+    void oneGroupedCountQueryReplacesPerModelPublicationCounts() {
+        DictionaryModelRepository models = mock(DictionaryModelRepository.class);
+        BotConfigurationRepository configs = mock(BotConfigurationRepository.class);
+        BotAdditionalTargetRepository targets = mock(BotAdditionalTargetRepository.class);
+        MarketModelScanStateRepository states = mock(MarketModelScanStateRepository.class);
+        MarketListingObservationRepository observations = mock(MarketListingObservationRepository.class);
+        RealActionAuditRepository audits = mock(RealActionAuditRepository.class);
+        ListingRepository listings = mock(ListingRepository.class);
+        HistoryModelResolver history = mock(HistoryModelResolver.class);
+
+        DictionaryBrand brand = DictionaryBrand.builder().id(5L).name("Samsung").build();
+        DictionaryModel complete = DictionaryModel.builder()
+                .id(100L).brand(brand).name("Galaxy S25").build();
+        DictionaryModel recent = DictionaryModel.builder()
+                .id(200L).brand(brand).name("Galaxy S26").build();
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/Warsaw"));
+        MarketModelScanState oldState = MarketModelScanState.builder()
+                .modelId(100L)
+                .baselineCompleteAt(today.minusDays(40).atStartOfDay())
+                .publicationWindowCompleteAt(today.minusDays(39).atStartOfDay())
+                .lastSuccessfulScanAt(today.atTime(12, 0))
+                .lastScanComplete(true).trackingGeneration(2).build();
+        MarketModelScanState newState = MarketModelScanState.builder()
+                .modelId(200L)
+                .baselineCompleteAt(today.minusDays(1).atStartOfDay())
+                .lastSuccessfulScanAt(today.atTime(12, 0))
+                .lastScanComplete(false).trackingGeneration(1).build();
+
+        when(models.findAll()).thenReturn(List.of(complete, recent));
+        when(configs.findAll()).thenReturn(List.of());
+        when(targets.findAll()).thenReturn(List.of());
+        when(states.findAllById(List.of(100L, 200L)))
+                .thenReturn(List.of(newState, oldState));
+        // Deliberately reversed SQL row order: association must use model ID.
+        when(observations.countPublishedListingWindows(
+                org.mockito.ArgumentMatchers.eq(List.of(100L, 200L)),
+                any(LocalDateTime.class), any(LocalDateTime.class),
+                any(LocalDateTime.class), any(LocalDateTime.class)
+        )).thenReturn(List.of(
+                new Object[]{200L, 2L, 3L, 4L, 5L},
+                new Object[]{100L, 7L, 15L, 21L, 45L}
+        ));
+        when(audits.findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                any(), any(), any(LocalDateTime.class))).thenReturn(List.of());
+
+        MarketStatsCalendarPlanningService service = new MarketStatsCalendarPlanningService(
+                models, configs, targets, states, observations, audits, listings, history
+        );
+        List<CalendarModelPlanningResponse> result = service.getPlanning();
+
+        assertEquals(2, result.size());
+        CalendarModelPlanningResponse old = result.get(0);
+        CalendarModelPlanningResponse latest = result.get(1);
+        assertEquals(100L, old.modelId());
+        assertEquals(7, old.offersToday());
+        assertEquals(15, old.offersCurrentWeek());
+        assertEquals(21, old.offersPreviousFullWeek());
+        assertEquals(21, old.recommendationWeeklyOffers());
+        assertEquals(false, old.recommendationEstimated());
+
+        assertEquals(200L, latest.modelId());
+        assertEquals(2, latest.offersToday());
+        assertEquals(3, latest.offersCurrentWeek());
+        assertEquals(null, latest.offersPreviousFullWeek());
+        assertEquals(18, latest.recommendationWeeklyOffers());
+        assertEquals(true, latest.recommendationEstimated());
+
+        verify(observations, org.mockito.Mockito.times(1)).countPublishedListingWindows(
+                org.mockito.ArgumentMatchers.eq(List.of(100L, 200L)),
+                any(LocalDateTime.class), any(LocalDateTime.class),
+                any(LocalDateTime.class), any(LocalDateTime.class)
+        );
+        verify(observations, never()).countPublishedListingsBetween(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                any(LocalDateTime.class), any(LocalDateTime.class)
+        );
+    }
+
+    @Test
+    void noModelsSkipsGroupedCountQueryEntirely() {
+        DictionaryModelRepository models = mock(DictionaryModelRepository.class);
+        BotConfigurationRepository configs = mock(BotConfigurationRepository.class);
+        BotAdditionalTargetRepository targets = mock(BotAdditionalTargetRepository.class);
+        MarketModelScanStateRepository states = mock(MarketModelScanStateRepository.class);
+        MarketListingObservationRepository observations = mock(MarketListingObservationRepository.class);
+        RealActionAuditRepository audits = mock(RealActionAuditRepository.class);
+        ListingRepository listings = mock(ListingRepository.class);
+        HistoryModelResolver history = mock(HistoryModelResolver.class);
+        when(models.findAll()).thenReturn(List.of());
+        when(configs.findAll()).thenReturn(List.of());
+        when(targets.findAll()).thenReturn(List.of());
+        when(states.findAllById(List.of())).thenReturn(List.of());
+        when(audits.findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                any(), any(), any(LocalDateTime.class))).thenReturn(List.of());
+
+        MarketStatsCalendarPlanningService service = new MarketStatsCalendarPlanningService(
+                models, configs, targets, states, observations, audits, listings, history
+        );
+        assertEquals(List.of(), service.getPlanning());
+        verify(observations, never()).countPublishedListingWindows(
+                org.mockito.ArgumentMatchers.anyCollection(),
+                any(LocalDateTime.class), any(LocalDateTime.class),
+                any(LocalDateTime.class), any(LocalDateTime.class)
+        );
+    }
+
 }

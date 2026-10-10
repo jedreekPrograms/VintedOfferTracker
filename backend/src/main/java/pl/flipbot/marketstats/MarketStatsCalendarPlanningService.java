@@ -68,6 +68,11 @@ public class MarketStatsCalendarPlanningService {
         for (MarketModelScanState state : scanStateRepository.findAllById(modelIds)) {
             scanStates.put(state.getModelId(), state);
         }
+        MarketStatsPlanningCalculator.CalendarWindows windows =
+                MarketStatsPlanningCalculator.windows(now);
+        Map<Long, PublishedWindowCounts> publishedCounts =
+                loadPublishedWindowCounts(modelIds, windows);
+
         ConversationCapacityProfile capacityProfile =
                 loadConversationCapacity(
                         now.toLocalDate(),
@@ -92,6 +97,7 @@ public class MarketStatsCalendarPlanningService {
                         configurations,
                         additionalTargets,
                         scanStates.get(model.getId()),
+                        publishedCounts.getOrDefault(model.getId(), PublishedWindowCounts.ZERO),
                         capacityProfile,
                         now,
                         currentWindowFreshnessMinutes
@@ -104,6 +110,7 @@ public class MarketStatsCalendarPlanningService {
             List<BotConfiguration> configurations,
             List<BotAdditionalTarget> additionalTargets,
             MarketModelScanState state,
+            PublishedWindowCounts counts,
             ConversationCapacityProfile capacityProfile,
             LocalDateTime now,
             long currentWindowFreshnessMinutes
@@ -151,19 +158,8 @@ public class MarketStatsCalendarPlanningService {
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
 
-        int generation = trackingGeneration(state);
-        int offersToday = countPublishedListings(
-                model.getId(),
-                generation,
-                windows.todayStart(),
-                windows.now()
-        );
-        int offersCurrentWeek = countPublishedListings(
-                model.getId(),
-                generation,
-                windows.currentWeekStart(),
-                windows.now()
-        );
+        int offersToday = counts.today();
+        int offersCurrentWeek = counts.currentWeek();
 
         LocalDateTime lastSuccessfulScanAt = state.getLastSuccessfulScanAt();
         boolean publicationCoverageEstablished =
@@ -221,21 +217,11 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            offersPreviousFullWeek = countPublishedListings(
-                    model.getId(),
-                    generation,
-                    windows.previousWeekStart(),
-                    windows.currentWeekStart()
-            );
+            offersPreviousFullWeek = counts.previousWeek();
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
-            int observedSinceBaseline = countPublishedListings(
-                    model.getId(),
-                    generation,
-                    baselineCompleteAt,
-                    windows.now()
-            );
+            int observedSinceBaseline = counts.sinceBaseline();
             recommendationWeeklyOffers =
                     MarketStatsPlanningCalculator.projectWeeklyOffers(
                             observedSinceBaseline,
@@ -285,35 +271,38 @@ public class MarketStatsCalendarPlanningService {
         );
     }
 
-    private int countPublishedListings(
-            Long modelId,
-            Integer trackingGeneration,
-            LocalDateTime fromInclusive,
-            LocalDateTime toExclusive
+    /**
+     * One query for all models instead of up to four count queries per model.
+     * Models without a finished baseline or matching observations have zero counts.
+     */
+    private Map<Long, PublishedWindowCounts> loadPublishedWindowCounts(
+            List<Long> modelIds,
+            MarketStatsPlanningCalculator.CalendarWindows windows
     ) {
-        if (fromInclusive == null
-                || toExclusive == null
-                || !fromInclusive.isBefore(toExclusive)) {
-            return 0;
+        if (modelIds.isEmpty()) {
+            return Map.of();
         }
 
-        return safeInt(
-                observationRepository.countPublishedListingsBetween(
-                        modelId,
-                        trackingGeneration,
-                        fromInclusive,
-                        toExclusive
-                )
-        );
+        Map<Long, PublishedWindowCounts> result = new HashMap<>();
+        for (Object[] row : observationRepository.countPublishedListingWindows(
+                modelIds, windows.todayStart(), windows.currentWeekStart(),
+                windows.previousWeekStart(), windows.now()
+        )) {
+            Long modelId = ((Number) row[0]).longValue();
+            result.put(modelId, new PublishedWindowCounts(
+                    safeInt(((Number) row[1]).longValue()),
+                    safeInt(((Number) row[2]).longValue()),
+                    safeInt(((Number) row[3]).longValue()),
+                    safeInt(((Number) row[4]).longValue())
+            ));
+        }
+        return result;
     }
 
-    private int trackingGeneration(MarketModelScanState state) {
-        if (state == null
-                || state.getTrackingGeneration() == null
-                || state.getTrackingGeneration() < 1) {
-            return 1;
-        }
-        return state.getTrackingGeneration();
+    private record PublishedWindowCounts(
+            int today, int currentWeek, int previousWeek, int sinceBaseline
+    ) {
+        static final PublishedWindowCounts ZERO = new PublishedWindowCounts(0, 0, 0, 0);
     }
 
     private List<Long> matchingBotIds(
