@@ -19,8 +19,6 @@ import pl.flipbot.playwright.verification.HumanVerificationHandler;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -65,9 +63,6 @@ public class FirstOfferExecutor {
 
     private static final double MODAL_CLOSE_TIMEOUT_MS =
             3_000;
-
-    private static final double CONVERSATION_TIMEOUT_MS =
-            30_000;
 
     private static final double CHAT_ELEMENT_TIMEOUT_MS =
             20_000;
@@ -460,19 +455,17 @@ public class FirstOfferExecutor {
         );
 
         String conversationUrl =
-                waitForConversationUrl(
-                        page,
-                        listing
+                FirstOfferConversationEvidence.waitForConversationUrl(
+                        page, listing, humanVerificationHandler
                 );
 
         String conversationId =
-                extractConversationId(
+                FirstOfferConversationEvidence.extractConversationId(
                         conversationUrl
                 );
 
-        validateConversationReferrer(
-                conversationUrl,
-                listing
+        FirstOfferConversationEvidence.validateConversationReferrer(
+                conversationUrl, listing
         );
 
         ListingResponseDto updatedListing =
@@ -548,11 +541,7 @@ public class FirstOfferExecutor {
                 return false;
             }
 
-            URI conversationUri = URI.create(conversationUrl);
-            String rawQuery = conversationUri.getRawQuery();
-            String decodedQuery = rawQuery == null
-                    ? ""
-                    : URLDecoder.decode(rawQuery, StandardCharsets.UTF_8);
+            String decodedQuery = FirstOfferConversationEvidence.decodedQuery(conversationUrl);
 
             if (!decodedQuery.contains(listing.listingId())) {
                 log.warn(
@@ -564,7 +553,7 @@ public class FirstOfferExecutor {
                 return false;
             }
 
-            String conversationId = extractConversationId(conversationUrl);
+            String conversationId = FirstOfferConversationEvidence.extractConversationId(conversationUrl);
 
             Locator ownOfferPrices =
                     page.getByTestId(NegotiationSelectors.OWN_OFFER_PRICE);
@@ -1126,184 +1115,13 @@ public class FirstOfferExecutor {
     }
 
 
-    private String waitForConversationUrl(
-            Page page,
-            ListingResponseDto listing
-    ) {
-
-        try {
-
-            page.waitForURL(
-                    "**/inbox/**",
-                    new Page.WaitForURLOptions()
-                            .setTimeout(
-                                    CONVERSATION_TIMEOUT_MS
-                            )
-            );
-
-        } catch (TimeoutError exception) {
-
-            throw new IllegalStateException(
-                    "Offer submit was attempted, but Vinted did not navigate "
-                            + "to an inbox conversation within "
-                            + Math.round(
-                            CONVERSATION_TIMEOUT_MS / 1_000
-                    )
-                            + " seconds. Marketplace listing: "
-                            + listing.listingId()
-                            + ", current URL: "
-                            + page.url(),
-                    exception
-            );
-        }
-
-        humanVerificationHandler.waitUntilVerified(
-                page
-        );
-
-        String conversationUrl =
-                page.url();
-
-        if (
-                conversationUrl == null
-                        || conversationUrl.isBlank()
-                        || !conversationUrl.contains(
-                        "/inbox/"
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Invalid conversation URL after sending offer: "
-                            + conversationUrl
-            );
-        }
-
-        log.info(
-                "[REAL OFFER] Vinted opened conversation for marketplace "
-                        + "listing {}. URL: {}",
-                listing.listingId(),
-                conversationUrl
-        );
-
-        return conversationUrl;
-    }
 
 
-    private String extractConversationId(
-            String conversationUrl
-    ) {
-
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
-
-        String path =
-                uri.getPath();
-
-        if (
-                path == null
-                        || path.isBlank()
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL has no path: "
-                            + conversationUrl
-            );
-        }
-
-        String[] pathParts =
-                path.split(
-                        "/"
-                );
-
-        for (
-                int i = 0;
-                i < pathParts.length - 1;
-                i++
-        ) {
-
-            if (
-                    "inbox".equals(
-                            pathParts[i]
-                    )
-            ) {
-
-                String conversationId =
-                        pathParts[i + 1];
-
-                if (
-                        conversationId != null
-                                && !conversationId.isBlank()
-                ) {
-
-                    return conversationId;
-                }
-            }
-        }
-
-        throw new IllegalArgumentException(
-                "Cannot extract conversation ID from URL: "
-                        + conversationUrl
-        );
-    }
 
 
-    private void validateConversationReferrer(
-            String conversationUrl,
-            ListingResponseDto listing
-    ) {
 
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
 
-        String rawQuery =
-                uri.getRawQuery();
 
-        if (
-                rawQuery == null
-                        || rawQuery.isBlank()
-        ) {
-
-            log.warn(
-                    "[REAL OFFER] Conversation URL has no query parameters. "
-                            + "Cannot verify referrer for listing {}.",
-                    listing.listingId()
-            );
-
-            return;
-        }
-
-        String decodedQuery =
-                URLDecoder.decode(
-                        rawQuery,
-                        StandardCharsets.UTF_8
-                );
-
-        if (
-                !decodedQuery.contains(
-                        listing.listingId()
-                )
-        ) {
-
-            log.warn(
-                    "[REAL OFFER] Conversation URL referrer does not contain "
-                            + "marketplace listing ID {}. Decoded query: {}",
-                    listing.listingId(),
-                    decodedQuery
-            );
-
-            return;
-        }
-
-        log.info(
-                "[REAL OFFER] Conversation referrer matches marketplace "
-                        + "listing {}.",
-                listing.listingId()
-        );
-    }
 
 
     private ListingResponseDto markNegotiationStarted(
