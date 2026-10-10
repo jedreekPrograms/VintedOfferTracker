@@ -30,6 +30,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 class MarketStatsCalendarPlanningServiceTest {
 
@@ -161,6 +162,8 @@ class MarketStatsCalendarPlanningServiceTest {
         assertEquals(1, response.existingBots());
         assertEquals(8, response.dailyConversationCapacityPerBot());
         assertEquals(56, response.weeklyConversationCapacityPerBot());
+        // 8 confirmed audits belong to one listing; resolve the history model once.
+        verify(historyModelResolver, times(1)).resolveModelId(listing, List.of(s26));
         verify(scanStateRepository).findAllById(List.of(30L));
         verify(scanStateRepository, never()).findById(30L);
     }
@@ -312,6 +315,44 @@ class MarketStatsCalendarPlanningServiceTest {
                 any(LocalDateTime.class), any(LocalDateTime.class),
                 any(LocalDateTime.class), any(LocalDateTime.class)
         );
+    }
+
+    @Test
+    void unknownHistoricalModelIsResolvedOnlyOnceEvenForRepeatedAuditRows() {
+        DictionaryModelRepository models = mock(DictionaryModelRepository.class);
+        BotConfigurationRepository configs = mock(BotConfigurationRepository.class);
+        BotAdditionalTargetRepository targets = mock(BotAdditionalTargetRepository.class);
+        MarketModelScanStateRepository states = mock(MarketModelScanStateRepository.class);
+        MarketListingObservationRepository observations = mock(MarketListingObservationRepository.class);
+        RealActionAuditRepository audits = mock(RealActionAuditRepository.class);
+        ListingRepository listings = mock(ListingRepository.class);
+        HistoryModelResolver history = mock(HistoryModelResolver.class);
+
+        DictionaryBrand samsung = DictionaryBrand.builder().id(1L).name("Samsung").build();
+        DictionaryModel s26 = DictionaryModel.builder()
+                .id(26L).brand(samsung).name("Galaxy S26").build();
+        LocalDateTime yesterday = LocalDate.now(ZoneId.of("Europe/Warsaw"))
+                .minusDays(1).atTime(12, 0);
+        Listing unknown = Listing.builder().id(701L).build();
+        RealActionAudit first = RealActionAudit.builder()
+                .botId(3L).backendListingId(701L).createdAt(yesterday).build();
+        RealActionAudit second = RealActionAudit.builder()
+                .botId(3L).backendListingId(701L).createdAt(yesterday.plusMinutes(5)).build();
+
+        when(models.findAll()).thenReturn(List.of(s26));
+        when(configs.findAll()).thenReturn(List.of());
+        when(targets.findAll()).thenReturn(List.of());
+        when(states.findAllById(List.of(26L))).thenReturn(List.of());
+        when(audits.findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
+                any(), any(), any(LocalDateTime.class))).thenReturn(List.of(first, second));
+        when(listings.findAllById(any())).thenReturn(List.of(unknown));
+        when(history.resolveModelId(unknown, List.of(s26))).thenReturn(Optional.empty());
+
+        MarketStatsCalendarPlanningService service = new MarketStatsCalendarPlanningService(
+                models, configs, targets, states, observations, audits, listings, history
+        );
+        assertEquals(5, service.getPlanning().getFirst().dailyConversationCapacityPerBot());
+        verify(history, times(1)).resolveModelId(unknown, List.of(s26));
     }
 
 }

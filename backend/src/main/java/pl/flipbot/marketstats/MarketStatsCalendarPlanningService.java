@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -375,6 +376,11 @@ public class MarketStatsCalendarPlanningService {
         Map<Long, Map<Long, Map<LocalDate, Integer>>> counts =
                 new HashMap<>();
 
+        // Multiple confirmed audit rows may refer to the same listing. Its
+        // historical product identity is stable within this read transaction.
+        // Cache both successful and unresolved model lookups per listing ID.
+        Map<Long, Optional<Long>> modelByListingId = new HashMap<>();
+
         for (RealActionAudit audit : audits) {
             if (audit.getBotId() == null
                     || audit.getCreatedAt() == null
@@ -387,9 +393,10 @@ public class MarketStatsCalendarPlanningService {
                 continue;
             }
 
-            Long modelId = historyModelResolver
-                    .resolveModelId(listing, models)
-                    .orElse(null);
+            Long modelId = modelByListingId.computeIfAbsent(
+                    audit.getBackendListingId(),
+                    ignored -> historyModelResolver.resolveModelId(listing, models)
+            ).orElse(null);
 
             if (modelId == null) {
                 continue;
