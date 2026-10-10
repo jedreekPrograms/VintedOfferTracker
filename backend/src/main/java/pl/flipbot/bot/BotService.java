@@ -22,7 +22,9 @@ import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
-import static pl.flipbot.negotiation.NegotiationStepPolicySupport.samePolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.sameDecimal;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.nextStrategyVersion;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.isGlobalCapIncreased;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.applyPolicy;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities;
 
@@ -116,8 +118,8 @@ public class BotService {
         TargetMode requestedMode = resolveTargetMode(requested);
         boolean requestedAdaptive = Boolean.TRUE.equals(requested.getAutoRaiseOfferToVintedMinimum());
         String normalizedEmail = normalizeRequiredText(request.getEmail());
-        boolean stepDefinitionChanged = negotiationStepDefinitionChanged(configuration, requested.getNegotiationSteps());
-        boolean responsePoliciesChanged = negotiationResponsePoliciesChanged(configuration, requested.getNegotiationSteps());
+        boolean stepDefinitionChanged = NegotiationStepPolicySupport.definitionChanged(orderedSteps(configuration), requested.getNegotiationSteps(), java.util.function.UnaryOperator.identity());
+        boolean responsePoliciesChanged = NegotiationStepPolicySupport.responsePoliciesChanged(orderedSteps(configuration), requested.getNegotiationSteps());
         boolean priceRangeChanged = !sameDecimal(configuration.getMinPrice(), requested.getMinPrice())
                 || !sameDecimal(configuration.getMaxPrice(), requested.getMaxPrice());
         boolean adaptiveModeChanged = Boolean.TRUE.equals(configuration.getAutoRaiseOfferToVintedMinimum()) != requestedAdaptive;
@@ -289,28 +291,9 @@ public class BotService {
         }
     }
 
-    private boolean negotiationStepDefinitionChanged(BotConfiguration configuration, List<CreateNegotiationStepRequest> requested) {
-        List<NegotiationStep> existing = orderedSteps(configuration);
-        if (requested == null || existing.size() != requested.size()) return true;
-        for (int i = 0; i < existing.size(); i++) {
-            NegotiationStep left = existing.get(i);
-            CreateNegotiationStepRequest right = requested.get(i);
-            if (!Objects.equals(left.getStepNumber(), i + 1)
-                    || !sameDecimal(left.getOfferPrice(), right.getOfferPrice())
-                    || !sameDecimal(left.getMaxAcceptedCounterOffer(), right.getMaxAcceptedCounterOffer())
-                    || !Objects.equals(left.getMessage(), right.getMessage())) return true;
-        }
-        return false;
-    }
 
-    private boolean negotiationResponsePoliciesChanged(BotConfiguration configuration, List<CreateNegotiationStepRequest> requested) {
-        List<NegotiationStep> existing = orderedSteps(configuration);
-        if (requested == null || existing.size() != requested.size()) return true;
-        for (int i = 0; i < existing.size(); i++) {
-            if (!samePolicy(existing.get(i), resolvePolicy(requested.get(i), i + 1))) return true;
-        }
-        return false;
-    }
+
+
 
     private List<NegotiationStep> orderedSteps(BotConfiguration configuration) {
         return NegotiationStepPolicySupport.orderedSteps(configuration.getNegotiationSteps());
@@ -327,19 +310,11 @@ public class BotService {
                 : !sameNormalizedText(current.getSearchQuery(), requested.getSearchQuery());
     }
 
-    private boolean isGlobalCapIncreased(BigDecimal currentCap, BigDecimal requestedCap) {
-        return requestedCap != null && (currentCap == null || requestedCap.compareTo(currentCap) > 0);
-    }
 
-    private int nextStrategyVersion(Integer currentVersion) {
-        return currentVersion == null || currentVersion < 1
-                ? 2
-                : currentVersion + 1;
-    }
 
-    private boolean sameDecimal(BigDecimal left, BigDecimal right) {
-        return left == null || right == null ? left == right : left.compareTo(right) == 0;
-    }
+
+
+
 
     private boolean sameNormalizedText(String left, String right) {
         return left == null || right == null ? left == right : normalizeRequiredText(left).equals(normalizeRequiredText(right));

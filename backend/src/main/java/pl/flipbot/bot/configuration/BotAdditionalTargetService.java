@@ -21,7 +21,9 @@ import pl.flipbot.negotiation.NegotiationStep;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
-import static pl.flipbot.negotiation.NegotiationStepPolicySupport.samePolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.sameDecimal;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.nextStrategyVersion;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.isGlobalCapIncreased;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.applyPolicy;
 import static pl.flipbot.negotiation.NegotiationStepPolicySupport.toRuleEntities;
 
@@ -123,14 +125,8 @@ public class BotAdditionalTargetService {
                 target.getMaxAutomaticOffer(),
                 requestedGlobalCap
         );
-        boolean stepDefinitionChanged = negotiationStepDefinitionChanged(
-                target,
-                request.getNegotiationSteps()
-        );
-        boolean responsePoliciesChanged = negotiationResponsePoliciesChanged(
-                target,
-                request.getNegotiationSteps()
-        );
+        boolean stepDefinitionChanged = NegotiationStepPolicySupport.definitionChanged(orderedSteps(target), request.getNegotiationSteps(), this::normalizeRequired);
+        boolean responsePoliciesChanged = NegotiationStepPolicySupport.responsePoliciesChanged(orderedSteps(target), request.getNegotiationSteps());
         boolean strategyChanged = adaptiveModeChanged
                 || globalCapChanged
                 || stepDefinitionChanged
@@ -339,54 +335,9 @@ public class BotAdditionalTargetService {
         }
     }
 
-    private boolean negotiationStepDefinitionChanged(
-            BotAdditionalTarget target,
-            List<CreateNegotiationStepRequest> requested
-    ) {
-        List<NegotiationStep> existing = orderedSteps(target);
-        if (requested == null || existing.size() != requested.size()) {
-            return true;
-        }
 
-        for (int index = 0; index < existing.size(); index++) {
-            NegotiationStep left = existing.get(index);
-            CreateNegotiationStepRequest right = requested.get(index);
 
-            if (!Objects.equals(left.getStepNumber(), index + 1)
-                    || !sameDecimal(left.getOfferPrice(), right.getOfferPrice())
-                    || !sameDecimal(
-                    left.getMaxAcceptedCounterOffer(),
-                    right.getMaxAcceptedCounterOffer()
-            )
-                    || !Objects.equals(
-                    normalizeRequired(left.getMessage()),
-                    normalizeRequired(right.getMessage())
-            )) {
-                return true;
-            }
-        }
-        return false;
-    }
 
-    private boolean negotiationResponsePoliciesChanged(
-            BotAdditionalTarget target,
-            List<CreateNegotiationStepRequest> requested
-    ) {
-        List<NegotiationStep> existing = orderedSteps(target);
-        if (requested == null || existing.size() != requested.size()) {
-            return true;
-        }
-
-        for (int index = 0; index < existing.size(); index++) {
-            if (!samePolicy(
-                    existing.get(index),
-                    resolvePolicy(requested.get(index), index + 1)
-            )) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private List<NegotiationStep> orderedSteps(BotAdditionalTarget target) {
         return NegotiationStepPolicySupport.orderedSteps(target.getNegotiationSteps());
@@ -623,28 +574,11 @@ public class BotAdditionalTargetService {
         return normalizeRequired(left).equalsIgnoreCase(normalizeRequired(right));
     }
 
-    private boolean sameDecimal(BigDecimal left, BigDecimal right) {
-        if (left == null || right == null) {
-            return left == right;
-        }
-        return left.compareTo(right) == 0;
-    }
 
-    private int nextStrategyVersion(Integer currentVersion) {
-        return currentVersion == null || currentVersion < 1
-                ? 2
-                : currentVersion + 1;
-    }
 
-    private boolean isGlobalCapIncreased(
-            BigDecimal current,
-            BigDecimal requested
-    ) {
-        if (requested == null) {
-            return false;
-        }
-        return current == null || requested.compareTo(current) > 0;
-    }
+
+
+
 
     private String normalizeRequired(String value) {
         if (value == null) {

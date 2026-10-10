@@ -7,6 +7,7 @@ import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -115,4 +116,80 @@ class NegotiationStepPolicySupportTest {
     ) {
         return new CounterRuleValue(new BigDecimal(threshold), action, hours);
     }
+    @Test
+    void editorsKeepDistinctMessageComparisonRules() {
+        NegotiationStep current = NegotiationStep.builder().stepNumber(1)
+                .offerPrice(new BigDecimal("500.00"))
+                .maxAcceptedCounterOffer(new BigDecimal("600.00"))
+                .message("  Hello   seller ").build();
+        CreateNegotiationStepRequest requested = request("500.0", "600.000", "Hello seller");
+        assertTrue(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), List.of(requested), java.util.function.UnaryOperator.identity()));
+        assertFalse(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), List.of(requested),
+                text -> text == null ? "" : text.trim().replaceAll("\\s+", " ")));
+        requested.setMessage("hello seller");
+        assertTrue(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), List.of(requested),
+                text -> text == null ? "" : text.trim().replaceAll("\\s+", " ")));
+    }
+
+    @Test
+    void definitionComparisonDetectsMissingStepsWrongNumberOrChangedCounterLimit() {
+        NegotiationStep current = NegotiationStep.builder().stepNumber(3)
+                .offerPrice(new BigDecimal("500"))
+                .maxAcceptedCounterOffer(new BigDecimal("600")).message("Hi").build();
+        CreateNegotiationStepRequest requested = request("500.00", "600.0", "Hi");
+        assertTrue(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), null, java.util.function.UnaryOperator.identity()));
+        assertTrue(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), List.of(), java.util.function.UnaryOperator.identity()));
+        assertTrue(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), List.of(requested), java.util.function.UnaryOperator.identity()));
+        current.setStepNumber(1);
+        assertFalse(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), List.of(requested), java.util.function.UnaryOperator.identity()));
+        requested.setMaxAcceptedCounterOffer(new BigDecimal("601"));
+        assertTrue(NegotiationStepPolicySupport.definitionChanged(
+                List.of(current), List.of(requested), java.util.function.UnaryOperator.identity()));
+    }
+
+    @Test
+    void adaptiveCapAndStrategyVersionRespectNullAndDecimalScale() {
+        assertEquals(2, NegotiationStepPolicySupport.nextStrategyVersion(null));
+        assertEquals(2, NegotiationStepPolicySupport.nextStrategyVersion(0));
+        assertEquals(2, NegotiationStepPolicySupport.nextStrategyVersion(1));
+        assertEquals(8, NegotiationStepPolicySupport.nextStrategyVersion(7));
+        assertTrue(NegotiationStepPolicySupport.isGlobalCapIncreased(null, new BigDecimal("850")));
+        assertFalse(NegotiationStepPolicySupport.isGlobalCapIncreased(
+                new BigDecimal("850.0"), new BigDecimal("850.00")));
+        assertFalse(NegotiationStepPolicySupport.isGlobalCapIncreased(new BigDecimal("900"), null));
+        assertTrue(NegotiationStepPolicySupport.isGlobalCapIncreased(
+                new BigDecimal("850"), new BigDecimal("900")));
+        assertTrue(NegotiationStepPolicySupport.sameDecimal(
+                new BigDecimal("850.00"), new BigDecimal("850")));
+        assertFalse(NegotiationStepPolicySupport.sameDecimal(null, new BigDecimal("1")));
+    }
+
+    @Test
+    void responsePoliciesReuseSameDefaultResolverWithoutFalseVersionChanges() {
+        NegotiationStep step = step();
+        step.setStepNumber(1);
+        CreateNegotiationStepRequest req = request("500", "600", "Hi");
+        NegotiationStepPolicySupport.applyPolicy(step, NegotiationPolicyDefaults.resolvePolicy(req, 1));
+        assertFalse(NegotiationStepPolicySupport.responsePoliciesChanged(List.of(step), List.of(req)));
+        assertTrue(NegotiationStepPolicySupport.responsePoliciesChanged(List.of(step), null));
+        req.setRejectionAction(NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP);
+        req.setRejectionWaitHours(12);
+        assertTrue(NegotiationStepPolicySupport.responsePoliciesChanged(List.of(step), List.of(req)));
+    }
+
+    private static CreateNegotiationStepRequest request(String offer, String cap, String message) {
+        CreateNegotiationStepRequest req = new CreateNegotiationStepRequest();
+        req.setOfferPrice(new BigDecimal(offer));
+        req.setMaxAcceptedCounterOffer(new BigDecimal(cap));
+        req.setMessage(message);
+        return req;
+    }
+
 }

@@ -2,12 +2,14 @@ package pl.flipbot.negotiation;
 
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.CounterRuleValue;
 import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
+import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -92,7 +94,50 @@ public final class NegotiationStepPolicySupport {
                 .collect(Collectors.toCollection(ArrayList::new));
     }
 
-    private static boolean sameDecimal(BigDecimal left, BigDecimal right) {
+    public static boolean sameDecimal(BigDecimal left, BigDecimal right) {
         return left == null || right == null ? left == right : left.compareTo(right) == 0;
     }
+    /**
+     * Compare steps already ordered by orderedSteps().
+     * Main-product messages are literal; additional-target messages have
+     * whitespace normalization. Never silently unify those editor semantics.
+     */
+    public static boolean definitionChanged(
+            List<NegotiationStep> existing,
+            List<CreateNegotiationStepRequest> requested,
+            UnaryOperator<String> messageView
+    ) {
+        if (requested == null || existing.size() != requested.size()) return true;
+        for (int i = 0; i < existing.size(); i++) {
+            NegotiationStep left = existing.get(i);
+            CreateNegotiationStepRequest right = requested.get(i);
+            if (!Objects.equals(left.getStepNumber(), i + 1)
+                    || !sameDecimal(left.getOfferPrice(), right.getOfferPrice())
+                    || !sameDecimal(left.getMaxAcceptedCounterOffer(), right.getMaxAcceptedCounterOffer())
+                    || !Objects.equals(messageView.apply(left.getMessage()), messageView.apply(right.getMessage()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean responsePoliciesChanged(
+            List<NegotiationStep> existing, List<CreateNegotiationStepRequest> requested
+    ) {
+        if (requested == null || existing.size() != requested.size()) return true;
+        for (int i = 0; i < existing.size(); i++) {
+            if (!samePolicy(existing.get(i),
+                    NegotiationPolicyDefaults.resolvePolicy(requested.get(i), i + 1))) return true;
+        }
+        return false;
+    }
+
+    public static int nextStrategyVersion(Integer currentVersion) {
+        return currentVersion == null || currentVersion < 1 ? 2 : currentVersion + 1;
+    }
+
+    public static boolean isGlobalCapIncreased(BigDecimal current, BigDecimal requested) {
+        return requested != null && (current == null || requested.compareTo(current) > 0);
+    }
+
 }
