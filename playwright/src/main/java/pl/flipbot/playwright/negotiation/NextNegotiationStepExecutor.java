@@ -22,15 +22,6 @@ public class NextNegotiationStepExecutor {
     private static final double ELEMENT_TIMEOUT_MS =
             15_000;
 
-    private static final double MESSAGE_TIMEOUT_MS =
-            20_000;
-
-    private static final double MESSAGE_CONFIRMATION_TIMEOUT_MS =
-            5_000;
-
-    private static final double MESSAGE_CONFIRMATION_POLL_INTERVAL_MS =
-            250;
-
     private final BotContext context;
 
     /*
@@ -255,7 +246,7 @@ public class NextNegotiationStepExecutor {
                 updatedListing.awaitingSellerResponse()
         );
 
-        sendMessageSafely(
+        new NextStepMessageDelivery(humanVerificationHandler).sendMessageSafely(
                 page,
                 listing,
                 nextStep
@@ -372,101 +363,7 @@ public class NextNegotiationStepExecutor {
 
 
 
-    private void sendMessageSafely(
-            Page page,
-            ListingResponseDto listing,
-            NegotiationStepDto nextStep
-    ) {
 
-        String message =
-                nextStep.getMessage();
-
-        if (message == null
-                || message.isBlank()) {
-
-            log.info(
-                    "[NEXT STEP REAL] Step {} has no configured message. "
-                            + "Only the price offer was sent for listing {}.",
-                    nextStep.getStepNumber(),
-                    listing.listingId()
-            );
-
-            return;
-
-        }
-
-        try {
-
-            humanVerificationHandler.waitUntilVerified(
-                    page
-            );
-
-            Locator messageInput = NegotiationMessageComposer.fillAndVerify(
-                    page, message, MESSAGE_TIMEOUT_MS, "Chat input contains an unexpected message"
-            );
-            Locator sendButton = NegotiationMessageComposer.requireSendButton(
-                    page, MESSAGE_TIMEOUT_MS
-            );
-
-            log.info(
-                    "[NEXT STEP REAL] Sending message for step {} "
-                            + "and marketplace listing {}.",
-                    nextStep.getStepNumber(),
-                    listing.listingId()
-            );
-
-            sendButton.click(
-                    new Locator.ClickOptions()
-                            .setTimeout(
-                                    MESSAGE_TIMEOUT_MS
-                            )
-            );
-
-            boolean composerCleared =
-                    NegotiationMessageComposer.awaitClear(
-                            page, messageInput, MESSAGE_CONFIRMATION_TIMEOUT_MS,
-                            MESSAGE_CONFIRMATION_POLL_INTERVAL_MS
-                    );
-
-            if (composerCleared) {
-
-                log.info(
-                        "[NEXT STEP REAL] Message for step {} was sent "
-                                + "for marketplace listing {}.",
-                        nextStep.getStepNumber(),
-                        listing.listingId()
-                );
-
-            } else {
-
-                log.warn(
-                        "[NEXT STEP REAL] Send button was clicked, but "
-                                + "the message input did not clear. "
-                                + "The message may require manual verification. "
-                                + "Marketplace listing: {}",
-                        listing.listingId()
-                );
-
-            }
-
-        } catch (Exception exception) {
-
-            /*
-             * Oferta została już wysłana i backend został zaktualizowany.
-             * Błąd wiadomości nie może spowodować ponownego wysłania ceny.
-             */
-            log.error(
-                    "[NEXT STEP REAL] The price offer was sent and backend "
-                            + "was updated, but the message for step {} "
-                            + "could not be sent. Marketplace listing: {}",
-                    nextStep.getStepNumber(),
-                    listing.listingId(),
-                    exception
-            );
-
-        }
-
-    }
 
 
 
