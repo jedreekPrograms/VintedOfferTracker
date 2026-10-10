@@ -9,7 +9,6 @@ import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
@@ -22,14 +21,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class NextNegotiationStepExecutor {
 
-    private static final double NAVIGATION_TIMEOUT_MS =
-            30_000;
-
     private static final double ELEMENT_TIMEOUT_MS =
             15_000;
-
-    private static final double CONVERSATION_TIMEOUT_MS =
-            20_000;
 
     private static final double MESSAGE_TIMEOUT_MS =
             20_000;
@@ -92,7 +85,7 @@ public class NextNegotiationStepExecutor {
                 nextStep.getOfferPrice()
         );
 
-        listing = openConversation(
+        listing = new NextStepConversationReadiness(context, humanVerificationHandler).openConversation(
                 page,
                 listing,
                 "[NEXT STEP DRY RUN]"
@@ -178,7 +171,7 @@ public class NextNegotiationStepExecutor {
                 nextStep.getOfferPrice()
         );
 
-        listing = openConversation(
+        listing = new NextStepConversationReadiness(context, humanVerificationHandler).openConversation(
                 page,
                 listing,
                 "[NEXT STEP REAL]"
@@ -292,103 +285,9 @@ public class NextNegotiationStepExecutor {
         return NextStepOfferForm.parseMinimumAllowedPrice(message);
     }
 
-    private ListingResponseDto openConversation(
-            Page page,
-            ListingResponseDto listing,
-            String logPrefix
-    ) {
 
-        boolean reuseCurrentConversation =
-                isExpectedConversationAlreadyOpen(
-                        page,
-                        listing
-                );
 
-        if (reuseCurrentConversation) {
-            log.info(
-                    "{} Reusing already-open expected conversation {} instead of navigating to the same inbox URL again.",
-                    logPrefix,
-                    listing.conversationId()
-            );
-        } else {
-            log.info(
-                    "{} Opening conversation {}: {}",
-                    logPrefix,
-                    listing.conversationId(),
-                    listing.conversationUrl()
-            );
 
-            new MarketplaceNavigator(context).goToTrustedVintedUrl(
-                    listing.conversationUrl()
-            );
-        }
-
-        humanVerificationHandler.waitUntilVerified(
-                page
-        );
-
-        ListingResponseDto canonicalListing =
-                validateOpenedConversation(
-                        page,
-                        listing
-                );
-
-        Locator conversationContent =
-                page.getByTestId(
-                                "conversation-content"
-                        )
-                        .first();
-
-        conversationContent.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                CONVERSATION_TIMEOUT_MS
-                        )
-        );
-
-        log.info(
-                "{} Conversation {} is ready.",
-                logPrefix,
-                canonicalListing.conversationId()
-        );
-
-        return canonicalListing;
-    }
-
-    private boolean isExpectedConversationAlreadyOpen(
-            Page page,
-            ListingResponseDto listing
-    ) {
-        if (page == null
-                || page.isClosed()
-                || listing == null
-                || listing.conversationId() == null
-                || listing.conversationId().isBlank()) {
-            return false;
-        }
-
-        try {
-            ConversationIdentityResolver.ConversationIdentityAssessment assessment =
-                    new ConversationIdentityResolver().assess(
-                            listing.conversationId(),
-                            page.url()
-                    );
-
-            if (!assessment.matchesExpectedConversation()) {
-                return false;
-            }
-
-            Locator conversationContent =
-                    page.getByTestId("conversation-content").first();
-
-            return conversationContent.isVisible();
-        } catch (RuntimeException exception) {
-            return false;
-        }
-    }
 
 
 
@@ -632,24 +531,7 @@ public class NextNegotiationStepExecutor {
 
 
 
-    private ListingResponseDto validateOpenedConversation(
-            Page page,
-            ListingResponseDto listing
-    ) {
-        ListingResponseDto canonicalListing =
-                new ConversationIdentityCoordinator(context)
-                        .verifyAndCanonicalize(
-                                listing,
-                                "Opened conversation"
-                        );
 
-        log.info(
-                "Opened expected conversation {}.",
-                canonicalListing.conversationId()
-        );
-
-        return canonicalListing;
-    }
 
     private void validateListing(
             ListingResponseDto listing
