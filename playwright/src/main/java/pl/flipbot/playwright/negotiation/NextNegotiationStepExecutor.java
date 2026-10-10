@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
-import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
@@ -238,11 +237,12 @@ public class NextNegotiationStepExecutor {
          * wiadomości nie spowoduje ponownego wysłania tej samej oferty.
          */
         ListingResponseDto updatedListing =
-                markNextStepStarted(
-                        listing,
-                        nextStep,
-                        submittedOffer.displayedPrice()
-                );
+                new NextStepBackendPersistence(context, listingClient)
+                        .markNextStepStarted(
+                                listing,
+                                nextStep,
+                                submittedOffer.displayedPrice()
+                        );
 
         log.info(
                 "[NEXT STEP REAL] Backend listing {} was updated. "
@@ -370,74 +370,7 @@ public class NextNegotiationStepExecutor {
 
 
 
-    private ListingResponseDto markNextStepStarted(
-            ListingResponseDto listing,
-            NegotiationStepDto nextStep,
-            BigDecimal displayedPrice
-    ) {
 
-        UpdateListingRequestDto request =
-                new UpdateListingRequestDto(
-                        "NEGOTIATING",
-                        displayedPrice,
-                        nextStep.getStepNumber(),
-                        true,
-                        listing.conversationId(),
-                        listing.conversationUrl()
-                );
-
-        ListingResponseDto updatedListing =
-                listingClient.updateListing(
-                        context.getBot().getId(),
-                        listing.id(),
-                        request
-                );
-
-        if (!"NEGOTIATING".equals(
-                updatedListing.status()
-        )) {
-
-            throw new IllegalStateException(
-                    "Backend returned an unexpected status after "
-                            + "sending the next negotiation step. Expected "
-                            + "NEGOTIATING, actual: "
-                            + updatedListing.status()
-            );
-
-        }
-
-        if (!Objects.equals(
-                nextStep.getStepNumber(),
-                updatedListing.currentStep()
-        )) {
-
-            throw new IllegalStateException(
-                    "Backend returned an unexpected current step. Expected: "
-                            + nextStep.getStepNumber()
-                            + ", actual: "
-                            + updatedListing.currentStep()
-            );
-
-        }
-
-        if (!Objects.equals(
-                listing.conversationId(),
-                updatedListing.conversationId()
-        )) {
-
-            throw new IllegalStateException(
-                    "Backend returned an unexpected conversation ID. "
-                            + "Expected: "
-                            + listing.conversationId()
-                            + ", actual: "
-                            + updatedListing.conversationId()
-            );
-
-        }
-
-        return updatedListing;
-
-    }
 
     private void sendMessageSafely(
             Page page,
