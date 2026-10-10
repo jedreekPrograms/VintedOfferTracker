@@ -2,7 +2,6 @@ package pl.flipbot.playwright.filters;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.options.WaitForSelectorState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.filters.category.CategoryNavigator;
@@ -10,11 +9,7 @@ import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
 import java.math.BigDecimal;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Slf4j
 public class FilterService {
@@ -24,10 +19,6 @@ public class FilterService {
 
     private static final String SEARCH_QUERY =
             "SEARCH_QUERY";
-
-
-    private static final String VINTED_SEARCH_INPUT_SELECTOR =
-            "form[action='/catalog'] input[name='search_text']";
 
 
     private static final double URL_PERSIST_TIMEOUT_MS =
@@ -40,6 +31,8 @@ public class FilterService {
 
     private final CategoryNavigator
             categoryNavigator;
+
+    private final VintedCatalogSearchFilter searchFilter;
 
 
     public FilterService(
@@ -58,6 +51,8 @@ public class FilterService {
                 new CategoryNavigator(
                         actions
                 );
+
+        this.searchFilter = new VintedCatalogSearchFilter(page, actions);
     }
 
 
@@ -125,9 +120,7 @@ public class FilterService {
             }
 
 
-            applySearchQuery(
-                    bot
-            );
+            searchFilter.apply(bot);
         }
 
 
@@ -345,215 +338,13 @@ public class FilterService {
     }
 
 
-    private void applySearchQuery(
-            BotDetailsDto bot
-    ) {
-
-        String searchQuery =
-                normalizeSearchQuery(
-                        bot.getConfiguration()
-                                .getSearchQuery()
-                );
 
 
-        log.info(
-                "[FILTER SEARCH] Applying text search query: '{}'.",
-                searchQuery
-        );
 
 
-        Locator searchInput =
-                resolveVisibleSearchInput();
 
 
-        searchInput.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                5_000
-                        )
-        );
 
-
-        log.info(
-                "[FILTER SEARCH] Search input found. "
-                        + "Placeholder='{}', current value='{}'.",
-                searchInput.getAttribute(
-                        "placeholder"
-                ),
-                searchInput.inputValue()
-        );
-
-
-        searchInput.click();
-
-
-        searchInput.fill(
-                searchQuery
-        );
-
-
-        String enteredValue =
-                searchInput.inputValue();
-
-
-        if (
-                !searchQuery.equals(
-                        enteredValue
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Vinted search input contains unexpected value. "
-                            + "Expected: '"
-                            + searchQuery
-                            + "', actual: '"
-                            + enteredValue
-                            + "'."
-            );
-        }
-
-
-        log.info(
-                "[FILTER SEARCH] Search query entered successfully. "
-                        + "Input value='{}'.",
-                enteredValue
-        );
-
-
-        searchInput.press(
-                "Enter"
-        );
-
-
-        waitForSearchQueryInUrl(
-                searchQuery
-        );
-
-
-        log.info(
-                "[FILTER SEARCH] Search query submitted successfully. "
-                        + "Current URL: {}",
-                page.url()
-        );
-    }
-
-
-    private Locator resolveVisibleSearchInput() {
-
-        Locator visibleHeaderInputs =
-                page.locator(
-                        "header "
-                                + VINTED_SEARCH_INPUT_SELECTOR
-                                + ":visible"
-                );
-
-
-        int visibleHeaderCount =
-                visibleHeaderInputs.count();
-
-
-        if (visibleHeaderCount > 0) {
-
-            log.info(
-                    "[FILTER SEARCH] Found {} visible search input(s) "
-                            + "inside <header>. Using the first one.",
-                    visibleHeaderCount
-            );
-
-
-            return visibleHeaderInputs.first();
-        }
-
-
-        Locator visibleSearchInputs =
-                page.locator(
-                        VINTED_SEARCH_INPUT_SELECTOR
-                                + ":visible"
-                );
-
-
-        int visibleSearchInputCount =
-                visibleSearchInputs.count();
-
-
-        log.info(
-                "[FILTER SEARCH] No visible header search input found. "
-                        + "Visible /catalog search inputs: {}.",
-                visibleSearchInputCount
-        );
-
-
-        if (visibleSearchInputCount == 0) {
-
-            int allSearchInputCount =
-                    page.locator(
-                                    VINTED_SEARCH_INPUT_SELECTOR
-                            )
-                            .count();
-
-
-            throw new IllegalStateException(
-                    "Vinted search input is not visible. "
-                            + "Matching /catalog search inputs in DOM: "
-                            + allSearchInputCount
-            );
-        }
-
-
-        return visibleSearchInputs.first();
-    }
-
-
-    private void waitForSearchQueryInUrl(
-            String expectedSearchQuery
-    ) {
-
-        final int maxAttempts =
-                20;
-
-        final double delayMilliseconds =
-                250;
-
-
-        for (
-                int attempt = 1;
-                attempt <= maxAttempts;
-                attempt++
-        ) {
-
-            String currentSearchQuery =
-                    getUrlParameter(
-                            "search_text"
-                    );
-
-
-            if (
-                    expectedSearchQuery.equals(
-                            currentSearchQuery
-                    )
-            ) {
-
-                return;
-            }
-
-
-            actions.waitForTimeout(
-                    delayMilliseconds
-            );
-        }
-
-
-        throw new IllegalStateException(
-                "Vinted did not submit the expected search query. "
-                        + "Expected search_text='"
-                        + expectedSearchQuery
-                        + "', current URL: "
-                        + page.url()
-        );
-    }
 
 
     private void applySortBy() {
@@ -813,7 +604,7 @@ public class FilterService {
         ) {
 
             String expectedSearchQuery =
-                    normalizeSearchQuery(
+                    VintedCatalogSearchFilter.normalizeSearchQuery(
                             configuration.getSearchQuery()
                     );
 
@@ -1133,216 +924,16 @@ public class FilterService {
     }
 
 
-    private String getUrlParameter(
-            String parameterName
-    ) {
+    private String getUrlParameter(String parameterName) {
+        return VintedCatalogUrlParameters.get(page.url(), parameterName);
+    }
 
-        String currentUrl =
-                page.url();
-
-
-        int questionMarkIndex =
-                currentUrl.indexOf(
-                        '?'
-                );
-
-
-        if (
-                questionMarkIndex < 0
-                        || questionMarkIndex
-                        == currentUrl.length() - 1
-        ) {
-
-            return null;
-        }
-
-
-        String query =
-                currentUrl.substring(
-                        questionMarkIndex + 1
-                );
-
-
-        int fragmentIndex =
-                query.indexOf(
-                        '#'
-                );
-
-
-        if (
-                fragmentIndex >= 0
-        ) {
-
-            query =
-                    query.substring(
-                            0,
-                            fragmentIndex
-                    );
-        }
-
-
-        for (
-                String parameter
-                : query.split(
-                "&"
-        )
-        ) {
-
-            int equalsIndex =
-                    parameter.indexOf(
-                            '='
-                    );
-
-
-            String rawName =
-                    equalsIndex >= 0
-                            ? parameter.substring(
-                            0,
-                            equalsIndex
-                    )
-                            : parameter;
-
-
-            String rawValue =
-                    equalsIndex >= 0
-                            ? parameter.substring(
-                            equalsIndex + 1
-                    )
-                            : "";
-
-
-            String decodedName =
-                    URLDecoder.decode(
-                            rawName,
-                            StandardCharsets.UTF_8
-                    );
-
-
-            if (
-                    !parameterName.equals(
-                            decodedName
-                    )
-            ) {
-
-                continue;
-            }
-
-
-            return URLDecoder.decode(
-                    rawValue,
-                    StandardCharsets.UTF_8
-            );
-        }
-
-
-        return null;
+    private String withOrReplacedUrlParameter(String url, String parameterName, String parameterValue) {
+        return VintedCatalogUrlParameters.withOrReplaced(url, parameterName, parameterValue);
     }
 
 
-    private String withOrReplacedUrlParameter(
-            String url,
-            String parameterName,
-            String parameterValue
-    ) {
 
-        String fragment =
-                "";
-
-
-        String withoutFragment =
-                url;
-
-
-        int fragmentIndex =
-                url.indexOf(
-                        '#'
-                );
-
-
-        if (
-                fragmentIndex >= 0
-        ) {
-
-            fragment =
-                    url.substring(
-                            fragmentIndex
-                    );
-
-
-            withoutFragment =
-                    url.substring(
-                            0,
-                            fragmentIndex
-                    );
-        }
-
-
-        String encodedParameterName =
-                Pattern.quote(
-                        parameterName
-                );
-
-
-        Pattern pattern =
-                Pattern.compile(
-                        "([?&])"
-                                + encodedParameterName
-                                + "=[^&#]*"
-                );
-
-
-        Matcher matcher =
-                pattern.matcher(
-                        withoutFragment
-                );
-
-
-        if (matcher.find()) {
-
-            return matcher.replaceFirst(
-                    "$1"
-                            + parameterName
-                            + "="
-                            + parameterValue
-            )
-                    + fragment;
-        }
-
-
-        String separator =
-                withoutFragment.contains(
-                        "?"
-                )
-                        ? "&"
-                        : "?";
-
-
-        return withoutFragment
-                + separator
-                + parameterName
-                + "="
-                + parameterValue
-                + fragment;
-    }
-
-
-    private String normalizeSearchQuery(
-            String searchQuery
-    ) {
-
-        if (searchQuery == null) {
-
-            return "";
-        }
-
-
-        return searchQuery
-                .trim()
-                .replaceAll(
-                        "\\s+",
-                        " "
-                );
-    }
 
 
     private String resolveTargetMode(

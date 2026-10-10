@@ -31,20 +31,50 @@ public interface MarketListingObservationRepository
             LocalDateTime firstSeenAfter
     );
 
+    /**
+     * All calendar publication windows in one grouped PostgreSQL query.
+     * Joining the scan-state generation is essential: old observer generations
+     * must never be counted as part of the active model's publication totals.
+     *
+     * Columns: model ID, today, current week, previous full week, since baseline.
+     * All ranges preserve the original inclusive start / exclusive end rule.
+     */
     @Query(value = """
-            select count(*)
-            from market_listing_observation observation
-            where observation.model_id = :modelId
-              and observation.tracking_generation = :trackingGeneration
+            select scan.model_id,
+                   count(*) filter (
+                       where observation.published_at >= :todayStart
+                         and observation.published_at < :now
+                   ),
+                   count(*) filter (
+                       where observation.published_at >= :currentWeekStart
+                         and observation.published_at < :now
+                   ),
+                   count(*) filter (
+                       where observation.published_at >= :previousWeekStart
+                         and observation.published_at < :currentWeekStart
+                   ),
+                   count(*) filter (
+                       where observation.published_at >= scan.baseline_complete_at
+                         and observation.published_at < :now
+                   )
+            from market_model_scan_state scan
+            join market_listing_observation observation
+              on observation.model_id = scan.model_id
+             and observation.tracking_generation =
+                   case when scan.tracking_generation is null
+                              or scan.tracking_generation < 1
+                        then 1 else scan.tracking_generation end
+            where scan.model_id in (:modelIds)
+              and scan.baseline_complete_at is not null
               and observation.published_at is not null
-              and observation.published_at >= :fromInclusive
-              and observation.published_at < :toExclusive
+            group by scan.model_id
             """, nativeQuery = true)
-    long countPublishedListingsBetween(
-            @Param("modelId") Long modelId,
-            @Param("trackingGeneration") Integer trackingGeneration,
-            @Param("fromInclusive") LocalDateTime fromInclusive,
-            @Param("toExclusive") LocalDateTime toExclusive
+    List<Object[]> countPublishedListingWindows(
+            @Param("modelIds") Collection<Long> modelIds,
+            @Param("todayStart") LocalDateTime todayStart,
+            @Param("currentWeekStart") LocalDateTime currentWeekStart,
+            @Param("previousWeekStart") LocalDateTime previousWeekStart,
+            @Param("now") LocalDateTime now
     );
 
     @Query(value = """

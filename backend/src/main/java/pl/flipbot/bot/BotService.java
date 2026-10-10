@@ -14,25 +14,26 @@ import pl.flipbot.listing.Listing;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.mapper.BotMapper;
-import pl.flipbot.negotiation.NegotiationReactionAction;
+import pl.flipbot.negotiation.NegotiationPolicyDefaults.ResolvedStepPolicy;
+import pl.flipbot.negotiation.NegotiationStepPolicySupport;
+import pl.flipbot.negotiation.NegotiationResponsePolicyValidator;
 import pl.flipbot.negotiation.NegotiationStep;
-import pl.flipbot.negotiation.SellerCounterOfferRule;
 import pl.flipbot.negotiation.dto.CreateNegotiationStepRequest;
-import pl.flipbot.negotiation.dto.SellerCounterOfferRuleRequest;
+
+import static pl.flipbot.negotiation.NegotiationPolicyDefaults.resolvePolicy;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.sameDecimal;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.nextStrategyVersion;
+import static pl.flipbot.negotiation.NegotiationStepPolicySupport.isGlobalCapIncreased;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class BotService {
-    private static final int MAX_RESPONSE_WAIT_HOURS = 24 * 30;
-    private static final BigDecimal MAX_DISCOUNT_PERCENT = new BigDecimal("100");
 
     private final BotRepository botRepository;
     private final BotConfigurationRepository botConfigurationRepository;
@@ -110,8 +111,8 @@ public class BotService {
         TargetMode requestedMode = resolveTargetMode(requested);
         boolean requestedAdaptive = Boolean.TRUE.equals(requested.getAutoRaiseOfferToVintedMinimum());
         String normalizedEmail = normalizeRequiredText(request.getEmail());
-        boolean stepDefinitionChanged = negotiationStepDefinitionChanged(configuration, requested.getNegotiationSteps());
-        boolean responsePoliciesChanged = negotiationResponsePoliciesChanged(configuration, requested.getNegotiationSteps());
+        boolean stepDefinitionChanged = NegotiationStepPolicySupport.definitionChanged(orderedSteps(configuration), requested.getNegotiationSteps(), java.util.function.UnaryOperator.identity());
+        boolean responsePoliciesChanged = NegotiationStepPolicySupport.responsePoliciesChanged(orderedSteps(configuration), requested.getNegotiationSteps());
         boolean priceRangeChanged = !sameDecimal(configuration.getMinPrice(), requested.getMinPrice())
                 || !sameDecimal(configuration.getMaxPrice(), requested.getMaxPrice());
         boolean adaptiveModeChanged = Boolean.TRUE.equals(configuration.getAutoRaiseOfferToVintedMinimum()) != requestedAdaptive;
@@ -283,54 +284,12 @@ public class BotService {
         }
     }
 
-    private boolean negotiationStepDefinitionChanged(BotConfiguration configuration, List<CreateNegotiationStepRequest> requested) {
-        List<NegotiationStep> existing = orderedSteps(configuration);
-        if (requested == null || existing.size() != requested.size()) return true;
-        for (int i = 0; i < existing.size(); i++) {
-            NegotiationStep left = existing.get(i);
-            CreateNegotiationStepRequest right = requested.get(i);
-            if (!Objects.equals(left.getStepNumber(), i + 1)
-                    || !sameDecimal(left.getOfferPrice(), right.getOfferPrice())
-                    || !sameDecimal(left.getMaxAcceptedCounterOffer(), right.getMaxAcceptedCounterOffer())
-                    || !Objects.equals(left.getMessage(), right.getMessage())) return true;
-        }
-        return false;
-    }
 
-    private boolean negotiationResponsePoliciesChanged(BotConfiguration configuration, List<CreateNegotiationStepRequest> requested) {
-        List<NegotiationStep> existing = orderedSteps(configuration);
-        if (requested == null || existing.size() != requested.size()) return true;
-        for (int i = 0; i < existing.size(); i++) {
-            if (!samePolicy(existing.get(i), resolvePolicy(requested.get(i), i + 1))) return true;
-        }
-        return false;
-    }
+
+
 
     private List<NegotiationStep> orderedSteps(BotConfiguration configuration) {
-        return configuration.getNegotiationSteps().stream()
-                .sorted(Comparator.comparing(step -> step.getStepNumber() == null ? Integer.MAX_VALUE : step.getStepNumber()))
-                .toList();
-    }
-
-    private boolean samePolicy(NegotiationStep existing, ResolvedStepPolicy requested) {
-        if (existing.getRejectionAction() != requested.rejectionAction()
-                || !Objects.equals(existing.getRejectionWaitHours(), requested.rejectionWaitHours())
-                || existing.getCounterOfferDefaultAction() != requested.counterDefaultAction()
-                || !Objects.equals(existing.getCounterOfferDefaultWaitHours(), requested.counterDefaultWaitHours())) return false;
-        List<CounterRuleValue> left = existing.getCounterOfferRules().stream()
-                .map(rule -> new CounterRuleValue(rule.getMinimumDiscountPercent(), rule.getAction(), rule.getWaitHours()))
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent)).toList();
-        List<CounterRuleValue> right = requested.rules().stream()
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent)).toList();
-        if (left.size() != right.size()) return false;
-        for (int i = 0; i < left.size(); i++) {
-            CounterRuleValue a = left.get(i);
-            CounterRuleValue b = right.get(i);
-            if (!sameDecimal(a.minimumDiscountPercent(), b.minimumDiscountPercent())
-                    || a.action() != b.action()
-                    || !Objects.equals(a.waitHours(), b.waitHours())) return false;
-        }
-        return true;
+        return NegotiationStepPolicySupport.orderedSteps(configuration.getNegotiationSteps());
     }
 
     private boolean targetDefinitionChanged(BotConfiguration current, CreateBotConfigurationRequest requested, TargetMode requestedMode) {
@@ -344,19 +303,11 @@ public class BotService {
                 : !sameNormalizedText(current.getSearchQuery(), requested.getSearchQuery());
     }
 
-    private boolean isGlobalCapIncreased(BigDecimal currentCap, BigDecimal requestedCap) {
-        return requestedCap != null && (currentCap == null || requestedCap.compareTo(currentCap) > 0);
-    }
 
-    private int nextStrategyVersion(Integer currentVersion) {
-        return currentVersion == null || currentVersion < 1
-                ? 2
-                : currentVersion + 1;
-    }
 
-    private boolean sameDecimal(BigDecimal left, BigDecimal right) {
-        return left == null || right == null ? left == right : left.compareTo(right) == 0;
-    }
+
+
+
 
     private boolean sameNormalizedText(String left, String right) {
         return left == null || right == null ? left == right : normalizeRequiredText(left).equals(normalizeRequiredText(right));
@@ -374,51 +325,32 @@ public class BotService {
         }
     }
 
-    private void replaceNegotiationSteps(BotConfiguration configuration, List<CreateNegotiationStepRequest> requests) {
+
+
+
+
+
+    private void replaceNegotiationSteps(
+            BotConfiguration configuration, List<CreateNegotiationStepRequest> requests
+    ) {
         configuration.getNegotiationSteps().clear();
         for (int i = 0; i < requests.size(); i++) {
             CreateNegotiationStepRequest request = requests.get(i);
-            int stepNumber = i + 1;
-            ResolvedStepPolicy policy = resolvePolicy(request, stepNumber);
-            configuration.getNegotiationSteps().add(NegotiationStep.builder()
-                    .stepNumber(stepNumber)
-                    .offerPrice(request.getOfferPrice())
-                    .maxAcceptedCounterOffer(request.getMaxAcceptedCounterOffer())
-                    .message(request.getMessage())
-                    .rejectionAction(policy.rejectionAction())
-                    .rejectionWaitHours(policy.rejectionWaitHours())
-                    .counterOfferDefaultAction(policy.counterDefaultAction())
-                    .counterOfferDefaultWaitHours(policy.counterDefaultWaitHours())
-                    .counterOfferRules(toRuleEntities(policy.rules()))
-                    .configuration(configuration)
-                    .build());
+            NegotiationStep step = NegotiationStepPolicySupport.newStep(
+                    request, i + 1, request.getMessage()
+            );
+            step.setConfiguration(configuration);
+            configuration.getNegotiationSteps().add(step);
         }
     }
 
-    private void applyResponsePolicies(BotConfiguration configuration, List<CreateNegotiationStepRequest> requests) {
-        List<NegotiationStep> existing = orderedSteps(configuration);
-        if (existing.size() != requests.size()) {
-            throw new IllegalStateException("Cannot apply response policies because negotiation step structure changed.");
-        }
-        for (int i = 0; i < existing.size(); i++) {
-            NegotiationStep step = existing.get(i);
-            ResolvedStepPolicy policy = resolvePolicy(requests.get(i), i + 1);
-            step.setRejectionAction(policy.rejectionAction());
-            step.setRejectionWaitHours(policy.rejectionWaitHours());
-            step.setCounterOfferDefaultAction(policy.counterDefaultAction());
-            step.setCounterOfferDefaultWaitHours(policy.counterDefaultWaitHours());
-            step.getCounterOfferRules().clear();
-            step.getCounterOfferRules().addAll(toRuleEntities(policy.rules()));
-        }
-    }
-
-    private List<SellerCounterOfferRule> toRuleEntities(List<CounterRuleValue> rules) {
-        return rules.stream()
-                .sorted(Comparator.comparing(CounterRuleValue::minimumDiscountPercent))
-                .map(rule -> SellerCounterOfferRule.builder()
-                        .minimumDiscountPercent(rule.minimumDiscountPercent())
-                        .action(rule.action()).waitHours(rule.waitHours()).build())
-                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    private void applyResponsePolicies(
+            BotConfiguration configuration, List<CreateNegotiationStepRequest> requests
+    ) {
+        NegotiationStepPolicySupport.applyResponsePolicies(
+                orderedSteps(configuration), requests,
+                "Cannot apply response policies because negotiation step structure changed."
+        );
     }
 
     private void validateConfiguration(CreateBotConfigurationRequest request) {
@@ -449,75 +381,14 @@ public class BotService {
         }
     }
 
+
+
+
+
     private void validateResolvedPolicy(ResolvedStepPolicy policy, int stepNumber) {
-        validateReaction(policy.rejectionAction(), policy.rejectionWaitHours(), "Step " + stepNumber + " rejection policy");
-        validateReaction(policy.counterDefaultAction(), policy.counterDefaultWaitHours(), "Step " + stepNumber + " counteroffer fallback");
-        Set<String> thresholds = new HashSet<>();
-        for (CounterRuleValue rule : policy.rules()) {
-            if (rule.minimumDiscountPercent() == null
-                    || rule.minimumDiscountPercent().signum() <= 0
-                    || rule.minimumDiscountPercent().compareTo(MAX_DISCOUNT_PERCENT) > 0) {
-                throw new IllegalArgumentException("Step " + stepNumber + " counteroffer discount threshold must be greater than 0 and at most 100%.");
-            }
-            String threshold = rule.minimumDiscountPercent().stripTrailingZeros().toPlainString();
-            if (!thresholds.add(threshold)) {
-                throw new IllegalArgumentException("Step " + stepNumber + " contains duplicate counteroffer discount threshold " + threshold + "%.");
-            }
-            validateReaction(rule.action(), rule.waitHours(), "Step " + stepNumber + " counteroffer rule " + threshold + "%");
-        }
-    }
-
-    private void validateReaction(NegotiationReactionAction action, Integer waitHours, String label) {
-        if (action == null) throw new IllegalArgumentException(label + " has no action.");
-        if (action == NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP
-                && (waitHours == null || waitHours < 1 || waitHours > MAX_RESPONSE_WAIT_HOURS)) {
-            throw new IllegalArgumentException(label + " wait time must be between 1 and " + MAX_RESPONSE_WAIT_HOURS + " hours.");
-        }
-    }
-
-    private ResolvedStepPolicy resolvePolicy(CreateNegotiationStepRequest request, int stepNumber) {
-        NegotiationReactionAction rejection = request.getRejectionAction();
-        Integer rejectionWait = request.getRejectionWaitHours();
-        if (rejection == null) {
-            if (stepNumber == 1) {
-                rejection = NegotiationReactionAction.NEXT_STEP_NOW;
-                rejectionWait = null;
-            } else {
-                rejection = NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP;
-                rejectionWait = defaultRejectionWaitHours(stepNumber);
-            }
-        }
-        if (rejection == NegotiationReactionAction.NEXT_STEP_NOW) rejectionWait = null;
-        NegotiationReactionAction counterDefault = request.getCounterOfferDefaultAction();
-        Integer counterWait = request.getCounterOfferDefaultWaitHours();
-        if (counterDefault == null) {
-            counterDefault = NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP;
-            counterWait = 6;
-        }
-        if (counterDefault == NegotiationReactionAction.NEXT_STEP_NOW) counterWait = null;
-        List<CounterRuleValue> rules = request.getCounterOfferRules() == null
-                ? defaultCounterOfferRules()
-                : request.getCounterOfferRules().stream().filter(Objects::nonNull).map(this::toRuleValue).toList();
-        return new ResolvedStepPolicy(rejection, rejectionWait, counterDefault, counterWait, rules);
-    }
-
-    private CounterRuleValue toRuleValue(SellerCounterOfferRuleRequest request) {
-        NegotiationReactionAction action = request.getAction();
-        Integer wait = request.getWaitHours();
-        if (action == NegotiationReactionAction.NEXT_STEP_NOW) wait = null;
-        return new CounterRuleValue(request.getMinimumDiscountPercent(), action, wait);
-    }
-
-    private int defaultRejectionWaitHours(int stepNumber) {
-        if (stepNumber == 2) return 6;
-        if (stepNumber == 3) return 12;
-        return 24;
-    }
-
-    private List<CounterRuleValue> defaultCounterOfferRules() {
-        return List.of(
-                new CounterRuleValue(new BigDecimal("10"), NegotiationReactionAction.WAIT_BEFORE_NEXT_STEP, 2),
-                new CounterRuleValue(new BigDecimal("15"), NegotiationReactionAction.NEXT_STEP_NOW, null));
+        NegotiationResponsePolicyValidator.validate(
+                policy, stepNumber, NegotiationResponsePolicyValidator.MessageStyle.MAIN
+        );
     }
 
     private TargetMode resolveTargetMode(CreateBotConfigurationRequest request) {
@@ -538,13 +409,4 @@ public class BotService {
         return value.trim().replaceAll("\\s+", " ");
     }
 
-    private record ResolvedStepPolicy(
-            NegotiationReactionAction rejectionAction,
-            Integer rejectionWaitHours,
-            NegotiationReactionAction counterDefaultAction,
-            Integer counterDefaultWaitHours,
-            List<CounterRuleValue> rules
-    ) {}
-
-    private record CounterRuleValue(BigDecimal minimumDiscountPercent, NegotiationReactionAction action, Integer waitHours) {}
 }

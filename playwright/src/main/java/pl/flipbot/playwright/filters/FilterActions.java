@@ -9,14 +9,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
+
+import static pl.flipbot.playwright.filters.VintedLocatorSafety.safeCount;
+import static pl.flipbot.playwright.filters.VintedLocatorSafety.safeIsVisible;
+import static pl.flipbot.playwright.filters.VintedLocatorSafety.safeAttribute;
+import static pl.flipbot.playwright.filters.VintedLocatorSafety.getFriendlyErrorMessage;
+import static pl.flipbot.playwright.filters.VintedModelOptionIdentity.MODEL_TEST_ID_PREFIX;
+import static pl.flipbot.playwright.filters.VintedModelOptionIdentity.MODEL_TITLE_TEST_ID_SUFFIX;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -41,16 +46,13 @@ public class FilterActions {
     private static final double MODEL_PERSIST_TIMEOUT_MS = 5_000;
     private static final double MODEL_RETRY_DELAY_MS = 1_000;
     private static final double MODEL_PANEL_SETTLE_MS = 350;
-    private static final String MODEL_TEST_ID_PREFIX =
-            "selectable-item-brand_collection-";
-    private static final String MODEL_TITLE_TEST_ID_SUFFIX =
-            "--title";
 
     private final Page page;
 
     private String activeFilterTestId;
     private String activeFilterBaseUrl;
     private String selectedBrandOption;
+    private String selectedCategoryId;
     private String selectedModelOption;
     private String selectedModelCollectionId;
     private String verifiedModelCollectionId;
@@ -63,6 +65,10 @@ public class FilterActions {
         if (FilterSelectors.BRAND_FILTER.equals(filterTestId)) {
             activeFilterBaseUrl = page.url();
             selectedBrandOption = null;
+        }
+
+        if (FilterSelectors.CATEGORY_FILTER.equals(filterTestId)) {
+            selectedCategoryId = null;
         }
 
         if (FilterSelectors.MODEL_FILTER.equals(filterTestId)) {
@@ -83,11 +89,24 @@ public class FilterActions {
     public void selectOption(String option) {
         Locator locator = getOptionLocator(option);
         waitUntilVisible(locator, OPTION_TIMEOUT_MS);
+
+        // Capture the current DOM row's native category ID BEFORE clicking,
+        // because Vinted replaces the whole menu after moving one level.
+        // Only an exact visible label plus verified native ID is sufficient.
+        String clickedCategoryId =
+                FilterSelectors.CATEGORY_FILTER.equals(activeFilterTestId)
+                        ? VintedCategoryOptionResolver.verifiedCategoryId(locator, option)
+                        : null;
+
         locator.click();
 
         if (FilterSelectors.BRAND_FILTER.equals(activeFilterTestId)) {
             selectedBrandOption = option;
             return;
+        }
+
+        if (FilterSelectors.CATEGORY_FILTER.equals(activeFilterTestId)) {
+            selectedCategoryId = clickedCategoryId;
         }
 
         assertStillOnVinted("selecting filter option '" + option + "'");
@@ -405,7 +424,9 @@ public class FilterActions {
                         );
                     }
 
-                    Locator modelRow = canonicalModelRow(
+                    VintedModelRowInteractor rowInteractor =
+                            new VintedModelRowInteractor(page);
+                    Locator modelRow = rowInteractor.canonicalModelRow(
                             collectionId,
                             titleLocator
                     );
@@ -420,7 +441,7 @@ public class FilterActions {
                             safeAttribute(modelRow, "data-testid")
                     );
 
-                    selectExactModelRow(
+                    rowInteractor.selectExactModelRow(
                             modelRow,
                             model,
                             collectionId
@@ -607,6 +628,24 @@ public class FilterActions {
                         + "'][data-testid$='" + MODEL_TITLE_TEST_ID_SUFFIX + "']";
 
         Locator titles = page.locator(selector);
+
+        /*
+         * On the observed Vinted model picker each selectable model has a
+         * dedicated --title test ID containing its COMPLETE name. First ask
+         * Playwright to match that exact title in the browser: this avoids
+         * fetching every model label across the Java/Playwright boundary on
+         * the normal UI. Anchoring is essential: S25 must not match S25 FE,
+         * Edge, Ultra or +.
+         *
+         * Keep the original row-by-row scan below for Vinted variants whose
+         * title contains additional metadata or whose label is outside the
+         * title child (including the anonymous observer compatibility view).
+         */
+        Locator fastExactTitle = findFastExactModelTitle(titles, requestedModel);
+        if (fastExactTitle != null) {
+            return new ExactModelTitleMatch(fastExactTitle, 1, 1, List.of());
+        }
+
         int count = safeCount(titles);
         int visibleCount = 0;
         int textMatchedCount = 0;
@@ -695,6 +734,38 @@ public class FilterActions {
         );
     }
 
+    /**
+     * Fast path for Vinted's verified --title data-testid. The Java-side exact
+     * check is deliberate defense in depth: a Playwright text filter must
+     * never accidentally turn S25 into an S25 FE/Ultra/Edge/+ selection.
+     */
+    Locator findFastExactModelTitle(Locator titles, String requestedModel) {
+        Locator exactTitleCandidates = titles.filter(
+                new Locator.FilterOptions()
+                        .setHasText(exactModelOptionPattern(requestedModel))
+        );
+
+        int fastCandidateCount = safeCount(exactTitleCandidates);
+        for (int index = 0; index < fastCandidateCount; index++) {
+            Locator candidate = exactTitleCandidates.nth(index);
+            if (!safeIsVisible(candidate)) {
+                continue;
+            }
+
+            String text = safeInnerText(candidate);
+            if (normalizeOptionText(requestedModel)
+                    .equalsIgnoreCase(normalizeOptionText(text))) {
+                log.debug(
+                        "[FILTER MODEL] Exact '{}' found by --title test ID and browser-side exact-text match.",
+                        requestedModel
+                );
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     private record ExactModelTitleMatch(
             Locator titleLocator,
             int textMatchedCount,
@@ -703,564 +774,48 @@ public class FilterActions {
     ) {
     }
 
-    private Locator canonicalModelRow(
-            String collectionId,
-            Locator evidenceLocator
-    ) {
-        String canonicalTestId = canonicalModelRowTestId(collectionId);
 
-        /*
-         * clickModel() now searches only canonical role=button rows. Prefer the
-         * exact row that supplied the matching text instead of resolving a
-         * page-wide .first() which can point at a stale/responsive duplicate.
-         */
-        if (canonicalTestId.equals(safeAttribute(evidenceLocator, "data-testid"))
-                && safeIsVisible(evidenceLocator)) {
-            return evidenceLocator;
-        }
 
-        Locator canonicalRows = page.getByTestId(canonicalTestId);
-        int rowCount = safeCount(canonicalRows);
-        for (int index = 0; index < rowCount; index++) {
-            Locator candidate = canonicalRows.nth(index);
-            if (safeIsVisible(candidate)) {
-                return candidate;
-            }
-        }
 
-        /*
-         * Compatibility fallback for a future Vinted variant where exact text
-         * evidence comes from a child instead of the canonical row itself.
-         */
-        Locator ancestorCandidate = evidenceLocator.locator(
-                "xpath=ancestor::*[@role='button' and @data-testid='" + canonicalTestId + "'][1]"
-        );
 
-        if (safeCount(ancestorCandidate) > 0
-                && safeIsVisible(ancestorCandidate.first())) {
-            return ancestorCandidate.first();
-        }
 
-        return evidenceLocator;
-    }
 
-    private void selectExactModelRow(
-            Locator modelRow,
-            String model,
-            String collectionId
-    ) {
-        if (isExactModelSelected(modelRow, collectionId)) {
-            log.info(
-                    "[FILTER MODEL] Exact model '{}' / collectionId={} is already selected.",
-                    model,
-                    collectionId
-            );
-            return;
-        }
 
-        Locator nativeCheckbox = modelRow.locator(
-                exactModelCheckboxSelector(collectionId)
-        ).first();
-        boolean hasNativeCheckbox = safeCount(nativeCheckbox) > 0;
-        RuntimeException primaryFailure = null;
 
-        log.info(
-                "[FILTER MODEL] Selecting exact model '{}' / collectionId={}. rowTestId='{}', nativeCheckboxPresent={}, checkboxAriaLabel='{}'.",
-                model,
-                collectionId,
-                safeAttribute(modelRow, "data-testid"),
-                hasNativeCheckbox,
-                hasNativeCheckbox
-                        ? safeAttribute(nativeCheckbox, "aria-label")
-                        : ""
-        );
 
-        /*
-         * The exact right-hand suffix is the real click area observed in the
-         * live Vinted DOM:
-         *
-         *   selectable-item-brand_collection-<ID>--suffix
-         *
-         * Resolve it INSIDE the already-proven row. This avoids stale duplicate
-         * controls and keeps S25 / S25 FE / Ultra / Edge completely isolated.
-         */
-        Locator modelSuffix = modelRow.locator(
-                "[data-testid='" + exactModelSuffixTestId(collectionId) + "']"
-        ).first();
 
-        if (safeCount(modelSuffix) > 0 && safeIsVisible(modelSuffix)) {
-            try {
-                log.info(
-                        "[FILTER MODEL] Clicking exact model suffix '{}' for '{}' / collectionId={}.",
-                        exactModelSuffixTestId(collectionId),
-                        model,
-                        collectionId
-                );
 
-                modelSuffix.click(
-                        new Locator.ClickOptions()
-                                .setTimeout(2_000)
-                );
 
-                if (waitForExactModelSelected(
-                        modelRow,
-                        collectionId,
-                        1_500
-                )) {
-                    log.info(
-                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact suffix Playwright click.",
-                            model,
-                            collectionId
-                    );
-                    return;
-                }
 
-                /*
-                 * Some Vinted builds put pointer-events:none on the checkbox
-                 * subtree while the parent Cell owns the handler. HTMLElement
-                 * click on the exact suffix bubbles to that Cell without fuzzy
-                 * coordinates or another model row.
-                 */
-                modelSuffix.evaluate("element => element.click()");
 
-                if (waitForExactModelSelected(
-                        modelRow,
-                        collectionId,
-                        1_500
-                )) {
-                    log.info(
-                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact suffix DOM click.",
-                            model,
-                            collectionId
-                    );
-                    return;
-                }
-
-                /*
-                 * Last suffix-specific pointer path: click the visual center of
-                 * THIS exact suffix with Chromium's mouse. This reproduces the
-                 * manual click while still deriving the target from collectionId.
-                 */
-                modelSuffix.scrollIntoViewIfNeeded();
-                var suffixBox = modelSuffix.boundingBox();
-
-                if (suffixBox != null
-                        && suffixBox.width > 0
-                        && suffixBox.height > 0) {
-                    double clickX = suffixBox.x + (suffixBox.width / 2.0);
-                    double clickY = suffixBox.y + (suffixBox.height / 2.0);
-
-                    page.mouse().click(clickX, clickY);
-
-                    if (waitForExactModelSelected(
-                            modelRow,
-                            collectionId,
-                            1_500
-                    )) {
-                        log.info(
-                                "[FILTER MODEL] Exact model '{}' / collectionId={} selected by physical exact-suffix click.",
-                                model,
-                                collectionId
-                        );
-                        return;
-                    }
-                }
-
-                log.warn(
-                        "[FILTER MODEL] All exact-suffix click paths for '{}' / collectionId={} left the checkbox unchecked. Trying bounded compatibility fallbacks.",
-                        model,
-                        collectionId
-                );
-            } catch (RuntimeException exception) {
-                primaryFailure = exception;
-                log.warn(
-                        "[FILTER MODEL] Exact suffix activation failed for '{}' / collectionId={}: {}. Trying bounded compatibility fallbacks.",
-                        model,
-                        collectionId,
-                        getFriendlyErrorMessage(exception)
-                );
-            }
-        } else {
-            log.warn(
-                    "[FILTER MODEL] Exact suffix '{}' is missing or not visible inside canonical row for '{}' / collectionId={}. Trying bounded compatibility fallbacks.",
-                    exactModelSuffixTestId(collectionId),
-                    model,
-                    collectionId
-            );
-        }
-
-        /*
-         * Keep a short normal Playwright row click as the next compatibility
-         * path. The explicit timeout prevents an actionability/interception
-         * wait from stalling the whole worker for the default Playwright timeout.
-         */
-        try {
-            modelRow.click(
-                    new Locator.ClickOptions()
-                            .setTimeout(2_000)
-            );
-
-            if (waitForExactModelSelected(modelRow, collectionId, 1_500)) {
-                log.info(
-                        "[FILTER MODEL] Exact model '{}' / collectionId={} selected by canonical row click.",
-                        model,
-                        collectionId
-                );
-                return;
-            }
-        } catch (RuntimeException exception) {
-            if (primaryFailure == null) {
-                primaryFailure = exception;
-            }
-            log.debug(
-                    "[FILTER MODEL] Canonical row click failed for '{}' / collectionId={}.",
-                    model,
-                    collectionId,
-                    exception
-            );
-        }
-
-        /*
-         * If browser actionability is the blocker, invoke the canonical Cell's
-         * click handler directly. This targets the exact proven row, not the
-         * text node and not a fuzzy model candidate.
-         */
-        try {
-            modelRow.evaluate("element => element.click()");
-
-            if (waitForExactModelSelected(modelRow, collectionId, 1_500)) {
-                log.info(
-                        "[FILTER MODEL] Exact model '{}' / collectionId={} selected by canonical row DOM activation.",
-                        model,
-                        collectionId
-                );
-                return;
-            }
-        } catch (RuntimeException exception) {
-            log.debug(
-                    "[FILTER MODEL] Canonical row DOM activation failed for '{}' / collectionId={}.",
-                    model,
-                    collectionId,
-                    exception
-            );
-        }
-
-        for (String key : List.of("Enter", "Space")) {
-            try {
-                modelRow.press(key);
-
-                if (waitForExactModelSelected(
-                        modelRow,
-                        collectionId,
-                        1_000
-                )) {
-                    log.info(
-                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by row keyboard activation '{}'.",
-                            model,
-                            collectionId,
-                            key
-                    );
-                    return;
-                }
-            } catch (RuntimeException exception) {
-                log.debug(
-                        "[FILTER MODEL] Row keyboard activation '{}' failed for '{}' / collectionId={}.",
-                        key,
-                        model,
-                        collectionId,
-                        exception
-                );
-            }
-        }
-
-        /*
-         * Final state-specific fallback. This exact input is bound to the
-         * already-proven collection id, so it cannot select S25/Ultra/Edge when
-         * the requested model is S25 FE.
-         */
-        if (hasNativeCheckbox) {
-            try {
-                nativeCheckbox.evaluate("element => element.click()");
-
-                if (waitForExactModelSelected(
-                        modelRow,
-                        collectionId,
-                        1_500
-                )) {
-                    log.info(
-                            "[FILTER MODEL] Exact model '{}' / collectionId={} selected by exact checkbox DOM fallback.",
-                            model,
-                            collectionId
-                    );
-                    return;
-                }
-            } catch (RuntimeException exception) {
-                log.debug(
-                        "[FILTER MODEL] Exact checkbox DOM fallback failed for '{}' / collectionId={}.",
-                        model,
-                        collectionId,
-                        exception
-                );
-            }
-        }
-
-        String message =
-                "Exact Vinted model row was found, but its exact checkbox never became selected. Model='"
-                        + model
-                        + "', collectionId="
-                        + collectionId
-                        + ", rowTestId='"
-                        + safeAttribute(modelRow, "data-testid")
-                        + "', checkboxPresent="
-                        + hasNativeCheckbox
-                        + ", checkboxAriaLabel='"
-                        + (hasNativeCheckbox
-                        ? safeAttribute(nativeCheckbox, "aria-label")
-                        : "")
-                        + "'.";
-
-        if (primaryFailure != null) {
-            throw new IllegalStateException(message, primaryFailure);
-        }
-
-        throw new IllegalStateException(message);
-    }
-
+    // Backward-compatible package entry points exercised by existing tests.
     static String exactModelSuffixTestId(String collectionId) {
-        if (collectionId == null
-                || !collectionId.matches("^\\d+$")) {
-            throw new IllegalArgumentException(
-                    "Model collection id must contain digits only"
-            );
-        }
-
-        return canonicalModelRowTestId(collectionId) + "--suffix";
+        return VintedModelRowInteractor.exactModelSuffixTestId(collectionId);
     }
 
     static String exactModelCheckboxSelector(String collectionId) {
-        if (collectionId == null
-                || !collectionId.matches("^\\d+$")) {
-            throw new IllegalArgumentException(
-                    "Model collection id must contain digits only"
-            );
-        }
-
-        return "input[type='checkbox'][name='brand_collection_ids[]'][value='"
-                + collectionId
-                + "']";
+        return VintedModelRowInteractor.exactModelCheckboxSelector(collectionId);
     }
 
-    private boolean waitForExactModelSelected(
-            Locator modelRow,
-            String collectionId,
-            double timeoutMilliseconds
-    ) {
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) timeoutMilliseconds;
-
-        while (System.currentTimeMillis() <= deadline) {
-            if (isExactModelSelected(modelRow, collectionId)) {
-                return true;
-            }
-
-            page.waitForTimeout(100);
-        }
-
-        return false;
-    }
-
-    private boolean isExactModelSelected(
-            Locator modelRow,
-            String collectionId
-    ) {
-        try {
-            Locator exactCheckbox = modelRow.locator(
-                    exactModelCheckboxSelector(collectionId)
-            ).first();
-
-            if (exactCheckbox.count() > 0) {
-                /*
-                 * When the exact native checkbox exists, it is the authoritative
-                 * state oracle. Do not accept a generic row/role state that could
-                 * describe another custom control in the same Cell.
-                 */
-                return exactCheckbox.isChecked();
-            }
-        } catch (RuntimeException ignored) {
-            // Fall through only for DOM variants that do not expose the input.
-        }
-
-        try {
-            Locator roleCheckbox =
-                    modelRow.getByRole(AriaRole.CHECKBOX).first();
-
-            if (roleCheckbox.count() > 0) {
-                String ariaChecked =
-                        roleCheckbox.getAttribute("aria-checked");
-
-                if ("true".equalsIgnoreCase(ariaChecked)) {
-                    return true;
-                }
-
-                try {
-                    if (roleCheckbox.isChecked()) {
-                        return true;
-                    }
-                } catch (RuntimeException ignored) {
-                    // Custom role=checkbox is not necessarily an <input>.
-                }
-            }
-        } catch (RuntimeException ignored) {
-            // Try row/custom attributes below.
-        }
-
-        String rowAriaChecked =
-                safeAttribute(modelRow, "aria-checked");
-        if ("true".equalsIgnoreCase(rowAriaChecked)) {
-            return true;
-        }
-
-        String rowAriaSelected =
-                safeAttribute(modelRow, "aria-selected");
-        if ("true".equalsIgnoreCase(rowAriaSelected)) {
-            return true;
-        }
-
-        String rowDataState =
-                safeAttribute(modelRow, "data-state");
-        return "checked".equalsIgnoreCase(rowDataState)
-                || "selected".equalsIgnoreCase(rowDataState);
-    }
-
-    private int safeCount(Locator locator) {
-        try {
-            return locator.count();
-        } catch (RuntimeException exception) {
-            return 0;
-        }
-    }
-
+    // Keep package-private entry points used by existing regression tests.
     static String canonicalModelRowTestId(String collectionId) {
-        if (collectionId == null
-                || !collectionId.matches("^\\d+$")) {
-            throw new IllegalArgumentException(
-                    "Model collection id must contain digits only"
-            );
-        }
-
-        return MODEL_TEST_ID_PREFIX + collectionId;
+        return VintedModelOptionIdentity.canonicalModelRowTestId(collectionId);
     }
 
     static String modelCollectionIdFromTestId(String testId) {
-        if (testId == null || !testId.startsWith(MODEL_TEST_ID_PREFIX)) {
-            return null;
-        }
-
-        String candidate = testId.substring(MODEL_TEST_ID_PREFIX.length()).trim();
-
-        if (candidate.endsWith(MODEL_TITLE_TEST_ID_SUFFIX)) {
-            candidate = candidate.substring(
-                    0,
-                    candidate.length() - MODEL_TITLE_TEST_ID_SUFFIX.length()
-            );
-        }
-
-        if (!candidate.matches("^\\d+$")) {
-            return null;
-        }
-
-        return candidate;
+        return VintedModelOptionIdentity.modelCollectionIdFromTestId(testId);
     }
 
     static Pattern exactModelOptionPattern(String model) {
-        String normalizedModel = normalizeOptionText(model);
-        return Pattern.compile(
-                "^\\s*" + Pattern.quote(normalizedModel) + "\\s*$",
-                Pattern.CASE_INSENSITIVE
-        );
+        return VintedModelOptionIdentity.exactModelOptionPattern(model);
     }
 
-    static boolean exactVisibleModelLabelMatches(
-            String requestedModel,
-            String visibleText
-    ) {
-        String normalizedRequested = normalizeOptionText(requestedModel);
-
-        if (normalizedRequested.isBlank() || visibleText == null) {
-            return false;
-        }
-
-        String normalizedVisible = normalizeOptionText(visibleText);
-        if (normalizedRequested.equalsIgnoreCase(normalizedVisible)) {
-            return true;
-        }
-
-        if (startsWithIgnoreCase(normalizedVisible, normalizedRequested)) {
-            String suffix = normalizedVisible
-                    .substring(normalizedRequested.length())
-                    .trim();
-            if (isModelOptionMetadata(suffix)) {
-                return true;
-            }
-        }
-
-        List<String> lines = visibleText.lines()
-                .map(FilterActions::normalizeOptionText)
-                .filter(line -> !line.isBlank())
-                .toList();
-
-        for (int index = 0; index < lines.size(); index++) {
-            if (!normalizedRequested.equalsIgnoreCase(lines.get(index))) {
-                continue;
-            }
-
-            boolean onlyMetadataAroundExactLabel = true;
-            for (int otherIndex = 0; otherIndex < lines.size(); otherIndex++) {
-                if (otherIndex == index) {
-                    continue;
-                }
-
-                if (!isModelOptionMetadata(lines.get(otherIndex))) {
-                    onlyMetadataAroundExactLabel = false;
-                    break;
-                }
-            }
-
-            if (onlyMetadataAroundExactLabel) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static boolean startsWithIgnoreCase(String value, String prefix) {
-        return value.length() >= prefix.length()
-                && value.regionMatches(true, 0, prefix, 0, prefix.length());
-    }
-
-    private static boolean isModelOptionMetadata(String value) {
-        String normalized = normalizeOptionText(value);
-        if (normalized.isBlank()) {
-            return false;
-        }
-
-        if (normalized.matches("^\\d[\\d\\s.,]*$")) {
-            return true;
-        }
-
-        String lower = normalized.toLowerCase(Locale.ROOT);
-        return lower.matches(
-                "^\\d[\\d\\s.,]*\\s*(przedmiot\\p{L}*|item\\p{L}*|article\\p{L}*|result\\p{L}*|wynik\\p{L}*)$"
-        );
+    static boolean exactVisibleModelLabelMatches(String requestedModel, String visibleText) {
+        return VintedModelOptionIdentity.exactVisibleModelLabelMatches(requestedModel, visibleText);
     }
 
     static String normalizeOptionText(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.trim().replaceAll("\\s+", " ");
+        return VintedModelOptionIdentity.normalizeOptionText(value);
     }
 
     private List<String> readCompleteModelOptionTexts(Locator locator) {
@@ -1311,13 +866,7 @@ public class FilterActions {
                 .contains(fragment.toLowerCase(Locale.ROOT));
     }
 
-    private boolean safeIsVisible(Locator locator) {
-        try {
-            return locator.isVisible();
-        } catch (RuntimeException exception) {
-            return false;
-        }
-    }
+
 
     private String safeInnerText(Locator locator) {
         try {
@@ -1336,14 +885,7 @@ public class FilterActions {
         }
     }
 
-    private String safeAttribute(Locator locator, String attributeName) {
-        try {
-            String value = locator.getAttribute(attributeName);
-            return value == null ? "" : value;
-        } catch (RuntimeException exception) {
-            return "";
-        }
-    }
+
 
     public void clickConfirmButton() {
         ensureVintedBeforeFilterAction("confirming filter selection");
@@ -1682,6 +1224,42 @@ public class FilterActions {
         page.waitForTimeout(milliseconds);
     }
 
+    /**
+     * Check the actual clicked category leaf when its native ID was proven
+     * from the visible row; otherwise preserve the legacy URL-presence
+     * verification for Vinted variants lacking trustworthy row IDs.
+     *
+     * The verified UI uses a single catalog[] parameter. Its final exact ID
+     * was independently confirmed in the browser for mobile phones (3661).
+     * Reject extra/duplicated category parameters as ambiguous evidence.
+     */
+    public boolean waitForSelectedCategoryPersisted(double timeoutMilliseconds) {
+        if (selectedCategoryId != null && !selectedCategoryId.isBlank()) {
+            long deadline = System.currentTimeMillis() + (long) timeoutMilliseconds;
+
+            while (System.currentTimeMillis() <= deadline) {
+                assertStillOnVinted("verifying persisted exact category ID");
+
+                if (VintedCatalogCategoryUrlEvidence.matchesExactlyOneCategory(
+                        page.url(), selectedCategoryId
+                )) {
+                    rememberCurrentVintedUrl();
+                    return true;
+                }
+
+                page.waitForTimeout(200);
+            }
+
+            return false;
+        }
+
+        log.warn(
+                "[FILTER CATEGORY] No verified native category ID was supplied by "
+                        + "the visible row; falling back to legacy catalog[] presence check."
+        );
+        return waitForUrlParameterPresent("catalog[]", timeoutMilliseconds);
+    }
+
     public boolean waitForUrlParameterPresent(
             String parameterName,
             double timeoutMilliseconds
@@ -1770,38 +1348,19 @@ public class FilterActions {
     }
 
     private String getUrlParameter(String parameterName) {
-        String currentUrl = page.url();
-        int questionMarkIndex = currentUrl.indexOf('?');
-
-        if (questionMarkIndex < 0 || questionMarkIndex == currentUrl.length() - 1) {
-            return null;
-        }
-
-        String query = currentUrl.substring(questionMarkIndex + 1);
-        int fragmentIndex = query.indexOf('#');
-        if (fragmentIndex >= 0) {
-            query = query.substring(0, fragmentIndex);
-        }
-
-        for (String parameter : query.split("&")) {
-            int equalsIndex = parameter.indexOf('=');
-            String rawName = equalsIndex >= 0
-                    ? parameter.substring(0, equalsIndex)
-                    : parameter;
-            String rawValue = equalsIndex >= 0
-                    ? parameter.substring(equalsIndex + 1)
-                    : "";
-            String decodedName = URLDecoder.decode(rawName, StandardCharsets.UTF_8);
-
-            if (parameterName.equals(decodedName)) {
-                return URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
-            }
-        }
-
-        return null;
+        return VintedCatalogUrlParameters.get(page.url(), parameterName);
     }
 
     private Locator getOptionLocator(String option) {
+        if (FilterSelectors.BRAND_FILTER.equals(activeFilterTestId)) {
+            return VintedBrandOptionResolver.resolve(page, option);
+        }
+
+        if (FilterSelectors.CATEGORY_FILTER.equals(activeFilterTestId)) {
+            return VintedCategoryOptionResolver.resolve(page, option);
+        }
+
+        // Keep unknown and other filter types on their original locator.
         return page.getByRole(
                 AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName(option)
@@ -1921,19 +1480,5 @@ public class FilterActions {
         modelSelectionAttempt = 0;
     }
 
-    private String getFriendlyErrorMessage(Throwable exception) {
-        if (exception == null) {
-            return "Unknown error";
-        }
 
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return exception.getClass().getSimpleName();
-        }
-
-        int firstLineEnd = message.indexOf('\n');
-        return firstLineEnd > 0
-                ? message.substring(0, firstLineEnd).trim()
-                : message.trim();
-    }
 }

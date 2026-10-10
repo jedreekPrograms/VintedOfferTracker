@@ -2,57 +2,29 @@ package pl.flipbot.playwright.negotiation;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
-import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.context.BotContext;
-import pl.flipbot.playwright.marketplace.MarketplaceNavigator;
 import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.model.NegotiationStepDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
 @Slf4j
 public class FirstOfferExecutor {
 
-    private static final String VINTED_BASE_URL =
-            "https://www.vinted.pl";
-
-    private static final String ITEM_TITLE_SELECTOR =
-            "[data-testid='item-page-summary-plugin'] h1";
-
-    private static final Pattern OFFER_BUTTON_NAME =
-            Pattern.compile(
-                    "^(Zaproponuj cenę|Make an offer)$",
-                    Pattern.CASE_INSENSITIVE
-            );
-
     private static final BigDecimal VINTED_MIN_OFFER_RATIO =
             new BigDecimal("0.60");
-
-    private static final double LISTING_STATE_TIMEOUT_MS =
-            15_000;
-
-    private static final double LISTING_STATE_POLL_INTERVAL_MS =
-            250;
-
-    private static final double OFFER_BUTTON_TIMEOUT_MS =
-            15_000;
 
     private static final double FORM_OPEN_TIMEOUT_MS =
             5_000;
@@ -65,9 +37,6 @@ public class FirstOfferExecutor {
 
     private static final double MODAL_CLOSE_TIMEOUT_MS =
             3_000;
-
-    private static final double CONVERSATION_TIMEOUT_MS =
-            30_000;
 
     private static final double CHAT_ELEMENT_TIMEOUT_MS =
             20_000;
@@ -86,6 +55,8 @@ public class FirstOfferExecutor {
     private final HumanVerificationHandler humanVerificationHandler =
             new HumanVerificationHandler();
 
+    private final FirstOfferListingReadiness listingReadiness;
+
     private PreparedOffer preparedOffer;
 
 
@@ -98,6 +69,10 @@ public class FirstOfferExecutor {
 
         this.listingClient =
                 new ListingClient();
+
+        this.listingReadiness = new FirstOfferListingReadiness(
+                context, humanVerificationHandler
+        );
     }
 
 
@@ -169,13 +144,13 @@ public class FirstOfferExecutor {
                     offerPrice
             );
 
-            navigateToListingIfNeeded(
+            listingReadiness.navigateToListingIfNeeded(
                     page,
                     listing
             );
 
             boolean listingAvailable =
-                    waitForListingPage(
+                    listingReadiness.waitForListingPage(
                             page,
                             listing
                     );
@@ -196,7 +171,7 @@ public class FirstOfferExecutor {
             }
 
             Locator offerButton =
-                    waitForOfferButtonOrNull(
+                    listingReadiness.waitForOfferButtonOrNull(
                             page,
                             listing
                     );
@@ -206,7 +181,7 @@ public class FirstOfferExecutor {
             ) {
 
                 if (
-                        isListingUnavailable(
+                        listingReadiness.isListingUnavailable(
                                 page
                         )
                 ) {
@@ -320,7 +295,7 @@ public class FirstOfferExecutor {
                 context.getPage();
 
         if (
-                !isCurrentListingPage(
+                !listingReadiness.isCurrentListingPage(
                         page,
                         listing.listingId()
                 )
@@ -460,19 +435,17 @@ public class FirstOfferExecutor {
         );
 
         String conversationUrl =
-                waitForConversationUrl(
-                        page,
-                        listing
+                FirstOfferConversationEvidence.waitForConversationUrl(
+                        page, listing, humanVerificationHandler
                 );
 
         String conversationId =
-                extractConversationId(
+                FirstOfferConversationEvidence.extractConversationId(
                         conversationUrl
                 );
 
-        validateConversationReferrer(
-                conversationUrl,
-                listing
+        FirstOfferConversationEvidence.validateConversationReferrer(
+                conversationUrl, listing
         );
 
         ListingResponseDto updatedListing =
@@ -548,11 +521,7 @@ public class FirstOfferExecutor {
                 return false;
             }
 
-            URI conversationUri = URI.create(conversationUrl);
-            String rawQuery = conversationUri.getRawQuery();
-            String decodedQuery = rawQuery == null
-                    ? ""
-                    : URLDecoder.decode(rawQuery, StandardCharsets.UTF_8);
+            String decodedQuery = FirstOfferConversationEvidence.decodedQuery(conversationUrl);
 
             if (!decodedQuery.contains(listing.listingId())) {
                 log.warn(
@@ -564,7 +533,7 @@ public class FirstOfferExecutor {
                 return false;
             }
 
-            String conversationId = extractConversationId(conversationUrl);
+            String conversationId = FirstOfferConversationEvidence.extractConversationId(conversationUrl);
 
             Locator ownOfferPrices =
                     page.getByTestId(NegotiationSelectors.OWN_OFFER_PRICE);
@@ -672,245 +641,13 @@ public class FirstOfferExecutor {
     }
 
 
-    private void navigateToListingIfNeeded(
-            Page page,
-            ListingResponseDto listing
-    ) {
-
-        String listingUrl =
-                resolveListingUrl(
-                        listing.url()
-                );
-
-        if (
-                isCurrentListingPage(
-                        page,
-                        listing.listingId()
-                )
-        ) {
-
-            log.info(
-                    "[REAL OFFER PREPARE] Marketplace listing {} is already "
-                            + "open after FINAL VERIFY. Reusing current page "
-                            + "instead of navigating to the same item again. "
-                            + "Current URL: {}",
-                    listing.listingId(),
-                    page.url()
-            );
-
-            humanVerificationHandler.waitUntilVerified(
-                    page
-            );
-
-            return;
-        }
-
-        log.info(
-                "[REAL OFFER PREPARE] Opening marketplace listing {}: {}",
-                listing.listingId(),
-                listingUrl
-        );
-
-        new MarketplaceNavigator(context).goToTrustedVintedUrl(
-                listingUrl
-        );
-
-        humanVerificationHandler.waitUntilVerified(
-                page
-        );
-
-        log.info(
-                "[REAL OFFER PREPARE] Listing navigation completed. "
-                        + "Current URL: {}",
-                page.url()
-        );
-    }
 
 
-    private boolean waitForListingPage(
-            Page page,
-            ListingResponseDto listing
-    ) {
-
-        Locator itemTitle =
-                page.locator(
-                                ITEM_TITLE_SELECTOR
-                        )
-                        .first();
-
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) LISTING_STATE_TIMEOUT_MS;
-
-        while (
-                System.currentTimeMillis()
-                        < deadline
-        ) {
-
-            humanVerificationHandler.waitUntilVerified(
-                    page
-            );
-
-            if (
-                    isListingUnavailable(
-                            page
-                    )
-            ) {
-
-                return false;
-            }
-
-            if (
-                    itemTitle.isVisible()
-            ) {
-
-                String title =
-                        normalizeVisibleText(
-                                itemTitle.innerText()
-                        );
-
-                log.info(
-                        "[REAL OFFER PREPARE] Listing page is loaded for {}. "
-                                + "Visible h1='{}'.",
-                        listing.listingId(),
-                        title
-                );
-
-                return true;
-            }
-
-            page.waitForTimeout(
-                    LISTING_STATE_POLL_INTERVAL_MS
-            );
-        }
-
-        if (
-                isListingUnavailable(
-                        page
-                )
-        ) {
-
-            return false;
-        }
-
-        throw new IllegalStateException(
-                "Listing item page did not expose its h1 within "
-                        + Math.round(
-                        LISTING_STATE_TIMEOUT_MS / 1_000
-                )
-                        + " seconds. Marketplace listing: "
-                        + listing.listingId()
-                        + ", URL: "
-                        + page.url()
-        );
-    }
 
 
-    private Locator waitForOfferButtonOrNull(
-            Page page,
-            ListingResponseDto listing
-    ) {
 
-        Locator testIdButton =
-                page.getByTestId(
-                                NegotiationSelectors.ITEM_OFFER_BUTTON
-                        )
-                        .first();
 
-        Locator accessibleButtons =
-                page.getByRole(
-                        AriaRole.BUTTON,
-                        new Page.GetByRoleOptions()
-                                .setName(
-                                        OFFER_BUTTON_NAME
-                                )
-                );
 
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) OFFER_BUTTON_TIMEOUT_MS;
-
-        while (
-                System.currentTimeMillis()
-                        < deadline
-        ) {
-
-            humanVerificationHandler.waitUntilVerified(
-                    page
-            );
-
-            if (
-                    isListingUnavailable(
-                            page
-                    )
-            ) {
-
-                return null;
-            }
-
-            if (
-                    testIdButton.isVisible()
-            ) {
-
-                log.info(
-                        "[REAL OFFER PREPARE] Offer button found by test-id '{}'.",
-                        NegotiationSelectors.ITEM_OFFER_BUTTON
-                );
-
-                return testIdButton;
-            }
-
-            int accessibleCount =
-                    accessibleButtons.count();
-
-            for (
-                    int index = 0;
-                    index < accessibleCount;
-                    index++
-            ) {
-
-                Locator candidate =
-                        accessibleButtons.nth(
-                                index
-                        );
-
-                if (
-                        !candidate.isVisible()
-                ) {
-
-                    continue;
-                }
-
-                log.warn(
-                        "[REAL OFFER PREPARE] Offer button test-id '{}' was not "
-                                + "available, but a visible button was found by "
-                                + "accessible name '{}'. Using accessible-name "
-                                + "fallback.",
-                        NegotiationSelectors.ITEM_OFFER_BUTTON,
-                        candidate.innerText()
-                );
-
-                return candidate;
-            }
-
-            page.waitForTimeout(
-                    LISTING_STATE_POLL_INTERVAL_MS
-            );
-        }
-
-        log.info(
-                "[REAL OFFER PREPARE] No visible offer action was found "
-                        + "within {} seconds for marketplace listing {}. "
-                        + "The listing page itself is loaded. Treating this "
-                        + "as CANNOT_NEGOTIATE rather than a worker failure.",
-                Math.round(
-                        OFFER_BUTTON_TIMEOUT_MS / 1_000
-                ),
-                listing.listingId()
-        );
-
-        return null;
-    }
 
 
     private void openOfferModal(
@@ -1015,129 +752,38 @@ public class FirstOfferExecutor {
             ListingResponseDto listing,
             BigDecimal offerPrice
     ) {
-
-        Locator priceInput =
-                page.getByTestId(
-                                NegotiationSelectors.OFFER_PRICE_INPUT
-                        )
-                        .first();
-
-        priceInput.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                ELEMENT_TIMEOUT_MS
-                        )
+        Locator priceInput = page.getByTestId(NegotiationSelectors.OFFER_PRICE_INPUT).first();
+        String enteredValue = OfferPriceFormFields.fillAndVerify(
+                priceInput, offerPrice.toPlainString(), ELEMENT_TIMEOUT_MS,
+                "Offer input contains unexpected value. Expected: "
         );
-
-        String priceText =
-                offerPrice.toPlainString();
-
-        priceInput.fill(
-                priceText
-        );
-
-        String enteredValue =
-                priceInput.inputValue();
-
-        if (
-                !priceText.equals(
-                        enteredValue
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Offer input contains unexpected value. Expected: "
-                            + priceText
-                            + ", actual: "
-                            + enteredValue
-            );
-        }
 
         log.info(
                 "[REAL OFFER PREPARE] Filled offer input for marketplace "
                         + "listing {}. Value={}. No offer has been sent.",
-                listing.listingId(),
-                enteredValue
+                listing.listingId(), enteredValue
         );
 
-        priceInput.press(
-                "Tab"
-        );
+        priceInput.press("Tab");
 
-        if (
-                isOfferTooLow(
-                        page
-                )
-        ) {
-
-            closeOfferModal(
-                    page
-            );
-
+        if (isOfferTooLow(page)) {
+            closeOfferModal(page);
             clearPreparedState();
-
             return false;
         }
 
-        Locator submitButton =
-                page.getByTestId(
-                                NegotiationSelectors.OFFER_SUBMIT_BUTTON
-                        )
-                        .first();
-
-        submitButton.waitFor(
-                new Locator.WaitForOptions()
-                        .setState(
-                                WaitForSelectorState.VISIBLE
-                        )
-                        .setTimeout(
-                                ELEMENT_TIMEOUT_MS
-                        )
+        OfferPriceFormFields.requireEnabledSubmit(
+                page, ELEMENT_TIMEOUT_MS,
+                "Offer submit button is disabled after filling price for "
+                        + "marketplace listing " + listing.listingId()
         );
-
-        if (
-                !submitButton.isEnabled()
-        ) {
-
-            throw new IllegalStateException(
-                    "Offer submit button is disabled after filling price for "
-                            + "marketplace listing "
-                            + listing.listingId()
-            );
-        }
-
         return true;
     }
 
 
-    private boolean waitForOfferForm(
-            Locator priceInput,
-            double timeoutMs
-    ) {
-
-        try {
-
-            priceInput.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    timeoutMs
-                            )
-            );
-
-            return true;
-
-        } catch (TimeoutError exception) {
-
-            return false;
-        }
+    private boolean waitForOfferForm(Locator priceInput, double timeoutMs) {
+        return OfferFormVisibility.waitUntilVisible(priceInput, timeoutMs);
     }
-
 
     private boolean isOfferTooLow(
             Page page
@@ -1217,184 +863,13 @@ public class FirstOfferExecutor {
     }
 
 
-    private String waitForConversationUrl(
-            Page page,
-            ListingResponseDto listing
-    ) {
-
-        try {
-
-            page.waitForURL(
-                    "**/inbox/**",
-                    new Page.WaitForURLOptions()
-                            .setTimeout(
-                                    CONVERSATION_TIMEOUT_MS
-                            )
-            );
-
-        } catch (TimeoutError exception) {
-
-            throw new IllegalStateException(
-                    "Offer submit was attempted, but Vinted did not navigate "
-                            + "to an inbox conversation within "
-                            + Math.round(
-                            CONVERSATION_TIMEOUT_MS / 1_000
-                    )
-                            + " seconds. Marketplace listing: "
-                            + listing.listingId()
-                            + ", current URL: "
-                            + page.url(),
-                    exception
-            );
-        }
-
-        humanVerificationHandler.waitUntilVerified(
-                page
-        );
-
-        String conversationUrl =
-                page.url();
-
-        if (
-                conversationUrl == null
-                        || conversationUrl.isBlank()
-                        || !conversationUrl.contains(
-                        "/inbox/"
-                )
-        ) {
-
-            throw new IllegalStateException(
-                    "Invalid conversation URL after sending offer: "
-                            + conversationUrl
-            );
-        }
-
-        log.info(
-                "[REAL OFFER] Vinted opened conversation for marketplace "
-                        + "listing {}. URL: {}",
-                listing.listingId(),
-                conversationUrl
-        );
-
-        return conversationUrl;
-    }
 
 
-    private String extractConversationId(
-            String conversationUrl
-    ) {
-
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
-
-        String path =
-                uri.getPath();
-
-        if (
-                path == null
-                        || path.isBlank()
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Conversation URL has no path: "
-                            + conversationUrl
-            );
-        }
-
-        String[] pathParts =
-                path.split(
-                        "/"
-                );
-
-        for (
-                int i = 0;
-                i < pathParts.length - 1;
-                i++
-        ) {
-
-            if (
-                    "inbox".equals(
-                            pathParts[i]
-                    )
-            ) {
-
-                String conversationId =
-                        pathParts[i + 1];
-
-                if (
-                        conversationId != null
-                                && !conversationId.isBlank()
-                ) {
-
-                    return conversationId;
-                }
-            }
-        }
-
-        throw new IllegalArgumentException(
-                "Cannot extract conversation ID from URL: "
-                        + conversationUrl
-        );
-    }
 
 
-    private void validateConversationReferrer(
-            String conversationUrl,
-            ListingResponseDto listing
-    ) {
 
-        URI uri =
-                URI.create(
-                        conversationUrl
-                );
 
-        String rawQuery =
-                uri.getRawQuery();
 
-        if (
-                rawQuery == null
-                        || rawQuery.isBlank()
-        ) {
-
-            log.warn(
-                    "[REAL OFFER] Conversation URL has no query parameters. "
-                            + "Cannot verify referrer for listing {}.",
-                    listing.listingId()
-            );
-
-            return;
-        }
-
-        String decodedQuery =
-                URLDecoder.decode(
-                        rawQuery,
-                        StandardCharsets.UTF_8
-                );
-
-        if (
-                !decodedQuery.contains(
-                        listing.listingId()
-                )
-        ) {
-
-            log.warn(
-                    "[REAL OFFER] Conversation URL referrer does not contain "
-                            + "marketplace listing ID {}. Decoded query: {}",
-                    listing.listingId(),
-                    decodedQuery
-            );
-
-            return;
-        }
-
-        log.info(
-                "[REAL OFFER] Conversation referrer matches marketplace "
-                        + "listing {}.",
-                listing.listingId()
-        );
-    }
 
 
     private ListingResponseDto markNegotiationStarted(
@@ -1597,57 +1072,11 @@ public class FirstOfferExecutor {
                     page
             );
 
-            Locator messageInput =
-                    page.getByTestId(
-                                    NegotiationSelectors.MESSAGE_INPUT
-                            )
-                            .first();
-
-            messageInput.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    CHAT_ELEMENT_TIMEOUT_MS
-                            )
+            Locator messageInput = NegotiationMessageComposer.fillAndVerify(
+                    page, message, CHAT_ELEMENT_TIMEOUT_MS, "Chat input contains unexpected message"
             );
-
-            messageInput.fill(
-                    message
-            );
-
-            if (
-                    !message.equals(
-                            messageInput.inputValue()
-                    )
-            ) {
-
-                throw new IllegalStateException(
-                        "Chat input contains unexpected message"
-                );
-            }
-
-            Locator sendIcon =
-                    page.getByTestId(
-                                    NegotiationSelectors.MESSAGE_SEND_ICON
-                            )
-                            .last();
-
-            Locator sendButton =
-                    sendIcon.locator(
-                                    "xpath=ancestor::button[1]"
-                            )
-                            .first();
-
-            sendButton.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    CHAT_ELEMENT_TIMEOUT_MS
-                            )
+            Locator sendButton = NegotiationMessageComposer.requireSendButton(
+                    page, CHAT_ELEMENT_TIMEOUT_MS
             );
 
             sendButton.click(
@@ -1658,9 +1087,9 @@ public class FirstOfferExecutor {
             );
 
             if (
-                    waitForComposerToClear(
-                            page,
-                            messageInput
+                    NegotiationMessageComposer.awaitClear(
+                            page, messageInput, MESSAGE_CONFIRMATION_TIMEOUT_MS,
+                            MESSAGE_CONFIRMATION_POLL_INTERVAL_MS
                     )
             ) {
 
@@ -1697,42 +1126,7 @@ public class FirstOfferExecutor {
     }
 
 
-    private boolean waitForComposerToClear(
-            Page page,
-            Locator messageInput
-    ) {
 
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) MESSAGE_CONFIRMATION_TIMEOUT_MS;
-
-        while (
-                System.currentTimeMillis()
-                        < deadline
-        ) {
-
-            try {
-
-                if (
-                        messageInput.inputValue()
-                                .isBlank()
-                ) {
-
-                    return true;
-                }
-
-            } catch (PlaywrightException exception) {
-
-                return true;
-            }
-
-            page.waitForTimeout(
-                    MESSAGE_CONFIRMATION_POLL_INTERVAL_MS
-            );
-        }
-
-        return false;
-    }
 
 
     private NegotiationStepDto getFirstNegotiationStep() {
@@ -1860,141 +1254,13 @@ public class FirstOfferExecutor {
     }
 
 
-    private boolean isCurrentListingPage(
-            Page page,
-            String marketplaceListingId
-    ) {
-
-        if (
-                marketplaceListingId == null
-                        || marketplaceListingId.isBlank()
-        ) {
-
-            return false;
-        }
-
-        try {
-
-            URI uri =
-                    URI.create(
-                            page.url()
-                    );
-
-            String path =
-                    uri.getPath();
-
-            if (
-                    path == null
-            ) {
-
-                return false;
-            }
-
-            return path.equals(
-                    "/items/" + marketplaceListingId
-            )
-                    || path.startsWith(
-                    "/items/" + marketplaceListingId + "-"
-            );
-
-        } catch (Exception exception) {
-
-            return false;
-        }
-    }
 
 
-    private boolean isListingUnavailable(
-            Page page
-    ) {
-
-        try {
-
-            String title =
-                    page.title();
-
-            String bodyText =
-                    page.locator(
-                                    "body"
-                            )
-                            .innerText();
-
-            String pageText =
-                    (
-                            (title == null ? "" : title)
-                                    + " "
-                                    + (bodyText == null ? "" : bodyText)
-                    )
-                            .toLowerCase(
-                                    Locale.ROOT
-                            );
-
-            return pageText.contains(
-                    "page not found"
-            )
-                    || pageText.contains(
-                    "check the link is correct"
-            )
-                    || pageText.contains(
-                    "nie znaleziono strony"
-            )
-                    || pageText.contains(
-                    "sprawdź, czy link jest poprawny"
-            )
-                    || pageText.contains(
-                    "item is no longer available"
-            )
-                    || pageText.contains(
-                    "ogłoszenie nie jest już dostępne"
-            );
-
-        } catch (PlaywrightException exception) {
-
-            return false;
-        }
-    }
 
 
-    private String resolveListingUrl(
-            String url
-    ) {
 
-        if (
-                url == null
-                        || url.isBlank()
-        ) {
 
-            throw new IllegalArgumentException(
-                    "Listing URL cannot be empty"
-            );
-        }
 
-        if (
-                url.startsWith(
-                        "https://"
-                )
-                        || url.startsWith(
-                        "http://"
-                )
-        ) {
-
-            return url;
-        }
-
-        if (
-                url.startsWith(
-                        "/"
-                )
-        ) {
-
-            return VINTED_BASE_URL
-                    + url;
-        }
-
-        return VINTED_BASE_URL
-                + "/"
-                + url;
-    }
 
 
     private boolean isBelowEstimatedVintedMinimum(
@@ -2047,100 +1313,9 @@ public class FirstOfferExecutor {
     }
 
 
-    private BigDecimal parsePrice(
-            String rawPrice
-    ) {
-
-        if (
-                rawPrice == null
-                        || rawPrice.isBlank()
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Price text cannot be blank"
-            );
-        }
-
-        String normalized =
-                rawPrice
-                        .replace(
-                                "\u00A0",
-                                ""
-                        )
-                        .replace(
-                                "\u202F",
-                                ""
-                        )
-                        .replace(
-                                " ",
-                                ""
-                        )
-                        .replaceAll(
-                                "[^0-9,.-]",
-                                ""
-                        );
-
-        if (
-                normalized.contains(
-                        ","
-                )
-                        && normalized.contains(
-                        "."
-                )
-        ) {
-
-            int lastComma =
-                    normalized.lastIndexOf(
-                            ','
-                    );
-
-            int lastDot =
-                    normalized.lastIndexOf(
-                            '.'
-                    );
-
-            if (
-                    lastComma > lastDot
-            ) {
-
-                normalized =
-                        normalized
-                                .replace(
-                                        ".",
-                                        ""
-                                )
-                                .replace(
-                                        ',',
-                                        '.'
-                                );
-
-            } else {
-
-                normalized =
-                        normalized.replace(
-                                ",",
-                                ""
-                        );
-            }
-
-        } else if (
-                normalized.contains(
-                        ","
-                )
-        ) {
-
-            normalized =
-                    normalized.replace(
-                            ',',
-                            '.'
-                    );
-        }
-
-        return new BigDecimal(
-                normalized
-        );
+    private BigDecimal parsePrice(String rawPrice) {
+        return VintedPriceParser.parseFirstOfferConfirmation(rawPrice);
     }
-
 
     private void requireMatchingPreparedOffer(
             ListingResponseDto listing
@@ -2184,24 +1359,7 @@ public class FirstOfferExecutor {
     }
 
 
-    private String normalizeVisibleText(
-            String value
-    ) {
 
-        if (
-                value == null
-        ) {
-
-            return "";
-        }
-
-        return value
-                .trim()
-                .replaceAll(
-                        "\\s+",
-                        " "
-                );
-    }
 
 
     private String getFriendlyErrorMessage(

@@ -30,6 +30,13 @@ public class BotContextPopupPolicyTest {
         assertTrue(script.contains("accept all"));
         assertTrue(script.contains("MutationObserver"));
         assertTrue(script.contains("selectable-item-brand_collection-"));
+        // The observed expanded selector contains root, --title and --suffix.
+        // Only roots need label stabilization; the broad descendant selector
+        // must remain available for legacy sibling-label provenance checks.
+        assertTrue(script.contains("const MODEL_ROOT_SELECTOR ="));
+        assertTrue(script.contains("document.querySelectorAll(MODEL_ROOT_SELECTOR)"));
+        assertTrue(script.contains("element.querySelectorAll(MODEL_SELECTOR)"));
+        assertTrue(script.contains(":not([data-testid*=\"--\"])"));
         assertTrue(script.contains("ids.size === 1 && ids.has(collectionId)"));
         assertTrue(script.contains("candidate.setAttribute(\"title\", associatedText)"));
         assertTrue(script.contains("pokaż wyniki"));

@@ -41,8 +41,7 @@ public class CategoryNavigator {
 
                 selectCategoryPath(categoryPath, attempt);
 
-                if (!actions.waitForUrlParameterPresent(
-                        "catalog[]",
+                if (!actions.waitForSelectedCategoryPersisted(
                         CATEGORY_PERSIST_TIMEOUT_MS
                 )) {
                     String leafCategory = categoryPath.getLast();
@@ -50,7 +49,7 @@ public class CategoryNavigator {
                             leafCategory,
                             CATEGORY_PERSIST_TIMEOUT_MS,
                             new IllegalStateException(
-                                    "Vinted accepted the category clicks but did not persist catalog[] in the URL"
+                                    "Vinted accepted the category clicks but did not persist the verified exact category ID in catalog[] (or catalog[] is missing for a legacy UI variant)"
                             )
                     );
                 }
