@@ -2,7 +2,6 @@ package pl.flipbot.playwright.negotiation;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,12 +30,6 @@ public class NextNegotiationStepExecutor {
 
     private static final double CONVERSATION_TIMEOUT_MS =
             20_000;
-
-    private static final double OFFER_CONFIRMATION_TIMEOUT_MS =
-            30_000;
-
-    private static final double OFFER_CONFIRMATION_POLL_INTERVAL_MS =
-            500;
 
     private static final double MESSAGE_TIMEOUT_MS =
             20_000;
@@ -238,8 +231,8 @@ public class NextNegotiationStepExecutor {
                 nextStep
         );
 
-        SubmittedOffer submittedOffer =
-                waitForNewOwnOffer(
+        NextStepOwnOfferConfirmation.SubmittedOffer submittedOffer =
+                new NextStepOwnOfferConfirmation(humanVerificationHandler).waitForNewOwnOffer(
                         page,
                         listing,
                         nextStep,
@@ -466,176 +459,9 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private SubmittedOffer waitForNewOwnOffer(
-            Page page,
-            ListingResponseDto listing,
-            NegotiationStepDto nextStep,
-            int ownOfferCountBefore
-    ) {
 
-        Locator ownOfferPrices =
-                page.getByTestId(
-                        NegotiationSelectors.OWN_OFFER_PRICE
-                );
 
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) OFFER_CONFIRMATION_TIMEOUT_MS;
 
-        while (System.currentTimeMillis() < deadline) {
-
-            humanVerificationHandler.waitUntilVerified(
-                    page
-            );
-
-            int currentOfferCount =
-                    ownOfferPrices.count();
-
-            if (currentOfferCount
-                    > ownOfferCountBefore) {
-
-                Locator latestOwnOfferPrice =
-                        ownOfferPrices.nth(
-                                currentOfferCount - 1
-                        );
-
-                if (!latestOwnOfferPrice.isVisible()) {
-
-                    page.waitForTimeout(
-                            OFFER_CONFIRMATION_POLL_INTERVAL_MS
-                    );
-
-                    continue;
-
-                }
-
-                String rawPrice =
-                        latestOwnOfferPrice.innerText();
-
-                BigDecimal displayedPrice =
-                        parsePrice(
-                                rawPrice
-                        );
-
-                String rawStatus =
-                        readLatestOwnOfferStatus(
-                                page
-                        );
-
-                if (displayedPrice.compareTo(
-                        nextStep.getOfferPrice()
-                ) != 0) {
-
-                    /*
-                     * Przy ofertach między różnymi walutami Vinted może
-                     * nieznacznie zmienić wyświetloną cenę.
-                     *
-                     * Do backendu zapisujemy cenę faktycznie pokazaną
-                     * w rozmowie.
-                     */
-                    log.warn(
-                            "[NEXT STEP REAL] Configured offer price {} "
-                                    + "differs from the price displayed "
-                                    + "by Vinted: {}. Raw price: {}",
-                            nextStep.getOfferPrice(),
-                            displayedPrice,
-                            rawPrice
-                    );
-
-                } else {
-
-                    log.info(
-                            "[NEXT STEP REAL] Submitted offer price "
-                                    + "was confirmed in conversation: {}",
-                            displayedPrice
-                    );
-
-                }
-
-                log.info(
-                        "[NEXT STEP REAL] New own offer appeared in "
-                                + "conversation. Previous offer count: {}, "
-                                + "current offer count: {}, status: {}",
-                        ownOfferCountBefore,
-                        currentOfferCount,
-                        rawStatus
-                );
-
-                return new SubmittedOffer(
-                        displayedPrice,
-                        rawStatus
-                );
-
-            }
-
-            page.waitForTimeout(
-                    OFFER_CONFIRMATION_POLL_INTERVAL_MS
-            );
-
-        }
-
-        /*
-         * Po kliknięciu przycisku oferta mogła zostać wysłana, mimo że
-         * DOM nie został poprawnie odczytany. Nie można wtedy bezmyślnie
-         * uruchamiać bota ponownie.
-         */
-        throw new IllegalStateException(
-                "The real next-step submit button was clicked, but "
-                        + "a new own offer was not confirmed within "
-                        + Math.round(
-                        OFFER_CONFIRMATION_TIMEOUT_MS / 1_000
-                )
-                        + " seconds. The offer may already have been sent. "
-                        + "Do not retry automatically. Marketplace listing: "
-                        + listing.listingId()
-                        + ", conversation: "
-                        + listing.conversationId()
-        );
-
-    }
-
-    private String readLatestOwnOfferStatus(
-            Page page
-    ) {
-
-        try {
-
-            Locator ownOfferStatuses =
-                    page.getByTestId(
-                            NegotiationSelectors.OWN_OFFER_STATUS
-                    );
-
-            int statusCount =
-                    ownOfferStatuses.count();
-
-            if (statusCount == 0) {
-                return null;
-            }
-
-            Locator latestStatus =
-                    ownOfferStatuses.nth(
-                            statusCount - 1
-                    );
-
-            if (!latestStatus.isVisible()) {
-                return null;
-            }
-
-            return latestStatus.innerText();
-
-        } catch (PlaywrightException exception) {
-
-            log.debug(
-                    "Conversation DOM changed while reading "
-                            + "the latest own-offer status",
-                    exception
-            );
-
-            return null;
-
-        }
-
-    }
 
     private ListingResponseDto markNextStepStarted(
             ListingResponseDto listing,
@@ -804,9 +630,7 @@ public class NextNegotiationStepExecutor {
 
 
 
-    private BigDecimal parsePrice(String rawPrice) {
-        return VintedPriceParser.parseNextStepConfirmation(rawPrice);
-    }
+
 
     private ListingResponseDto validateOpenedConversation(
             Page page,
@@ -996,13 +820,6 @@ public class NextNegotiationStepExecutor {
                 && nextStep.getStepNumber() > listing.currentStep();
     }
 
-    private record SubmittedOffer(
 
-            BigDecimal displayedPrice,
-
-            String rawStatus
-
-    ) {
-    }
 
 }
