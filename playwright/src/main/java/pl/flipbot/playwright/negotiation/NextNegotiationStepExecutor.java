@@ -1178,59 +1178,11 @@ public class NextNegotiationStepExecutor {
                     page
             );
 
-            Locator messageInput =
-                    page.getByTestId(
-                                    NegotiationSelectors.MESSAGE_INPUT
-                            )
-                            .first();
-
-            messageInput.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    MESSAGE_TIMEOUT_MS
-                            )
+            Locator messageInput = NegotiationMessageComposer.fillAndVerify(
+                    page, message, MESSAGE_TIMEOUT_MS, "Chat input contains an unexpected message"
             );
-
-            messageInput.fill(
-                    message
-            );
-
-            String enteredMessage =
-                    messageInput.inputValue();
-
-            if (!message.equals(
-                    enteredMessage
-            )) {
-
-                throw new IllegalStateException(
-                        "Chat input contains an unexpected message"
-                );
-
-            }
-
-            Locator sendIcon =
-                    page.getByTestId(
-                                    NegotiationSelectors.MESSAGE_SEND_ICON
-                            )
-                            .last();
-
-            Locator sendButton =
-                    sendIcon.locator(
-                                    "xpath=ancestor::button[1]"
-                            )
-                            .first();
-
-            sendButton.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    MESSAGE_TIMEOUT_MS
-                            )
+            Locator sendButton = NegotiationMessageComposer.requireSendButton(
+                    page, MESSAGE_TIMEOUT_MS
             );
 
             log.info(
@@ -1248,9 +1200,9 @@ public class NextNegotiationStepExecutor {
             );
 
             boolean composerCleared =
-                    waitForComposerToClear(
-                            page,
-                            messageInput
+                    NegotiationMessageComposer.awaitClear(
+                            page, messageInput, MESSAGE_CONFIRMATION_TIMEOUT_MS,
+                            MESSAGE_CONFIRMATION_POLL_INTERVAL_MS
                     );
 
             if (composerCleared) {
@@ -1293,45 +1245,7 @@ public class NextNegotiationStepExecutor {
 
     }
 
-    private boolean waitForComposerToClear(
-            Page page,
-            Locator messageInput
-    ) {
 
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) MESSAGE_CONFIRMATION_TIMEOUT_MS;
-
-        while (System.currentTimeMillis() < deadline) {
-
-            try {
-
-                if (messageInput.inputValue()
-                        .isBlank()) {
-
-                    return true;
-
-                }
-
-            } catch (PlaywrightException exception) {
-
-                /*
-                 * Vinted może zastąpić element textarea po wysłaniu.
-                 * W takim przypadku traktujemy formularz jako odświeżony.
-                 */
-                return true;
-
-            }
-
-            page.waitForTimeout(
-                    MESSAGE_CONFIRMATION_POLL_INTERVAL_MS
-            );
-
-        }
-
-        return false;
-
-    }
 
     private BigDecimal parsePrice(String rawPrice) {
         return VintedPriceParser.parseNextStepConfirmation(rawPrice);

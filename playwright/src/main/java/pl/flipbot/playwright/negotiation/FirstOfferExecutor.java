@@ -1575,57 +1575,11 @@ public class FirstOfferExecutor {
                     page
             );
 
-            Locator messageInput =
-                    page.getByTestId(
-                                    NegotiationSelectors.MESSAGE_INPUT
-                            )
-                            .first();
-
-            messageInput.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    CHAT_ELEMENT_TIMEOUT_MS
-                            )
+            Locator messageInput = NegotiationMessageComposer.fillAndVerify(
+                    page, message, CHAT_ELEMENT_TIMEOUT_MS, "Chat input contains unexpected message"
             );
-
-            messageInput.fill(
-                    message
-            );
-
-            if (
-                    !message.equals(
-                            messageInput.inputValue()
-                    )
-            ) {
-
-                throw new IllegalStateException(
-                        "Chat input contains unexpected message"
-                );
-            }
-
-            Locator sendIcon =
-                    page.getByTestId(
-                                    NegotiationSelectors.MESSAGE_SEND_ICON
-                            )
-                            .last();
-
-            Locator sendButton =
-                    sendIcon.locator(
-                                    "xpath=ancestor::button[1]"
-                            )
-                            .first();
-
-            sendButton.waitFor(
-                    new Locator.WaitForOptions()
-                            .setState(
-                                    WaitForSelectorState.VISIBLE
-                            )
-                            .setTimeout(
-                                    CHAT_ELEMENT_TIMEOUT_MS
-                            )
+            Locator sendButton = NegotiationMessageComposer.requireSendButton(
+                    page, CHAT_ELEMENT_TIMEOUT_MS
             );
 
             sendButton.click(
@@ -1636,9 +1590,9 @@ public class FirstOfferExecutor {
             );
 
             if (
-                    waitForComposerToClear(
-                            page,
-                            messageInput
+                    NegotiationMessageComposer.awaitClear(
+                            page, messageInput, MESSAGE_CONFIRMATION_TIMEOUT_MS,
+                            MESSAGE_CONFIRMATION_POLL_INTERVAL_MS
                     )
             ) {
 
@@ -1675,42 +1629,7 @@ public class FirstOfferExecutor {
     }
 
 
-    private boolean waitForComposerToClear(
-            Page page,
-            Locator messageInput
-    ) {
 
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) MESSAGE_CONFIRMATION_TIMEOUT_MS;
-
-        while (
-                System.currentTimeMillis()
-                        < deadline
-        ) {
-
-            try {
-
-                if (
-                        messageInput.inputValue()
-                                .isBlank()
-                ) {
-
-                    return true;
-                }
-
-            } catch (PlaywrightException exception) {
-
-                return true;
-            }
-
-            page.waitForTimeout(
-                    MESSAGE_CONFIRMATION_POLL_INTERVAL_MS
-            );
-        }
-
-        return false;
-    }
 
 
     private NegotiationStepDto getFirstNegotiationStep() {
