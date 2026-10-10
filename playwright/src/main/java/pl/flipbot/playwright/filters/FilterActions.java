@@ -9,8 +9,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1772,35 +1770,7 @@ public class FilterActions {
     }
 
     private String getUrlParameter(String parameterName) {
-        String currentUrl = page.url();
-        int questionMarkIndex = currentUrl.indexOf('?');
-
-        if (questionMarkIndex < 0 || questionMarkIndex == currentUrl.length() - 1) {
-            return null;
-        }
-
-        String query = currentUrl.substring(questionMarkIndex + 1);
-        int fragmentIndex = query.indexOf('#');
-        if (fragmentIndex >= 0) {
-            query = query.substring(0, fragmentIndex);
-        }
-
-        for (String parameter : query.split("&")) {
-            int equalsIndex = parameter.indexOf('=');
-            String rawName = equalsIndex >= 0
-                    ? parameter.substring(0, equalsIndex)
-                    : parameter;
-            String rawValue = equalsIndex >= 0
-                    ? parameter.substring(equalsIndex + 1)
-                    : "";
-            String decodedName = URLDecoder.decode(rawName, StandardCharsets.UTF_8);
-
-            if (parameterName.equals(decodedName)) {
-                return URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
-            }
-        }
-
-        return null;
+        return VintedCatalogUrlParameters.get(page.url(), parameterName);
     }
 
     private Locator getOptionLocator(String option) {
